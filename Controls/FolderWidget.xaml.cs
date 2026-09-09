@@ -178,7 +178,8 @@ namespace Kobold.Controls
                 Icon = null,
                 Index = index,
                 TextColor = textBrush,
-                IsStored = !item.IsReference || IsHiddenDesktopSource(item.Path)
+                IsStored = !item.IsReference || IsHiddenDesktopSource(item.Path),
+                IsMissing = !System.IO.File.Exists(item.Path) && !System.IO.Directory.Exists(item.Path)
             }).ToList();
             
             // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property

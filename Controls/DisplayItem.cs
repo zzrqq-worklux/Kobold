@@ -17,6 +17,12 @@ namespace Kobold.Controls
         /// stored, or a reference whose desktop source was hidden)
         /// </summary>
         public bool IsStored { get; set; }
+
+        /// <summary>
+        /// True when the referenced source file/folder no longer exists
+        /// (deleted or moved outside Kobold) - shown as a broken-link item
+        /// </summary>
+        public bool IsMissing { get; set; }
         
         private ImageSource _icon;
         public ImageSource Icon 

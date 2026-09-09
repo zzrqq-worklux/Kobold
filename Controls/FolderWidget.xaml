@@ -155,9 +155,9 @@
                                     <Grid>
                                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                             <Border Width="40" Height="40" CornerRadius="8">
-                                                <Image Source="{Binding Icon}" Stretch="Uniform"/>
+                                                <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
                                             </Border>
-                                            <TextBlock Text="{Binding Name}" FontSize="10"
+                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="10"
                                                        Foreground="{Binding TextColor}"
                                                        TextTrimming="CharacterEllipsis" TextAlignment="Center"
                                                        MaxWidth="70" Margin="0,6,0,0" 
@@ -171,6 +171,13 @@
                                                   Stroke="White" StrokeThickness="1.1" Fill="Transparent"
                                                   Stretch="Uniform" Width="11" Height="11"
                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <!-- Missing badge: source file no longer exists -->
+                                        <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"
+                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0"
+                                                Background="#CCB0B0B0" Visibility="Collapsed">
+                                            <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                     </Grid>
                                 </Border>
@@ -188,6 +195,11 @@
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding IsStored}" Value="True">
                                         <Setter TargetName="StoredBadge" Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                                        <Setter TargetName="ItemIconImage" Property="Opacity" Value="0.35"/>
+                                        <Setter TargetName="ItemNameText" Property="Foreground" Value="#909090"/>
+                                        <Setter TargetName="MissingBadge" Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>

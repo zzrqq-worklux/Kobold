@@ -216,12 +216,23 @@ namespace Kobold.Controls
                 
                 if (shinfo.hIcon != IntPtr.Zero)
                 {
-                    var src = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
-                        shinfo.hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                    DestroyIcon(shinfo.hIcon);
-                    
-                    // Freeze for cross-thread access
-                    src.Freeze();
+                    // WPF bitmaps must be created on the UI thread - GetFileIcon runs
+                    // on a background thread, so marshal the creation over.
+                    IntPtr hIcon = shinfo.hIcon;
+                    var src = Dispatcher.Invoke(new Func<ImageSource>(() =>
+                    {
+                        try
+                        {
+                            var created = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                                hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+                            created.Freeze();
+                            return created;
+                        }
+                        finally
+                        {
+                            DestroyIcon(hIcon);
+                        }
+                    }));
                     
                     // Cache the icon
                     lock (_cacheLock)
