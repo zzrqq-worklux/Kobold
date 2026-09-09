@@ -75,6 +75,11 @@ namespace Kobold.Controls
             
             // Use ThemeManager for theme state
             bool isDark = ThemeManager.IsDarkTheme;
+
+            // The configured opacity scales the background ALPHA only, so panel
+            // content (icons, labels) stays fully crisp while the backdrop goes
+            // more or less transparent.
+            double opacity = GetPanelOpacity();
             
             // Panel background
             var panelBrush = new LinearGradientBrush
@@ -86,23 +91,23 @@ namespace Kobold.Controls
             if (isDark)
             {
                 // Dark theme
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb(210, darkColor.R, darkColor.G, darkColor.B), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb(230, (byte)(darkColor.R * 0.6), (byte)(darkColor.G * 0.6), (byte)(darkColor.B * 0.6)), 1));
+                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(210 * opacity), darkColor.R, darkColor.G, darkColor.B), 0));
+                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(230 * opacity), (byte)(darkColor.R * 0.6), (byte)(darkColor.G * 0.6), (byte)(darkColor.B * 0.6)), 1));
             }
             else
             {
                 // Light theme - brighter, pastel-like colors
                 Color lightColor = Utils.LightenColor(baseColor, 0.6);
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb(240, 250, 250, 250), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb(250, lightColor.R, lightColor.G, lightColor.B), 1));
+                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(240 * opacity), 250, 250, 250), 0));
+                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(250 * opacity), lightColor.R, lightColor.G, lightColor.B), 1));
             }
             
             ExpandedPanel.Background = panelBrush;
             
             // Panel header
             var headerBrush = new SolidColorBrush(isDark 
-                ? Color.FromArgb(50, 255, 255, 255) 
-                : Color.FromArgb(40, 0, 0, 0));
+                ? Color.FromArgb((byte)(50 * opacity), 255, 255, 255) 
+                : Color.FromArgb((byte)(40 * opacity), 0, 0, 0));
             PanelHeader.Background = headerBrush;
             
             // Header text color
@@ -130,15 +135,14 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Applies the configured panel opacity to an already-open panel
-        /// (used for live preview while the settings dialog is open)
+        /// Applies the configured panel opacity to an already-open panel by
+        /// repainting the background with the matching alpha (content stays
+        /// fully opaque). Used for live preview in the settings dialog.
         /// </summary>
         public void ApplyPanelOpacity()
         {
             if (!_isExpanded) return;
-            // Stop any running open/close animation first, then set the value
-            ExpandedPanel.BeginAnimation(System.Windows.UIElement.OpacityProperty, null);
-            ExpandedPanel.Opacity = GetPanelOpacity();
+            UpdatePanelColor();
         }
 
         private void DrawFolderIcon()
