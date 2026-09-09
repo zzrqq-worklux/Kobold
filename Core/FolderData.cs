@@ -52,7 +52,7 @@ namespace Kobold.Core
         public FolderData()
         {
             Id = Guid.NewGuid().ToString();
-            Name = "New Folder";
+            Name = Localization.Get("UI_DefaultFolderName");
             Color = "#3B82F6";
             PosX = 100;
             PosY = 100;

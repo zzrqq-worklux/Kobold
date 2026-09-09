@@ -95,6 +95,10 @@ namespace Kobold.Windows
 
         private void UpdateLocalizedText()
         {
+            // Window title & header
+            Title = Localization.Get("UI_AppName") + " " + Localization.Get("Settings_Title");
+            SettingsHeaderText.Text = "⚙️ " + Localization.Get("Settings_Title");
+
             // Headers
             LanguageHeader.Text = "🌐 " + Localization.Get("Settings_Language");
             ThemeHeader.Text = "🎨 " + Localization.Get("Settings_Theme");
@@ -121,6 +125,32 @@ namespace Kobold.Windows
                 IconStyleHeader.Text = "📁 " + Localization.Get("Settings_IconStyle");
             if (IconStyleLabel != null)
                 IconStyleLabel.Text = Localization.Get("Settings_FolderIconStyle");
+
+            // Icon Style options (emoji prefix + localized name per style)
+            string[] styleEmojis = { "📂", "🗂️", "📁", "🟦", "▬", "🌈" };
+            string[] styleKeys = { "Settings_Classic", "Settings_Modern", "Settings_Minimal", "Settings_Rounded", "Settings_Flat", "Settings_Gradient" };
+            for (int i = 0; i < IconStyleCombo.Items.Count && i < styleKeys.Length; i++)
+            {
+                if (IconStyleCombo.Items[i] is ComboBoxItem styleItem)
+                {
+                    styleItem.Content = styleEmojis[i] + " " + Localization.Get(styleKeys[i]);
+                }
+            }
+
+            // About section
+            AboutHeaderText.Text = "ℹ️ " + Localization.Get("Settings_About");
+            AboutTaglineText.Text = Localization.Get("UI_Tagline");
+        }
+
+        /// <summary>
+        /// Re-applies localized text to all open widgets (empty-state hint, pin tooltip)
+        /// </summary>
+        private void RefreshWidgetTexts()
+        {
+            foreach (var widget in WidgetManager.Instance.Widgets)
+            {
+                widget.UpdateUI();
+            }
         }
 
         private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
@@ -200,6 +230,7 @@ namespace Kobold.Windows
             
             _config.Save();
             WidgetManager.Instance.RefreshAllWidgets();
+            RefreshWidgetTexts();
             Close();
         }
 
@@ -222,6 +253,7 @@ namespace Kobold.Windows
             Localization.SetLanguage(_originalLanguage);
             ThemeManager.SetTheme(_originalTheme);
             WidgetManager.Instance.RefreshAllWidgets();
+            RefreshWidgetTexts();
         }
         
         private void SetStartupRegistry(bool enable)

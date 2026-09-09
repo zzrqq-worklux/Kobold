@@ -24,7 +24,7 @@
             <Border Grid.Row="0" CornerRadius="12,12,0,0" Background="#252525" 
                     MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid>
-                    <TextBlock Text="⚙️ Settings" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                    <TextBlock x:Name="SettingsHeaderText" Text="⚙️ Settings" Foreground="White" FontSize="14" FontWeight="SemiBold"
                                VerticalAlignment="Center" Margin="20,0,0,0" FontFamily="Segoe UI"/>
                     
                     <Button x:Name="CloseButton" Content="✕" 
@@ -75,7 +75,8 @@
                             <ComboBox x:Name="LanguageCombo" Grid.Column="1" Width="140" 
                                       SelectionChanged="LanguageCombo_SelectionChanged">
                                 <ComboBoxItem Content="English" Tag="en"/>
-                                <ComboBoxItem Content="Türkçe" Tag="tr"/>
+                                <ComboBoxItem Content="简体中文" Tag="zh"/>
+                                <ComboBoxItem Content="日本語" Tag="ja"/>
                             </ComboBox>
                         </Grid>
                     </Border>
@@ -168,13 +169,13 @@
                     </Border>
                     
                     <!-- About Section -->
-                    <TextBlock Text="ℹ️ About" Foreground="White" 
+                    <TextBlock x:Name="AboutHeaderText" Text="ℹ️ About" Foreground="White" 
                                FontSize="13" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
                     
                     <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12">
                         <StackPanel>
                             <TextBlock Text="Kobold" Foreground="White" FontSize="16" FontWeight="Bold" FontFamily="Segoe UI"/>
-                            <TextBlock Text="Desktop Folder Widgets" Foreground="#808080" FontSize="11" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                            <TextBlock x:Name="AboutTaglineText" Text="Desktop Folder Widgets" Foreground="#808080" FontSize="11" Margin="0,2,0,0" FontFamily="Segoe UI"/>
                             <TextBlock x:Name="VersionText" Text="Version 1.0.0" Foreground="#606060" FontSize="10" Margin="0,8,0,0" FontFamily="Segoe UI"/>
                         </StackPanel>
                     </Border>

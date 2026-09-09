@@ -98,6 +98,7 @@ namespace Kobold.Controls
             _data = data;
             Left = data.PosX;
             Top = data.PosY;
+            PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             
             // Subscribe to theme changes for automatic updates
             ThemeManager.ThemeChanged += OnThemeChanged;
@@ -144,6 +145,7 @@ namespace Kobold.Controls
         {
             FolderNameText.Text = _data.Name;
             PanelHeaderText.Text = _data.Name;
+            PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             
             // Badge
             if (_data.Items.Count > 0)

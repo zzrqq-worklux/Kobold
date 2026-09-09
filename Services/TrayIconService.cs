@@ -29,12 +29,17 @@ namespace Kobold.Services
             _trayIcon = new TaskbarIcon
             {
                 Icon = CreateDefaultIcon(),
-                ToolTipText = "Kobold - Desktop Folder Widgets",
+                ToolTipText = GetToolTipText(),
                 ContextMenu = BuildContextMenu(),
                 MenuActivation = PopupActivationMode.RightClick
             };
             
             _trayIcon.TrayMouseDoubleClick += (s, e) => AddNewWidget();
+        }
+
+        private string GetToolTipText()
+        {
+            return Localization.Get("UI_AppName") + " - " + Localization.Get("UI_Tagline");
         }
 
         private ContextMenu BuildContextMenu()
@@ -84,6 +89,7 @@ namespace Kobold.Services
 
         private void RefreshMenu()
         {
+            _trayIcon.ToolTipText = GetToolTipText();
             _trayIcon.ContextMenu = BuildContextMenu();
         }
 
@@ -106,7 +112,7 @@ namespace Kobold.Services
             string[] colors = { "#3B82F6", "#22C55E", "#EF4444", "#F59E0B", "#8B5CF6" };
             string color = colors[widgetCount % colors.Length];
             
-            string name = Localization.CurrentLanguage == "tr" ? "Yeni Klasör" : "New Folder";
+            string name = Localization.Get("UI_DefaultFolderName");
             int gridColumns = WidgetManager.Instance.Config.DefaultGridColumns;
             WidgetManager.Instance.CreateWidget(name, color, posX, posY, gridColumns);
         }

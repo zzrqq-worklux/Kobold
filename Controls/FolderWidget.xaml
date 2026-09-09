@@ -116,8 +116,7 @@
                                     Width="24" Height="24" CornerRadius="6"
                                     Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" Margin="8,0,0,0"
-                                    MouseLeftButtonDown="PinButton_Click"
-                                    ToolTip="Pin panel (keep open after restart)">
+                                    MouseLeftButtonDown="PinButton_Click">
                                 <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
                                     <!-- Pin Icon (pushpin shape) -->
                                     <Path x:Name="PinIcon" 

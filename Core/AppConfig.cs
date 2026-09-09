@@ -72,7 +72,7 @@ namespace Kobold.Core
 
             // Create and save default config with one folder
             var defaultConfig = new AppConfig();
-            defaultConfig.Folders.Add(FolderData.Create("My Folder", "#3B82F6", 100, 100, defaultConfig.DefaultGridColumns));
+            defaultConfig.Folders.Add(FolderData.Create(Localization.Get("UI_DefaultFolderName"), "#3B82F6", 100, 100, defaultConfig.DefaultGridColumns));
             defaultConfig.Save();
             return defaultConfig;
         }
