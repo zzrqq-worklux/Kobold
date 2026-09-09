@@ -1,7 +1,7 @@
-<Window x:Class="FoldRa.Windows.SettingsWindow"
+<Window x:Class="Kobold.Windows.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FoldRa Settings" 
+        Title="Kobold Settings" 
         Icon="/Resources/icon.png"
         Width="420" Height="560"
         WindowStartupLocation="CenterScreen"
@@ -173,7 +173,7 @@
                     
                     <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12">
                         <StackPanel>
-                            <TextBlock Text="FoldRa" Foreground="White" FontSize="16" FontWeight="Bold" FontFamily="Segoe UI"/>
+                            <TextBlock Text="Kobold" Foreground="White" FontSize="16" FontWeight="Bold" FontFamily="Segoe UI"/>
                             <TextBlock Text="Desktop Folder Widgets" Foreground="#808080" FontSize="11" Margin="0,2,0,0" FontFamily="Segoe UI"/>
                             <TextBlock x:Name="VersionText" Text="Version 1.0.0" Foreground="#606060" FontSize="10" Margin="0,8,0,0" FontFamily="Segoe UI"/>
                         </StackPanel>

@@ -1,8 +1,8 @@
 using System;
 using System.Windows.Controls;
-using FoldRa.Core;
+using Kobold.Core;
 
-namespace FoldRa.Helpers
+namespace Kobold.Helpers
 {
     /// <summary>
     /// Builder pattern helper for creating context menus.

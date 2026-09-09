@@ -4,10 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using FoldRa.Core;
-using FoldRa.Helpers;
+using Kobold.Core;
+using Kobold.Helpers;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - Drag-Drop operations (file drop, item reordering, desktop restore)
@@ -139,7 +139,7 @@ namespace FoldRa.Controls
                     } 
                     catch (Exception ex) 
                     { 
-                        System.Diagnostics.Debug.WriteLine($"[FoldRa] Open failed: {ex.Message}"); 
+                        System.Diagnostics.Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); 
                     }
                     e.Handled = true;
                     return;
@@ -202,8 +202,8 @@ namespace FoldRa.Controls
                 var dataObject = new DataObject();
                 
                 // For internal use
-                dataObject.SetData("FoldRaItems", selectedItems);
-                dataObject.SetData("FoldRaItem", _draggedItem); // Backward compatibility
+                dataObject.SetData("KoboldItems", selectedItems);
+                dataObject.SetData("KoboldItem", _draggedItem); // Backward compatibility
                 
                 // For external drop (file list)
                 var fileList = new System.Collections.Specialized.StringCollection();
@@ -347,7 +347,7 @@ namespace FoldRa.Controls
         
         private void ItemsContainer_DragOver(object sender, DragEventArgs e)
         {
-            if (e.Data.GetDataPresent("FoldRaItem"))
+            if (e.Data.GetDataPresent("KoboldItem"))
             {
                 e.Effects = DragDropEffects.Move;
                 e.Handled = true;
@@ -395,9 +395,9 @@ namespace FoldRa.Controls
             DropIndicator.Visibility = Visibility.Collapsed;
             
             // Handle internal item reordering
-            if (e.Data.GetDataPresent("FoldRaItem"))
+            if (e.Data.GetDataPresent("KoboldItem"))
             {
-                var draggedDisplayItem = e.Data.GetData("FoldRaItem") as DisplayItem;
+                var draggedDisplayItem = e.Data.GetData("KoboldItem") as DisplayItem;
                 if (draggedDisplayItem == null) return;
                 
                 var pos = e.GetPosition(ItemsContainer);

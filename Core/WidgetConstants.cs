@@ -1,4 +1,4 @@
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     /// <summary>
     /// Centralized widget constants - Single source of truth for all size/layout values.

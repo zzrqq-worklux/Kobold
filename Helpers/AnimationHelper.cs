@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 
-namespace FoldRa.Helpers
+namespace Kobold.Helpers
 {
     /// <summary>
     /// Centralized animation helper for consistent animations across the app

@@ -1,7 +1,7 @@
 using System;
-using FoldRa.Core;
+using Kobold.Core;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - File restore operations (restore to desktop, copy directory)
@@ -31,7 +31,7 @@ namespace FoldRa.Controls
         }
         
         /// <summary>
-        /// Restores a file/folder from FoldRa storage back to desktop
+        /// Restores a file/folder from Kobold storage back to desktop
         /// </summary>
         private bool RestoreToDesktop(string filePath)
         {
@@ -71,7 +71,7 @@ namespace FoldRa.Controls
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[FoldRa] Restore failed: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[Kobold] Restore failed: {ex.Message}");
                 }
             }
         }
@@ -87,7 +87,7 @@ namespace FoldRa.Controls
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[FoldRa] Restore single item failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Kobold] Restore single item failed: {ex.Message}");
             }
         }
         

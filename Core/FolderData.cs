@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     /// <summary>
     /// Represents an item (file/folder shortcut) inside a folder widget
@@ -14,7 +14,7 @@ namespace FoldRa.Core
         
         /// <summary>
         /// True if this is just a reference (file not moved to storage)
-        /// False if file was physically moved to FoldRa storage
+        /// False if file was physically moved to Kobold storage
         /// </summary>
         public bool IsReference { get; set; }
 

@@ -3,11 +3,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
-using FoldRa.Core;
-using FoldRa.Controls;
-using Localization = FoldRa.Core.Localization;
+using Kobold.Core;
+using Kobold.Controls;
+using Localization = Kobold.Core.Localization;
 
-namespace FoldRa.Windows
+namespace Kobold.Windows
 {
     public partial class SettingsWindow : Window
     {
@@ -22,7 +22,7 @@ namespace FoldRa.Windows
         private string _originalIconStyle;
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-        private const string APP_NAME = "FoldRa";
+        private const string APP_NAME = "Kobold";
 
         public SettingsWindow()
         {

@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Windows.Media;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// Display item model for the ItemsControl binding

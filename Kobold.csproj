@@ -5,8 +5,8 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <LangVersion>7.3</LangVersion>
-    <AssemblyTitle>FoldRa</AssemblyTitle>
-    <Product>FoldRa</Product>
+    <AssemblyTitle>Kobold</AssemblyTitle>
+    <Product>Kobold</Product>
     <Description>Desktop Folder Widgets</Description>
     <Copyright>Copyright 2025 YusufEren97</Copyright>
     <ApplicationIcon>Resources\icon.ico</ApplicationIcon>

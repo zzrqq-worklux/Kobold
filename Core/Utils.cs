@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Windows.Media;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     public static class Utils
     {
@@ -15,7 +15,7 @@ namespace FoldRa.Core
         {
             string path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "FoldRa"
+                "Kobold"
             );
             
             EnsureDirectoryExists(path);
@@ -31,7 +31,7 @@ namespace FoldRa.Core
         }
 
         /// <summary>
-        /// Gets the storage folder path for files moved into FoldRa
+        /// Gets the storage folder path for files moved into Kobold
         /// </summary>
         public static string GetStoragePath()
         {

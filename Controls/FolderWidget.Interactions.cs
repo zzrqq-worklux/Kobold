@@ -6,11 +6,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using FoldRa.Core;
-using FoldRa.Helpers;
-using Localization = FoldRa.Core.Localization;
+using Kobold.Core;
+using Kobold.Helpers;
+using Localization = Kobold.Core.Localization;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - Panel toggle, keyboard, folder icon mouse events, item hover/click, context menu
@@ -278,7 +278,7 @@ namespace FoldRa.Controls
                 } 
                 catch (Exception ex) 
                 { 
-                    Debug.WriteLine($"[FoldRa] Open failed: {ex.Message}"); 
+                    Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); 
                 }
                 e.Handled = true;
             }
@@ -291,10 +291,10 @@ namespace FoldRa.Controls
                 var menu = new ContextMenu();
                 
                 var openItem = new MenuItem { Header = Localization.Get("Menu_Open") };
-                openItem.Click += (s, a) => { try { Process.Start(new ProcessStartInfo { FileName = item.Path, UseShellExecute = true }); } catch (Exception ex) { Debug.WriteLine($"[FoldRa] Open failed: {ex.Message}"); } };
+                openItem.Click += (s, a) => { try { Process.Start(new ProcessStartInfo { FileName = item.Path, UseShellExecute = true }); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); } };
                 
                 var locItem = new MenuItem { Header = Localization.Get("Menu_OpenLocation") };
-                locItem.Click += (s, a) => { try { Process.Start("explorer.exe", $"/select,\"{item.Path}\""); } catch (Exception ex) { Debug.WriteLine($"[FoldRa] Open location failed: {ex.Message}"); } };
+                locItem.Click += (s, a) => { try { Process.Start("explorer.exe", $"/select,\"{item.Path}\""); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Open location failed: {ex.Message}"); } };
                 
                 // Remove from widget (restore to desktop if in storage)
                 var remItem = new MenuItem { Header = Localization.Get("Menu_RemoveItem") };
@@ -320,7 +320,7 @@ namespace FoldRa.Controls
                 var copyPathItem = new MenuItem { Header = Localization.Get("Menu_CopyPath") };
                 copyPathItem.Click += (s, a) => 
                 { 
-                    try { System.Windows.Clipboard.SetText(item.Path); } catch (Exception ex) { Debug.WriteLine($"[FoldRa] Clipboard failed: {ex.Message}"); }
+                    try { System.Windows.Clipboard.SetText(item.Path); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Clipboard failed: {ex.Message}"); }
                 };
                 
                 // Rename item

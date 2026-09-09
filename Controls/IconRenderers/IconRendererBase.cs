@@ -1,9 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using FoldRa.Core;
+using Kobold.Core;
 
-namespace FoldRa.Controls.IconRenderers
+namespace Kobold.Controls.IconRenderers
 {
     /// <summary>
     /// Interface for folder icon rendering - Strategy Pattern.

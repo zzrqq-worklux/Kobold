@@ -5,11 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using FoldRa.Core;
-using FoldRa.Helpers;
-using Localization = FoldRa.Core.Localization;
+using Kobold.Core;
+using Kobold.Helpers;
+using Localization = Kobold.Core.Localization;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - Dialogs (Rename, ColorPicker) and Shell Icon
@@ -238,7 +238,7 @@ namespace FoldRa.Controls
                     return src;
                 }
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[FoldRa] Icon load failed: {ex.Message}"); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Kobold] Icon load failed: {ex.Message}"); }
             return null;
         }
 

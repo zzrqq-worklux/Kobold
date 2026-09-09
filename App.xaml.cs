@@ -3,16 +3,16 @@ using System.Threading;
 using System.Windows;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using FoldRa.Core;
-using FoldRa.Controls;
-using FoldRa.Services;
+using Kobold.Core;
+using Kobold.Controls;
+using Kobold.Services;
 
-namespace FoldRa
+namespace Kobold
 {
     public partial class App : Application
     {
-        private const string MutexName = "FoldRa_SingleInstance_Mutex_v3";
-        private const string EventName = "FoldRa_ActivateEvent_v3";
+        private const string MutexName = "Kobold_SingleInstance_Mutex_v3";
+        private const string EventName = "Kobold_ActivateEvent_v3";
         private static Mutex _mutex;
         private static EventWaitHandle _eventWaitHandle;
         private TrayIconService _trayService;
@@ -92,16 +92,16 @@ namespace FoldRa
                         if (startWithWindows)
                         {
                             string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-                            key.SetValue("FoldRa", $"\"{exePath}\"");
+                            key.SetValue("Kobold", $"\"{exePath}\"");
                         }
                         else
                         {
-                            key.DeleteValue("FoldRa", false);
+                            key.DeleteValue("Kobold", false);
                         }
                     }
                 }
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[FoldRa] Registry update failed: {ex.Message}"); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Kobold] Registry update failed: {ex.Message}"); }
         }
 
         private void ActivateExistingInstance()

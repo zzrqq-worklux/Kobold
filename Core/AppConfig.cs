@@ -3,7 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     /// <summary>
     /// Application configuration including all folder widgets

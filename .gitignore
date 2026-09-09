@@ -279,9 +279,7 @@ ServiceFabricBackup/
 # ParkerX
 .parkerx
 
-# FoldRa Specific
-FoldRaData/
-FoldRData/
+# Kobold Specific
 *.tmp
 build_log.txt
 Setup/

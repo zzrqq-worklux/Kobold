@@ -3,9 +3,9 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
-using FoldRa.Core;
+using Kobold.Core;
 
-namespace FoldRa.Controls.IconRenderers
+namespace Kobold.Controls.IconRenderers
 {
     public class ClassicIconRenderer : IconRendererBase
     {

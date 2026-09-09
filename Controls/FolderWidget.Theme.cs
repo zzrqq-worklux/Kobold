@@ -4,10 +4,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
-using FoldRa.Core;
+using Kobold.Core;
 using Path = System.Windows.Shapes.Path;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - Theme related methods

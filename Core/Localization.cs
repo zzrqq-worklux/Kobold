@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     public static class Localization
     {
@@ -11,7 +11,7 @@ namespace FoldRa.Core
             ["en"] = new Dictionary<string, string>
             {
                 // UI
-                ["UI_AppName"] = "FoldRa",
+                ["UI_AppName"] = "Kobold",
                 ["UI_DropHere"] = "Drop files here",
                 ["UI_Empty"] = "Empty folder",
                 ["UI_Items"] = "{0} items",
@@ -99,7 +99,7 @@ namespace FoldRa.Core
             ["tr"] = new Dictionary<string, string>
             {
                 // UI
-                ["UI_AppName"] = "FoldRa",
+                ["UI_AppName"] = "Kobold",
                 ["UI_DropHere"] = "Dosyaları buraya bırak",
                 ["UI_Empty"] = "Boş klasör",
                 ["UI_Items"] = "{0} öğe",

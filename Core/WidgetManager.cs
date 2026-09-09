@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using FoldRa.Core;
-using FoldRa.Controls;
+using Kobold.Core;
+using Kobold.Controls;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     /// <summary>
     /// Manages all folder widgets - singleton pattern

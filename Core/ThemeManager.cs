@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Media;
 
-namespace FoldRa.Core
+namespace Kobold.Core
 {
     /// <summary>
     /// Centralized theme management with event-driven updates

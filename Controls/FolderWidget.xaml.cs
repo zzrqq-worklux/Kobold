@@ -5,10 +5,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using FoldRa.Core;
-using Localization = FoldRa.Core.Localization;
+using Kobold.Core;
+using Localization = Kobold.Core.Localization;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - Main class with core functionality

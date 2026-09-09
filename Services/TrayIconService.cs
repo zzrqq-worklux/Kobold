@@ -4,12 +4,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
-using FoldRa.Core;
-using FoldRa.Controls;
-using FoldRa.Windows;
-using Localization = FoldRa.Core.Localization;
+using Kobold.Core;
+using Kobold.Controls;
+using Kobold.Windows;
+using Localization = Kobold.Core.Localization;
 
-namespace FoldRa.Services
+namespace Kobold.Services
 {
     /// <summary>
     /// Manages the system tray icon and menu using Hardcodet.NotifyIcon.Wpf
@@ -29,7 +29,7 @@ namespace FoldRa.Services
             _trayIcon = new TaskbarIcon
             {
                 Icon = CreateDefaultIcon(),
-                ToolTipText = "FoldRa - Desktop Folder Widgets",
+                ToolTipText = "Kobold - Desktop Folder Widgets",
                 ContextMenu = BuildContextMenu(),
                 MenuActivation = PopupActivationMode.RightClick
             };

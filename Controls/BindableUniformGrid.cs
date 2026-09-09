@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls.Primitives;
 
-namespace FoldRa.Controls
+namespace Kobold.Controls
 {
     /// <summary>
     /// UniformGrid with bindable Columns property.
