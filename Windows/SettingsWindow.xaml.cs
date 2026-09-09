@@ -78,6 +78,9 @@ namespace Kobold.Windows
             // Startup
             StartupCheckbox.IsChecked = _config.StartWithWindows;
             
+            // Storing behaviour
+            HideDesktopCheckbox.IsChecked = _config.HideDesktopSourceOnStore;
+            
             // Icon Style
             if (IconStyleCombo != null)
             {
@@ -111,6 +114,7 @@ namespace Kobold.Windows
             GridLabel.Text = Localization.Get("Settings_DefaultGridColumns");
             StartupLabel.Text = Localization.Get("Settings_StartWithWindows");
             StartupNote.Text = "";
+            HideDesktopLabel.Text = Localization.Get("Settings_HideDesktopSource");
 
             // Theme options
             ThemeDark.Content = "🌙 " + Localization.Get("Settings_Dark");
@@ -209,6 +213,12 @@ namespace Kobold.Windows
         {
             if (_isLoading) return;
             _config.StartWithWindows = StartupCheckbox.IsChecked ?? false;
+        }
+
+        private void HideDesktopCheckbox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isLoading) return;
+            _config.HideDesktopSourceOnStore = HideDesktopCheckbox.IsChecked ?? true;
         }
         
         private void IconStyleCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

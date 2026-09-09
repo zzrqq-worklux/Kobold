@@ -45,77 +45,64 @@ namespace Kobold.Controls
             
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
-                var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-                foreach (var sourcePath in paths)
-                {
-                    try
-                    {
-                        // Skip if already in storage or already exists in widget
-                        string storagePath = Utils.GetStoragePath();
-                        if (sourcePath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Already in storage - just add reference if not exists
-                            if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(sourcePath, false));
-                            }
-                            continue;
-                        }
-                        
-                        // Check if same drive as storage (fast move possible)
-                        bool sameDrive = Utils.IsSameDrive(sourcePath, storagePath);
-                        
-                        if (sameDrive)
-                        {
-                            // SAME DRIVE: Use File.Move (atomic, instant)
-                            string destPath = Utils.GetUniqueStoragePath(sourcePath);
-                            
-                            if (System.IO.Directory.Exists(sourcePath))
-                            {
-                                System.IO.Directory.Move(sourcePath, destPath);
-                            }
-                            else if (System.IO.File.Exists(sourcePath))
-                            {
-                                System.IO.File.Move(sourcePath, destPath);
-                            }
-                            else
-                            {
-                                continue; // Skip if doesn't exist
-                            }
-                            
-                            // Add with new path (IsReference = false, file was moved)
-                            if (!_data.Items.Any(i => i.Path.Equals(destPath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(destPath, false));
-                            }
-                        }
-                        else
-                        {
-                            // DIFFERENT DRIVE: Just keep reference (no copy, instant, safe)
-                            if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(sourcePath, true)); // IsReference = true
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // If move fails, just add as reference (safe fallback)
-                        System.Diagnostics.Debug.WriteLine($"Move failed: {ex.Message}");
-                        if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            _data.Items.Add(new WidgetItem(sourcePath, true));
-                        }
-                    }
-                }
-                UpdateUI();
-                OnDataChanged?.Invoke();
+                AddExternalPaths((string[])e.Data.GetData(DataFormats.FileDrop));
                 
                 if (!_isExpanded)
                 {
                     TogglePanel();
                 }
             }
+        }
+
+        /// <summary>
+        /// Adds externally dropped files as pure references: the source file stays
+        /// in place (path-safe for projects like Obsidian vaults), and its desktop
+        /// icon is hidden when the setting is enabled. Physical storing is an
+        /// explicit per-item action from the context menu instead.
+        /// </summary>
+        private void AddExternalPaths(string[] paths)
+        {
+            string storagePath = Utils.GetStoragePath();
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            bool hideDesktopSource = WidgetManager.Instance.Config.HideDesktopSourceOnStore;
+
+            foreach (var sourcePath in paths)
+            {
+                try
+                {
+                    // Already in storage - reference the stored item
+                    if (StorageOps.IsUnder(sourcePath, storagePath))
+                    {
+                        if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _data.Items.Add(new WidgetItem(sourcePath, false));
+                        }
+                        continue;
+                    }
+
+                    // Skip duplicates
+                    if (_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    // Pure reference - never move the source
+                    _data.Items.Add(new WidgetItem(sourcePath, true));
+
+                    // Optional: hide the desktop icon, keep the file intact
+                    if (hideDesktopSource && StorageOps.IsUnder(sourcePath, desktopPath))
+                    {
+                        StorageOps.SetHidden(sourcePath, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Kobold] Drop failed: {ex.Message}");
+                }
+            }
+
+            UpdateUI();
+            OnDataChanged?.Invoke();
         }
 
         #endregion
@@ -455,69 +442,7 @@ namespace Kobold.Controls
                     return;
                 }
                 
-                var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
-                foreach (var sourcePath in paths)
-                {
-                    try
-                    {
-                        // Skip if already in storage or already exists in widget
-                        string storagePath = Utils.GetStoragePath();
-                        if (sourcePath.StartsWith(storagePath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // Already in storage - just add reference if not exists
-                            if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(sourcePath, false));
-                            }
-                            continue;
-                        }
-                        
-                        // Check if same drive as storage (fast move possible)
-                        bool sameDrive = Utils.IsSameDrive(sourcePath, storagePath);
-                        
-                        if (sameDrive)
-                        {
-                            // SAME DRIVE: Use File.Move (atomic, instant)
-                            string destPath = Utils.GetUniqueStoragePath(sourcePath);
-                            
-                            if (System.IO.Directory.Exists(sourcePath))
-                            {
-                                System.IO.Directory.Move(sourcePath, destPath);
-                            }
-                            else if (System.IO.File.Exists(sourcePath))
-                            {
-                                System.IO.File.Move(sourcePath, destPath);
-                            }
-                            else
-                            {
-                                continue;
-                            }
-                            
-                            // Add with new path (IsReference = false, file was moved)
-                            if (!_data.Items.Any(i => i.Path.Equals(destPath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(destPath, false));
-                            }
-                        }
-                        else
-                        {
-                            // DIFFERENT DRIVE: Just keep reference (no copy, instant, safe)
-                            if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                _data.Items.Add(new WidgetItem(sourcePath, true)); // IsReference = true
-                            }
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // If move fails, just add as reference (safe fallback)
-                        if (!_data.Items.Any(i => i.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            _data.Items.Add(new WidgetItem(sourcePath, true));
-                        }
-                    }
-                }
-                
+                AddExternalPaths((string[])e.Data.GetData(DataFormats.FileDrop));
                 ForceRefreshUI();
                 e.Handled = true;
             }
@@ -570,6 +495,9 @@ namespace Kobold.Controls
         
         private void Panel_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
         {
+            // Locked widgets forbid moving content out
+            if (_data.IsLocked) return;
+
             // Check if mouse is outside the window (dropped on desktop)
             if (e.KeyStates == DragDropKeyStates.None)
             {
@@ -595,13 +523,13 @@ namespace Kobold.Controls
                     
                     if (selectedItems.Count > 0)
                     {
-                        // Restore all selected items to desktop
+                        // Eject all selected items back to their origins
                         foreach (var selItem in selectedItems)
                         {
                             var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == selItem.Path);
                             if (itemToRemove != null)
                             {
-                                RestoreSingleItemToDesktop(itemToRemove.Path);
+                                EjectItem(itemToRemove);
                                 _data.Items.Remove(itemToRemove);
                             }
                         }

@@ -10,6 +10,7 @@
     <Description>Desktop Folder Widgets</Description>
     <Copyright>Copyright 2025 YusufEren97</Copyright>
     <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <!-- Icons are embedded as WPF resources; the tray icon loads them via pack URI -->

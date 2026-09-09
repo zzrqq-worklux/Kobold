@@ -13,6 +13,7 @@ namespace Kobold.Core
         public string Language { get; set; }
         public string Theme { get; set; }
         public bool StartWithWindows { get; set; }
+        public bool HideDesktopSourceOnStore { get; set; }
         public int DefaultGridColumns { get; set; }
         public string IconStyle { get; set; }  // classic, modern, minimal, rounded
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
@@ -23,6 +24,7 @@ namespace Kobold.Core
             Language = "en";
             Theme = "dark";
             StartWithWindows = true;
+            HideDesktopSourceOnStore = true;
             DefaultGridColumns = 3;
             IconStyle = "classic";
             ItemScale = 1.1; // Default to slightly larger icons

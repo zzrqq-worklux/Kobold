@@ -124,10 +124,25 @@
                         </Grid>
                     </Border>
                     
+                    <!-- Storing Behaviour -->
+                    <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12" Margin="0,12,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="HideDesktopLabel" Text="Hide source files on desktop after storing" 
+                                       Foreground="#B0B0B0" VerticalAlignment="Center" TextWrapping="Wrap"
+                                       FontFamily="Segoe UI"/>
+                            <CheckBox x:Name="HideDesktopCheckbox" Grid.Column="1" VerticalAlignment="Center"
+                                      Margin="12,0,0,0"
+                                      Checked="HideDesktopCheckbox_Changed" Unchecked="HideDesktopCheckbox_Changed"/>
+                        </Grid>
+                    </Border>
+                    
                     <!-- Startup Section -->
                     <TextBlock x:Name="StartupHeader" Text="🚀 Startup" Foreground="White" 
                                FontSize="13" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
-                    
                     <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12">
                         <Grid>
                             <Grid.ColumnDefinitions>

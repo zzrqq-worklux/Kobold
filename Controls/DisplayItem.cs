@@ -11,6 +11,12 @@ namespace Kobold.Controls
         public string Name { get; set; }
         public string Path { get; set; }
         public int Index { get; set; }
+
+        /// <summary>
+        /// True when the file is not visible on the desktop anymore (physically
+        /// stored, or a reference whose desktop source was hidden)
+        /// </summary>
+        public bool IsStored { get; set; }
         
         private ImageSource _icon;
         public ImageSource Icon 

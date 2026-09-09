@@ -62,9 +62,16 @@ namespace Kobold.Core
         /// </summary>
         public static string GetUniqueStoragePath(string originalPath)
         {
-            string storagePath = GetStoragePath();
+            return GetUniqueStoragePath(originalPath, GetStoragePath());
+        }
+
+        /// <summary>
+        /// Gets a unique file path inside storageDir (handles duplicates)
+        /// </summary>
+        public static string GetUniqueStoragePath(string originalPath, string storageDir)
+        {
             string fileName = Path.GetFileName(originalPath);
-            string destPath = Path.Combine(storagePath, fileName);
+            string destPath = Path.Combine(storageDir, fileName);
             
             // Handle duplicate names
             int counter = 1;
@@ -73,7 +80,7 @@ namespace Kobold.Core
             
             while (File.Exists(destPath) || Directory.Exists(destPath))
             {
-                destPath = Path.Combine(storagePath, $"{nameWithoutExt} ({counter}){ext}");
+                destPath = Path.Combine(storageDir, $"{nameWithoutExt} ({counter}){ext}");
                 counter++;
             }
             

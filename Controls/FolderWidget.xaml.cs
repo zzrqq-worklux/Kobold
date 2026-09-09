@@ -32,8 +32,10 @@ namespace Kobold.Controls
         
         private FolderData _data;
         private bool _isExpanded = false;
-        private Point _mouseDownPos;
-        private Point _mouseDownScreenPos;
+        private Point _dragStartCursor;      // Screen cursor position at mouse-down (click vs drag)
+        private double _dragStartLeft;        // Window Left/Top at mouse-down
+        private double _dragStartTop;
+        private double _dragDpiScale = 1.0;   // Physical pixels per WPF unit (cursor -> window)
         private bool _isDraggingWindow = false;
         
         // Item drag-drop fields
@@ -175,7 +177,8 @@ namespace Kobold.Controls
                 Path = item.Path,
                 Icon = null,
                 Index = index,
-                TextColor = textBrush
+                TextColor = textBrush,
+                IsStored = !item.IsReference || IsHiddenDesktopSource(item.Path)
             }).ToList();
             
             // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property
@@ -239,6 +242,16 @@ namespace Kobold.Controls
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
         
+        /// <summary>
+        /// True when a referenced file lives on the desktop but its icon is
+        /// hidden (i.e. it is "stored" from the user's point of view)
+        /// </summary>
+        private bool IsHiddenDesktopSource(string path)
+        {
+            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            return StorageOps.IsUnder(path, desktopPath) && StorageOps.IsHidden(path);
+        }
+
         /// <summary>
         /// Gets display name for a file - removes .lnk extension from shortcuts
         /// </summary>

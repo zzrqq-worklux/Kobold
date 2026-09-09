@@ -34,6 +34,7 @@ namespace Kobold.Core
                 ["Menu_OpenLocation"] = "📁 Open File Location",
                 ["Menu_RenameItem"] = "✏️ Rename",
                 ["Menu_RemoveItem"] = "🗑️ Remove from Widget",
+                ["Menu_StoreItem"] = "📦 Store in Kobold",
 
                 // Tray Menu
                 ["Tray_AddWidget"] = "➕ Add New Widget",
@@ -67,6 +68,7 @@ namespace Kobold.Core
                 ["Settings_About"] = "About",
                 ["Settings_Language"] = "Language",
                 ["Settings_StartWithWindows"] = "Start with Windows",
+                ["Settings_HideDesktopSource"] = "Hide source on desktop when stored",
                 ["Settings_Theme"] = "Theme",
                 ["Settings_Defaults"] = "Widget Defaults",
                 ["Settings_Startup"] = "Startup",
@@ -120,6 +122,7 @@ namespace Kobold.Core
                 ["Menu_OpenLocation"] = "📁 打开文件位置",
                 ["Menu_RenameItem"] = "✏️ 重命名",
                 ["Menu_RemoveItem"] = "🗑️ 从组件中移除",
+                ["Menu_StoreItem"] = "📦 收纳到 Kobold",
 
                 // Tray Menu
                 ["Tray_AddWidget"] = "➕ 新建组件",
@@ -153,6 +156,7 @@ namespace Kobold.Core
                 ["Settings_About"] = "关于",
                 ["Settings_Language"] = "语言",
                 ["Settings_StartWithWindows"] = "开机自动启动",
+                ["Settings_HideDesktopSource"] = "收纳后隐藏桌面源文件",
                 ["Settings_Theme"] = "主题",
                 ["Settings_Defaults"] = "组件默认设置",
                 ["Settings_Startup"] = "启动",
@@ -206,6 +210,7 @@ namespace Kobold.Core
                 ["Menu_OpenLocation"] = "📁 ファイルの場所を開く",
                 ["Menu_RenameItem"] = "✏️ 名前の変更",
                 ["Menu_RemoveItem"] = "🗑️ ウィジェットから外す",
+                ["Menu_StoreItem"] = "📦 Kobold に収納",
 
                 // Tray Menu
                 ["Tray_AddWidget"] = "➕ ウィジェットを追加",
@@ -239,6 +244,7 @@ namespace Kobold.Core
                 ["Settings_About"] = "バージョン情報",
                 ["Settings_Language"] = "言語",
                 ["Settings_StartWithWindows"] = "サインイン時に自動的に起動",
+                ["Settings_HideDesktopSource"] = "収納後、デスクトップの元ファイルを隠す",
                 ["Settings_Theme"] = "テーマ",
                 ["Settings_Defaults"] = "ウィジェットの既定設定",
                 ["Settings_Startup"] = "起動",

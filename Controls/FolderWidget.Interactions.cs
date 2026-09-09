@@ -171,57 +171,88 @@ namespace Kobold.Controls
 
         private void FolderIcon_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (e.ChangedButton == MouseButton.Left)
-            {
-                if (_data.IsLocked)
-                {
-                    return;
-                }
-                try
-                {
-                    _isDraggingWindow = true;
-                    AnimationHelper.StartDrag(this);
-                    DragMove();
-                    _isDraggingWindow = false;
-                    AnimationHelper.EndDrag(this);
+            if (e.ChangedButton != MouseButton.Left) return;
+            if (_data.IsLocked) return; // Locked widgets keep click-to-toggle but never move
 
-                    if (_isExpanded)
-                    {
-                        if (_openedToLeft)
-                        {
-                            var (panelWidth, _) = CalculatePanelSize();
-                            _originalLeft = Left + panelWidth + ICON_SPACING;
-                        }
-                        else
-                        {
-                            _originalLeft = Left;
-                        }
-                        _originalTop = Top;
-                    }
-
-                    _data.PosX = (int)(_isExpanded ? _originalLeft : Left);
-                    _data.PosY = (int)Top;
-                    OnDataChanged?.Invoke();
-                }
-                catch (Exception)
-                {
-                    _isDraggingWindow = false;
-                }
-            }
+            // Snapshot the drag anchor. A click (no movement) toggles the panel on
+            // MouseUp. DragMove() is intentionally NOT used: its modal loop swallows
+            // MouseLeftButtonUp, which breaks click-to-toggle on unlocked widgets.
+            var cursor = System.Windows.Forms.Cursor.Position;
+            _dragStartCursor = new Point(cursor.X, cursor.Y);
+            _dragStartLeft = Left;
+            _dragStartTop = Top;
+            _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
+            _isDraggingWindow = false;
+            Mouse.Capture(FolderIconGrid);
         }
 
         private void FolderIcon_MouseMove(object sender, MouseEventArgs e)
         {
-            // Drag handled via DragMove() in MouseDown; no manual coordinate math needed.
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+            if (_data.IsLocked || !ReferenceEquals(Mouse.Captured, FolderIconGrid)) return;
+
+            var cursor = System.Windows.Forms.Cursor.Position;
+            // Cursor.Position is in physical pixels; WPF Left/Top are DIPs.
+            double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
+            double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
+
+            if (!_isDraggingWindow)
+            {
+                // Only become a window drag after a real movement threshold
+                if (Math.Abs(dx) < DRAG_THRESHOLD && Math.Abs(dy) < DRAG_THRESHOLD) return;
+                _isDraggingWindow = true;
+                AnimationHelper.StartDrag(this);
+            }
+
+            // Absolute positioning from the mouse-down anchor. Both the cursor and
+            // WPF's Left/Top live in the same (possibly DPI-virtualized) coordinate
+            // space, so assigning Left/Top keeps the icon glued to the cursor at any
+            // display scale. Never multiply by a manual DPI factor here.
+            Left = _dragStartLeft + dx;
+            Top = _dragStartTop + dy;
+            e.Handled = true;
         }
 
         private void FolderIcon_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            if (!_isDraggingWindow)
+            if (e.ChangedButton != MouseButton.Left) return;
+            Mouse.Capture(null);
+
+            if (_isDraggingWindow)
             {
-                // It's a click (no drag happened), toggle panel
-                TogglePanel();
+                // Window was dragged - persist the new position
+                _isDraggingWindow = false;
+                AnimationHelper.EndDrag(this);
+                PersistWidgetPosition();
+                return;
             }
+
+            // Pinned panels stay open: icon clicks never expand/collapse them
+            if (_data.IsPanelPinned) return;
+
+            // Plain click: toggle the panel (locked widgets toggle too; they never drag)
+            TogglePanel();
+        }
+
+        /// <summary>
+        /// Saves the folder-icon screen position (window Left may differ from the
+        /// icon position while the panel is expanded to the left)
+        /// </summary>
+        private void PersistWidgetPosition()
+        {
+            double iconX;
+            if (_isExpanded)
+            {
+                var (panelWidth, _) = CalculatePanelSize();
+                iconX = _openedToLeft ? Left + panelWidth + ICON_SPACING : Left;
+            }
+            else
+            {
+                iconX = Left;
+            }
+            _data.PosX = (int)iconX;
+            _data.PosY = (int)Top;
+            OnDataChanged?.Invoke();
         }
 
         private void FolderIcon_RightClick(object sender, MouseButtonEventArgs e)
@@ -296,20 +327,29 @@ namespace Kobold.Controls
                 var locItem = new MenuItem { Header = Localization.Get("Menu_OpenLocation") };
                 locItem.Click += (s, a) => { try { Process.Start("explorer.exe", $"/select,\"{item.Path}\""); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Open location failed: {ex.Message}"); } };
                 
-                // Remove from widget (restore to desktop if in storage)
-                var remItem = new MenuItem { Header = Localization.Get("Menu_RemoveItem") };
+                // Store physically into Kobold storage (explicit action - by
+                // default dropped files are references and stay in place).
+                // Locked widgets forbid moving content in or out.
+                var dataItem = _data.Items.FirstOrDefault(i => i.Path == item.Path);
+                if (dataItem != null && dataItem.IsReference && !_data.IsLocked)
+                {
+                    var storeItem = new MenuItem { Header = Localization.Get("Menu_StoreItem") };
+                    storeItem.Click += (s, a) => StoreItemIntoWidget(dataItem);
+                    menu.Items.Add(storeItem);
+                }
+
+                // Eject (remove from widget; stored files go back to their original location)
+                var remItem = new MenuItem
+                {
+                    Header = Localization.Get("Menu_RemoveItem"),
+                    IsEnabled = !_data.IsLocked // locked widgets forbid moving content out
+                };
                 remItem.Click += (s, a) => 
                 { 
                     var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == item.Path);
                     if (itemToRemove != null)
                     {
-                        // Only restore if it's NOT a reference (file was physically moved)
-                        if (!itemToRemove.IsReference)
-                        {
-                            RestoreSingleItemToDesktop(itemToRemove.Path);
-                        }
-                        // If IsReference=true, file stays in original location, just remove from list
-                        
+                        EjectItem(itemToRemove);
                         _data.Items.Remove(itemToRemove);
                         UpdateUI();
                         OnDataChanged?.Invoke();
@@ -467,7 +507,7 @@ namespace Kobold.Controls
                 if (MessageBox.Show(Localization.Format("Dialog_DeleteWidget", _data.Name), 
                     Localization.Get("Dialog_Confirm"), MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                 {
-                    RestoreItemsToDesktop();
+                    EjectAllItems();
                     OnDeleted?.Invoke(this);
                     Close();
                 }
@@ -475,6 +515,26 @@ namespace Kobold.Controls
             return item;
         }
         
+        /// <summary>
+        /// Physically moves a referenced file/directory into Kobold storage and
+        /// records its original path so eject can put it back later.
+        /// </summary>
+        private void StoreItemIntoWidget(WidgetItem witem)
+        {
+            string dest = StorageOps.MoveIntoStorage(witem.Path, Utils.GetStoragePath());
+            if (dest == null)
+            {
+                // Keep as reference; the file is untouched
+                System.Diagnostics.Debug.WriteLine($"[Kobold] Store failed: {witem.Path}");
+                return;
+            }
+            witem.OriginalPath = witem.Path;
+            witem.Path = dest;
+            witem.IsReference = false;
+            UpdateUI();
+            OnDataChanged?.Invoke();
+        }
+
         private void RenameItem(DisplayItem item)
         {
             string currentName = System.IO.Path.GetFileName(item.Path);

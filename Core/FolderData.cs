@@ -18,11 +18,19 @@ namespace Kobold.Core
         /// </summary>
         public bool IsReference { get; set; }
 
+        /// <summary>
+        /// Path the file was stored from (physical store only). Null for
+        /// references and for legacy items stored before this field existed -
+        /// those fall back to the desktop on eject.
+        /// </summary>
+        public string OriginalPath { get; set; }
+
         public WidgetItem()
         {
             Name = "";
             Path = "";
             IsReference = false;
+            OriginalPath = null;
         }
 
         public WidgetItem(string path, bool isReference = false)
@@ -30,6 +38,7 @@ namespace Kobold.Core
             Path = path;
             Name = System.IO.Path.GetFileName(path);
             IsReference = isReference;
+            OriginalPath = null;
         }
     }
 
