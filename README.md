@@ -41,9 +41,8 @@ Output: `bin\Release\net48\Kobold.exe`
 
 ## Development notes
 
-- The upstream name/logo (exe icon, tray icon, settings-window icon) is still
-  the original FoldRa artwork; replacing it needs a transparent/`.ico` version
-  of the Kobold logo.
+- App icons (exe/tray/settings window) use the Kobold logo generated from
+  `logo.jpg` (white background auto-removed; multi-size `icon.ico` 256–16 px).
 - Upstream README/screenshots were dropped on purpose; current UI screenshots
   can be added here once the first 二开 changes land.
 
@@ -88,8 +87,7 @@ dotnet build Kobold.csproj -c Release
 
 ## 开发说明
 
-- 程序图标（exe/托盘/设置窗口）目前仍是上游 FoldRa 原图，等提供透明底
-  或 `.ico` 版 Kobold 图标后统一替换
+- 程序图标（exe/托盘/设置窗口）已替换为 Kobold 新 logo（由 `logo.jpg` 自动去白底生成，`icon.ico` 含 256–16px 多尺寸）
 - 上游 README 与截图已移除，待首批二开改动落地后再补充新截图
 
 ## 许可
