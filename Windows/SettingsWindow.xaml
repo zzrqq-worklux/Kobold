@@ -140,6 +140,23 @@
                         </Grid>
                     </Border>
                     
+                    <!-- Panel Appearance -->
+                    <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12" Margin="0,12,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="PanelOpacityLabel" Text="Panel Opacity" Foreground="#B0B0B0" FontFamily="Segoe UI"/>
+                                <TextBlock x:Name="PanelOpacityValue" Text="100%" Foreground="#606060" FontSize="10" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                            </StackPanel>
+                            <Slider x:Name="PanelOpacitySlider" Grid.Column="1" Width="140" Minimum="20" Maximum="100"
+                                    VerticalAlignment="Center" Margin="12,0,0,0" IsSnapToTickEnabled="True" TickFrequency="5"
+                                    ValueChanged="PanelOpacitySlider_ValueChanged"/>
+                        </Grid>
+                    </Border>
+                    
                     <!-- Startup Section -->
                     <TextBlock x:Name="StartupHeader" Text="🚀 Startup" Foreground="White" 
                                FontSize="13" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>

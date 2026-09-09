@@ -118,6 +118,29 @@ namespace Kobold.Controls
             }
         }
 
+        /// <summary>
+        /// Panel opacity from config, clamped to the usable 20-100% range.
+        /// Only the expanded panel is affected - the folder icon stays opaque.
+        /// </summary>
+        private double GetPanelOpacity()
+        {
+            double opacity = WidgetManager.Instance.Config.PanelOpacity;
+            if (double.IsNaN(opacity)) opacity = 1.0;
+            return Math.Max(0.2, Math.Min(1.0, opacity));
+        }
+
+        /// <summary>
+        /// Applies the configured panel opacity to an already-open panel
+        /// (used for live preview while the settings dialog is open)
+        /// </summary>
+        public void ApplyPanelOpacity()
+        {
+            if (!_isExpanded) return;
+            // Stop any running open/close animation first, then set the value
+            ExpandedPanel.BeginAnimation(System.Windows.UIElement.OpacityProperty, null);
+            ExpandedPanel.Opacity = GetPanelOpacity();
+        }
+
         private void DrawFolderIcon()
         {
             FolderIconCanvas.Children.Clear();

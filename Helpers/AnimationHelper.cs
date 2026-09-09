@@ -169,16 +169,17 @@ namespace Kobold.Helpers
         }
 
         /// <summary>
-        /// Panel open animation - fade in only (no scale to prevent text blur)
+        /// Panel open animation - fade in only (no scale to prevent text blur).
+        /// Fades to the configured panel opacity instead of a hardcoded 1.
         /// </summary>
-        public static void PanelOpen(FrameworkElement panel, bool fromLeft = false)
+        public static void PanelOpen(FrameworkElement panel, bool fromLeft = false, double targetOpacity = 1.0)
         {
             // Set initial state
             panel.Opacity = 0;
             panel.RenderTransform = null; // No transform - keeps text crisp
             
             // Fade in smoothly
-            var fadeAnim = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(180)))
+            var fadeAnim = new DoubleAnimation(0, targetOpacity, new Duration(TimeSpan.FromMilliseconds(180)))
             {
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
             };
@@ -187,12 +188,14 @@ namespace Kobold.Helpers
         }
 
         /// <summary>
-        /// Panel close animation - fade out only (no scale to prevent text blur)
+        /// Panel close animation - fade out only (no scale to prevent text blur).
+        /// Starts from the current opacity (which may be a user-configured value).
         /// </summary>
         public static void PanelClose(FrameworkElement panel, bool toLeft = false, Action onComplete = null)
         {
-            // Fade out smoothly
-            var fadeAnim = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(120)))
+            // Fade out from the current (possibly animated) opacity to 0
+            double fromOpacity = panel.Opacity;
+            var fadeAnim = new DoubleAnimation(fromOpacity, 0, new Duration(TimeSpan.FromMilliseconds(120)))
             {
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
             };

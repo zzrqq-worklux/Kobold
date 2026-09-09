@@ -77,7 +77,7 @@ namespace Kobold.Controls
                 }
                 
                 // Animate in with slide + fade effect
-                AnimationHelper.PanelOpen(ExpandedPanel, _openedToLeft);
+                AnimationHelper.PanelOpen(ExpandedPanel, _openedToLeft, GetPanelOpacity());
                 
                 // Note: Grid columns are now handled via BindableUniformGrid binding
             }

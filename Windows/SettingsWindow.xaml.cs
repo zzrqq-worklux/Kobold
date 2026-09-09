@@ -20,6 +20,7 @@ namespace Kobold.Windows
         private int _originalGridColumns;
         private bool _originalStartWithWindows;
         private string _originalIconStyle;
+        private double _originalPanelOpacity;
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
@@ -35,6 +36,7 @@ namespace Kobold.Windows
             _originalGridColumns = _config.DefaultGridColumns;
             _originalStartWithWindows = _config.StartWithWindows;
             _originalIconStyle = _config.IconStyle;
+            _originalPanelOpacity = _config.PanelOpacity;
             
             LoadSettings();
             UpdateLocalizedText();
@@ -80,6 +82,9 @@ namespace Kobold.Windows
             
             // Storing behaviour
             HideDesktopCheckbox.IsChecked = _config.HideDesktopSourceOnStore;
+
+            // Panel opacity
+            PanelOpacitySlider.Value = Math.Max(20, Math.Min(100, _config.PanelOpacity * 100.0));
             
             // Icon Style
             if (IconStyleCombo != null)
@@ -115,6 +120,8 @@ namespace Kobold.Windows
             StartupLabel.Text = Localization.Get("Settings_StartWithWindows");
             StartupNote.Text = "";
             HideDesktopLabel.Text = Localization.Get("Settings_HideDesktopSource");
+            PanelOpacityLabel.Text = Localization.Get("Settings_PanelOpacity");
+            PanelOpacityValue.Text = (int)Math.Round(PanelOpacitySlider.Value) + "%";
 
             // Theme options
             ThemeDark.Content = "🌙 " + Localization.Get("Settings_Dark");
@@ -220,6 +227,18 @@ namespace Kobold.Windows
             if (_isLoading) return;
             _config.HideDesktopSourceOnStore = HideDesktopCheckbox.IsChecked ?? true;
         }
+
+        private void PanelOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_isLoading) return;
+            _config.PanelOpacity = Math.Max(0.2, Math.Min(1.0, e.NewValue / 100.0));
+            PanelOpacityValue.Text = (int)Math.Round(e.NewValue) + "%";
+            // Live preview on pinned panels (visible next to the modal settings window)
+            foreach (var widget in WidgetManager.Instance.Widgets)
+            {
+                widget.ApplyPanelOpacity();
+            }
+        }
         
         private void IconStyleCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -258,6 +277,8 @@ namespace Kobold.Windows
             _config.DefaultGridColumns = _originalGridColumns;
             _config.StartWithWindows = _originalStartWithWindows;
             _config.IconStyle = _originalIconStyle;
+            _config.PanelOpacity = _originalPanelOpacity;
+            PanelOpacitySlider.Value = _originalPanelOpacity * 100.0; // re-applies opacity to widgets
             
             // Revert UI
             Localization.SetLanguage(_originalLanguage);
