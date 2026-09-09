@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyTitle>FoldRa</AssemblyTitle>
+    <Product>FoldRa</Product>
+    <Description>Desktop Folder Widgets</Description>
+    <Copyright>Copyright 2025 YusufEren97</Copyright>
+    <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Resources\icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Resources\icon.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+</Project>

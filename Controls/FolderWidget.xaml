@@ -1,0 +1,226 @@
+<Window x:Class="FoldRa.Controls.FolderWidget"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FoldRa.Controls"
+        Title="FolderWidget"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="False" ResizeMode="NoResize" ShowInTaskbar="False"
+        Width="96" Height="110"
+        AllowDrop="True"
+        Deactivated="Window_Deactivated"
+        KeyDown="Window_KeyDown">
+    
+    <Grid x:Name="RootGrid">
+        <!-- Use Canvas for absolute positioning - prevents any shifting -->
+        <Canvas>
+            <!-- Folder Icon - Fixed Position at 0,0 -->
+            <Grid x:Name="FolderIconGrid" Width="96" Height="110" 
+                  Canvas.Left="0" Canvas.Top="0"
+                  MouseLeftButtonDown="FolderIcon_MouseDown"
+                  MouseLeftButtonUp="FolderIcon_MouseUp"
+                  MouseMove="FolderIcon_MouseMove"
+                  MouseEnter="FolderIcon_MouseEnter"
+                  MouseLeave="FolderIcon_MouseLeave"
+                  MouseRightButtonUp="FolderIcon_RightClick"
+                  DragEnter="Window_DragEnter" DragLeave="Window_DragLeave" Drop="Window_Drop"
+                  Cursor="Hand">
+                
+                <!-- Glow Effect -->
+                <Ellipse x:Name="GlowEffect" Width="80" Height="80" 
+                         HorizontalAlignment="Center" VerticalAlignment="Top"
+                         Opacity="0">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush>
+                            <GradientStop x:Name="GlowColor" Color="#803B82F6" Offset="0"/>
+                            <GradientStop Color="#00000000" Offset="1"/>
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+                
+                <!-- Folder Icon Canvas -->
+                <Canvas x:Name="FolderIconCanvas" Width="64" Height="64" 
+                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0">
+                    <Canvas.RenderTransform>
+                        <ScaleTransform x:Name="IconScale" ScaleX="1" ScaleY="1" CenterX="32" CenterY="32"/>
+                    </Canvas.RenderTransform>
+                </Canvas>
+                
+                <!-- Badge -->
+                <Border x:Name="BadgeBorder" MinWidth="20" Height="20" CornerRadius="10"
+                        HorizontalAlignment="Right" VerticalAlignment="Top" Padding="4,0"
+                        Margin="0,4,14,0" Visibility="Collapsed">
+                    <Border.Effect>
+                        <DropShadowEffect ShadowDepth="1" BlurRadius="4" Opacity="0.5"/>
+                    </Border.Effect>
+                    <TextBlock x:Name="BadgeText" Text="0" Foreground="White" 
+                               FontSize="10" FontWeight="Bold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                
+                <!-- Lock Indicator -->
+                <Border x:Name="LockBadge" Width="20" Height="20" CornerRadius="10"
+                        HorizontalAlignment="Left" VerticalAlignment="Top" 
+                        Margin="6,2,0,0" Visibility="Collapsed"
+                        Background="#80FFFFFF">
+                    <Border.Effect>
+                        <DropShadowEffect ShadowDepth="1" BlurRadius="3" Opacity="0.3"/>
+                    </Border.Effect>
+                    <Canvas Width="12" Height="12" VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <!-- Simple Lock Icon Path -->
+                        <Path Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
+                              Fill="#404040" />
+                    </Canvas>
+                </Border>
+                
+                <!-- Folder Name -->
+                <TextBlock x:Name="FolderNameText" Text="Folder"
+                           FontSize="11" FontWeight="SemiBold" FontFamily="Segoe UI"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                           Margin="0,0,0,6" TextTrimming="CharacterEllipsis" MaxWidth="90"/>
+            </Grid>
+            
+            <!-- Expanded Panel - Position to RIGHT of folder icon -->
+            <Border x:Name="ExpandedPanel" 
+                    Canvas.Left="104" Canvas.Top="0"
+                    CornerRadius="16"
+                    BorderThickness="1" BorderBrush="#30FFFFFF"
+                    Visibility="Collapsed"
+                    RenderOptions.BitmapScalingMode="HighQuality"
+                    SnapsToDevicePixels="True"
+                    MouseLeftButtonDown="ExpandedPanel_MouseLeftButtonDown"
+                    MouseRightButtonDown="ExpandedPanel_MouseRightButtonDown">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="25" ShadowDepth="8" Opacity="0.5" Color="#000000" RenderingBias="Quality"/>
+                </Border.Effect>
+                
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="40"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Header -->
+                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="14,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBlock x:Name="PanelHeaderText" Grid.Column="0" Text="Files"
+                                       FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
+                                       VerticalAlignment="Center"/>
+                            
+                            <!-- Pin Button -->
+                            <Border x:Name="PinButton" Grid.Column="1" 
+                                    Width="24" Height="24" CornerRadius="6"
+                                    Background="Transparent" Cursor="Hand"
+                                    VerticalAlignment="Center" Margin="8,0,0,0"
+                                    MouseLeftButtonDown="PinButton_Click"
+                                    ToolTip="Pin panel (keep open after restart)">
+                                <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <!-- Pin Icon (pushpin shape) -->
+                                    <Path x:Name="PinIcon" 
+                                          Data="M4,0 L10,0 L10,2 L9,2 L9,6 L11,8 L11,9 L8,9 L8,14 L6,14 L6,9 L3,9 L3,8 L5,6 L5,2 L4,2 Z"
+                                          Fill="#80FFFFFF" Stroke="#40FFFFFF" StrokeThickness="0.5"
+                                          RenderTransformOrigin="0.5,0.5">
+                                        <Path.RenderTransform>
+                                            <RotateTransform x:Name="PinIconRotation" Angle="45"/>
+                                        </Path.RenderTransform>
+                                    </Path>
+                                </Canvas>
+                            </Border>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Items - with drag-drop reordering and lasso selection support -->
+                    <ItemsControl x:Name="ItemsContainer" Grid.Row="1" Margin="8,4,8,8"
+                                  AllowDrop="True" Background="Transparent"
+                                  DragOver="ItemsContainer_DragOver"
+                                  DragLeave="ItemsContainer_DragLeave"
+                                  Drop="ItemsContainer_Drop"
+                                  QueryContinueDrag="Panel_QueryContinueDrag"
+                                  MouseLeftButtonDown="ItemsContainer_MouseLeftButtonDown"
+                                  MouseMove="ItemsContainer_MouseMove"
+                                  MouseLeftButtonUp="ItemsContainer_MouseLeftButtonUp">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="10" 
+                                        Background="Transparent" Cursor="Hand"
+                                        BorderThickness="2" BorderBrush="Transparent"
+                                        MouseEnter="Item_MouseEnter" MouseLeave="Item_MouseLeave"
+                                        MouseLeftButtonDown="Item_MouseDown"
+                                        MouseLeftButtonUp="Item_MouseUp"
+                                        MouseMove="Item_MouseMove"
+                                        MouseRightButtonUp="Item_RightClick">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <Border Width="40" Height="40" CornerRadius="8">
+                                            <Image Source="{Binding Icon}" Stretch="Uniform"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding Name}" FontSize="10"
+                                                   Foreground="{Binding TextColor}"
+                                                   TextTrimming="CharacterEllipsis" TextAlignment="Center"
+                                                   MaxWidth="70" Margin="0,6,0,0" 
+                                                   FontFamily="Segoe UI" FontWeight="Medium"/>
+                                    </StackPanel>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#80B4FF"/>
+                                        <Setter TargetName="ItemBorder" Property="Background">
+                                            <Setter.Value>
+                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                    <GradientStop Color="#1580B4FF" Offset="0"/>
+                                                    <GradientStop Color="#2580B4FF" Offset="1"/>
+                                                </LinearGradientBrush>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <local:BindableUniformGrid x:Name="ItemsGrid" 
+                                    BindableColumns="{Binding GridColumns, RelativeSource={RelativeSource AncestorType=local:FolderWidget}}"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    
+                    <!-- Drop Indicator Line -->
+                    <Rectangle x:Name="DropIndicator" 
+                               Grid.Row="1"
+                               Width="3" Height="70"
+                               Fill="#80FFFFFF"
+                               RadiusX="1.5" RadiusY="1.5"
+                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                               Visibility="Collapsed"
+                               IsHitTestVisible="False">
+                        <Rectangle.Effect>
+                            <DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="White" Opacity="0.6"/>
+                        </Rectangle.Effect>
+                    </Rectangle>
+                    
+                    <!-- Selection Rectangle for lasso select -->
+                    <Rectangle x:Name="SelectionRect" 
+                               Grid.Row="1"
+                               Fill="#2060A0FF" Stroke="#60A0FF" StrokeThickness="1"
+                               HorizontalAlignment="Left" VerticalAlignment="Top"
+                               Visibility="Collapsed" IsHitTestVisible="False"/>
+                    
+                    <!-- Empty State -->
+                    <StackPanel x:Name="EmptyState" Grid.Row="1" 
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Collapsed">
+                        <TextBlock Text="📂" FontSize="32" HorizontalAlignment="Center" Opacity="0.6"/>
+                        <TextBlock x:Name="EmptyText" Text="Drop files here" 
+                                   Foreground="#60FFFFFF" FontSize="11" FontFamily="Segoe UI"
+                                   Margin="0,6,0,0" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Canvas>
+    </Grid>
+</Window>
+
+
