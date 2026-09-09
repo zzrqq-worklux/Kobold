@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>Kobold.MigrateFoldRa</AssemblyName>
+    <RootNamespace>Kobold.MigrateFoldRa</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Kobold.csproj" />
+  </ItemGroup>
+</Project>
