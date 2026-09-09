@@ -1,157 +1,98 @@
-# 🗂️ FoldRa - Next Gen Desktop Folders
+# Kobold — Windows Desktop Organizer
 
 <div align="center">
 
-![FoldRa Logo](Resources/icon.png)
+![Kobold Logo](Resources/kobold-logo.png)
 
-**Desktop Elegance Redefined** | **Masaüstü Zarafeti Yeniden Tanımlandı**
+**桌面整理小组件** | **Windows Desktop Folder Widgets**
 
-[![.NET Framework](https://img.shields.io/badge/.NET-4.8-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
-[![Windows](https://img.shields.io/badge/Platform-Windows_10%2F11-0078D6?logo=windows)](https://www.microsoft.com/windows)
-[![Performance](https://img.shields.io/badge/Performance-Zero_Latency-brightgreen?logo=speedtest)](https://github.com/YusufEren97/FoldRa)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-
-[English](#-english) | [Türkçe](#-türkçe)
+Windows 10/11 · WPF · .NET Framework 4.8
 
 </div>
 
----
+Kobold is a desktop organizer built from [FoldRa](https://github.com/YusufEren97/FoldRa)
+as a secondary-development (二开) base. It places beautiful glassmorphism
+widgets on your desktop; drop files onto a widget and they are tidied away,
+then restored safely when you remove the widget.
 
-## 📸 Visual Showcase / Görsel Şölen
+## Features
 
-<div align="center">
+- **Folder widgets on the desktop** — glassmorphism panels with fluid 60fps animations, auto-resizing to content
+- **File magnet** — drag files onto a widget; same-drive files are moved physically (instant), cross-drive files are kept by reference
+- **Safe by design** — deleting a widget moves its files back to your desktop; nothing is ever lost from the widget storage
+- **Theming** — dark / light modes and per-widget custom colors
+- **System tray** — quick settings and exit from the tray icon
+- **Single instance** — mutex-protected launch, optional auto-start with Windows
 
-| 🌌 Dark Elegance | ☀️ Light Clarity |
-|:---:|:---:|
-| ![Dark Theme](Screenshot/s2.png) | ![Light Theme](Screenshot/s1.png) |
+## Build
 
-| 🟢 Panel Interaction | ⚙️ Powerful Settings |
-|:---:|:---:|
-| ![Panel](Screenshot/s3.png) | ![Settings](Screenshot/s4.png) |
+Requires Windows with the .NET SDK (project targets `net48`, WPF).
 
-</div>
+```powershell
+dotnet build Kobold.csproj -c Release
+```
 
----
+Output: `bin\Release\net48\Kobold.exe`
 
-# 🇬🇧 English
+## Data
 
-## 🚀 Unleash Productivity with FoldRa
+- Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`)
+- Widget storage (moved files): `%AppData%\Kobold\Storage`
 
-**FoldRa** is not just a widget; it's a **desktop revolution**. Built with native C# performance, it transforms your chaotic desktop into a sleek, organized, and hyper-responsive workspace. Say goodbye to clutter and hello to the future of file management.
+## Development notes
 
-> *"It feels like it's part of Windows, but better."*
+- The upstream name/logo (exe icon, tray icon, settings-window icon) is still
+  the original FoldRa artwork; replacing it needs a transparent/`.ico` version
+  of the Kobold logo.
+- Upstream README/screenshots were dropped on purpose; current UI screenshots
+  can be added here once the first 二开 changes land.
 
-## ✨ Key Features
+## Credits & License
 
-### ⚡ Ultrafast Performance
-- **Zero Latency UI:** Experience butter-smooth updates and animations thanks to the optimized WPF rendering engine.
-- **Micro-Memory Footprint:** Uses negligible RAM (~20MB), ensuring your games and heavy apps run without interference.
-- **Smart Logic:** Files move physically on the same drive (instant) and reference-only across drives (safe), ensuring maximum speed and data integrity.
-
-### � Stunning Aesthetics
-- **Glassmorphism 2.0:** Beautiful, blurry translucent panels that adapt to your wallpaper.
-- **Fluid Animations:** Every click, hover, and drag is accompanied by satisfying, 60fps animations.
-- **Theme Engine:** Switch between Dark/Light modes or define your own custom colors.
-
-### 🧠 Smart Features
-- **File Magnet:** Drag files directly onto closed widgets to organize them instantly.
-- **Auto-Resize:** Panels grow and shrink dynamically based on content—no wasted space.
-- **Restoration Guarantee:** If you delete a widget, your files are harmlessly moved back to your desktop. No data loss, ever from FoldRa folder.
-
-## ⚠️ Important Installation Note (SmartScreen)
-
-When you run `FoldRa.exe` for the first time, you might see a **"Windows protected your PC"** (SmartScreen) warning.
-
-**This is completely normal.** 
-FoldRa is an open-source project and does not yet have an expensive digital billing certificate.
-
-**To Install:**
-1. Click **"More Info"** (Ek Bilgi)
-2. Click **"Run Anyway"** (Yine de Çalıştır)
-
-*Your safety is our priority. FoldRa is 100% open-source, and you can audit every line of code on this repository.*
-
-## 🛠️ Installation
-
-1. **Download Installer:** [FoldRa_Setup_v1.0.0.exe](Releases/FoldRa_Setup_v1.0.0.exe)
-   *(Or check [Releases](https://github.com/YusufEren97/FoldRa/releases) for other versions)*
-2. Run the setup file.
-3. Allow past the SmartScreen warning (see above).
-4. Enjoy your new desktop!
+Derived from [FoldRa](https://github.com/YusufEren97/FoldRa) by
+[Yusuf Eren Seyrek](https://github.com/YusufEren97) and
+[Mehmet Delin](https://github.com/Deleny), licensed under the MIT License.
+This project keeps the MIT license; see the original repository for upstream history.
 
 ---
 
-# 🇹🇷 Türkçe
+# 中文说明
 
-## � FoldRa ile Masaüstü Devrimi
+Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发项目：
+在桌面上放置毛玻璃风格的文件夹小组件，把文件拖进组件即可收纳整理；
+删除组件时，收纳的文件会自动移回桌面，不会丢失。
 
-**FoldRa** sıradan bir widget uygulaması değil; **masaüstü deneyiminizin geleceğidir**. Native C# gücüyle geliştirilen FoldRa, dağınık masaüstünüzü saniyesinde şık, organize ve ultra-hızlı bir çalışma alanına dönüştürür. 
+## 功能
 
-> *"Windows'un bir parçası gibi hissettiriyor, ama daha iyisi."*
+- **桌面文件夹小组件** — 毛玻璃半透明面板，60fps 流畅动画，随内容自动调整大小
+- **文件磁贴收纳** — 拖拽文件到组件即可收纳；同盘物理移动（瞬时），跨盘以引用方式保留
+- **安全回收** — 删除组件时文件自动归位到桌面，收纳区永不丢文件
+- **主题** — 深色/浅色模式 + 每个组件可自定义颜色
+- **托盘图标** — 快捷设置、退出
+- **单实例运行** — 互斥锁防重复启动，可选开机自启
 
-## ✨ Özellikler
+## 构建
 
-### ⚡ Işık Hızında Performans
-- **Sıfır Gecikme (Zero Latency):** Optimize edilmiş WPF motoru sayesinde takılmayan, anlık tepkiler veren arayüz.
-- **Minimum RAM Kullanımı:** Sadece ~20MB RAM tüketir. Oyunlarınızda veya ağır işlerinizde FPS düşüşüne asla sebep olmaz.
-- **Akıllı Taşıma Mantığı:** Aynı diskteki dosyaları fiziksel taşır (anlık), farklı disktekileri referans alır. Verileriniz her zaman güvende ve işlemleriniz ışık hızında.
+需要 Windows + .NET SDK（目标框架 `net48`，WPF）：
 
-### 🎨 Büyüleyici Görsellik
-- **Glassmorphism 2.0:** Masaüstü arka planınızla bütünleşen, bulanık ve şeffaf modern paneller.
-- **Akıcı Animasyonlar:** Her tıklama, her sürükleme ve her açılış 60fps akıcılığında.
-- **Tema Motoru:** İster Karanlık, ister Aydınlık mod kullanın veya klasörlerinize özel renkler atayın.
+```powershell
+dotnet build Kobold.csproj -c Release
+```
 
-### 🧠 Akıllı Yetenekler
-- **Dosya Mıknatısı:** Kapalı haldeki widget'a dosya sürüklediğinizde otomatik algılar ve içine alır.
-- **Dinamik Boyutlandırma:** Dosya sildiğinizde veya eklediğinizde panel anında yeniden boyutlanır. Boşluk kalmaz.
-- **Geri Yükleme Garantisi:** Bir widget'ı yanlışlıkla silseniz bile, içindeki dosyalar otomatik olarak masaüstünüze geri taşınır. Veri kaybı imkansız.
+产物：`bin\Release\net48\Kobold.exe`
 
-## ⚠️ Önemli Kurulum Notu (SmartScreen Uyarısı)
+## 数据目录
 
-`FoldRa.exe`'yi ilk kez çalıştırdığınızda mavi renkli **"Windows kişisel bilgisayarınızı korudu"** uyarısı görebilirsiniz.
+- 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）
+- 收纳文件存储：`%AppData%\Kobold\Storage`
 
-**Bu tamamen normaldir.**
-FoldRa açık kaynaklı, ücretsiz bir projedir ve pahalı dijital imza sertifikalarına sahip değildir. Microsoft, tanımadığı her yeni uygulama için bu uyarıyı verir.
+## 开发说明
 
-**Çalıştırmak İçin:**
-1. **"Ek Bilgi"** yazısına tıklayın.
-2. Altta çıkan **"Yine de Çalıştır"** butonuna tıklayın.
+- 程序图标（exe/托盘/设置窗口）目前仍是上游 FoldRa 原图，等提供透明底
+  或 `.ico` 版 Kobold 图标后统一替换
+- 上游 README 与截图已移除，待首批二开改动落地后再补充新截图
 
-*Güvenliğiniz önceliğimizdir. FoldRa %100 açık kaynaktır ve kodlarını bu sayfadan inceleyebilirsiniz.*
+## 许可
 
-## 🛠️ Kurulum
-
-1. **İndir:** [FoldRa_Setup_v1.0.0.exe](Releases/FoldRa_Setup_v1.0.0.exe)
-   *(Veya [Releases](https://github.com/YusufEren97/FoldRa/releases) sayfasından kontrol edin)*
-2. Kurulum dosyasını çalıştırın.
-3. SmartScreen uyarısını geçin (yukarıya bakın).
-4. Yeni masaüstünüzün keyfini çıkarın!
-
----
-
-## 👥 Team / Ekibimiz
-
-<div align="center">
-
-| Name / İsim | Role / Rol | GitHub |
-| :--- | :--- | :--- |
-| **Yusuf Eren Seyrek** | Project Manager & Lead Developer / Proje Yönetmeni & Baş Geliştirici | [@YusufEren97](https://github.com/YusufEren97) |
-| **Mehmet Delin** | Developer / Geliştirici | [@Deleny](https://github.com/Deleny) |
-
-</div>
-
----
-
-
-## 📄 License / Lisans
-
-This project is licensed under the MIT License.  
-Bu proje MIT Lisansı ile açık kaynak olarak sunulmaktadır.
-
----
-
-<div align="center">
-
-**Crafted with ❤️ by [Yusuf Eren Seyrek](https://github.com/YusufEren97) & [Mehmet Delin](https://github.com/Deleny)**
-
-</div>
+上游 [FoldRa](https://github.com/YusufEren97/FoldRa)（作者 Yusuf Eren Seyrek、
+Mehmet Delin）为 MIT 协议，本项目沿用 MIT 协议。
