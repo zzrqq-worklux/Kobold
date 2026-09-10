@@ -34,6 +34,11 @@ namespace Kobold.Core
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hwnd, int cmd);
 
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         /// <summary>Raw registry value; null when the key or value is absent.</summary>
         public static int? ReadRaw()
         {
@@ -93,21 +98,56 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Hides/shows the SysListView32 that holds the desktop icons, under
-        /// Progman's SHELLDLL_DefView. This changes just the icons - the wallpaper
-        /// (drawn by the DefView) stays visible.
+        /// Locates the SysListView32 that holds the desktop icons, or IntPtr.Zero.
+        /// Exposed so tests/DesktopIconsCheck can verify the lookup on the current
+        /// machine (Explorer reparents the DefView differently across systems).
+        /// </summary>
+        public static IntPtr FindDesktopIconList()
+        {
+            try
+            {
+                // Common case: SHELLDLL_DefView is a direct child of Progman.
+                var defView = FindDefViewUnderProgman();
+
+                // Fallback: wallpaper apps and some Windows versions reparent the
+                // DefView under a WorkerW top-level window instead.
+                if (defView == IntPtr.Zero) defView = FindDefViewInTopLevelWindows();
+
+                if (defView == IntPtr.Zero) return IntPtr.Zero;
+                return FindWindowEx(defView, IntPtr.Zero, "SysListView32", null);
+            }
+            catch { return IntPtr.Zero; }
+        }
+
+        private static IntPtr FindDefViewUnderProgman()
+        {
+            var progman = FindWindow("Progman", null);
+            if (progman == IntPtr.Zero) return IntPtr.Zero;
+            return FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
+        }
+
+        private static IntPtr FindDefViewInTopLevelWindows()
+        {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows((hWnd, lParam) =>
+            {
+                var defView = FindWindowEx(hWnd, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (defView == IntPtr.Zero) return true; // keep looking
+                found = defView;
+                return false; // found it - stop
+            }, IntPtr.Zero);
+            return found;
+        }
+
+        /// <summary>
+        /// Hides/shows the desktop icon list. This changes just the icons - the
+        /// wallpaper (drawn by the DefView) stays visible.
         /// </summary>
         private static bool ApplyToDesktopWindow(bool hide)
         {
             try
             {
-                var progman = FindWindow("Progman", null);
-                if (progman == IntPtr.Zero) return false;
-
-                var defView = FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
-                if (defView == IntPtr.Zero) return false;
-
-                var listView = FindWindowEx(defView, IntPtr.Zero, "SysListView32", null);
+                var listView = FindDesktopIconList();
                 if (listView == IntPtr.Zero) return false;
 
                 ShowWindow(listView, hide ? SW_HIDE : SW_SHOW);
