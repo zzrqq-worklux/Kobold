@@ -98,6 +98,9 @@ namespace Kobold.Controls
             Top = data.PosY;
             PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             
+            // Never leave the grabbing cursor stuck if capture is lost mid-drag.
+            PanelHeader.LostMouseCapture += (s, e) => System.Windows.Input.Mouse.OverrideCursor = null;
+            
             // Subscribe to theme changes for automatic updates
             ThemeManager.ThemeChanged += OnThemeChanged;
             
