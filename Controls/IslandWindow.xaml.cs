@@ -30,7 +30,6 @@ namespace Kobold.Controls
 
         private bool _isExpanded;
         private List<FolderData> _folders = new List<FolderData>();
-        private readonly DispatcherTimer _collapseTimer;
         private readonly DispatcherTimer _leaveTimer;
 
         /// <summary>Raised with the folder id when a widget tile is clicked.</summary>
@@ -40,23 +39,13 @@ namespace Kobold.Controls
         {
             InitializeComponent();
 
-            _collapseTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_COLLAPSE_DELAY_MS)
-            };
-            _collapseTimer.Tick += (s, e) => Collapse();
-
             _leaveTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_LEAVE_DELAY_MS)
             };
             _leaveTimer.Tick += (s, e) => Collapse();
 
-            Closed += (s, e) =>
-            {
-                _collapseTimer.Stop();
-                _leaveTimer.Stop();
-            };
+            Closed += (s, e) => _leaveTimer.Stop();
 
             UpdateWindowGeometry();
         }
@@ -89,13 +78,7 @@ namespace Kobold.Controls
         private void Window_MouseLeave(object sender, MouseEventArgs e)
         {
             if (!_isExpanded) return;
-            _collapseTimer.Stop();
             _leaveTimer.Start();
-        }
-
-        private void Window_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (_isExpanded) RestartIdleTimer();
         }
 
         private void Expand()
@@ -107,8 +90,6 @@ namespace Kobold.Controls
             double width = GetExpandedWidth();
             AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
             ShowTiles();
-
-            RestartIdleTimer();
         }
 
         /// <summary>Expands the island on demand (tray / second-instance activation).</summary>
@@ -119,7 +100,6 @@ namespace Kobold.Controls
 
         private void Collapse()
         {
-            _collapseTimer.Stop();
             _leaveTimer.Stop();
             if (!_isExpanded) return;
             _isExpanded = false;
@@ -128,12 +108,6 @@ namespace Kobold.Controls
             HideTiles();
             AnimateTo(WidgetConstants.ISLAND_HOVER_WIDTH, WidgetConstants.ISLAND_HOVER_HEIGHT,
                       WidgetConstants.ISLAND_PILL_WIDTH, WidgetConstants.ISLAND_PILL_HEIGHT);
-        }
-
-        private void RestartIdleTimer()
-        {
-            _collapseTimer.Stop();
-            _collapseTimer.Start();
         }
 
         private void ShowTiles()
@@ -205,7 +179,11 @@ namespace Kobold.Controls
         private double GetExpandedWidth()
         {
             int count = Math.Max(1, _folders.Count);
-            return 24 + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP);
+            double content = 24 + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP);
+            // Safety cap so the island can never grow wider than the screen. Only
+            // relevant with ~28+ widgets, which is well beyond normal use.
+            double max = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, SystemParameters.PrimaryScreenWidth - 2 * ShadowPadding);
+            return Math.Min(content, max);
         }
 
         /// <summary>

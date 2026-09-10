@@ -21,15 +21,11 @@ namespace Kobold.Controls
         
         #region Expand/Collapse
         
-        private double _originalLeft; // Store original window position when expanding
-        private double _originalTop;  // Store original Y position when expanding
-        private bool _openedToLeft;   // Track which direction panel opened
-        
         /// <summary>
         /// Shows the expanded panel, using this widget's remembered position when it has
         /// one, otherwise the supplied default (below the island). Used by the island.
         /// </summary>
-        public void ShowPanel(double defaultLeft, double defaultTop)
+        public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true)
         {
             UpdateUI();
 
@@ -49,8 +45,16 @@ namespace Kobold.Controls
             Top = y;
 
             _isExpanded = true;
-            if (!IsVisible) Show();
-            Activate();
+            if (!IsVisible)
+            {
+                // Opening several panels together ("Show All") must not activate each
+                // one: activation would deactivate and hide the previous panel, which
+                // shows up as flicker. Only a single, user-triggered open activates.
+                if (!activate) ShowActivated = false;
+                Show();
+                ShowActivated = true;
+            }
+            if (activate) Activate();
             AnimationHelper.PanelOpen(ExpandedPanel);
         }
 
@@ -153,88 +157,6 @@ namespace Kobold.Controls
 
         #endregion
 
-        private void TogglePanel()
-        {
-            _isExpanded = !_isExpanded;
-            
-            if (_isExpanded)
-            {
-                var (panelWidth, panelHeight) = CalculatePanelSize();
-                ExpandedPanel.Width = panelWidth;
-                ExpandedPanel.Height = panelHeight;
-                ExpandedPanel.Visibility = Visibility.Visible;
-                
-                double screenWidth = SystemParameters.PrimaryScreenWidth;
-                double screenHeight = SystemParameters.PrimaryScreenHeight;
-                double totalWidth = WIDGET_WIDTH + ICON_SPACING + panelWidth;
-                
-                // Store original window position
-                _originalLeft = Left;
-                _originalTop = Top;
-                
-                // Check if panel would go off right edge
-                _openedToLeft = (Left + totalWidth) > screenWidth;
-                
-                Width = totalWidth;
-                Height = Math.Max(110, panelHeight);
-                
-                // Check if panel would go off bottom edge and adjust
-                double newTop = Top;
-                if (Top + Height > screenHeight)
-                {
-                    newTop = screenHeight - Height;
-                    if (newTop < 0) newTop = 0; // Don't go above screen
-                    Top = newTop;
-                }
-                
-                if (_openedToLeft)
-                {
-                    // Open to LEFT: Panel on left, folder icon on right
-                    // Move window left so folder icon stays in same screen position
-                    Left = _originalLeft - panelWidth - ICON_SPACING;
-                    
-                    // Position elements within Canvas
-                    System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);  // Panel at left
-                    System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, panelWidth + ICON_SPACING); // Icon at right
-                }
-                else
-                {
-                    // Open to RIGHT: Folder icon on left, panel on right (default)
-                    System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, 0);  // Icon at left
-                    System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, DEFAULT_PANEL_LEFT); // Panel at right
-                }
-                
-                // Animate in with slide + fade effect
-                AnimationHelper.PanelOpen(ExpandedPanel, _openedToLeft);
-                
-                // Note: Grid columns are now handled via BindableUniformGrid binding
-            }
-            else
-            {
-                // Clear selections when closing panel
-                ClearAllSelections();
-                double restoreLeft = _originalLeft;
-                double restoreTop = _originalTop;
-                
-                AnimationHelper.PanelClose(ExpandedPanel, _openedToLeft, () =>
-                {
-                    ExpandedPanel.Visibility = Visibility.Collapsed;
-                    ExpandedPanel.RenderTransform = null; // Reset transform
-                    
-                    // Reset Canvas positions to default
-                    System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, 0);
-                    System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, DEFAULT_PANEL_LEFT);
-                    
-                    Width = WIDGET_WIDTH;
-                    Height = WIDGET_HEIGHT;
-                    
-                    // Restore original window position
-                    Left = restoreLeft;
-                    Top = restoreTop;
-                });
-            }
-        }
-
         private void Window_Deactivated(object sender, EventArgs e)
         {
             // Always clear selection when window loses focus
@@ -330,118 +252,6 @@ namespace Kobold.Controls
             LockButtonScale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
         }
         
-        #endregion
-
-        #region Folder Icon Mouse Events
-
-        private void FolderIcon_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ChangedButton != MouseButton.Left) return;
-            if (_data.IsLocked) return; // Locked widgets keep click-to-toggle but never move
-
-            // Snapshot the drag anchor. A click (no movement) toggles the panel on
-            // MouseUp. DragMove() is intentionally NOT used: its modal loop swallows
-            // MouseLeftButtonUp, which breaks click-to-toggle on unlocked widgets.
-            var cursor = System.Windows.Forms.Cursor.Position;
-            _dragStartCursor = new Point(cursor.X, cursor.Y);
-            _dragStartLeft = Left;
-            _dragStartTop = Top;
-            _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
-            _isDraggingWindow = false;
-            Mouse.Capture(FolderIconGrid);
-        }
-
-        private void FolderIcon_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (e.LeftButton != MouseButtonState.Pressed) return;
-            if (_data.IsLocked || !ReferenceEquals(Mouse.Captured, FolderIconGrid)) return;
-
-            var cursor = System.Windows.Forms.Cursor.Position;
-            // Cursor.Position is in physical pixels; WPF Left/Top are DIPs.
-            double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
-            double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
-
-            if (!_isDraggingWindow)
-            {
-                // Only become a window drag after a real movement threshold
-                if (Math.Abs(dx) < DRAG_THRESHOLD && Math.Abs(dy) < DRAG_THRESHOLD) return;
-                _isDraggingWindow = true;
-                AnimationHelper.StartDrag(this);
-            }
-
-            // Absolute positioning from the mouse-down anchor. Both the cursor and
-            // WPF's Left/Top live in the same (possibly DPI-virtualized) coordinate
-            // space, so assigning Left/Top keeps the icon glued to the cursor at any
-            // display scale. Never multiply by a manual DPI factor here.
-            Left = _dragStartLeft + dx;
-            Top = _dragStartTop + dy;
-            e.Handled = true;
-        }
-
-        private void FolderIcon_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ChangedButton != MouseButton.Left) return;
-            Mouse.Capture(null);
-
-            if (_isDraggingWindow)
-            {
-                // Window was dragged - persist the new position
-                _isDraggingWindow = false;
-                AnimationHelper.EndDrag(this);
-                PersistWidgetPosition();
-                return;
-            }
-
-            // Pinned panels stay open: icon clicks never expand/collapse them
-            if (_data.IsPanelPinned) return;
-
-            // Plain click: toggle the panel (locked widgets toggle too; they never drag)
-            TogglePanel();
-        }
-
-        /// <summary>
-        /// Saves the folder-icon screen position (window Left may differ from the
-        /// icon position while the panel is expanded to the left)
-        /// </summary>
-        private void PersistWidgetPosition()
-        {
-            double iconX;
-            if (_isExpanded)
-            {
-                var (panelWidth, _) = CalculatePanelSize();
-                iconX = _openedToLeft ? Left + panelWidth + ICON_SPACING : Left;
-            }
-            else
-            {
-                iconX = Left;
-            }
-            _data.PosX = (int)iconX;
-            _data.PosY = (int)Top;
-            OnDataChanged?.Invoke();
-        }
-
-        private void FolderIcon_RightClick(object sender, MouseButtonEventArgs e)
-        {
-            ShowFolderContextMenu();
-            e.Handled = true;
-        }
-
-        private void FolderIcon_MouseEnter(object sender, MouseEventArgs e)
-        {
-            if (!_isDraggingWindow)
-            {
-                AnimationHelper.HoverEnter(IconScale);
-            }
-        }
-
-        private void FolderIcon_MouseLeave(object sender, MouseEventArgs e)
-        {
-            if (!_isDraggingWindow)
-            {
-                AnimationHelper.HoverLeave(IconScale);
-            }
-        }
-
         #endregion
 
         #region Item Hover Events

@@ -151,7 +151,6 @@ namespace Kobold.Controls
                 colorBorder.MouseLeftButtonUp += (s, e) => 
                 { 
                     _data.Color = col; 
-                    DrawFolderIcon();
                     RefreshTheme();  // This updates panel colors AND item text colors
                     OnDataChanged?.Invoke(); 
                     dlg.Close(); 

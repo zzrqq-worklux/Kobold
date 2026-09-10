@@ -13,74 +13,7 @@
     <Grid x:Name="RootGrid">
         <!-- Use Canvas for absolute positioning - prevents any shifting -->
         <Canvas>
-            <!-- Folder Icon - Fixed Position at 0,0 -->
-            <Grid x:Name="FolderIconGrid" Width="96" Height="110" 
-                  Canvas.Left="0" Canvas.Top="0"
-                  Visibility="Collapsed"
-                  MouseLeftButtonDown="FolderIcon_MouseDown"
-                  MouseLeftButtonUp="FolderIcon_MouseUp"
-                  MouseMove="FolderIcon_MouseMove"
-                  MouseEnter="FolderIcon_MouseEnter"
-                  MouseLeave="FolderIcon_MouseLeave"
-                  MouseRightButtonUp="FolderIcon_RightClick"
-                  DragEnter="Window_DragEnter" DragLeave="Window_DragLeave" Drop="Window_Drop"
-                  Cursor="Hand">
-                
-                <!-- Glow Effect -->
-                <Ellipse x:Name="GlowEffect" Width="80" Height="80" 
-                         HorizontalAlignment="Center" VerticalAlignment="Top"
-                         Opacity="0">
-                    <Ellipse.Fill>
-                        <RadialGradientBrush>
-                            <GradientStop x:Name="GlowColor" Color="#803B82F6" Offset="0"/>
-                            <GradientStop Color="#00000000" Offset="1"/>
-                        </RadialGradientBrush>
-                    </Ellipse.Fill>
-                </Ellipse>
-                
-                <!-- Folder Icon Canvas -->
-                <Canvas x:Name="FolderIconCanvas" Width="64" Height="64" 
-                        HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0">
-                    <Canvas.RenderTransform>
-                        <ScaleTransform x:Name="IconScale" ScaleX="1" ScaleY="1" CenterX="32" CenterY="32"/>
-                    </Canvas.RenderTransform>
-                </Canvas>
-                
-                <!-- Badge -->
-                <Border x:Name="BadgeBorder" MinWidth="20" Height="20" CornerRadius="10"
-                        HorizontalAlignment="Right" VerticalAlignment="Top" Padding="4,0"
-                        Margin="0,4,14,0" Visibility="Collapsed">
-                    <Border.Effect>
-                        <DropShadowEffect ShadowDepth="1" BlurRadius="4" Opacity="0.5"/>
-                    </Border.Effect>
-                    <TextBlock x:Name="BadgeText" Text="0" Foreground="White" 
-                               FontSize="10" FontWeight="Bold"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-                
-                <!-- Lock Indicator -->
-                <Border x:Name="LockBadge" Width="20" Height="20" CornerRadius="10"
-                        HorizontalAlignment="Left" VerticalAlignment="Top" 
-                        Margin="6,2,0,0" Visibility="Collapsed"
-                        Background="#80FFFFFF">
-                    <Border.Effect>
-                        <DropShadowEffect ShadowDepth="1" BlurRadius="3" Opacity="0.3"/>
-                    </Border.Effect>
-                    <Canvas Width="12" Height="12" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <!-- Simple Lock Icon Path -->
-                        <Path Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
-                              Fill="#404040" />
-                    </Canvas>
-                </Border>
-                
-                <!-- Folder Name -->
-                <TextBlock x:Name="FolderNameText" Text="Folder"
-                           FontSize="11" FontWeight="SemiBold" FontFamily="Segoe UI"
-                           HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                           Margin="0,0,0,6" TextTrimming="CharacterEllipsis" MaxWidth="90"/>
-            </Grid>
-            
-            <!-- Expanded Panel - fills the window in island mode (icon is hidden) -->
+            <!-- Expanded Panel - fills the window (island mode: no desktop icon) -->
             <Border x:Name="ExpandedPanel" 
                     Canvas.Left="0" Canvas.Top="0"
                     CornerRadius="16"

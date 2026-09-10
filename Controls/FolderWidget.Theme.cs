@@ -22,9 +22,6 @@ namespace Kobold.Controls
             // Apply all theme colors synchronously
             ApplyThemeColors();
             
-            // Refresh folder icon with new colors
-            DrawFolderIcon();
-            
             // Refresh items display (includes text color binding)
             UpdateUI();
         }
@@ -35,10 +32,6 @@ namespace Kobold.Controls
         private void ApplyThemeColors()
         {
             var textBrush = ThemeManager.TextBrush;
-            
-            // Folder name (widget label) - always white for visibility on any wallpaper
-            FolderNameText.Foreground = new SolidColorBrush(Colors.White);
-            FolderNameText.Effect = null; // No effect for crisp text
             
             // Panel header text
             PanelHeaderText.Foreground = textBrush;
@@ -112,15 +105,6 @@ namespace Kobold.Controls
             
             // Header text color
             PanelHeaderText.Foreground = new SolidColorBrush(isDark ? Colors.White : Color.FromRgb(40, 40, 40));
-            
-            // Folder name text below icon - always white (already set in ApplyThemeColors)
-            // No shadow effect for crisp, clean text
-            
-            var glowBrush = GlowEffect.Fill as RadialGradientBrush;
-            if (glowBrush != null && glowBrush.GradientStops.Count > 0)
-            {
-                glowBrush.GradientStops[0].Color = Color.FromArgb(128, baseColor.R, baseColor.G, baseColor.B);
-            }
         }
 
         /// <summary>
@@ -145,19 +129,7 @@ namespace Kobold.Controls
             UpdatePanelColor();
         }
 
-        private void DrawFolderIcon()
-        {
-            FolderIconCanvas.Children.Clear();
-            
-            string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
-            
-            // Use IconRendererFactory - all icon drawing code is now in IconRenderers folder
-            var renderer = IconRenderers.IconRendererFactory.Create(iconStyle);
-            renderer.Render(FolderIconCanvas, _data.Color);
-        }
-        
         #region Helper Methods
-
         private UniformGrid FindUniformGrid(DependencyObject parent)
         {
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)

@@ -44,10 +44,6 @@ namespace Kobold.Controls
         
         // Constants from WidgetConstants for local access
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
-        private const int WIDGET_WIDTH = WidgetConstants.WIDGET_WIDTH;
-        private const int WIDGET_HEIGHT = WidgetConstants.WIDGET_HEIGHT;
-        private const int ICON_SPACING = WidgetConstants.ICON_SPACING;
-        private const int DEFAULT_PANEL_LEFT = WidgetConstants.DEFAULT_PANEL_LEFT;
         private const int BASE_ITEM_WIDTH = WidgetConstants.BASE_ITEM_WIDTH;
         private const int BASE_ITEM_HEIGHT = WidgetConstants.BASE_ITEM_HEIGHT;
         private const int ITEM_MARGIN = WidgetConstants.ITEM_MARGIN;
@@ -130,24 +126,10 @@ namespace Kobold.Controls
 
         public void UpdateUI()
         {
-            FolderNameText.Text = _data.Name;
             PanelHeaderText.Text = _data.Name;
             PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             
-            // Badge
-            if (_data.Items.Count > 0)
-            {
-                BadgeBorder.Visibility = Visibility.Visible;
-                BadgeBorder.Background = new SolidColorBrush(Utils.HexToColor(_data.Color));
-                BadgeText.Text = _data.Items.Count > 99 ? "99+" : _data.Items.Count.ToString();
-            }
-            else
-            {
-                BadgeBorder.Visibility = Visibility.Collapsed;
-            }
-            
-            // Lock indicator
-            LockBadge.Visibility = _data.IsLocked ? Visibility.Visible : Visibility.Collapsed;
+            // Lock indicator (header button)
             UpdateLockButtonVisual();
             
             // Apply item scale transform BEFORE setting items

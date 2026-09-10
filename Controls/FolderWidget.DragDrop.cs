@@ -5,7 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
-using Kobold.Helpers;
 
 namespace Kobold.Controls
 {
@@ -19,41 +18,6 @@ namespace Kobold.Controls
         
         #region External File Drop
         
-        private void Window_DragEnter(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                AnimationHelper.DropHighlight(GlowEffect, IconScale);
-            }
-        }
-
-        private void Window_DragLeave(object sender, DragEventArgs e)
-        {
-            AnimationHelper.DropReset(GlowEffect, IconScale);
-        }
-
-        private void Window_Drop(object sender, DragEventArgs e)
-        {
-            AnimationHelper.DropReset(GlowEffect, IconScale);
-            
-            // Prevent drops if widget is locked
-            if (_data.IsLocked)
-            {
-                e.Handled = true;
-                return;
-            }
-            
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-            {
-                AddExternalPaths((string[])e.Data.GetData(DataFormats.FileDrop));
-                
-                if (!_isExpanded)
-                {
-                    TogglePanel();
-                }
-            }
-        }
-
         /// <summary>
         /// Adds externally dropped files as pure references: the source file stays
         /// in place (path-safe for projects like Obsidian vaults), and its desktop

@@ -93,12 +93,12 @@ namespace Kobold.Core
         }
 
         /// <summary>Opens a widget's panel; defaults to just below the island when unplaced.</summary>
-        private void OpenPanel(FolderWidget widget)
+        private void OpenPanel(FolderWidget widget, bool activate = true)
         {
             if (_island == null) return;
             var (panelWidth, _) = widget.GetPanelSize();
             double left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - panelWidth) / 2);
-            widget.ShowPanel(left, _island.PanelTop);
+            widget.ShowPanel(left, _island.PanelTop, activate);
         }
 
         /// <summary>
@@ -164,17 +164,30 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Opens every widget's panel
+        /// Opens every widget's panel, one at a time. Rendering them all in the
+        /// same frame flickers, so each is opened a short interval after the last.
         /// </summary>
         public void ShowAll()
         {
-            foreach (var widget in _widgets)
+            var pending = _widgets.Where(w => !w.IsPanelOpen).ToList();
+            if (pending.Count == 0) return;
+
+            int index = 0;
+            var timer = new System.Windows.Threading.DispatcherTimer
             {
-                if (!widget.IsPanelOpen)
+                Interval = TimeSpan.FromMilliseconds(80)
+            };
+            timer.Tick += (s, e) =>
+            {
+                if (index >= pending.Count)
                 {
-                    OpenPanel(widget);
+                    timer.Stop();
+                    return;
                 }
-            }
+                OpenPanel(pending[index], activate: false);
+                index++;
+            };
+            timer.Start();
         }
 
         /// <summary>

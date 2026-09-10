@@ -6,22 +6,6 @@ namespace Kobold.Core
     /// </summary>
     public static class WidgetConstants
     {
-        #region Widget Dimensions
-        
-        /// <summary>Widget icon area width</summary>
-        public const int WIDGET_WIDTH = 96;
-        
-        /// <summary>Widget icon area height</summary>
-        public const int WIDGET_HEIGHT = 110;
-        
-        /// <summary>Space between widget icon and panel</summary>
-        public const int ICON_SPACING = 8;
-        
-        /// <summary>Default panel left position (WIDGET_WIDTH + ICON_SPACING)</summary>
-        public const int DEFAULT_PANEL_LEFT = 104;
-        
-        #endregion
-        
         #region Item Dimensions
         
         /// <summary>Base item width at scale 1.0</summary>
@@ -73,9 +57,6 @@ namespace Kobold.Core
 
         /// <summary>Vertical gap between the island and an opened panel</summary>
         public const int ISLAND_PANEL_GAP = 8;
-
-        /// <summary>Auto-collapse after this many ms without interaction</summary>
-        public const int ISLAND_COLLAPSE_DELAY_MS = 4000;
 
         /// <summary>Collapse this many ms after the mouse leaves the island</summary>
         public const int ISLAND_LEAVE_DELAY_MS = 1500;

@@ -21,8 +21,7 @@
               Width="300" Height="10"
               Background="Transparent"
               MouseEnter="Window_MouseEnter"
-              MouseLeave="Window_MouseLeave"
-              MouseMove="Window_MouseMove">
+              MouseLeave="Window_MouseLeave">
 
             <Rectangle x:Name="PillShape"
                        Width="120" Height="8"
