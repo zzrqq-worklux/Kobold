@@ -25,6 +25,134 @@ namespace Kobold.Controls
         private double _originalTop;  // Store original Y position when expanding
         private bool _openedToLeft;   // Track which direction panel opened
         
+        /// <summary>
+        /// Shows the expanded panel, using this widget's remembered position when it has
+        /// one, otherwise the supplied default (below the island). Used by the island.
+        /// </summary>
+        public void ShowPanel(double defaultLeft, double defaultTop)
+        {
+            UpdateUI();
+
+            var (panelWidth, panelHeight) = CalculatePanelSize();
+            ExpandedPanel.Width = panelWidth;
+            ExpandedPanel.Height = panelHeight;
+            ExpandedPanel.Visibility = Visibility.Visible;
+            System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
+            System.Windows.Controls.Canvas.SetTop(ExpandedPanel, 0);
+            Width = panelWidth;
+            Height = panelHeight;
+
+            double x = _data.PanelX ?? defaultLeft;
+            double y = _data.PanelY ?? defaultTop;
+            ClampToScreen(ref x, ref y, panelWidth, panelHeight);
+            Left = x;
+            Top = y;
+
+            _isExpanded = true;
+            if (!IsVisible) Show();
+            Activate();
+            AnimationHelper.PanelOpen(ExpandedPanel);
+        }
+
+        /// <summary>Fades the panel out and hides its window.</summary>
+        public void HidePanel()
+        {
+            if (!_isExpanded)
+            {
+                if (IsVisible) Hide();
+                return;
+            }
+
+            ClearAllSelections();
+            _isExpanded = false;
+            AnimationHelper.PanelClose(ExpandedPanel, false, () =>
+            {
+                ExpandedPanel.Visibility = Visibility.Collapsed;
+                Hide();
+            });
+        }
+
+        private static void ClampToScreen(ref double x, ref double y, double width, double height)
+        {
+            double minX = SystemParameters.VirtualScreenLeft;
+            double minY = SystemParameters.VirtualScreenTop;
+            double maxX = minX + SystemParameters.VirtualScreenWidth - width;
+            double maxY = minY + SystemParameters.VirtualScreenHeight - height;
+            x = Math.Max(minX, Math.Min(x, maxX));
+            y = Math.Max(minY, Math.Min(y, maxY));
+        }
+
+        #region Panel Drag (header handle)
+
+        private void PanelHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+
+            if (_data.IsLocked)
+            {
+                // Locked: the panel cannot move - flash the lock as feedback.
+                FlashLockIndicator();
+                e.Handled = true;
+                return;
+            }
+
+            // Snapshot the anchor; a click without movement is not a drag.
+            var cursor = System.Windows.Forms.Cursor.Position;
+            _dragStartCursor = new Point(cursor.X, cursor.Y);
+            _dragStartLeft = Left;
+            _dragStartTop = Top;
+            _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
+            _isDraggingWindow = false;
+            Mouse.Capture(PanelHeader);
+            e.Handled = true;
+        }
+
+        private void PanelHeader_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) return;
+            if (_data.IsLocked || !ReferenceEquals(Mouse.Captured, PanelHeader)) return;
+
+            var cursor = System.Windows.Forms.Cursor.Position;
+            double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
+            double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
+
+            if (!_isDraggingWindow)
+            {
+                if (Math.Abs(dx) < DRAG_THRESHOLD && Math.Abs(dy) < DRAG_THRESHOLD) return;
+                _isDraggingWindow = true;
+            }
+
+            Left = _dragStartLeft + dx;
+            Top = _dragStartTop + dy;
+            e.Handled = true;
+        }
+
+        private void PanelHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            Mouse.Capture(null);
+
+            if (_isDraggingWindow)
+            {
+                _isDraggingWindow = false;
+                // Remember where the user parked this panel.
+                _data.PanelX = Left;
+                _data.PanelY = Top;
+                OnDataChanged?.Invoke();
+            }
+            e.Handled = true;
+        }
+
+        private void PanelHeader_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            // The desktop folder icon (old menu host) is gone in island mode, so the
+            // widget menu - rename / color / lock / grid / size / delete - lives here.
+            ShowFolderContextMenu();
+            e.Handled = true;
+        }
+
+        #endregion
+
         private void TogglePanel()
         {
             _isExpanded = !_isExpanded;
@@ -115,7 +243,7 @@ namespace Kobold.Controls
             // Don't close panel if pinned
             if (_isExpanded && !_data.IsPanelPinned)
             {
-                TogglePanel();
+                HidePanel();
             }
         }
         
@@ -130,8 +258,8 @@ namespace Kobold.Controls
                 }
                 else
                 {
-                    // Panel not pinned - close it (also clears selection)
-                    TogglePanel();
+                    // Panel not pinned - hide it (also clears selection)
+                    HidePanel();
                 }
                 e.Handled = true;
             }
@@ -163,6 +291,43 @@ namespace Kobold.Controls
                 PinIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
                 PinButton.ToolTip = "Pin panel (keep open after restart)";
             }
+        }
+        
+        private void LockButton_Click(object sender, MouseButtonEventArgs e)
+        {
+            _data.IsLocked = !_data.IsLocked;
+            UpdateUI();
+            OnDataChanged?.Invoke();
+            e.Handled = true;
+        }
+
+        private void UpdateLockButtonVisual()
+        {
+            if (_data.IsLocked)
+            {
+                LockIcon.Fill = ThemeManager.PinGoldBrush;
+                LockIcon.Stroke = ThemeManager.PinDarkGoldBrush;
+                LockButton.ToolTip = Localization.Get("UI_UnlockTooltip");
+            }
+            else
+            {
+                LockIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
+                LockIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
+                LockButton.ToolTip = Localization.Get("UI_LockTooltip");
+            }
+
+            // Locked panels cannot be dragged - show a forbidden cursor over the header.
+            PanelHeader.Cursor = _data.IsLocked ? Cursors.No : Cursors.SizeAll;
+        }
+
+        private void FlashLockIndicator()
+        {
+            var pulse = new DoubleAnimationUsingKeyFrames();
+            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.4, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(120))));
+            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(320))));
+            LockButtonScale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+            LockButtonScale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
         }
         
         #endregion
@@ -387,27 +552,11 @@ namespace Kobold.Controls
             new MenuBuilder()
                 .AddItem("Menu_Rename", ShowRenameDialog)
                 .AddItem("Menu_ChangeColor", ShowColorPicker)
-                .AddMenuItem(CreateLockMenuItem())
                 .AddMenuItem(CreateGridSizeMenu())
                 .AddMenuItem(CreateItemSizeMenu())
                 .AddSeparator()
                 .AddMenuItem(CreateDeleteMenuItem())
                 .Show();
-        }
-        
-        private MenuItem CreateLockMenuItem()
-        {
-            var item = new MenuItem 
-            { 
-                Header = _data.IsLocked ? Localization.Get("Menu_UnlockWidget") : Localization.Get("Menu_LockWidget")
-            };
-            item.Click += (s, a) =>
-            {
-                _data.IsLocked = !_data.IsLocked;
-                UpdateUI();
-                OnDataChanged?.Invoke();
-            };
-            return item;
         }
         
         private MenuItem CreateGridSizeMenu()
@@ -422,39 +571,10 @@ namespace Kobold.Controls
                     GridColumns = c;
                     UpdateUI();
                     OnDataChanged?.Invoke(); 
-                    
-                    if (_isExpanded) 
-                    { 
-                        ResizePanelForGridChange();
-                    } 
                 };
                 gridItem.Items.Add(colItem);
             }
             return gridItem;
-        }
-        
-        private void ResizePanelForGridChange()
-        {
-            var (panelWidth, panelHeight) = CalculatePanelSize();
-            double oldWidth = Width;
-            double newWidth = WIDGET_WIDTH + ICON_SPACING + panelWidth;
-            
-            ExpandedPanel.Width = panelWidth;
-            ExpandedPanel.Height = panelHeight;
-            Width = newWidth;
-            Height = Math.Max(110, panelHeight);
-            
-            if (_openedToLeft)
-            {
-                Left = Left - (newWidth - oldWidth);
-                System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
-                System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, panelWidth + 8);
-            }
-            else
-            {
-                System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, 0);
-                System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 104);
-            }
         }
         
         private MenuItem CreateItemSizeMenu()
@@ -491,11 +611,6 @@ namespace Kobold.Controls
             foreach (var widget in WidgetManager.Instance.Widgets)
             {
                 widget.UpdateUI();
-                if (widget._isExpanded)
-                {
-                    widget.TogglePanel();
-                    widget.TogglePanel();
-                }
             }
         }
         

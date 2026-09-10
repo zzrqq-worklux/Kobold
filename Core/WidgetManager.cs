@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows;
 using Kobold.Core;
 using Kobold.Controls;
 
@@ -16,6 +17,7 @@ namespace Kobold.Core
         
         private AppConfig _config;
         private List<FolderWidget> _widgets = new List<FolderWidget>();
+        private IslandWindow _island;
 
         public static WidgetManager Instance
         {
@@ -57,6 +59,46 @@ namespace Kobold.Core
             {
                 CreateWidgetInternal(folderData);
             }
+
+            // The island is the shared entry point that launches widget panels
+            _island = new IslandWindow();
+            _island.WidgetActivated += OnWidgetActivated;
+            RefreshIsland();
+            _island.Show();
+        }
+
+        /// <summary>
+        /// Refreshes the widget tiles shown by the island.
+        /// </summary>
+        public void RefreshIsland()
+        {
+            _island?.SetWidgets(_config.Folders);
+        }
+
+        /// <summary>
+        /// Opens the clicked widget's panel centered below the island.
+        /// </summary>
+        private void OnWidgetActivated(string folderId)
+        {
+            var widget = _widgets.FirstOrDefault(w => w.FolderId == folderId);
+            if (widget == null || _island == null) return;
+
+            if (widget.IsPanelOpen)
+            {
+                widget.HidePanel();
+                return;
+            }
+
+            OpenPanel(widget);
+        }
+
+        /// <summary>Opens a widget's panel; defaults to just below the island when unplaced.</summary>
+        private void OpenPanel(FolderWidget widget)
+        {
+            if (_island == null) return;
+            var (panelWidth, _) = widget.GetPanelSize();
+            double left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - panelWidth) / 2);
+            widget.ShowPanel(left, _island.PanelTop);
         }
 
         /// <summary>
@@ -65,7 +107,9 @@ namespace Kobold.Core
         public FolderWidget CreateWidget(string name, string color, int posX, int posY, int gridColumns = 3)
         {
             var folderData = _config.AddFolder(name, color, posX, posY, gridColumns);
-            return CreateWidgetInternal(folderData);
+            var widget = CreateWidgetInternal(folderData);
+            RefreshIsland();
+            return widget;
         }
 
         /// <summary>
@@ -79,15 +123,16 @@ namespace Kobold.Core
             {
                 _widgets.Remove(w);
                 _config.RemoveFolder(w.FolderId);
+                RefreshIsland();
             };
             
             widget.OnDataChanged += () =>
             {
                 SaveConfig();
+                RefreshIsland();
             };
             
             _widgets.Add(widget);
-            widget.Show();
             
             return widget;
         }
@@ -103,29 +148,32 @@ namespace Kobold.Core
                 _widgets.Remove(widget);
                 widget.Close();
                 _config.RemoveFolder(id);
+                RefreshIsland();
             }
         }
 
         /// <summary>
-        /// Shows all widgets
+        /// Opens every widget's panel
         /// </summary>
         public void ShowAll()
         {
             foreach (var widget in _widgets)
             {
-                widget.Show();
-                widget.Activate();
+                if (!widget.IsPanelOpen)
+                {
+                    OpenPanel(widget);
+                }
             }
         }
 
         /// <summary>
-        /// Hides all widgets
+        /// Hides every widget's panel
         /// </summary>
         public void HideAll()
         {
             foreach (var widget in _widgets)
             {
-                widget.Hide();
+                widget.HidePanel();
             }
         }
 

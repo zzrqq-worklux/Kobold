@@ -185,6 +185,9 @@ namespace Kobold.Controls
             
             return (width, height);
         }
+
+        /// <summary>Panel size (DIP) for the current content - used to place the panel.</summary>
+        public (int width, int height) GetPanelSize() => CalculatePanelSize();
         
         #endregion
     }

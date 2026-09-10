@@ -56,6 +56,8 @@ namespace Kobold.Core
         public int GridColumns { get; set; } // Default 3, user can change
         public bool IsLocked { get; set; } // Widget lock state
         public bool IsPanelPinned { get; set; } // Keep panel always open
+        public double? PanelX { get; set; } // Remembered panel top-left (null = never dragged)
+        public double? PanelY { get; set; }
         public ObservableCollection<WidgetItem> Items { get; set; }
 
         public FolderData()

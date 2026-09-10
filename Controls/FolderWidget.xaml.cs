@@ -4,7 +4,6 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using Kobold.Core;
 using Localization = Kobold.Core.Localization;
 
@@ -73,6 +72,7 @@ namespace Kobold.Controls
         public event Action OnDataChanged;
         public FolderData Data => _data;
         public string FolderId => _data.Id;
+        public bool IsPanelOpen => _isExpanded;
         
         /// <summary>
         /// Grid columns for XAML binding - automatically updates UniformGrid
@@ -110,21 +110,6 @@ namespace Kobold.Controls
                 // Apply theme colors (includes DrawFolderIcon, UpdatePanelColor, UpdateUI)
                 RefreshTheme();
                 UpdatePinButtonVisual();
-                
-                // If panel was pinned, auto-open it after layout is ready
-                if (_data.IsPanelPinned)
-                {
-                    // Wait for layout to complete before opening panel
-                    Dispatcher.BeginInvoke(new Action(() => 
-                    {
-                        UpdateLayout(); // Force layout update
-                        TogglePanel();
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                
-                this.Opacity = 0;
-                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(200));
-                this.BeginAnimation(OpacityProperty, fadeIn);
             };
             
             Closing += (s, e) =>
@@ -163,6 +148,7 @@ namespace Kobold.Controls
             
             // Lock indicator
             LockBadge.Visibility = _data.IsLocked ? Visibility.Visible : Visibility.Collapsed;
+            UpdateLockButtonVisual();
             
             // Apply item scale transform BEFORE setting items
             double scale = GetItemScale();
@@ -204,7 +190,7 @@ namespace Kobold.Controls
                 }
             });
             
-            // Dynamically resize panel if it is open to fit new content
+            // Panel-only: keep the window sized to the panel while open
             if (_isExpanded)
             {
                 // Force layout update to ensure all elements are measured correctly before resizing
@@ -215,20 +201,11 @@ namespace Kobold.Controls
                 ExpandedPanel.Width = panelWidth;
                 ExpandedPanel.Height = panelHeight;
                 
-                // Update Window Dimensions
-                double totalWidth = WIDGET_WIDTH + ICON_SPACING + panelWidth;
-                Width = totalWidth;
-                Height = Math.Max(110, panelHeight);
+                Width = panelWidth;
+                Height = panelHeight;
                 
-                if (_openedToLeft)
-                {
-                    // Adjust window Left so that the folder icon stays stationary
-                    Left = _originalLeft - panelWidth - ICON_SPACING;
-                    
-                    // Ensure Canvas positions are correct
-                    System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
-                    System.Windows.Controls.Canvas.SetLeft(FolderIconGrid, panelWidth + ICON_SPACING);
-                }
+                System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
+                System.Windows.Controls.Canvas.SetTop(ExpandedPanel, 0);
             }
             
             // Empty state

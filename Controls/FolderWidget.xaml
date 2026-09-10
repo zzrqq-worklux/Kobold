@@ -16,6 +16,7 @@
             <!-- Folder Icon - Fixed Position at 0,0 -->
             <Grid x:Name="FolderIconGrid" Width="96" Height="110" 
                   Canvas.Left="0" Canvas.Top="0"
+                  Visibility="Collapsed"
                   MouseLeftButtonDown="FolderIcon_MouseDown"
                   MouseLeftButtonUp="FolderIcon_MouseUp"
                   MouseMove="FolderIcon_MouseMove"
@@ -79,9 +80,9 @@
                            Margin="0,0,0,6" TextTrimming="CharacterEllipsis" MaxWidth="90"/>
             </Grid>
             
-            <!-- Expanded Panel - Position to RIGHT of folder icon -->
+            <!-- Expanded Panel - fills the window in island mode (icon is hidden) -->
             <Border x:Name="ExpandedPanel" 
-                    Canvas.Left="104" Canvas.Top="0"
+                    Canvas.Left="0" Canvas.Top="0"
                     CornerRadius="16"
                     BorderThickness="1" BorderBrush="#30FFFFFF"
                     Visibility="Collapsed"
@@ -99,11 +100,17 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Header -->
-                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="14,0">
+                    <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
+                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="14,0"
+                            Cursor="SizeAll"
+                            MouseLeftButtonDown="PanelHeader_MouseLeftButtonDown"
+                            MouseMove="PanelHeader_MouseMove"
+                            MouseLeftButtonUp="PanelHeader_MouseLeftButtonUp"
+                            MouseRightButtonDown="PanelHeader_RightClick">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             
@@ -111,8 +118,24 @@
                                        FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
                                        VerticalAlignment="Center"/>
                             
+                            <!-- Lock toggle (next to pin) -->
+                            <Border x:Name="LockButton" Grid.Column="1" 
+                                    Width="24" Height="24" CornerRadius="6"
+                                    Background="Transparent" Cursor="Hand"
+                                    VerticalAlignment="Center" Margin="8,0,0,0"
+                                    MouseLeftButtonDown="LockButton_Click">
+                                <Border.RenderTransform>
+                                    <ScaleTransform x:Name="LockButtonScale" ScaleX="1" ScaleY="1" CenterX="12" CenterY="12"/>
+                                </Border.RenderTransform>
+                                <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Path x:Name="LockIcon" 
+                                          Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
+                                          Fill="#80FFFFFF" Stroke="#40FFFFFF" StrokeThickness="0.5"/>
+                                </Canvas>
+                            </Border>
+                            
                             <!-- Pin Button -->
-                            <Border x:Name="PinButton" Grid.Column="1" 
+                            <Border x:Name="PinButton" Grid.Column="2" 
                                     Width="24" Height="24" CornerRadius="6"
                                     Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" Margin="8,0,0,0"

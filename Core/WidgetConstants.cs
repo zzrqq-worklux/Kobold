@@ -48,6 +48,40 @@ namespace Kobold.Core
         
         #endregion
         
+        #region Island (Top-Center Launcher)
+
+        /// <summary>Collapsed pill width</summary>
+        public const int ISLAND_PILL_WIDTH = 120;
+
+        /// <summary>Collapsed pill height</summary>
+        public const int ISLAND_PILL_HEIGHT = 8;
+
+        /// <summary>Window width while collapsed - transparent hot zone for hover</summary>
+        public const int ISLAND_HOVER_WIDTH = 300;
+
+        /// <summary>Window height while collapsed - transparent hot zone for hover</summary>
+        public const int ISLAND_HOVER_HEIGHT = 10;
+
+        /// <summary>Expanded capsule height</summary>
+        public const int ISLAND_EXPANDED_HEIGHT = 56;
+
+        /// <summary>Size of a single widget tile in the expanded island</summary>
+        public const int ISLAND_TILE_SIZE = 44;
+
+        /// <summary>Gap between widget tiles</summary>
+        public const int ISLAND_TILE_GAP = 8;
+
+        /// <summary>Vertical gap between the island and an opened panel</summary>
+        public const int ISLAND_PANEL_GAP = 8;
+
+        /// <summary>Auto-collapse after this many ms without interaction</summary>
+        public const int ISLAND_COLLAPSE_DELAY_MS = 4000;
+
+        /// <summary>Collapse this many ms after the mouse leaves the island</summary>
+        public const int ISLAND_LEAVE_DELAY_MS = 1500;
+
+        #endregion
+
         #region Drag-Drop
         
         /// <summary>Minimum distance to start drag operation</summary>

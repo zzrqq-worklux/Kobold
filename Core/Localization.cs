@@ -20,6 +20,8 @@ namespace Kobold.Core
                 ["UI_Tagline"] = "Desktop Folder Widgets",
                 ["UI_DropHere"] = "Drop files here",
                 ["UI_PinTooltip"] = "Pin panel (keep open after restart)",
+                ["UI_LockTooltip"] = "Lock widget (content cannot move in/out)",
+                ["UI_UnlockTooltip"] = "Unlock widget",
                 ["UI_DefaultFolderName"] = "My Folder",
 
                 // Context Menu - Folder
@@ -109,6 +111,8 @@ namespace Kobold.Core
                 ["UI_Tagline"] = "桌面文件夹整理工具",
                 ["UI_DropHere"] = "将文件拖放到此处",
                 ["UI_PinTooltip"] = "固定面板（重启后保持展开）",
+                ["UI_LockTooltip"] = "锁定组件（禁止内容移入移出）",
+                ["UI_UnlockTooltip"] = "解锁组件",
                 ["UI_DefaultFolderName"] = "我的文件夹",
 
                 // Context Menu - Folder
@@ -198,6 +202,8 @@ namespace Kobold.Core
                 ["UI_Tagline"] = "デスクトップのフォルダー整理ツール",
                 ["UI_DropHere"] = "ここにファイルをドロップ",
                 ["UI_PinTooltip"] = "パネルを固定（再起動後も開いたままにする）",
+                ["UI_LockTooltip"] = "ウィジェットをロック（内容の移動を禁止）",
+                ["UI_UnlockTooltip"] = "ロックを解除",
                 ["UI_DefaultFolderName"] = "マイ フォルダー",
 
                 // Context Menu - Folder

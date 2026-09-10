@@ -72,7 +72,7 @@ namespace Kobold
             
             // Initialize widget manager and create widgets
             WidgetManager.Instance.Initialize();
-            
+
             // Sync registry with config (ensures startup setting is applied)
             SyncStartupRegistry();
             
