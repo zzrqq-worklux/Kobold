@@ -111,6 +111,12 @@ namespace Kobold.Controls
             RestartIdleTimer();
         }
 
+        /// <summary>Expands the island on demand (tray / second-instance activation).</summary>
+        public void ShowIsland()
+        {
+            Expand();
+        }
+
         private void Collapse()
         {
             _collapseTimer.Stop();

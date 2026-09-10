@@ -59,7 +59,7 @@ namespace Kobold
                 {
                     Current.Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        WidgetManager.Instance.ShowAll();
+                        WidgetManager.Instance.ShowIsland();
                     }));
                 }
             })

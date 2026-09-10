@@ -34,7 +34,7 @@ namespace Kobold.Services
                 MenuActivation = PopupActivationMode.RightClick
             };
             
-            _trayIcon.TrayMouseDoubleClick += (s, e) => AddNewWidget();
+            _trayIcon.TrayMouseDoubleClick += (s, e) => WidgetManager.Instance.ShowIsland();
         }
 
         private string GetToolTipText()

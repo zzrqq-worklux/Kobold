@@ -107,9 +107,20 @@ namespace Kobold.Core
         public FolderWidget CreateWidget(string name, string color, int posX, int posY, int gridColumns = 3)
         {
             var folderData = _config.AddFolder(name, color, posX, posY, gridColumns);
+            folderData.IsPanelPinned = true; // opens pinned so it survives while being filled
             var widget = CreateWidgetInternal(folderData);
             RefreshIsland();
+            OpenPanel(widget);
+            SaveConfig();
             return widget;
+        }
+
+        /// <summary>
+        /// Brings the island up so all widget entries are visible.
+        /// </summary>
+        public void ShowIsland()
+        {
+            _island?.ShowIsland();
         }
 
         /// <summary>
