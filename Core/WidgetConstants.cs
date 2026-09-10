@@ -58,8 +58,8 @@ namespace Kobold.Core
         /// <summary>Vertical gap between the island and an opened panel</summary>
         public const int ISLAND_PANEL_GAP = 8;
 
-        /// <summary>Collapse this many ms after the mouse leaves the island</summary>
-        public const int ISLAND_LEAVE_DELAY_MS = 1500;
+        /// <summary>Default ms after the mouse leaves the island before it collapses (configurable in settings)</summary>
+        public const int ISLAND_LEAVE_DELAY_MS = 1000;
 
         #endregion
 

@@ -21,6 +21,7 @@ namespace Kobold.Windows
         private bool _originalStartWithWindows;
         private string _originalIconStyle;
         private double _originalPanelOpacity;
+        private double _originalIslandDelay;
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
@@ -37,6 +38,7 @@ namespace Kobold.Windows
             _originalStartWithWindows = _config.StartWithWindows;
             _originalIconStyle = _config.IconStyle;
             _originalPanelOpacity = _config.PanelOpacity;
+            _originalIslandDelay = _config.IslandCollapseDelay;
             
             LoadSettings();
             UpdateLocalizedText();
@@ -85,6 +87,10 @@ namespace Kobold.Windows
 
             // Panel opacity
             PanelOpacitySlider.Value = Math.Max(20, Math.Min(100, _config.PanelOpacity * 100.0));
+
+            // Island auto-collapse delay (slider is in ms)
+            double islandDelayMs = _config.IslandCollapseDelay * 1000.0;
+            IslandDelaySlider.Value = Math.Max(IslandDelaySlider.Minimum, Math.Min(IslandDelaySlider.Maximum, islandDelayMs));
             
             // Icon Style
             if (IconStyleCombo != null)
@@ -122,6 +128,11 @@ namespace Kobold.Windows
             HideDesktopLabel.Text = Localization.Get("Settings_HideDesktopSource");
             PanelOpacityLabel.Text = Localization.Get("Settings_PanelOpacity");
             PanelOpacityValue.Text = (int)Math.Round(PanelOpacitySlider.Value) + "%";
+
+            // Island
+            IslandHeader.Text = "🏝️ " + Localization.Get("Settings_Island");
+            IslandDelayLabel.Text = Localization.Get("Settings_IslandCollapseDelay");
+            IslandDelayValue.Text = (IslandDelaySlider.Value / 1000.0).ToString("0.0") + "s";
 
             // Theme options
             ThemeDark.Content = "🌙 " + Localization.Get("Settings_Dark");
@@ -239,6 +250,15 @@ namespace Kobold.Windows
                 widget.ApplyPanelOpacity();
             }
         }
+
+        private void IslandDelaySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_isLoading) return;
+            _config.IslandCollapseDelay = Math.Max(0.3, Math.Min(5.0, e.NewValue / 1000.0));
+            IslandDelayValue.Text = (e.NewValue / 1000.0).ToString("0.0") + "s";
+            // Apply to the live island immediately
+            WidgetManager.Instance.ApplyIslandSettings();
+        }
         
         private void IconStyleCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -278,7 +298,9 @@ namespace Kobold.Windows
             _config.StartWithWindows = _originalStartWithWindows;
             _config.IconStyle = _originalIconStyle;
             _config.PanelOpacity = _originalPanelOpacity;
+            _config.IslandCollapseDelay = _originalIslandDelay;
             PanelOpacitySlider.Value = _originalPanelOpacity * 100.0; // re-applies opacity to widgets
+            IslandDelaySlider.Value = _originalIslandDelay * 1000.0; // re-applies delay to the island
             
             // Revert UI
             Localization.SetLanguage(_originalLanguage);

@@ -27,7 +27,11 @@
                        Width="120" Height="8"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        RadiusX="4" RadiusY="4"
-                       Fill="#CC202020">
+                       Fill="#CC202020"
+                       Cursor="Hand"
+                       MouseLeftButtonDown="Pill_MouseLeftButtonDown"
+                       MouseMove="Pill_MouseMove"
+                       MouseLeftButtonUp="Pill_MouseLeftButtonUp">
                 <Rectangle.Effect>
                     <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.35" Direction="270"/>
                 </Rectangle.Effect>

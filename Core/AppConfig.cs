@@ -15,6 +15,8 @@ namespace Kobold.Core
         public bool StartWithWindows { get; set; }
         public bool HideDesktopSourceOnStore { get; set; }
         public double PanelOpacity { get; set; } // Expanded panel opacity (0.2 - 1.0)
+        public double? IslandX { get; set; } // Remembered island center X (DIP); null = centered
+        public double IslandCollapseDelay { get; set; } // Seconds after the mouse leaves the island before it collapses
         public int DefaultGridColumns { get; set; }
         public string IconStyle { get; set; }  // classic, modern, minimal, rounded
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
@@ -30,6 +32,8 @@ namespace Kobold.Core
             DefaultGridColumns = 3;
             IconStyle = "classic";
             ItemScale = 1.1; // Default to slightly larger icons
+            IslandX = null; // centered by default
+            IslandCollapseDelay = 1.0; // seconds
             Folders = new List<FolderData>();
         }
 

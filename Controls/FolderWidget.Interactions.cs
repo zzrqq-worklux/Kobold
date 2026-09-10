@@ -108,6 +108,7 @@ namespace Kobold.Controls
             _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
             _isDraggingWindow = false;
             Mouse.Capture(PanelHeader);
+            Mouse.OverrideCursor = CursorHelper.GrabHand;
             e.Handled = true;
         }
 
@@ -135,6 +136,7 @@ namespace Kobold.Controls
         {
             if (e.ChangedButton != MouseButton.Left) return;
             Mouse.Capture(null);
+            Mouse.OverrideCursor = null;
 
             if (_isDraggingWindow)
             {
@@ -239,7 +241,7 @@ namespace Kobold.Controls
             }
 
             // Locked panels cannot be dragged - show a forbidden cursor over the header.
-            PanelHeader.Cursor = _data.IsLocked ? Cursors.No : Cursors.SizeAll;
+            PanelHeader.Cursor = _data.IsLocked ? Cursors.No : CursorHelper.OpenHand;
         }
 
         private void FlashLockIndicator()

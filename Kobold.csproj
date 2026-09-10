@@ -16,6 +16,9 @@
     <!-- Icons are embedded as WPF resources; the tray icon loads them via pack URI -->
     <Resource Include="Resources\icon.ico" />
     <Resource Include="Resources\icon.png" />
+    <!-- Grab cursors (MIT, see Resources\cursors.LICENSE.txt) -->
+    <Resource Include="Resources\cursor_open.cur" />
+    <Resource Include="Resources\cursor_grab.cur" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />

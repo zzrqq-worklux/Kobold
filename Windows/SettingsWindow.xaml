@@ -200,6 +200,26 @@
                         </Grid>
                     </Border>
                     
+                    <!-- Island Section -->
+                    <TextBlock x:Name="IslandHeader" Text="🏝️ Island" Foreground="White" 
+                               FontSize="13" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    
+                    <Border Background="#2A2A2A" CornerRadius="8" Padding="16,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="IslandDelayLabel" Text="Auto-collapse delay" Foreground="#B0B0B0" FontFamily="Segoe UI"/>
+                                <TextBlock x:Name="IslandDelayValue" Text="1.0s" Foreground="#606060" FontSize="10" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                            </StackPanel>
+                            <Slider x:Name="IslandDelaySlider" Grid.Column="1" Width="140" Minimum="30" Maximum="500"
+                                    VerticalAlignment="Center" Margin="12,0,0,0" IsSnapToTickEnabled="True" TickFrequency="10"
+                                    ValueChanged="IslandDelaySlider_ValueChanged"/>
+                        </Grid>
+                    </Border>
+                    
                     <!-- About Section -->
                     <TextBlock x:Name="AboutHeaderText" Text="ℹ️ About" Foreground="White" 
                                FontSize="13" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>

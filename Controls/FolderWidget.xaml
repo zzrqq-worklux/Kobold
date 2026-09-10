@@ -35,7 +35,7 @@
                     
                     <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
                     <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="14,0"
-                            Cursor="SizeAll"
+                            Cursor="Hand"
                             MouseLeftButtonDown="PanelHeader_MouseLeftButtonDown"
                             MouseMove="PanelHeader_MouseMove"
                             MouseLeftButtonUp="PanelHeader_MouseLeftButtonUp"

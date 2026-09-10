@@ -123,6 +123,12 @@ namespace Kobold.Core
             _island?.ShowIsland();
         }
 
+        /// <summary>Pushes the persisted island settings (collapse delay + position) to the island.</summary>
+        public void ApplyIslandSettings()
+        {
+            _island?.ApplySettings();
+        }
+
         /// <summary>
         /// Creates a widget for existing folder data
         /// </summary>

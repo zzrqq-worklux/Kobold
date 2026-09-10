@@ -10,6 +10,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Controls.IconRenderers;
+using Kobold.Helpers;
 
 namespace Kobold.Controls
 {
@@ -23,6 +24,7 @@ namespace Kobold.Controls
         private const int AnimationMs = 200;
         private const int ShadowPadding = 16;
         private const int TileIconSize = 32;
+        private const double IslandDragThreshold = 4;
 
         private static readonly SolidColorBrush CollapsedBrush = Freeze(Color.FromArgb(0xCC, 0x20, 0x20, 0x20));
         private static readonly SolidColorBrush ExpandedBrush = Freeze(Color.FromArgb(0xE6, 0x20, 0x20, 0x20));
@@ -31,6 +33,12 @@ namespace Kobold.Controls
         private bool _isExpanded;
         private List<FolderData> _folders = new List<FolderData>();
         private readonly DispatcherTimer _leaveTimer;
+
+        // Horizontal drag of the pill (only the capsule background, not the tiles)
+        private bool _isDraggingIsland;
+        private Point _islandDragCursor;
+        private double _islandDragLeft;
+        private double _islandDragDpi = 1.0;
 
         /// <summary>Raised with the folder id when a widget tile is clicked.</summary>
         public event Action<string> WidgetActivated;
@@ -41,13 +49,32 @@ namespace Kobold.Controls
 
             _leaveTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_LEAVE_DELAY_MS)
+                Interval = TimeSpan.FromMilliseconds(GetCollapseDelayMs())
             };
             _leaveTimer.Tick += (s, e) => Collapse();
 
             Closed += (s, e) => _leaveTimer.Stop();
 
+            PillShape.Cursor = CursorHelper.OpenHand;
+            PillShape.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
             UpdateWindowGeometry();
+        }
+
+        /// <summary>Re-reads the persisted island settings (collapse delay + position).</summary>
+        public void ApplySettings()
+        {
+            _leaveTimer.Interval = TimeSpan.FromMilliseconds(GetCollapseDelayMs());
+            UpdateWindowGeometry();
+        }
+
+        private static int GetCollapseDelayMs()
+        {
+            double seconds = 1.0;
+            try { seconds = WidgetManager.Instance.Config.IslandCollapseDelay; }
+            catch { }
+            if (double.IsNaN(seconds)) seconds = 1.0;
+            seconds = Math.Max(0.3, Math.Min(5.0, seconds));
+            return (int)(seconds * 1000);
         }
 
         /// <summary>Y coordinate (DIP) where a panel opened from the island should start.</summary>
@@ -77,9 +104,65 @@ namespace Kobold.Controls
 
         private void Window_MouseLeave(object sender, MouseEventArgs e)
         {
-            if (!_isExpanded) return;
+            if (!_isExpanded || _isDraggingIsland) return;
             _leaveTimer.Start();
         }
+
+        #region Horizontal Drag (pill background)
+
+        private void Pill_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+
+            _leaveTimer.Stop();
+            var cursor = System.Windows.Forms.Cursor.Position;
+            _islandDragCursor = new Point(cursor.X, cursor.Y);
+            _islandDragLeft = Left;
+            _islandDragDpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            _isDraggingIsland = false;
+            PillShape.CaptureMouse();
+            Mouse.OverrideCursor = CursorHelper.GrabHand;
+            e.Handled = true;
+        }
+
+        private void Pill_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || !PillShape.IsMouseCaptured) return;
+
+            var cursor = System.Windows.Forms.Cursor.Position;
+            double dx = (cursor.X - _islandDragCursor.X) / _islandDragDpi;
+            if (!_isDraggingIsland)
+            {
+                if (Math.Abs(dx) < IslandDragThreshold) return;
+                _isDraggingIsland = true;
+            }
+
+            double centerX = ClampCenterX(_islandDragLeft + dx + Width / 2, Width);
+            Left = centerX - Width / 2;
+            e.Handled = true;
+        }
+
+        private void Pill_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            PillShape.ReleaseMouseCapture();
+            Mouse.OverrideCursor = null;
+
+            if (_isDraggingIsland)
+            {
+                _isDraggingIsland = false;
+                try
+                {
+                    // Remember the pill center so it survives expanded-width changes.
+                    WidgetManager.Instance.Config.IslandX = Left + Width / 2;
+                    WidgetManager.Instance.SaveConfig();
+                }
+                catch { }
+            }
+            e.Handled = true;
+        }
+
+        #endregion
 
         private void Expand()
         {
@@ -188,15 +271,32 @@ namespace Kobold.Controls
 
         /// <summary>
         /// Sizes the (never-animated) window so it can host the largest state plus
-        /// room for the drop shadow, and keeps it glued to the top-center of the screen.
+        /// room for the drop shadow, and places it at the remembered horizontal
+        /// position (centered when none is set), always glued to the top.
         /// </summary>
         private void UpdateWindowGeometry()
         {
             double widest = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, GetExpandedWidth());
             Width = widest + 2 * ShadowPadding;
             Height = WidgetConstants.ISLAND_EXPANDED_HEIGHT + ShadowPadding;
-            Left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - Width) / 2);
+
+            double centerX = GetSavedCenterX() ?? (SystemParameters.PrimaryScreenWidth / 2);
+            Left = ClampCenterX(centerX, Width) - Width / 2;
             Top = 0;
+        }
+
+        private static double? GetSavedCenterX()
+        {
+            try { return WidgetManager.Instance.Config.IslandX; }
+            catch { return null; }
+        }
+
+        /// <summary>Keeps the whole island window (including shadow) on screen.</summary>
+        private static double ClampCenterX(double centerX, double windowWidth)
+        {
+            double half = windowWidth / 2;
+            double screen = SystemParameters.PrimaryScreenWidth;
+            return Math.Max(half, Math.Min(centerX, screen - half));
         }
 
         /// <summary>
