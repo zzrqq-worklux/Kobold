@@ -91,6 +91,9 @@ namespace Kobold.Windows
             // Island auto-collapse delay (slider is in ms)
             double islandDelayMs = _config.IslandCollapseDelay * 1000.0;
             IslandDelaySlider.Value = Math.Max(IslandDelaySlider.Minimum, Math.Min(IslandDelaySlider.Maximum, islandDelayMs));
+
+            // Hide desktop icons (applied on Save)
+            HideDesktopIconsCheckbox.IsChecked = _config.HideDesktopIcons;
             
             // Icon Style
             if (IconStyleCombo != null)
@@ -133,6 +136,7 @@ namespace Kobold.Windows
             IslandHeader.Text = "🏝️ " + Localization.Get("Settings_Island");
             IslandDelayLabel.Text = Localization.Get("Settings_IslandCollapseDelay");
             IslandDelayValue.Text = (IslandDelaySlider.Value / 1000.0).ToString("0.0") + "s";
+            HideDesktopIconsLabel.Text = Localization.Get("Settings_HideDesktopIcons");
 
             // Theme options
             ThemeDark.Content = "🌙 " + Localization.Get("Settings_Dark");
@@ -276,7 +280,22 @@ namespace Kobold.Windows
         {
             // Apply registry startup setting
             SetStartupRegistry(_config.StartWithWindows);
-            
+
+            // Apply the desktop-icons change only when the preference changed, so
+            // re-saving does not re-capture the (already hidden) state.
+            bool wantHideIcons = HideDesktopIconsCheckbox.IsChecked ?? false;
+            if (wantHideIcons != _config.HideDesktopIcons)
+            {
+                if (!WidgetManager.Instance.SetHideDesktopIcons(wantHideIcons))
+                {
+                    MessageBox.Show(
+                        Localization.Get("Dialog_HideIconsFailed"),
+                        Localization.Get("UI_AppName"),
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+            }
+
             _config.Save();
             WidgetManager.Instance.RefreshAllWidgets();
             RefreshWidgetTexts();

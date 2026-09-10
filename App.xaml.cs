@@ -72,6 +72,7 @@ namespace Kobold
             
             // Initialize widget manager and create widgets
             WidgetManager.Instance.Initialize();
+            WidgetManager.Instance.ApplyDesktopIconsOnStartup();
 
             // Sync registry with config (ensures startup setting is applied)
             SyncStartupRegistry();
@@ -120,6 +121,7 @@ namespace Kobold
 
         protected override void OnExit(ExitEventArgs e)
         {
+            try { WidgetManager.Instance.RestoreDesktopIconsOnExit(); } catch { }
             _trayService?.Dispose();
             _eventWaitHandle?.Dispose();
             _mutex?.ReleaseMutex();

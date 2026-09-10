@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Controls.IconRenderers;
 using Kobold.Helpers;
+using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
@@ -25,6 +26,7 @@ namespace Kobold.Controls
         private const int ShadowPadding = 16;
         private const int TileIconSize = 32;
         private const double IslandDragThreshold = 4;
+        private const double DesktopEntryWidth = 65; // desktop tile (44+8) + divider (1 + 6+6)
 
         private static readonly SolidColorBrush CollapsedBrush = Freeze(Color.FromArgb(0xCC, 0x20, 0x20, 0x20));
         private static readonly SolidColorBrush ExpandedBrush = Freeze(Color.FromArgb(0xE6, 0x20, 0x20, 0x20));
@@ -57,6 +59,12 @@ namespace Kobold.Controls
 
             PillShape.Cursor = CursorHelper.OpenHand;
             PillShape.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
+
+            DesktopTile.ToolTip = Localization.Get("Island_DesktopTooltip");
+            DesktopTile.MouseEnter += (s, e) => DesktopTile.Background = TileHoverBrush;
+            DesktopTile.MouseLeave += (s, e) => DesktopTile.Background = Brushes.Transparent;
+            DesktopTile.MouseLeftButtonUp += DesktopTile_Click;
+
             UpdateWindowGeometry();
         }
 
@@ -207,7 +215,7 @@ namespace Kobold.Controls
         private void HideTiles()
         {
             TilePanel.BeginAnimation(OpacityProperty, null);
-            TilePanel.Visibility = Visibility.Collapsed;
+            TilePanel.Visibility = Visibility.Hidden; // keep measurable for width calc
         }
 
         #endregion
@@ -216,13 +224,31 @@ namespace Kobold.Controls
 
         private void RebuildTiles()
         {
-            TilePanel.Children.Clear();
+            // Keep the fixed desktop entry (0) + divider (1); replace only widget tiles.
+            while (TilePanel.Children.Count > 2)
+            {
+                TilePanel.Children.RemoveAt(2);
+            }
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
             foreach (var folder in _folders)
             {
                 TilePanel.Children.Add(CreateTile(folder, iconStyle));
             }
+        }
+
+        private void DesktopTile_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                    UseShellExecute = true
+                });
+            }
+            catch { /* Explorer unavailable - nothing else to do */ }
         }
 
         private Border CreateTile(FolderData folder, string iconStyle)
@@ -261,10 +287,9 @@ namespace Kobold.Controls
 
         private double GetExpandedWidth()
         {
-            int count = Math.Max(1, _folders.Count);
-            double content = 24 + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP);
-            // Safety cap so the island can never grow wider than the screen. Only
-            // relevant with ~28+ widgets, which is well beyond normal use.
+            int count = Math.Max(0, _folders.Count);
+            double content = 24 + DesktopEntryWidth + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP);
+            // Safety cap so the island can never grow wider than the screen.
             double max = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, SystemParameters.PrimaryScreenWidth - 2 * ShadowPadding);
             return Math.Min(content, max);
         }

@@ -129,6 +129,36 @@ namespace Kobold.Core
             _island?.ApplySettings();
         }
 
+        /// <summary>Applies the saved "hide desktop icons" preference at startup.</summary>
+        public void ApplyDesktopIconsOnStartup()
+        {
+            // Remember the state before this run changes anything.
+            _config.HideIconsOriginal = DesktopIcons.ReadRaw();
+            if (_config.HideDesktopIcons) DesktopIcons.SetHidden(true);
+            _config.Save();
+        }
+
+        /// <summary>
+        /// Restores the pre-run desktop-icon state on exit, but only while the
+        /// preference is still "hidden" - if the user unchecked it we leave icons shown.
+        /// </summary>
+        public void RestoreDesktopIconsOnExit()
+        {
+            if (_config.HideDesktopIcons) DesktopIcons.Restore(_config.HideIconsOriginal);
+        }
+
+        /// <summary>
+        /// Hides/shows the desktop icons directly and remembers the choice.
+        /// Returns false when the system refused the change, so the caller can revert.
+        /// </summary>
+        public bool SetHideDesktopIcons(bool hide)
+        {
+            if (!DesktopIcons.SetHidden(hide)) return false;
+            _config.HideDesktopIcons = hide;
+            _config.Save();
+            return true;
+        }
+
         /// <summary>
         /// Creates a widget for existing folder data
         /// </summary>

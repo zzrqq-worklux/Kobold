@@ -37,11 +37,30 @@
                 </Rectangle.Effect>
             </Rectangle>
 
-            <!-- Widget tiles are added in code; one 44x44 entry per widget -->
+            <!-- Fixed desktop entry (opens the real Desktop folder) + a divider,
+                 then one 44x44 tile per widget (added in code). -->
             <StackPanel x:Name="TilePanel"
                         Orientation="Horizontal"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Visibility="Collapsed"/>
+                        Visibility="Hidden">
+
+                <Border x:Name="DesktopTile" Width="44" Height="44" CornerRadius="8"
+                        Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
+                    <Viewbox Width="30" Height="30">
+                        <Canvas Width="24" Height="24">
+                            <Rectangle Canvas.Left="2" Canvas.Top="3" Width="20" Height="14"
+                                       RadiusX="2.5" RadiusY="2.5"
+                                       Stroke="White" StrokeThickness="1.8"/>
+                            <Rectangle Canvas.Left="10" Canvas.Top="17" Width="4" Height="4" Fill="White"/>
+                            <Rectangle Canvas.Left="6" Canvas.Top="21" Width="12" Height="1.8"
+                                       RadiusX="0.9" RadiusY="0.9" Fill="White"/>
+                        </Canvas>
+                    </Viewbox>
+                </Border>
+
+                <Rectangle x:Name="TileDivider" Width="1" Height="26" Margin="6,0,6,0"
+                           VerticalAlignment="Center" Fill="#33FFFFFF"/>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>
