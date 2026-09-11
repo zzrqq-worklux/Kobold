@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,7 +15,8 @@ namespace Kobold.Controls
     public partial class FolderWidget
     {
         // Stored drag items for multi-selection support
-        private System.Collections.Generic.List<DisplayItem> _currentDragItems;
+        private List<DisplayItem> _currentDragItems;
+        private bool _itemDragCanceled;
         
         #region External File Drop
         
@@ -140,7 +142,7 @@ namespace Kobold.Controls
                 var selectedItems = GetSelectedItems();
                 if (selectedItems.Count == 0)
                 {
-                    selectedItems = new System.Collections.Generic.List<DisplayItem> { _draggedItem };
+                    selectedItems = new List<DisplayItem> { _draggedItem };
                 }
                 
                 // Store for use in Panel_QueryContinueDrag
@@ -155,6 +157,10 @@ namespace Kobold.Controls
                 // For internal use
                 dataObject.SetData("KoboldItems", selectedItems);
                 dataObject.SetData("KoboldItem", _draggedItem); // Backward compatibility
+
+                // Cross-widget move: where the items come from + a value snapshot
+                dataObject.SetData("KoboldSourceFolderId", _data.Id);
+                dataObject.SetData("KoboldWidgetItems", BuildDragSnapshot(selectedItems));
                 
                 // For external drop (file list)
                 var fileList = new System.Collections.Specialized.StringCollection();
@@ -181,6 +187,8 @@ namespace Kobold.Controls
                 
                 ((Border)sender).GiveFeedback += feedbackHandler;
                 
+                _itemDragCanceled = false;
+                var session = DragDropSession.Begin(_data.Id, _data.IsLocked);
                 try
                 {
                     DragDrop.DoDragDrop((DependencyObject)sender, dataObject, DragDropEffects.Move);
@@ -189,6 +197,20 @@ namespace Kobold.Controls
                 {
                     ((Border)sender).GiveFeedback -= feedbackHandler;
                     dragWindow?.Close();
+                }
+
+                try
+                {
+                    // Another widget took the items over: forget them here without
+                    // ejecting - the files themselves stay untouched.
+                    if (session.AcceptedByOtherWidget)
+                    {
+                        RemoveDraggedItems(selectedItems);
+                    }
+                }
+                finally
+                {
+                    DragDropSession.End();
                 }
                 
                 _isDraggingItem = false;
@@ -300,31 +322,51 @@ namespace Kobold.Controls
         {
             if (e.Data.GetDataPresent("KoboldItem"))
             {
+                // Items from another widget: they get merged, so there is no
+                // insertion point to show - just accept or refuse.
+                if (TryGetCrossWidgetSource(e.Data, out var sourceId))
+                {
+                    var session = DragDropSession.Current;
+                    if (CanAcceptCrossWidgetDrag(session, sourceId))
+                    {
+                        e.Effects = DragDropEffects.Move;
+                        session.MarkPendingMove();
+                    }
+                    else
+                    {
+                        e.Effects = DragDropEffects.None;
+                        session?.MarkTargetRefused();
+                    }
+
+                    DropIndicator.Visibility = Visibility.Collapsed;
+                    e.Handled = true;
+                    return;
+                }
+
                 e.Effects = DragDropEffects.Move;
                 e.Handled = true;
                 
-                // Show drop indicator at target position
+                // Show drop indicator at the shared edge between two items
                 var pos = e.GetPosition(ItemsContainer);
-                var (targetItem, insertAfter, targetBorder) = GetItemAndInsertPositionWithBorder(pos);
+                var (_, insertAfter, target) = GetItemAndInsertPosition(pos);
                 
-                if (targetBorder != null)
+                if (target != null)
                 {
-                    // Get position relative to ItemsContainer (which is in Row 1)
-                    // DropIndicator is also in Row 1, so Y positions match directly
-                    var borderPos = targetBorder.TranslatePoint(new Point(0, 0), ItemsContainer);
-                    
-                    // X position: left or right side of item + ItemsContainer margin (8px)
-                    double indicatorX = insertAfter 
-                        ? borderPos.X + targetBorder.ActualWidth + 8 + 2  // Right of item + margin + gap
-                        : borderPos.X + 8 - 2;  // Left of item + margin - gap
-                    
-                    // Y position: same as item top + small offset
-                    double indicatorY = borderPos.Y + 4 + 8;  // ItemsContainer top margin (4px) + offset
-                    
-                    // Clamp positions to valid range (prevent going above panel)
-                    indicatorX = Math.Max(0, indicatorX);
-                    indicatorY = Math.Max(4, indicatorY);  // Minimum 4px from top
-                    
+                    // Map the item edge into the indicator's parent (the panel
+                    // grid) so the line lands on the visual boundary at any scale.
+                    var indicatorHost = (UIElement)DropIndicator.Parent;
+                    double edgeX = insertAfter ? target.ActualWidth : 0;
+                    var top = target.TranslatePoint(new Point(edgeX, 0), indicatorHost);
+                    var bottom = target.TranslatePoint(new Point(edgeX, target.ActualHeight), indicatorHost);
+
+                    // Mapped points start at the panel top, but the indicator's
+                    // margin starts below the header row.
+                    double rowTop = PanelHeader.ActualHeight;
+
+                    // Center the line on the boundary and on the row height
+                    double indicatorX = Math.Max(0, top.X - DropIndicator.Width / 2);
+                    double indicatorY = Math.Max(0, top.Y - rowTop + (bottom.Y - top.Y - DropIndicator.Height) / 2);
+
                     DropIndicator.Margin = new Thickness(indicatorX, indicatorY, 0, 0);
                     DropIndicator.Visibility = Visibility.Visible;
                 }
@@ -338,12 +380,21 @@ namespace Kobold.Controls
         private void ItemsContainer_DragLeave(object sender, DragEventArgs e)
         {
             DropIndicator.Visibility = Visibility.Collapsed;
+            DragDropSession.Current?.ClearTargetState();
         }
         
         private void ItemsContainer_Drop(object sender, DragEventArgs e)
         {
             // Hide indicator
             DropIndicator.Visibility = Visibility.Collapsed;
+
+            // Items dragged from another widget: merge them into this one.
+            if (TryGetCrossWidgetSource(e.Data, out var sourceId))
+            {
+                HandleCrossWidgetDrop(e, sourceId);
+                e.Handled = true;
+                return;
+            }
             
             // Handle internal item reordering
             if (e.Data.GetDataPresent("KoboldItem"))
@@ -352,7 +403,7 @@ namespace Kobold.Controls
                 if (draggedDisplayItem == null) return;
                 
                 var pos = e.GetPosition(ItemsContainer);
-                var (targetDisplayItem, insertAfter, _) = GetItemAndInsertPositionWithBorder(pos);
+                var (targetDisplayItem, insertAfter, _) = GetItemAndInsertPosition(pos);
                 
                 var sourceItem = _data.Items.FirstOrDefault(i => i.Path == draggedDisplayItem.Path);
                 if (sourceItem == null) return;
@@ -426,85 +477,151 @@ namespace Kobold.Controls
             }, System.Windows.Threading.DispatcherPriority.Send);
         }
         
-        private (DisplayItem item, bool insertAfter, Border targetBorder) GetItemAndInsertPositionWithBorder(Point pos)
+        private (DisplayItem item, bool insertAfter, FrameworkElement target) GetItemAndInsertPosition(Point pos)
         {
-            // Find which item is at the given position and whether to insert before or after
+            // Use the item container, not the first Border under the cursor: the
+            // template nests Borders (icon, badges), which made the edge depend
+            // on what was hovered. Containers give the full tile bounds, so both
+            // neighbours share one stable boundary.
             var hitResult = VisualTreeHelper.HitTest(ItemsContainer, pos);
-            if (hitResult != null)
-            {
-                var element = hitResult.VisualHit as DependencyObject;
-                Border targetBorder = null;
-                
-                while (element != null)
-                {
-                    if (element is Border border && border.DataContext is DisplayItem)
-                    {
-                        targetBorder = border;
-                        break;
-                    }
-                    element = VisualTreeHelper.GetParent(element);
-                }
-                
-                if (targetBorder != null && targetBorder.DataContext is DisplayItem item)
-                {
-                    // Get position relative to the target item
-                    var itemPos = pos - targetBorder.TranslatePoint(new Point(0, 0), ItemsContainer);
-                    // If dropped on right half, insert after
-                    bool insertAfter = itemPos.X > targetBorder.ActualWidth / 2;
-                    return (item, insertAfter, targetBorder);
-                }
-            }
-            return (null, false, null);
+            if (hitResult == null) return (null, false, null);
+
+            var container = ItemsControl.ContainerFromElement(ItemsContainer, hitResult.VisualHit) as FrameworkElement;
+            if (container == null || !(container.DataContext is DisplayItem item)) return (null, false, null);
+
+            var bounds = container.TransformToAncestor(ItemsContainer)
+                .TransformBounds(new Rect(container.RenderSize));
+            bool insertAfter = pos.X > bounds.Left + bounds.Width / 2;
+            return (item, insertAfter, container);
         }
         
         private void Panel_QueryContinueDrag(object sender, QueryContinueDragEventArgs e)
         {
+            // Esc cancels the drag - never treat that as a drop.
+            if (e.EscapePressed)
+            {
+                _itemDragCanceled = true;
+                return;
+            }
+
+            // Act on the mouse release only; modifier keys also raise this event.
+            if (e.KeyStates != DragDropKeyStates.None || _itemDragCanceled) return;
+
+            // The cursor is over another widget that can take the items, or over
+            // one that refused: the post-drag handling decides, no eject here.
+            var session = DragDropSession.Current;
+            if (session != null && (session.PendingMove || session.TargetRefused)) return;
+
+            EjectDraggedItemsOnRelease(_currentDragItems);
+        }
+
+        /// <summary>True when the drag data comes from a different widget.</summary>
+        private bool TryGetCrossWidgetSource(IDataObject data, out string sourceId)
+        {
+            sourceId = data.GetData("KoboldSourceFolderId") as string;
+            return !string.IsNullOrEmpty(sourceId) && sourceId != _data.Id;
+        }
+
+        /// <summary>Cross-widget drops need both widgets unlocked and a matching session.</summary>
+        private bool CanAcceptCrossWidgetDrag(DragDropSession session, string sourceId)
+        {
+            return !_data.IsLocked &&
+                   session != null &&
+                   !session.SourceIsLocked &&
+                   session.SourceFolderId == sourceId;
+        }
+
+        /// <summary>Merges items dragged from another widget and tells the source they were taken.</summary>
+        private void HandleCrossWidgetDrop(DragEventArgs e, string sourceId)
+        {
+            var session = DragDropSession.Current;
+            if (!CanAcceptCrossWidgetDrag(session, sourceId)) return;
+
+            var incoming = e.Data.GetData("KoboldWidgetItems") as List<WidgetItem>;
+            if (incoming == null || incoming.Count == 0) return;
+
+            WidgetItems.MergeInto(_data.Items, incoming);
+            session.MarkAcceptedByOtherWidget();
+            ForceRefreshUI();
+        }
+
+        /// <summary>Value snapshot of the dragged items for a cross-widget move.</summary>
+        private List<WidgetItem> BuildDragSnapshot(List<DisplayItem> selectedItems)
+        {
+            var snapshot = new List<WidgetItem>();
+            foreach (var selected in selectedItems)
+            {
+                var source = _data.Items.FirstOrDefault(
+                    i => i.Path.Equals(selected.Path, StringComparison.OrdinalIgnoreCase));
+                if (source != null) snapshot.Add(WidgetItems.Clone(source));
+            }
+            return snapshot;
+        }
+
+        /// <summary>
+        /// Removes items another widget has taken over - without ejecting:
+        /// references stay hidden, stored files stay in storage.
+        /// </summary>
+        private void RemoveDraggedItems(List<DisplayItem> selectedItems)
+        {
+            if (selectedItems == null || selectedItems.Count == 0) return;
+
+            bool removed = false;
+            foreach (var selected in selectedItems)
+            {
+                var item = _data.Items.FirstOrDefault(
+                    i => i.Path.Equals(selected.Path, StringComparison.OrdinalIgnoreCase));
+                if (item != null)
+                {
+                    _data.Items.Remove(item);
+                    removed = true;
+                }
+            }
+
+            if (removed) ForceRefreshUI();
+        }
+
+        /// <summary>
+        /// Desktop restore: releasing outside this window ejects the dragged
+        /// items (references are unhidden, stored files move back to origin).
+        /// </summary>
+        private void EjectDraggedItemsOnRelease(List<DisplayItem> selectedItems)
+        {
+            if (selectedItems == null || selectedItems.Count == 0) return;
+
             // Locked widgets forbid moving content out
             if (_data.IsLocked) return;
 
-            // Check if mouse is outside the window (dropped on desktop)
-            if (e.KeyStates == DragDropKeyStates.None)
+            // Cursor is in physical pixels, window bounds in DIPs (see ScreenGeometry).
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var dpi = VisualTreeHelper.GetDpi(this);
+            var bounds = new Rect(Left, Top, ActualWidth, ActualHeight);
+            if (ScreenGeometry.ContainsPhysicalPoint(
+                    bounds, dpi.DpiScaleX, dpi.DpiScaleY, cursor.X, cursor.Y))
             {
-                // Drag ended - check if outside window
-                var screenPos = System.Windows.Forms.Cursor.Position;
-                var windowRect = new System.Drawing.Rectangle(
-                    (int)Left, (int)Top, (int)Width, (int)Height);
-                
-                if (!windowRect.Contains(screenPos.X, screenPos.Y))
+                return;
+            }
+
+            bool changed = false;
+            foreach (var selItem in selectedItems)
+            {
+                var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == selItem.Path);
+                if (itemToRemove != null)
                 {
-                    // Use stored drag items (set at drag start)
-                    var selectedItems = _currentDragItems ?? new System.Collections.Generic.List<DisplayItem>();
-                    
-                    // If no stored selection, use the single dragged item as fallback
-                    if (selectedItems.Count == 0 && _draggedItem != null)
-                    {
-                        var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == _draggedItem.Path);
-                        if (itemToRemove != null)
-                        {
-                            selectedItems = new System.Collections.Generic.List<DisplayItem> { _draggedItem };
-                        }
-                    }
-                    
-                    if (selectedItems.Count > 0)
-                    {
-                        // Eject all selected items back to their origins
-                        foreach (var selItem in selectedItems)
-                        {
-                            var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == selItem.Path);
-                            if (itemToRemove != null)
-                            {
-                                EjectItem(itemToRemove);
-                                _data.Items.Remove(itemToRemove);
-                            }
-                        }
-                        
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            UpdateUI();
-                            OnDataChanged?.Invoke();
-                        }));
-                    }
+                    EjectItem(itemToRemove);
+                    _data.Items.Remove(itemToRemove);
+                    changed = true;
                 }
+            }
+
+            if (changed)
+            {
+                // Deferred so the refresh does not run inside the OLE drag loop.
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    UpdateUI();
+                    OnDataChanged?.Invoke();
+                }));
             }
         }
 
