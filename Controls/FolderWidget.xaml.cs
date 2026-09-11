@@ -32,8 +32,7 @@ namespace Kobold.Controls
         private FolderData _data;
         private bool _isExpanded = false;
         private Point _dragStartCursor;      // Screen cursor position at mouse-down (click vs drag)
-        private double _dragStartLeft;        // Window Left/Top at mouse-down
-        private double _dragStartTop;
+        private Point _dragLastCursor;       // Screen cursor position of the last drag step
         private double _dragDpiScale = 1.0;   // Physical pixels per WPF unit (cursor -> window)
         private bool _isDraggingWindow = false;
         

@@ -39,7 +39,7 @@ namespace Kobold.Controls
         // Horizontal drag of the pill (only the capsule background, not the tiles)
         private bool _isDraggingIsland;
         private Point _islandDragCursor;
-        private double _islandDragLeft;
+        private Point _islandDragLastCursor;
         private double _islandDragDpi = 1.0;
 
         /// <summary>Raised with the folder id when a widget tile is clicked.</summary>
@@ -125,7 +125,6 @@ namespace Kobold.Controls
             _leaveTimer.Stop();
             var cursor = System.Windows.Forms.Cursor.Position;
             _islandDragCursor = new Point(cursor.X, cursor.Y);
-            _islandDragLeft = Left;
             _islandDragDpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             _isDraggingIsland = false;
             PillShape.CaptureMouse();
@@ -143,9 +142,16 @@ namespace Kobold.Controls
             {
                 if (Math.Abs(dx) < IslandDragThreshold) return;
                 _isDraggingIsland = true;
+                _islandDragLastCursor = _islandDragCursor;
             }
 
-            double centerX = ClampCenterX(_islandDragLeft + dx + Width / 2, Width);
+            // Per-step deltas with a fresh DPI reading keep the island under the
+            // cursor across monitors with different scaling.
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            double step = (cursor.X - _islandDragLastCursor.X) / dpi;
+            _islandDragLastCursor = new Point(cursor.X, cursor.Y);
+
+            double centerX = ClampCenterX(Left + Width / 2 + step, Width);
             Left = centerX - Width / 2;
             e.Handled = true;
         }

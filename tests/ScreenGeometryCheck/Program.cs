@@ -58,6 +58,18 @@ namespace Kobold.ScreenGeometryCheck
             Check(!ScreenGeometry.ContainsPhysicalPoint(window, 1.0, 1.0, 400, 100),
                 "100%: point outside counts as outside");
 
+            // The conversion is linear in the scale factor, so the intermediate
+            // Windows scalings must work as well as 100% and 200%.
+            Check(ScreenGeometry.ContainsPhysicalPoint(window, 1.25, 1.25, 975, 275),
+                "125%: physical point inside counts as inside");
+            Check(!ScreenGeometry.ContainsPhysicalPoint(window, 1.25, 1.25, 700, 275),
+                "125%: physical point outside counts as outside");
+
+            Check(ScreenGeometry.ContainsPhysicalPoint(window, 1.5, 1.5, 1170, 330),
+                "150%: physical point inside counts as inside");
+            Check(!ScreenGeometry.ContainsPhysicalPoint(window, 1.5, 1.5, 900, 330),
+                "150%: physical point outside counts as outside");
+
             Check(!ScreenGeometry.ContainsPhysicalPoint(window, 0, 2.0, 1560, 440),
                 "invalid scale is treated as outside");
         }

@@ -103,8 +103,6 @@ namespace Kobold.Controls
             // Snapshot the anchor; a click without movement is not a drag.
             var cursor = System.Windows.Forms.Cursor.Position;
             _dragStartCursor = new Point(cursor.X, cursor.Y);
-            _dragStartLeft = Left;
-            _dragStartTop = Top;
             _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
             _isDraggingWindow = false;
             Mouse.Capture(PanelHeader);
@@ -118,17 +116,22 @@ namespace Kobold.Controls
             if (_data.IsLocked || !ReferenceEquals(Mouse.Captured, PanelHeader)) return;
 
             var cursor = System.Windows.Forms.Cursor.Position;
-            double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
-            double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
 
             if (!_isDraggingWindow)
             {
+                double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
+                double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
                 if (Math.Abs(dx) < DRAG_THRESHOLD && Math.Abs(dy) < DRAG_THRESHOLD) return;
                 _isDraggingWindow = true;
+                _dragLastCursor = _dragStartCursor;
             }
 
-            Left = _dragStartLeft + dx;
-            Top = _dragStartTop + dy;
+            // Move by per-step deltas with a fresh DPI reading, so the window
+            // keeps following the cursor across monitors with different scaling.
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            Left += (cursor.X - _dragLastCursor.X) / dpi;
+            Top += (cursor.Y - _dragLastCursor.Y) / dpi;
+            _dragLastCursor = new Point(cursor.X, cursor.Y);
             e.Handled = true;
         }
 

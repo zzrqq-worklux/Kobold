@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
+using Kobold.Helpers;
 
 namespace Kobold.Controls
 {
@@ -177,11 +178,17 @@ namespace Kobold.Controls
                 {
                     if (dragWindow != null && dragWindow.IsVisible)
                     {
-                        var screenPos = System.Windows.Forms.Cursor.Position;
-                        dragWindow.Left = screenPos.X + 10;
-                        dragWindow.Top = screenPos.Y + 10;
+                        var cursor = GetCursorInWindow();
+                        dragWindow.Left = Left + cursor.X + 10;
+                        dragWindow.Top = Top + cursor.Y + 10;
                     }
-                    args.UseDefaultCursors = true;
+
+                    // Replace the OLE default drag cursor (arrow with a dashed
+                    // box) - the ghost window is our drag visual.
+                    args.UseDefaultCursors = false;
+                    Mouse.OverrideCursor = args.Effects == DragDropEffects.None
+                        ? Cursors.No
+                        : CursorHelper.GrabHand;
                     args.Handled = true;
                 };
                 
@@ -197,6 +204,7 @@ namespace Kobold.Controls
                 {
                     ((Border)sender).GiveFeedback -= feedbackHandler;
                     dragWindow?.Close();
+                    Mouse.OverrideCursor = null;
                 }
 
                 try
@@ -304,12 +312,23 @@ namespace Kobold.Controls
             window.Content = panel;
             
             // Position at cursor
-            var cursorPos = System.Windows.Forms.Cursor.Position;
-            window.Left = cursorPos.X + 10;
-            window.Top = cursorPos.Y + 10;
+            var cursor = GetCursorInWindow();
+            window.Left = Left + cursor.X + 10;
+            window.Top = Top + cursor.Y + 10;
             
             window.Show();
             return window;
+        }
+
+        /// <summary>
+        /// Cursor position in this window's DIP coordinates. Cursor.Position is
+        /// in physical pixels, so it must be mapped through the window transform
+        /// to stay correct on scaled displays (e.g. 200%).
+        /// </summary>
+        private Point GetCursorInWindow()
+        {
+            var physical = System.Windows.Forms.Cursor.Position;
+            return PointFromScreen(new Point(physical.X, physical.Y));
         }
         
         // Selection methods moved to FolderWidget.Selection.cs
