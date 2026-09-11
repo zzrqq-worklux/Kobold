@@ -35,14 +35,14 @@
             <Border x:Name="ExpandedPanel" 
                     Canvas.Left="0" Canvas.Top="0"
                     CornerRadius="16"
-                    BorderThickness="1" BorderBrush="#30FFFFFF"
+                    BorderThickness="1" BorderBrush="{DynamicResource Kobold.Brush.PanelBorder}"
                     Visibility="Collapsed"
                     RenderOptions.BitmapScalingMode="HighQuality"
                     SnapsToDevicePixels="True"
                     MouseLeftButtonDown="ExpandedPanel_MouseLeftButtonDown"
                     MouseRightButtonDown="ExpandedPanel_MouseRightButtonDown">
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="25" ShadowDepth="8" Opacity="0.5" Color="#000000" RenderingBias="Quality"/>
+                    <DropShadowEffect BlurRadius="25" ShadowDepth="8" Opacity="0.5" Color="Black" RenderingBias="Quality"/>
                 </Border.Effect>
                 
                 <Grid>
@@ -52,7 +52,7 @@
                     </Grid.RowDefinitions>
                     
                     <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
-                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="14,0"
+                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="12,0"
                             Cursor="Hand"
                             MouseLeftButtonDown="PanelHeader_MouseLeftButtonDown"
                             MouseMove="PanelHeader_MouseMove"
@@ -78,7 +78,7 @@
                                     MouseLeftButtonDown="HelpButton_Click"
                                     ToolTipService.InitialShowDelay="250"
                                     ToolTipService.ShowDuration="20000">
-                                <Path Fill="#80FFFFFF" Stretch="Uniform" Width="14" Height="14"
+                                <Path Fill="{DynamicResource Kobold.Brush.IconFill}" Stretch="Uniform" Width="14" Height="14"
                                       HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <Path.Data>
                                         <PathGeometry FillRule="Nonzero"
@@ -95,7 +95,7 @@
                                                 <TextBlock x:Name="BadgeHelpStored" TextWrapping="Wrap" MaxWidth="230"/>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal">
-                                                <Border Width="16" Height="16" CornerRadius="8" Background="#CCB0B0B0"
+                                                <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource Kobold.Brush.MissingBadge}"
                                                         VerticalAlignment="Top" Margin="0,1,8,0">
                                                     <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -119,7 +119,7 @@
                                 <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
                                     <Path x:Name="LockIcon" 
                                           Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
-                                          Fill="#80FFFFFF" Stroke="#40FFFFFF" StrokeThickness="0.5"/>
+                                          Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"/>
                                 </Canvas>
                             </Border>
                             
@@ -133,7 +133,7 @@
                                     <!-- Pin Icon (pushpin shape) -->
                                     <Path x:Name="PinIcon" 
                                           Data="M4,0 L10,0 L10,2 L9,2 L9,6 L11,8 L11,9 L8,9 L8,14 L6,14 L6,9 L3,9 L3,8 L5,6 L5,2 L4,2 Z"
-                                          Fill="#80FFFFFF" Stroke="#40FFFFFF" StrokeThickness="0.5"
+                                          Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"
                                           RenderTransformOrigin="0.5,0.5">
                                         <Path.RenderTransform>
                                             <RotateTransform x:Name="PinIconRotation" Angle="45"/>
@@ -156,7 +156,7 @@
                                   MouseLeftButtonUp="ItemsContainer_MouseLeftButtonUp">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="10" 
+                                <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="8" 
                                         Background="Transparent" Cursor="Hand"
                                         BorderThickness="2" BorderBrush="Transparent"
                                         MouseEnter="Item_MouseEnter" MouseLeave="Item_MouseLeave"
@@ -169,7 +169,7 @@
                                             <Border Width="40" Height="40" CornerRadius="8">
                                                 <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
                                             </Border>
-                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="10"
+                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
                                                        Foreground="{Binding TextColor}"
                                                        TextTrimming="CharacterEllipsis" TextAlignment="Center"
                                                        MaxWidth="70" Margin="0,6,0,0" 
@@ -185,7 +185,7 @@
                                         <!-- Missing badge: source file no longer exists -->
                                         <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"
                                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0"
-                                                Background="#CCB0B0B0" Visibility="Collapsed">
+                                                Background="{DynamicResource Kobold.Brush.MissingBadge}" Visibility="Collapsed">
                                             <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
@@ -193,12 +193,12 @@
                                 </Border>
                                 <DataTemplate.Triggers>
                                     <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                        <Setter TargetName="ItemBorder" Property="BorderBrush" Value="#80B4FF"/>
+                                        <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.SelectionBorder}"/>
                                         <Setter TargetName="ItemBorder" Property="Background">
                                             <Setter.Value>
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#1580B4FF" Offset="0"/>
-                                                    <GradientStop Color="#2580B4FF" Offset="1"/>
+                                                    <GradientStop Color="{StaticResource Kobold.Color.SelectionFillTop}" Offset="0"/>
+                                                    <GradientStop Color="{StaticResource Kobold.Color.SelectionFillBottom}" Offset="1"/>
                                                 </LinearGradientBrush>
                                             </Setter.Value>
                                         </Setter>
@@ -208,7 +208,7 @@
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding IsMissing}" Value="True">
                                         <Setter TargetName="ItemIconImage" Property="Opacity" Value="0.35"/>
-                                        <Setter TargetName="ItemNameText" Property="Foreground" Value="#909090"/>
+                                        <Setter TargetName="ItemNameText" Property="Foreground" Value="{DynamicResource Kobold.Brush.TextMuted}"/>
                                         <Setter TargetName="MissingBadge" Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
@@ -226,7 +226,7 @@
                     <Rectangle x:Name="DropIndicator" 
                                Grid.Row="1"
                                Width="3" Height="70"
-                               Fill="#80FFFFFF"
+                               Fill="{DynamicResource Kobold.Brush.DropIndicator}"
                                RadiusX="1.5" RadiusY="1.5"
                                HorizontalAlignment="Left" VerticalAlignment="Top"
                                Visibility="Collapsed"
@@ -239,7 +239,7 @@
                     <!-- Selection Rectangle for lasso select -->
                     <Rectangle x:Name="SelectionRect" 
                                Grid.Row="1"
-                               Fill="#2060A0FF" Stroke="#60A0FF" StrokeThickness="1"
+                               Fill="{DynamicResource Kobold.Brush.LassoFill}" Stroke="{DynamicResource Kobold.Brush.LassoStroke}" StrokeThickness="1"
                                HorizontalAlignment="Left" VerticalAlignment="Top"
                                Visibility="Collapsed" IsHitTestVisible="False"/>
                     
@@ -249,7 +249,7 @@
                                 Visibility="Collapsed">
                         <TextBlock Text="📂" FontSize="32" HorizontalAlignment="Center" Opacity="0.6"/>
                         <TextBlock x:Name="EmptyText" Text="Drop files here" 
-                                   Foreground="#60FFFFFF" FontSize="11" FontFamily="Segoe UI"
+                                   Foreground="{DynamicResource Kobold.Brush.TextFaint}" FontSize="11" FontFamily="Segoe UI"
                                    Margin="0,6,0,0" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </Grid>

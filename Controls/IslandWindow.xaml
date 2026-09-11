@@ -27,7 +27,8 @@
                        Width="120" Height="8"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        RadiusX="4" RadiusY="4"
-                       Fill="#CC202020"
+                       Fill="{DynamicResource Kobold.Brush.IslandBackground}"
+                       Stroke="{DynamicResource Kobold.Brush.IslandBorder}" StrokeThickness="1"
                        Cursor="Hand"
                        MouseLeftButtonDown="Pill_MouseLeftButtonDown"
                        MouseMove="Pill_MouseMove"
@@ -38,7 +39,8 @@
             </Rectangle>
 
             <!-- Fixed desktop entry (opens the real Desktop folder) + a divider,
-                 then one 44x44 tile per widget (added in code). -->
+                 one 44x44 tile per widget (added in code), then a divider and
+                 the fixed settings entry. -->
             <StackPanel x:Name="TilePanel"
                         Orientation="Horizontal"
                         HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -51,12 +53,12 @@
                         <Canvas Width="24" Height="24">
                             <Rectangle Canvas.Left="2" Canvas.Top="3" Width="20" Height="14"
                                        RadiusX="2.5" RadiusY="2.5"
-                                       Stroke="White" StrokeThickness="1.8"/>
-                            <Rectangle Canvas.Left="10" Canvas.Top="17" Width="4" Height="4" Fill="White"/>
+                                       Stroke="{DynamicResource Kobold.Brush.IslandForeground}" StrokeThickness="1.8"/>
+                            <Rectangle Canvas.Left="10" Canvas.Top="17" Width="4" Height="4" Fill="{DynamicResource Kobold.Brush.IslandForeground}"/>
                             <Rectangle Canvas.Left="6" Canvas.Top="21" Width="12" Height="1.8"
-                                       RadiusX="0.9" RadiusY="0.9" Fill="White"/>
+                                       RadiusX="0.9" RadiusY="0.9" Fill="{DynamicResource Kobold.Brush.IslandForeground}"/>
                             <Line x:Name="DesktopSlash" X1="3.5" Y1="3.5" X2="20.5" Y2="20.5"
-                                  Stroke="White" StrokeThickness="1.8"
+                                  Stroke="{DynamicResource Kobold.Brush.IslandForeground}" StrokeThickness="1.8"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   Visibility="Collapsed"/>
                         </Canvas>
@@ -64,7 +66,44 @@
                 </Border>
 
                 <Rectangle x:Name="TileDivider" Width="1" Height="26" Margin="6,0,6,0"
-                           VerticalAlignment="Center" Fill="#33FFFFFF"/>
+                           VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
+
+                <!-- Settings entry: opens the settings window -->
+                <Rectangle x:Name="SettingsDivider" Width="1" Height="26" Margin="6,0,6,0"
+                           VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
+
+                <!-- Add-widget entry: creates a widget with the default settings -->
+                <Border x:Name="AddTile" Width="44" Height="44" CornerRadius="8"
+                        Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
+                    <Viewbox Width="30" Height="30">
+                        <Canvas Width="24" Height="24">
+                            <Path Stroke="{DynamicResource Kobold.Brush.IslandForeground}" StrokeThickness="2.8"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M12,4 L12,20 M4,12 L20,12"/>
+                        </Canvas>
+                    </Viewbox>
+                </Border>
+
+                <Border x:Name="SettingsTile" Width="44" Height="44" CornerRadius="8"
+                        Background="Transparent" Cursor="Hand">
+                    <Viewbox Width="30" Height="30">
+                        <Canvas Width="24" Height="24">
+                            <!-- Gear ring (donut) -->
+                            <Path Fill="{DynamicResource Kobold.Brush.IslandForeground}">
+                                <Path.Data>
+                                    <GeometryGroup FillRule="EvenOdd">
+                                        <EllipseGeometry Center="12,12" RadiusX="8.6" RadiusY="8.6"/>
+                                        <EllipseGeometry Center="12,12" RadiusX="3.6" RadiusY="3.6"/>
+                                    </GeometryGroup>
+                                </Path.Data>
+                            </Path>
+                            <!-- Gear teeth -->
+                            <Path Stroke="{DynamicResource Kobold.Brush.IslandForeground}" StrokeThickness="2.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M19.4,12 L22.6,12 M17.23,17.23 L19.5,19.5 M12,19.4 L12,22.6 M6.77,17.23 L4.5,19.5 M4.6,12 L1.4,12 M6.77,6.77 L4.5,4.5 M12,4.6 L12,1.4 M17.23,6.77 L19.5,4.5"/>
+                        </Canvas>
+                    </Viewbox>
+                </Border>
             </StackPanel>
         </Grid>
     </Grid>

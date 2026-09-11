@@ -104,7 +104,7 @@ namespace Kobold.Controls
             
             Loaded += (s, e) =>
             {
-                // Apply theme colors (includes DrawFolderIcon, UpdatePanelColor, UpdateUI)
+                // Apply theme colors (panel colors + item text) and pin state
                 RefreshTheme();
                 UpdatePinButtonVisual();
             };

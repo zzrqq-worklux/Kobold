@@ -104,28 +104,43 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Converts hex color string to WPF Color
+        /// Converts a hex color string (#RRGGBB or #AARRGGBB) to a WPF Color.
+        /// Falls back to the theme accent for malformed values.
         /// </summary>
         public static Color HexToColor(string hex)
         {
-            if (string.IsNullOrEmpty(hex) || hex.Length < 7)
-            {
-                return Color.FromRgb(59, 130, 246); // Default blue
-            }
+            if (string.IsNullOrEmpty(hex)) return FallbackColor;
 
+            hex = hex.TrimStart('#');
             try
             {
-                hex = hex.TrimStart('#');
-                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
-                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
-                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
-                return Color.FromRgb(r, g, b);
+                if (hex.Length == 8)
+                {
+                    return Color.FromArgb(
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16),
+                        Convert.ToByte(hex.Substring(6, 2), 16));
+                }
+
+                if (hex.Length == 6)
+                {
+                    return Color.FromRgb(
+                        Convert.ToByte(hex.Substring(0, 2), 16),
+                        Convert.ToByte(hex.Substring(2, 2), 16),
+                        Convert.ToByte(hex.Substring(4, 2), 16));
+                }
             }
-            catch
+            catch (Exception)
             {
-                return Color.FromRgb(59, 130, 246);
+                // Fall through to the accent fallback for malformed values.
             }
+
+            return FallbackColor;
         }
+
+        private static readonly Color FallbackColor =
+            (Color)ColorConverter.ConvertFromString(UiTokens.DefaultFolderColor);
 
         /// <summary>
         /// Converts WPF Color to hex string
@@ -159,6 +174,26 @@ namespace Kobold.Core
                 (byte)Math.Min(255, color.G + (255 - color.G) * factor),
                 (byte)Math.Min(255, color.B + (255 - color.B) * factor)
             );
+        }
+
+        /// <summary>
+        /// Linear blend between two colors: amount 0 returns the base color,
+        /// 1 returns the tint. Out-of-range amounts are clamped; alpha is kept.
+        /// </summary>
+        public static Color MixColor(Color baseColor, Color tint, double amount)
+        {
+            amount = Math.Max(0.0, Math.Min(1.0, amount));
+            return Color.FromArgb(
+                baseColor.A,
+                MixChannel(baseColor.R, tint.R, amount),
+                MixChannel(baseColor.G, tint.G, amount),
+                MixChannel(baseColor.B, tint.B, amount)
+            );
+        }
+
+        private static byte MixChannel(byte from, byte to, double amount)
+        {
+            return (byte)Math.Round(from + (to - from) * amount);
         }
     }
 }

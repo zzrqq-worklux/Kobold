@@ -22,15 +22,13 @@ namespace Kobold.Controls
     /// </summary>
     public partial class IslandWindow : Window
     {
-        private const int AnimationMs = 200;
         private const int ShadowPadding = 16;
         private const int TileIconSize = 32;
         private const double IslandDragThreshold = 4;
-        private const double DesktopEntryWidth = 65; // desktop tile (44+8) + divider (1 + 6+6)
-
-        private static readonly SolidColorBrush CollapsedBrush = Freeze(Color.FromArgb(0xCC, 0x20, 0x20, 0x20));
-        private static readonly SolidColorBrush ExpandedBrush = Freeze(Color.FromArgb(0xE6, 0x20, 0x20, 0x20));
-        private static readonly SolidColorBrush TileHoverBrush = Freeze(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+        private const double DividerEntryWidth = 13; // divider line (1) + 6+6 margins
+        private const double SettingsTileWidth = 44;
+        private const double AddTileWidth = 52;      // 44 tile + 8 gap before the settings tile
+        private const double DesktopEntryWidth = WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP + DividerEntryWidth;
 
         private bool _isExpanded;
         private List<FolderData> _folders = new List<FolderData>();
@@ -58,14 +56,35 @@ namespace Kobold.Controls
             };
             _leaveTimer.Tick += (s, e) => Collapse();
 
-            Closed += (s, e) => _leaveTimer.Stop();
+            ThemeManager.ThemeChanged += OnThemeChanged;
+            Closed += (s, e) =>
+            {
+                _leaveTimer.Stop();
+                ThemeManager.ThemeChanged -= OnThemeChanged;
+            };
 
             PillShape.Cursor = CursorHelper.OpenHand;
             PillShape.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
 
-            DesktopTile.MouseEnter += (s, e) => DesktopTile.Background = TileHoverBrush;
+            DesktopTile.MouseEnter += (s, e) => DesktopTile.Background = ThemeManager.IslandHoverBrush;
             DesktopTile.MouseLeave += (s, e) => DesktopTile.Background = Brushes.Transparent;
             DesktopTile.MouseLeftButtonDown += DesktopTile_MouseLeftButtonDown;
+
+            SettingsTile.MouseEnter += (s, e) => SettingsTile.Background = ThemeManager.IslandHoverBrush;
+            SettingsTile.MouseLeave += (s, e) => SettingsTile.Background = Brushes.Transparent;
+            SettingsTile.MouseLeftButtonDown += (s, e) =>
+            {
+                WidgetManager.Instance.ShowSettings();
+                e.Handled = true;
+            };
+
+            AddTile.MouseEnter += (s, e) => AddTile.Background = ThemeManager.IslandHoverBrush;
+            AddTile.MouseLeave += (s, e) => AddTile.Background = Brushes.Transparent;
+            AddTile.MouseLeftButtonDown += (s, e) =>
+            {
+                WidgetManager.Instance.CreateWidgetWithDefaults();
+                e.Handled = true;
+            };
 
             _desktopClickTimer = new DispatcherTimer
             {
@@ -86,6 +105,16 @@ namespace Kobold.Controls
         {
             _leaveTimer.Interval = TimeSpan.FromMilliseconds(GetCollapseDelayMs());
             UpdateWindowGeometry();
+        }
+
+        private void OnThemeChanged()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                PillShape.Fill = _isExpanded
+                    ? ThemeManager.IslandBackgroundExpandedBrush
+                    : ThemeManager.IslandBackgroundBrush;
+            });
         }
 
         private static int GetCollapseDelayMs()
@@ -197,7 +226,9 @@ namespace Kobold.Controls
             _isExpanded = true;
 
             UpdateDesktopTile();
-            PillShape.Fill = ExpandedBrush;
+            AddTile.ToolTip = Localization.Get("Island_AddWidget");
+            SettingsTile.ToolTip = Localization.Get("Settings_Title");
+            PillShape.Fill = ThemeManager.IslandBackgroundExpandedBrush;
             double width = GetExpandedWidth();
             AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
             ShowTiles();
@@ -215,7 +246,7 @@ namespace Kobold.Controls
             if (!_isExpanded) return;
             _isExpanded = false;
 
-            PillShape.Fill = CollapsedBrush;
+            PillShape.Fill = ThemeManager.IslandBackgroundBrush;
             HideTiles();
             AnimateTo(WidgetConstants.ISLAND_HOVER_WIDTH, WidgetConstants.ISLAND_HOVER_HEIGHT,
                       WidgetConstants.ISLAND_PILL_WIDTH, WidgetConstants.ISLAND_PILL_HEIGHT);
@@ -224,7 +255,7 @@ namespace Kobold.Controls
         private void ShowTiles()
         {
             TilePanel.Visibility = Visibility.Visible;
-            var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(140)))
+            var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(UiTokens.DurationNormalMs)))
             {
                 BeginTime = TimeSpan.FromMilliseconds(60),
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
@@ -244,17 +275,23 @@ namespace Kobold.Controls
 
         private void RebuildTiles()
         {
-            // Keep the fixed desktop entry (0) + divider (1); replace only widget tiles.
-            while (TilePanel.Children.Count > 2)
+            // Fixed entries: desktop (0) + divider (1); widget tiles are
+            // inserted at index 2, and divider + add + settings stay last.
+            while (TilePanel.Children.Count > 5)
             {
                 TilePanel.Children.RemoveAt(2);
             }
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
+            int insertAt = 2;
             foreach (var folder in _folders)
             {
-                TilePanel.Children.Add(CreateTile(folder, iconStyle));
+                TilePanel.Children.Insert(insertAt++, CreateTile(folder, iconStyle));
             }
+
+            // Without widgets the trailing divider would sit right next to the
+            // desktop divider - hide it so the entries stay separated once.
+            SettingsDivider.Visibility = _folders.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void DesktopTile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -325,7 +362,7 @@ namespace Kobold.Controls
                 Child = new Viewbox { Width = TileIconSize, Height = TileIconSize, Child = iconCanvas }
             };
 
-            tile.MouseEnter += (s, e) => tile.Background = TileHoverBrush;
+            tile.MouseEnter += (s, e) => tile.Background = ThemeManager.IslandHoverBrush;
             tile.MouseLeave += (s, e) => tile.Background = Brushes.Transparent;
             tile.MouseLeftButtonUp += (s, e) => ActivateTile(folder.Id);
 
@@ -345,7 +382,12 @@ namespace Kobold.Controls
         private double GetExpandedWidth()
         {
             int count = Math.Max(0, _folders.Count);
-            double content = 24 + DesktopEntryWidth + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP);
+            double content = 24
+                + DesktopEntryWidth
+                + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP)
+                + SettingsTileWidth
+                + AddTileWidth
+                + (count > 0 ? DividerEntryWidth : 0);
             // Safety cap so the island can never grow wider than the screen.
             double max = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, SystemParameters.PrimaryScreenWidth - 2 * ShadowPadding);
             return Math.Min(content, max);
@@ -388,7 +430,7 @@ namespace Kobold.Controls
         /// </summary>
         private void AnimateTo(double zoneWidth, double zoneHeight, double pillWidth, double pillHeight)
         {
-            var duration = new Duration(TimeSpan.FromMilliseconds(AnimationMs));
+            var duration = new Duration(TimeSpan.FromMilliseconds(UiTokens.DurationSlowMs));
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             // Same corner radius as the expanded panel; the short collapsed pill
             // stays a capsule because the radius is capped at half its height.
@@ -420,13 +462,6 @@ namespace Kobold.Controls
                 EasingFunction = ease,
                 FillBehavior = FillBehavior.Stop
             };
-        }
-
-        private static SolidColorBrush Freeze(Color color)
-        {
-            var brush = new SolidColorBrush(color);
-            brush.Freeze();
-            return brush;
         }
 
         #endregion

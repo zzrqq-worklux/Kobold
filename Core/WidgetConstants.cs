@@ -82,14 +82,14 @@ namespace Kobold.Core
         
         #region Visual
         
-        /// <summary>Default folder color (blue)</summary>
-        public const string DEFAULT_FOLDER_COLOR = "#3B82F6";
+        /// <summary>Default folder color (blue) - same token as UiTokens.DefaultFolderColor</summary>
+        public const string DEFAULT_FOLDER_COLOR = UiTokens.DefaultFolderColor;
         
         /// <summary>Panel corner radius</summary>
-        public const int PANEL_CORNER_RADIUS = 16;
+        public const int PANEL_CORNER_RADIUS = (int)UiTokens.RadiusPanel;
         
-        /// <summary>Item border corner radius</summary>
-        public const int ITEM_CORNER_RADIUS = 10;
+        /// <summary>Item corner radius</summary>
+        public const int ITEM_CORNER_RADIUS = (int)UiTokens.RadiusControl;
         
         #endregion
     }

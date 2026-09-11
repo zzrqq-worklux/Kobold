@@ -17,153 +17,98 @@ namespace Kobold.Controls
     public partial class FolderWidget
     {
         #region Dialogs
-        
+
         private void ShowRenameDialog()
         {
-            var dlg = new Window 
-            { 
-                Title = Localization.Get("Dialog_Rename"), 
-                Width = 380, Height = 180, 
-                WindowStartupLocation = WindowStartupLocation.CenterScreen, 
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = System.Windows.Media.Brushes.Transparent,
-                ResizeMode = ResizeMode.NoResize,
-                Owner = this
-            };
-            
-            // Apply dark styling
-            var border = new Border
-            {
-                Background = ThemeManager.DialogBackgroundBrush,
-                CornerRadius = new CornerRadius(8),
-                BorderBrush = ThemeManager.DialogBorderBrush,
-                BorderThickness = new Thickness(1)
-            };
-            border.Effect = new System.Windows.Media.Effects.DropShadowEffect 
-            { 
-                BlurRadius = 15, 
-                ShadowDepth = 0, 
-                Opacity = 0.5, 
-                Color = Colors.Black 
-            };
-            
-            var sp = new StackPanel { Margin = new Thickness(24) };
-            var lbl = UIHelper.CreateLabel(Localization.Get("Dialog_EnterName"));
-            lbl.Margin = new Thickness(0,0,0,12);
-            
-            var tb = UIHelper.CreateTextBox(_data.Name);
-            tb.Padding = new Thickness(10,8,10,8);
-            tb.SelectAll();
-            
-            var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0,20,0,0) };
-            
-            var okBtn = UIHelper.CreateButton(Localization.Get("Dialog_OK"), true);
-            okBtn.Width = 90;
-            okBtn.Margin = new Thickness(0,0,10,0);
-            okBtn.IsDefault = true;
-            
-            var cancelBtn = UIHelper.CreateButton(Localization.Get("Dialog_Cancel"), false);
-            cancelBtn.Width = 90;
-            cancelBtn.IsCancel = true;
-            
-            okBtn.Click += (s, e) => 
-            { 
-                if (!string.IsNullOrWhiteSpace(tb.Text))
-                {
-                    _data.Name = tb.Text.Trim(); 
-                    UpdateUI();
-                    OnDataChanged?.Invoke(); 
-                    dlg.DialogResult = true;
-                    dlg.Close(); 
-                }
-            };
-            
-            tb.KeyDown += (s, e) =>
-            {
-                if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(tb.Text))
-                    okBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            };
-            
-            btnPanel.Children.Add(okBtn);
-            btnPanel.Children.Add(cancelBtn);
-            sp.Children.Add(lbl);
-            sp.Children.Add(tb);
-            sp.Children.Add(btnPanel);
-            
-            border.Child = sp;
-            dlg.Content = border;
-            
-            dlg.Loaded += (s, e) => { tb.Focus(); tb.SelectAll(); };
-            dlg.ShowDialog();
+            string newName = DialogFactory.ShowInput(
+                this,
+                Localization.Get("Dialog_Rename"),
+                Localization.Get("Dialog_EnterName"),
+                _data.Name);
+
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            _data.Name = newName.Trim();
+            UpdateUI();
+            OnDataChanged?.Invoke();
         }
 
         private void ShowColorPicker()
         {
-            var dlg = new Window 
-            { 
-                Title = Localization.Get("Dialog_PickColor"), 
-                Width = 340, Height= 220, 
-                WindowStartupLocation = WindowStartupLocation.CenterScreen, 
+            var dlg = new Window
+            {
+                Title = Localization.Get("Dialog_PickColor"),
+                Width = 340,
+                Height = 220,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
-                Background = System.Windows.Media.Brushes.Transparent,
+                Background = Brushes.Transparent,
                 ResizeMode = ResizeMode.NoResize,
                 Owner = this
             };
-            
-            // Apply dark styling
-            var border = new Border
+
+            var wrapPanel = new WrapPanel { Margin = new Thickness(UiTokens.Space4) };
+
+            foreach (var color in UiTokens.FolderPalette)
+            {
+                wrapPanel.Children.Add(CreateColorSwatch(color, dlg));
+            }
+
+            dlg.Content = new Border
             {
                 Background = ThemeManager.DialogBackgroundBrush,
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = new CornerRadius(UiTokens.RadiusWindow),
                 BorderBrush = ThemeManager.DialogBorderBrush,
-                BorderThickness = new Thickness(1)
+                BorderThickness = new Thickness(1),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 20,
+                    ShadowDepth = 0,
+                    Opacity = 0.5,
+                    Color = Colors.Black
+                },
+                Child = wrapPanel
             };
-            border.Effect = new System.Windows.Media.Effects.DropShadowEffect 
-            { 
-                BlurRadius = 15, 
-                ShadowDepth = 0, 
-                Opacity = 0.5, 
-                Color = Colors.Black 
-            };
-            
-            var wp = new WrapPanel { Margin = new Thickness(20) };
-            string[] colors = { "#3B82F6", "#EF4444", "#22C55E", "#F59E0B", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16", "#F97316", "#6366F1", "#14B8A6", "#A855F7" };
-            
-            foreach (var c in colors)
-            {
-                var colorBorder = new Border 
-                { 
-                    Width = 48, Height = 48, Margin = new Thickness(6), 
-                    CornerRadius = new CornerRadius(8), 
-                    Background = new SolidColorBrush(Utils.HexToColor(c)), 
-                    Cursor = Cursors.Hand,
-                    BorderThickness = c == _data.Color ? new Thickness(3) : new Thickness(1),
-                    BorderBrush = c == _data.Color ? Brushes.White : new SolidColorBrush(Color.FromArgb(80, 255, 255, 255))
-                };
-                
-                colorBorder.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 2, Opacity = 0.3 };
-                
-                string col = c;
-                colorBorder.MouseEnter += (s, e) => ((Border)s).Opacity = 0.8;
-                colorBorder.MouseLeave += (s, e) => ((Border)s).Opacity = 1.0;
-                colorBorder.MouseLeftButtonUp += (s, e) => 
-                { 
-                    _data.Color = col; 
-                    RefreshTheme();  // This updates panel colors AND item text colors
-                    OnDataChanged?.Invoke(); 
-                    dlg.Close(); 
-                };
-                
-                wp.Children.Add(colorBorder);
-            }
-            
-            border.Child = wp;
-            dlg.Content = border;
+
             dlg.ShowDialog();
         }
-        
+
+        private Border CreateColorSwatch(string color, Window dialog)
+        {
+            bool isCurrent = string.Equals(color, _data.Color, StringComparison.OrdinalIgnoreCase);
+            var swatch = new Border
+            {
+                Width = 48,
+                Height = 48,
+                Margin = new Thickness(6),
+                CornerRadius = new CornerRadius(UiTokens.RadiusControl),
+                Background = new SolidColorBrush(Utils.HexToColor(color)),
+                Cursor = Cursors.Hand,
+                BorderThickness = isCurrent ? new Thickness(3) : new Thickness(1),
+                BorderBrush = isCurrent ? ThemeManager.WhiteBrush : ThemeManager.IconStrokeBrush
+            };
+
+            swatch.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 6,
+                ShadowDepth = 2,
+                Opacity = 0.3
+            };
+
+            swatch.MouseEnter += (s, e) => swatch.Opacity = 0.8;
+            swatch.MouseLeave += (s, e) => swatch.Opacity = 1.0;
+            swatch.MouseLeftButtonUp += (s, e) =>
+            {
+                _data.Color = color;
+                RefreshTheme();  // This updates panel colors AND item text colors
+                OnDataChanged?.Invoke();
+                dialog.Close();
+            };
+
+            return swatch;
+        }
+
         #endregion
 
         #region Shell Icon
@@ -271,5 +216,3 @@ namespace Kobold.Controls
         #endregion
     }
 }
-
-

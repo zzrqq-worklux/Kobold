@@ -5,8 +5,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
 using Kobold.Core;
-using Kobold.Controls;
-using Kobold.Windows;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Services
@@ -95,26 +93,13 @@ namespace Kobold.Services
 
         private void ShowSettings()
         {
-            var settingsWindow = new SettingsWindow();
-            settingsWindow.ShowDialog();
+            WidgetManager.Instance.ShowSettings();
             RefreshMenu(); // Refresh menu in case language changed
         }
 
         private void AddNewWidget()
         {
-            int screenWidth = (int)SystemParameters.PrimaryScreenWidth;
-            int screenHeight = (int)SystemParameters.PrimaryScreenHeight;
-            
-            int widgetCount = WidgetManager.Instance.Widgets.Count;
-            int posX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
-            int posY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
-            
-            string[] colors = { "#3B82F6", "#22C55E", "#EF4444", "#F59E0B", "#8B5CF6" };
-            string color = colors[widgetCount % colors.Length];
-            
-            string name = Localization.Get("UI_DefaultFolderName");
-            int gridColumns = WidgetManager.Instance.Config.DefaultGridColumns;
-            WidgetManager.Instance.CreateWidget(name, color, posX, posY, gridColumns);
+            WidgetManager.Instance.CreateWidgetWithDefaults();
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]

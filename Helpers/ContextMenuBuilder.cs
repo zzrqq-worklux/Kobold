@@ -1,6 +1,9 @@
 using System;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Kobold.Core;
+using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Helpers
 {
@@ -11,10 +14,16 @@ namespace Kobold.Helpers
     public class MenuBuilder
     {
         private readonly ContextMenu _menu;
+        private readonly string _tintColor;
 
-        public MenuBuilder()
+        /// <summary>
+        /// Creates a menu builder. Pass the widget color to tint the menu so
+        /// it reads as belonging to that widget (null keeps the default dark).
+        /// </summary>
+        public MenuBuilder(string tintColor = null)
         {
             _menu = new ContextMenu();
+            _tintColor = tintColor;
         }
 
         /// <summary>
@@ -74,6 +83,7 @@ namespace Kobold.Helpers
         /// </summary>
         public void Show()
         {
+            Prepare(_menu, _tintColor);
             _menu.IsOpen = true;
         }
 
@@ -82,7 +92,54 @@ namespace Kobold.Helpers
         /// </summary>
         public ContextMenu Build()
         {
+            Prepare(_menu, _tintColor);
             return _menu;
+        }
+
+        /// <summary>
+        /// Shared menu preparation: always extend to the right of the cursor,
+        /// and tint with the widget color when one is given.
+        /// </summary>
+        public static void Prepare(ContextMenu menu, string widgetColor = null)
+        {
+            ForceRightSidePlacement(menu);
+            if (!string.IsNullOrEmpty(widgetColor)) ApplyWidgetTint(menu, widgetColor);
+        }
+
+        private static void ForceRightSidePlacement(ContextMenu menu)
+        {
+            if (!SystemParameters.MenuDropAlignment) return;
+
+            // Windows' MenuDropAlignment (left-handed/tablet setting) mirrors
+            // mouse-anchored popups to the left of the cursor. Shift the menu
+            // back so it always extends to the right. The offset equals the
+            // menu width, which makes it idempotent across reopens.
+            menu.Opened += (s, e) => menu.HorizontalOffset = menu.ActualWidth;
+        }
+
+        /// <summary>
+        /// Tints a context menu with a widget color by overriding the
+        /// 'Kobold.Brush.Overlay*' keys on the menu itself; the global
+        /// templates resolve those keys first. The mix base is the active
+        /// theme's surface color, so dark themes get a subtle hue and light
+        /// themes a pastel wash. Strength lives in UiTokens.MenuTint*.
+        /// </summary>
+        private static void ApplyWidgetTint(ContextMenu menu, string widgetColor)
+        {
+            var tint = Utils.HexToColor(widgetColor);
+
+            SetTint(menu, "OverlayBackground", ThemeManager.OverlayBackgroundBrush.Color, tint, UiTokens.MenuTintBackground);
+            SetTint(menu, "OverlayHover", ThemeManager.OverlayHoverBrush.Color, tint, UiTokens.MenuTintState);
+            SetTint(menu, "OverlayChecked", ThemeManager.OverlayCheckedBrush.Color, tint, UiTokens.MenuTintState);
+            SetTint(menu, "OverlayBorder", ThemeManager.OverlayBorderBrush.Color, tint, UiTokens.MenuTintBorder);
+            SetTint(menu, "OverlayDivider", ThemeManager.OverlayDividerBrush.Color, tint, UiTokens.MenuTintBorder);
+        }
+
+        private static void SetTint(ContextMenu menu, string key, Color baseColor, Color tint, double amount)
+        {
+            var brush = new SolidColorBrush(Utils.MixColor(baseColor, tint, amount));
+            brush.Freeze();
+            menu.Resources[ThemeManager.BrushKeyPrefix + key] = brush;
         }
     }
 

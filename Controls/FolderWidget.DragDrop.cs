@@ -274,8 +274,8 @@ namespace Kobold.Controls
                     Width = 48,
                     Height = 48,
                     Margin = new Thickness(i == 0 ? 0 : -20, 0, 0, 0), // Stack overlapping
-                    Background = new SolidColorBrush(Color.FromArgb(100, 60, 60, 60)),
-                    CornerRadius = new CornerRadius(8)
+                    Background = ThemeManager.DragGhostBrush,
+                    CornerRadius = new CornerRadius(UiTokens.RadiusControl)
                 };
                 
                 var img = new Image
@@ -297,7 +297,7 @@ namespace Kobold.Controls
             {
                 var countBadge = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromRgb(59, 130, 246)),
+                    Background = ThemeManager.AccentBlueBrush,
                     CornerRadius = new CornerRadius(10),
                     Padding = new Thickness(6, 2, 6, 2),
                     Margin = new Thickness(4, 0, 0, 0),

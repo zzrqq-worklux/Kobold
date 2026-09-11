@@ -69,7 +69,7 @@ namespace Kobold.Controls
 
             ClearAllSelections();
             _isExpanded = false;
-            AnimationHelper.PanelClose(ExpandedPanel, false, () =>
+            AnimationHelper.PanelClose(ExpandedPanel, () =>
             {
                 ExpandedPanel.Visibility = Visibility.Collapsed;
                 Hide();
@@ -368,6 +368,7 @@ namespace Kobold.Controls
                 menu.Items.Add(copyPathItem);
                 menu.Items.Add(new Separator());
                 menu.Items.Add(remItem);
+                MenuBuilder.Prepare(menu, _data.Color);
                 menu.IsOpen = true;
                 e.Handled = true;
             }
@@ -379,7 +380,7 @@ namespace Kobold.Controls
 
         private void ShowFolderContextMenu()
         {
-            new MenuBuilder()
+            new MenuBuilder(_data.Color)
                 .AddItem("Menu_Rename", ShowRenameDialog)
                 .AddItem("Menu_ChangeColor", ShowColorPicker)
                 .AddMenuItem(CreateGridSizeMenu())
@@ -487,7 +488,8 @@ namespace Kobold.Controls
         private void RenameItem(DisplayItem item)
         {
             string currentName = System.IO.Path.GetFileName(item.Path);
-            string newName = ShowInputDialog(
+            string newName = DialogFactory.ShowInput(
+                this,
                 Localization.Get("Dialog_RenameItem_Title"),
                 Localization.Get("Dialog_RenameItem_Prompt"),
                 currentName);
@@ -552,7 +554,7 @@ namespace Kobold.Controls
         
         private void ShowPanelContextMenu()
         {
-            new MenuBuilder()
+            new MenuBuilder(_data.Color)
                 .AddItem("Menu_NewFile", CreateNewFile)
                 .AddItem("Menu_NewFolder", CreateNewFolder)
                 .Show();
@@ -560,7 +562,8 @@ namespace Kobold.Controls
         
         private void CreateNewFile()
         {
-            string fileName = ShowInputDialog(
+            string fileName = DialogFactory.ShowInput(
+                this,
                 Localization.Get("Dialog_NewFile_Title"),
                 Localization.Get("Dialog_NewFile_Prompt"),
                 "NewFile.txt");
@@ -588,7 +591,8 @@ namespace Kobold.Controls
         
         private void CreateNewFolder()
         {
-            string folderName = ShowInputDialog(
+            string folderName = DialogFactory.ShowInput(
+                this,
                 Localization.Get("Dialog_NewFolder_Title"),
                 Localization.Get("Dialog_NewFolder_Prompt"),
                 "NewFolder");
@@ -612,49 +616,6 @@ namespace Kobold.Controls
             {
                 MessageBox.Show($"Error creating folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-        }
-        
-        private string ShowInputDialog(string title, string prompt, string defaultValue = "")
-        {
-            // Simple input dialog
-            var inputWindow = new Window
-            {
-                Title = title,
-                Width = 350,
-                Height = 150,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = this,
-                ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(45, 45, 45))
-            };
-            
-            var stack = new StackPanel { Margin = new Thickness(16) };
-            
-            var label = new TextBlock { Text = prompt, Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 8) };
-            var textBox = new TextBox { Text = defaultValue, Padding = new Thickness(8, 4, 8, 4) };
-            textBox.SelectAll();
-            
-            var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-            
-            var okButton = new Button { Content = "OK", Width = 70, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
-            var cancelButton = new Button { Content = Localization.Get("Dialog_Cancel"), Width = 70, IsCancel = true };
-            
-            string result = null;
-            okButton.Click += (s, e) => { result = textBox.Text; inputWindow.Close(); };
-            cancelButton.Click += (s, e) => inputWindow.Close();
-            
-            buttonPanel.Children.Add(okButton);
-            buttonPanel.Children.Add(cancelButton);
-            
-            stack.Children.Add(label);
-            stack.Children.Add(textBox);
-            stack.Children.Add(buttonPanel);
-            
-            inputWindow.Content = stack;
-            inputWindow.Loaded += (s, e) => textBox.Focus();
-            inputWindow.ShowDialog();
-            
-            return result;
         }
         
         #endregion

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using Kobold.Core;
 using Kobold.Controls;
+using Kobold.Windows;
 
 namespace Kobold.Core
 {
@@ -121,6 +122,32 @@ namespace Kobold.Core
         public void ShowIsland()
         {
             _island?.ShowIsland();
+        }
+
+        /// <summary>Opens the settings window - shared by the tray menu and the island entry.</summary>
+        public void ShowSettings()
+        {
+            new SettingsWindow().ShowDialog();
+        }
+
+        /// <summary>
+        /// Creates a widget with the default name/color/position - shared by
+        /// the tray menu and the island add entry.
+        /// </summary>
+        public void CreateWidgetWithDefaults()
+        {
+            int screenWidth = (int)SystemParameters.PrimaryScreenWidth;
+            int screenHeight = (int)SystemParameters.PrimaryScreenHeight;
+            int widgetCount = _widgets.Count;
+
+            int posX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
+            int posY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
+
+            string color = UiTokens.FolderPalette[widgetCount % 5];
+            string name = Localization.Get("UI_DefaultFolderName");
+            int gridColumns = _config.DefaultGridColumns;
+
+            CreateWidget(name, color, posX, posY, gridColumns);
         }
 
         /// <summary>Pushes the persisted island settings (collapse delay + position) to the island.</summary>

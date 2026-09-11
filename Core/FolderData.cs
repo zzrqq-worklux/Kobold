@@ -64,7 +64,7 @@ namespace Kobold.Core
         {
             Id = Guid.NewGuid().ToString();
             Name = Localization.Get("UI_DefaultFolderName");
-            Color = "#3B82F6";
+            Color = UiTokens.DefaultFolderColor;
             PosX = 100;
             PosY = 100;
             IsExpanded = false;
