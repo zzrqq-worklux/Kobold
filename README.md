@@ -6,89 +6,194 @@
 
 **桌面整理小组件** | **Windows Desktop Folder Widgets**
 
-Windows 10/11 · WPF · .NET Framework 4.8
+Windows 10/11 · WPF · .NET Framework 4.8 · MIT
 
 </div>
 
-Kobold is a desktop organizer built from [FoldRa](https://github.com/YusufEren97/FoldRa)
-as a secondary-development (二开) base. It places beautiful glassmorphism
-widgets on your desktop; drop files onto a widget and they are tidied away,
-then restored safely when you remove the widget.
+Kobold keeps your desktop tidy with a **dynamic-island launcher** at the
+top of the screen and floating **folder panels**. Hover the island to
+expand it: open the Desktop, jump into any widget, create a new one, or
+open Settings — no need to hunt for the tray icon.
+
+Built from [FoldRa](https://github.com/YusufEren97/FoldRa) as a secondary
+development (二开) base.
 
 ## Features
 
-- **Folder widgets on the desktop** — glassmorphism panels with fluid 60fps animations, auto-resizing to content
-- **File magnet** — drag files onto a widget; same-drive files are moved physically (instant), cross-drive files are kept by reference
-- **Safe by design** — deleting a widget moves its files back to your desktop; nothing is ever lost from the widget storage
-- **Theming** — dark / light modes and per-widget custom colors
-- **System tray** — quick settings and exit from the tray icon
-- **Single instance** — mutex-protected launch, optional auto-start with Windows
+- **Dynamic island launcher** — a slim pill at the top centre expands on
+  hover into desktop / widget / add / settings entries. Click a widget
+  tile to toggle its panel; drag the pill to move the island.
+- **Folder panels** — glassy, auto-sizing panels with per-widget colours,
+  configurable grid columns and item size, lock, pin and rename.
+- **Drag & drop everywhere** — drop files from Explorer onto a panel,
+  reorder entries with a drop indicator, move them between widgets, or
+  drag them out to restore them to the Desktop.
+- **Readable badges** — a coloured cabinet badge means the file lives in
+  Kobold storage; a grey `!` means the source was deleted or moved.
+- **Safe by design** — ejecting or unstoring moves files back to their
+  original location; nothing is trapped inside a widget.
+- **Desktop icons toggle** — single-click the island's desktop entry to
+  hide/show desktop icons, double-click to open the Desktop folder.
+- **Theming** — dark/light applies to every surface (panels, island,
+  settings, menus, tooltips); context menus pick up their widget's colour.
+- **Three languages** — English, 简体中文, 日本語.
+- **Tray + startup** — tray menu for add / show all / hide all / settings
+  / exit, single-instance guard and optional auto-start with Windows.
+- **DPI aware** — PerMonitorV2, verified at 200% scaling.
 
-## Build
+## Install
 
-Requires Windows with the .NET SDK (project targets `net48`, WPF).
+1. Download `Kobold-v1.0.0-win-x64.zip` from `Releases/`.
+2. Extract it anywhere — no installer — and run `Kobold.exe`.
+3. Windows 10/11 with .NET Framework 4.8 (bundled with Windows 10 1903+
+   and Windows 11).
+
+## Usage
+
+| Action | How |
+|---|---|
+| Open/close a widget panel | Hover the island, click a widget tile |
+| Add a widget | Island `+` entry (or tray menu) |
+| Open settings | Island gear entry (or tray menu) |
+| Hide/show desktop icons | Click the island's desktop entry |
+| Open the Desktop folder | Double-click the island's desktop entry |
+| File actions (open, rename, store, eject…) | Right-click an item in a panel |
+| Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header |
+
+Stored vs. referenced files: dropping a file creates a *reference* — the
+original stays where it is. Use **Store** in the item menu to physically
+move it into Kobold storage; **Unstore** or **Eject** puts it back.
+
+## Build & test
+
+Requires the .NET SDK (8.x) on Windows.
 
 ```powershell
 dotnet build Kobold.csproj -c Release
+# -> bin\Release\net48\Kobold.exe
 ```
 
-Output: `bin\Release\net48\Kobold.exe`
+Console self-checks live under `tests/`:
+
+```powershell
+dotnet run --project tests/LangCheck
+dotnet run --project tests/WidgetItemsCheck
+dotnet run --project tests/ScreenGeometryCheck
+dotnet run --project tests/StorageOpsCheck
+dotnet run --project tests/DesktopIconsCheck
+dotnet run --project tests/UiTokensCheck
+dotnet run --project tests/XamlLoadCheck
+```
+
+Package a release zip (Release build plus
+`Releases\Kobold-v<version>-win-x64.zip`):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+```
 
 ## Data
 
 - Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`)
-- Widget storage (moved files): `%AppData%\Kobold\Storage`
+- Stored files: `%AppData%\Kobold\Storage`
 
-## Development notes
-
-- App icons (exe/tray/settings window) use the Kobold logo generated from
-  `logo.jpg` (white background auto-removed; multi-size `icon.ico` 256–16 px).
-- Upstream README/screenshots were dropped on purpose; current UI screenshots
-  can be added here once the first 二开 changes land.
+Source layout: `Core/` (models, config, localization, design tokens,
+theme manager), `Controls/` (island + folder widget windows),
+`Windows/` (settings), `Helpers/` (dialogs, menus, animation, cursors),
+`Themes/` (XAML control styles), `Services/` (tray), `tests/` (console
+checks).
 
 ## Credits & License
 
 Derived from [FoldRa](https://github.com/YusufEren97/FoldRa) by
 [Yusuf Eren Seyrek](https://github.com/YusufEren97) and
 [Mehmet Delin](https://github.com/Deleny), licensed under the MIT License.
-This project keeps the MIT license; see the original repository for upstream history.
+This project keeps the MIT license; see the original repository for
+upstream history.
 
 ---
 
 # 中文说明
 
 Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发项目：
-在桌面上放置毛玻璃风格的文件夹小组件，把文件拖进组件即可收纳整理；
-删除组件时，收纳的文件会自动移回桌面，不会丢失。
+顶部有一颗**灵动岛启动器**，桌面上悬浮着**文件夹面板**。鼠标悬停岛即可展开，
+打开桌面、进入任意组件、新建组件或打开设置，不必再翻托盘图标。
 
 ## 功能
 
-- **桌面文件夹小组件** — 毛玻璃半透明面板，60fps 流畅动画，随内容自动调整大小
-- **文件磁贴收纳** — 拖拽文件到组件即可收纳；同盘物理移动（瞬时），跨盘以引用方式保留
-- **安全回收** — 删除组件时文件自动归位到桌面，收纳区永不丢文件
-- **主题** — 深色/浅色模式 + 每个组件可自定义颜色
-- **托盘图标** — 快捷设置、退出
-- **单实例运行** — 互斥锁防重复启动，可选开机自启
+- **灵动岛启动器** — 屏幕顶部中央的胶囊，悬停展开为「桌面入口 / 组件 / 新建 / 设置」；
+  点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。
+- **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
+  网格列数、条目大小，支持锁定、置顶与重命名。
+- **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
+  拖出面板即还原到桌面。
+- **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
+  源文件已被删除或移动。
+- **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
+- **桌面图标开关** — 单击岛的桌面入口隐藏/显示桌面图标，双击打开桌面文件夹。
+- **主题** — 深色/浅色覆盖所有界面（面板、岛、设置、菜单、Tooltip）；
+  右键菜单会带上所属组件的颜色。
+- **三语界面** — English / 简体中文 / 日本語。
+- **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
+  单实例保护，可选开机自启。
+- **DPI 友好** — PerMonitorV2，200% 缩放下已验证。
 
-## 构建
+## 安装
 
-需要 Windows + .NET SDK（目标框架 `net48`，WPF）：
+1. 从 `Releases/` 下载 `Kobold-v1.0.0-win-x64.zip`。
+2. 解压到任意目录（免安装），运行 `Kobold.exe`。
+3. 需要 Windows 10/11 与 .NET Framework 4.8（Win10 1903+ 与 Win11 自带）。
+
+## 用法
+
+| 操作 | 方式 |
+|---|---|
+| 打开/收起组件面板 | 悬停岛，单击组件 tile |
+| 新建组件 | 岛的 `+` 入口（或托盘菜单） |
+| 打开设置 | 岛的齿轮入口（或托盘菜单） |
+| 隐藏/显示桌面图标 | 单击岛的桌面入口 |
+| 打开桌面文件夹 | 双击岛的桌面入口 |
+| 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
+| 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏 |
+
+拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
+移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。
+
+## 构建与测试
+
+需要 Windows + .NET SDK（8.x）：
 
 ```powershell
 dotnet build Kobold.csproj -c Release
+# 产物：bin\Release\net48\Kobold.exe
 ```
 
-产物：`bin\Release\net48\Kobold.exe`
+`tests/` 下是控制台自检：
+
+```powershell
+dotnet run --project tests/LangCheck
+dotnet run --project tests/WidgetItemsCheck
+dotnet run --project tests/ScreenGeometryCheck
+dotnet run --project tests/StorageOpsCheck
+dotnet run --project tests/DesktopIconsCheck
+dotnet run --project tests/UiTokensCheck
+dotnet run --project tests/XamlLoadCheck
+```
+
+打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+```
 
 ## 数据目录
 
 - 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）
-- 收纳文件存储：`%AppData%\Kobold\Storage`
+- 收纳文件：`%AppData%\Kobold\Storage`
 
-## 开发说明
-
-- 程序图标（exe/托盘/设置窗口）已替换为 Kobold 新 logo（由 `logo.jpg` 自动去白底生成，`icon.ico` 含 256–16px 多尺寸）
-- 上游 README 与截图已移除，待首批二开改动落地后再补充新截图
+源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
+`Windows/`（设置）、`Helpers/`（弹窗、菜单、动画、光标）、`Themes/`（XAML 控件样式）、
+`Services/`（托盘）、`tests/`（控制台自检）。
 
 ## 许可
 
