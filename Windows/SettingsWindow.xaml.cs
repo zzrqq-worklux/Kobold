@@ -162,6 +162,7 @@ namespace Kobold.Windows
             // About section
             AboutHeaderText.Text = "ℹ️ " + Localization.Get("Settings_About");
             AboutTaglineText.Text = Localization.Get("UI_Tagline");
+            VersionText.Text = "Version " + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
         }
 
         /// <summary>
