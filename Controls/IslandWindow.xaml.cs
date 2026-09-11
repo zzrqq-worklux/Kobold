@@ -36,6 +36,9 @@ namespace Kobold.Controls
         private List<FolderData> _folders = new List<FolderData>();
         private readonly DispatcherTimer _leaveTimer;
 
+        // Delays the desktop-tile single click so a double click can open the folder
+        private readonly DispatcherTimer _desktopClickTimer;
+
         // Horizontal drag of the pill (only the capsule background, not the tiles)
         private bool _isDraggingIsland;
         private Point _islandDragCursor;
@@ -60,10 +63,20 @@ namespace Kobold.Controls
             PillShape.Cursor = CursorHelper.OpenHand;
             PillShape.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
 
-            DesktopTile.ToolTip = Localization.Get("Island_DesktopTooltip");
             DesktopTile.MouseEnter += (s, e) => DesktopTile.Background = TileHoverBrush;
             DesktopTile.MouseLeave += (s, e) => DesktopTile.Background = Brushes.Transparent;
-            DesktopTile.MouseLeftButtonUp += DesktopTile_Click;
+            DesktopTile.MouseLeftButtonDown += DesktopTile_MouseLeftButtonDown;
+
+            _desktopClickTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(System.Windows.Forms.SystemInformation.DoubleClickTime)
+            };
+            _desktopClickTimer.Tick += (s, e) =>
+            {
+                _desktopClickTimer.Stop();
+                ToggleDesktopIcons();
+            };
+            UpdateDesktopTile();
 
             UpdateWindowGeometry();
         }
@@ -183,6 +196,7 @@ namespace Kobold.Controls
             if (_isExpanded) return;
             _isExpanded = true;
 
+            UpdateDesktopTile();
             PillShape.Fill = ExpandedBrush;
             double width = GetExpandedWidth();
             AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
@@ -243,9 +257,24 @@ namespace Kobold.Controls
             }
         }
 
-        private void DesktopTile_Click(object sender, MouseButtonEventArgs e)
+        private void DesktopTile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            if (e.ClickCount >= 2)
+            {
+                // Double click opens the folder; cancel the pending single-click toggle.
+                _desktopClickTimer.Stop();
+                OpenDesktopFolder();
+            }
+            else
+            {
+                _desktopClickTimer.Stop();
+                _desktopClickTimer.Start();
+            }
             e.Handled = true;
+        }
+
+        private void OpenDesktopFolder()
+        {
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -255,6 +284,28 @@ namespace Kobold.Controls
                 });
             }
             catch { /* Explorer unavailable - nothing else to do */ }
+        }
+
+        private void ToggleDesktopIcons()
+        {
+            bool hide = !WidgetManager.Instance.Config.HideDesktopIcons;
+            if (!WidgetManager.Instance.SetHideDesktopIcons(hide))
+            {
+                MessageBox.Show(Localization.Get("Dialog_HideIconsFailed"), "Kobold",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            UpdateDesktopTile();
+        }
+
+        /// <summary>Reflects the hide-desktop-icons state on the desktop tile.</summary>
+        private void UpdateDesktopTile()
+        {
+            bool hidden = WidgetManager.Instance.Config.HideDesktopIcons;
+            DesktopSlash.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
+
+            string action = Localization.Get(hidden ? "Island_DesktopClickShow" : "Island_DesktopClickHide");
+            DesktopTile.ToolTip = action + " · " + Localization.Get("Island_DesktopOpenHint");
         }
 
         private Border CreateTile(FolderData folder, string iconStyle)
@@ -339,7 +390,9 @@ namespace Kobold.Controls
         {
             var duration = new Duration(TimeSpan.FromMilliseconds(AnimationMs));
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            double radius = pillHeight / 2.0;
+            // Same corner radius as the expanded panel; the short collapsed pill
+            // stays a capsule because the radius is capped at half its height.
+            double radius = Math.Min(pillHeight / 2.0, WidgetConstants.PANEL_CORNER_RADIUS);
 
             double fromZoneW = IslandBody.Width, fromZoneH = IslandBody.Height;
             double fromPillW = PillShape.Width, fromPillH = PillShape.Height;

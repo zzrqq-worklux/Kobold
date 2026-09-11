@@ -208,7 +208,7 @@ namespace Kobold.Controls
                 PinIconRotation.Angle = 0;
                 PinIcon.Fill = ThemeManager.PinGoldBrush;
                 PinIcon.Stroke = ThemeManager.PinDarkGoldBrush;
-                PinButton.ToolTip = "Unpin panel (close on focus loss)";
+                PinButton.ToolTip = Localization.Get("UI_UnpinTooltip");
             }
             else
             {
@@ -216,10 +216,17 @@ namespace Kobold.Controls
                 PinIconRotation.Angle = 45;
                 PinIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
                 PinIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
-                PinButton.ToolTip = "Pin panel (keep open after restart)";
+                PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             }
         }
         
+        private void HelpButton_Click(object sender, MouseButtonEventArgs e)
+        {
+            // The tooltip is the help; swallow the click so it does not start a
+            // panel drag through the header.
+            e.Handled = true;
+        }
+
         private void LockButton_Click(object sender, MouseButtonEventArgs e)
         {
             _data.IsLocked = !_data.IsLocked;
@@ -311,11 +318,19 @@ namespace Kobold.Controls
                 // default dropped files are references and stay in place).
                 // Locked widgets forbid moving content in or out.
                 var dataItem = _data.Items.FirstOrDefault(i => i.Path == item.Path);
-                if (dataItem != null && dataItem.IsReference && !_data.IsLocked)
+                if (dataItem != null && dataItem.IsReference && !item.IsMissing && !_data.IsLocked)
                 {
                     var storeItem = new MenuItem { Header = Localization.Get("Menu_StoreItem") };
                     storeItem.Click += (s, a) => StoreItemIntoWidget(dataItem);
                     menu.Items.Add(storeItem);
+                }
+
+                // Stored item: move the file back while keeping the entry in the widget
+                if (dataItem != null && !dataItem.IsReference && !_data.IsLocked)
+                {
+                    var unstoreItem = new MenuItem { Header = Localization.Get("Menu_UnstoreItem") };
+                    unstoreItem.Click += (s, a) => UnstoreItem(dataItem);
+                    menu.Items.Add(unstoreItem);
                 }
 
                 // Eject (remove from widget; stored files go back to their original location)
@@ -454,8 +469,12 @@ namespace Kobold.Controls
             string dest = StorageOps.MoveIntoStorage(witem.Path, Utils.GetStoragePath());
             if (dest == null)
             {
-                // Keep as reference; the file is untouched
+                // Keep as reference; the file is untouched. Tell the user why
+                // nothing happened (usually missing rights on public-desktop
+                // shortcuts, or a file that is in use).
                 System.Diagnostics.Debug.WriteLine($"[Kobold] Store failed: {witem.Path}");
+                MessageBox.Show(Localization.Get("Dialog_StoreFailed"), "Kobold",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             witem.OriginalPath = witem.Path;

@@ -44,6 +44,7 @@
                         HorizontalAlignment="Center" VerticalAlignment="Center"
                         Visibility="Hidden">
 
+                <!-- Desktop entry: single click toggles desktop icons, double click opens the folder -->
                 <Border x:Name="DesktopTile" Width="44" Height="44" CornerRadius="8"
                         Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
                     <Viewbox Width="30" Height="30">
@@ -54,6 +55,10 @@
                             <Rectangle Canvas.Left="10" Canvas.Top="17" Width="4" Height="4" Fill="White"/>
                             <Rectangle Canvas.Left="6" Canvas.Top="21" Width="12" Height="1.8"
                                        RadiusX="0.9" RadiusY="0.9" Fill="White"/>
+                            <Line x:Name="DesktopSlash" X1="3.5" Y1="3.5" X2="20.5" Y2="20.5"
+                                  Stroke="White" StrokeThickness="1.8"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Visibility="Collapsed"/>
                         </Canvas>
                     </Viewbox>
                 </Border>

@@ -29,27 +29,53 @@ namespace Kobold.Controls
                     return;
                 }
 
-                string restoredTo = null;
-                if (!string.IsNullOrEmpty(item.OriginalPath) &&
-                    StorageOps.TryRestoreToOriginal(item.Path, item.OriginalPath))
-                {
-                    restoredTo = item.OriginalPath;
-                }
-                else
-                {
-                    // Legacy item (no recorded original) or original occupied/missing
-                    restoredTo = RestoreToDesktopFallback(item.Path);
-                }
-
-                // Hidden attribute travels with the file - clear it on the restored copy
-                if (restoredTo != null)
-                {
-                    StorageOps.SetHidden(restoredTo, false);
-                }
+                RestoreStoredFile(item);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[Kobold] Eject failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Moves a stored file back to its original location (desktop fallback
+        /// for legacy items or occupied originals). The hidden attribute travels
+        /// with the file, so it is cleared on the restored copy. Returns the new
+        /// path, or null when the file could not be moved.
+        /// </summary>
+        private string RestoreStoredFile(WidgetItem item)
+        {
+            string restoredTo = !string.IsNullOrEmpty(item.OriginalPath) &&
+                                StorageOps.TryRestoreToOriginal(item.Path, item.OriginalPath)
+                ? item.OriginalPath
+                : RestoreToDesktopFallback(item.Path);
+
+            if (restoredTo != null) StorageOps.SetHidden(restoredTo, false);
+            return restoredTo;
+        }
+
+        /// <summary>
+        /// Moves a stored file back to where it came from while keeping the item
+        /// in the widget as a reference (the inverse of "store").
+        /// </summary>
+        private void UnstoreItem(WidgetItem item)
+        {
+            try
+            {
+                string restoredTo = RestoreStoredFile(item);
+                if (restoredTo == null) return;
+
+                item.Path = restoredTo;
+                item.Name = System.IO.Path.GetFileName(restoredTo);
+                item.IsReference = true;
+                item.OriginalPath = null;
+
+                UpdateUI();
+                OnDataChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Kobold] Unstore failed: {ex.Message}");
             }
         }
 

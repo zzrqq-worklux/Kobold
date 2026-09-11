@@ -9,6 +9,24 @@
         AllowDrop="True"
         Deactivated="Window_Deactivated"
         KeyDown="Window_KeyDown">
+
+    <Window.Resources>
+        <!-- Stored badge icon: folder cabinet (original SVG, 4 colored paths) -->
+        <DrawingImage x:Key="StoredBadgeIcon">
+            <DrawingImage.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#1296db"
+                                     Geometry="M938.354 610.58H85.678V128.3H128.3V64.35h255.8l42.638 63.95h511.616z"/>
+                    <GeometryDrawing Brush="#1296db"
+                                     Geometry="M980.978 674.53H43.04V192.25h42.638V128.3h255.798l42.624 63.95h596.878z"/>
+                    <GeometryDrawing Brush="#2c2c2c"
+                                     Geometry="M0.4 277.496h1023.2v682.154H0.4z"/>
+                    <GeometryDrawing Brush="#F5F7FA"
+                                     Geometry="M661.226 554.624c-23.514 0-42.624 19.14-42.624 42.624v21.326H405.428v-21.326c0-23.482-19.126-42.624-42.638-42.624-23.498 0-42.638 19.14-42.638 42.624v63.95c0 23.514 19.14 42.654 42.638 42.654h298.438c23.514 0 42.624-19.14 42.624-42.654v-63.95c-0.002-23.484-19.112-42.624-42.626-42.624z"/>
+                </DrawingGroup>
+            </DrawingImage.Drawing>
+        </DrawingImage>
+    </Window.Resources>
     
     <Grid x:Name="RootGrid">
         <!-- Use Canvas for absolute positioning - prevents any shifting -->
@@ -45,14 +63,52 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             
                             <TextBlock x:Name="PanelHeaderText" Grid.Column="0" Text="Files"
                                        FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
                                        VerticalAlignment="Center"/>
                             
+                            <!-- Help: what the item badges mean (hover) -->
+                            <Border x:Name="HelpButton" Grid.Column="1"
+                                    Width="24" Height="24" CornerRadius="6"
+                                    Background="Transparent" Cursor="Help"
+                                    VerticalAlignment="Center" Margin="8,0,0,0"
+                                    MouseLeftButtonDown="HelpButton_Click"
+                                    ToolTipService.InitialShowDelay="250"
+                                    ToolTipService.ShowDuration="20000">
+                                <Path Fill="#80FFFFFF" Stretch="Uniform" Width="14" Height="14"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path.Data>
+                                        <PathGeometry FillRule="Nonzero"
+                                                      Figures="M490.496 942.08h46.08l109.568-110.592h153.6l32.768-31.744V645.12l110.592-110.592v-45.056l-109.568-109.568V223.232l-31.744-31.744h-155.648l-109.568-108.544h-46.08L384 191.488H226.304L192.512 224.256v155.648l-108.544 109.568v45.056l108.544 110.592v154.624l33.792 31.744H384l106.496 110.592zM394.24 768H256v-136.192l-7.168-22.528L151.552 512l95.232-96.256 9.216-22.528V256h138.24l23.552-9.216L512 150.528l98.304 96.256 22.528 9.216H768v137.216l11.264 22.528L876.544 512l-99.328 97.28-9.216 22.528V768h-135.168l-24.576 9.216L512 874.496l-94.208-97.28L394.24 768z m92.16-374.784q-5.12 8.192-8.192 18.432t-4.096 20.48v2.048h-57.344v-3.072q2.048-30.72 14.336-55.296 4.096-10.24 11.776-19.968t18.944-17.92 27.136-13.312 33.28-4.096q27.648-1.024 47.104 8.192t31.232 23.552 17.408 33.28 5.632 37.888-6.144 34.816-15.36 29.696-19.968 26.624-18.944 23.552-14.336 22.016q-6.144 9.216-6.144 20.48v30.72H486.4v-34.816q0-16.384 6.144-29.696t14.848-25.088 19.456-23.552 19.456-23.552 14.848-24.064 5.12-26.624q0-11.264-3.072-20.48-2.048-9.216-7.68-15.872t-13.824-9.728q-9.216-4.096-19.968-4.096t-19.968 5.632-15.36 13.824z m57.344 310.272h-56.32v-56.32h56.32v56.32z"/>
+                                    </Path.Data>
+                                </Path>
+                                <Border.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="280">
+                                            <TextBlock x:Name="BadgeHelpTitle" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                                <Image Source="{StaticResource StoredBadgeIcon}" Width="16" Height="16"
+                                                       VerticalAlignment="Top" Margin="0,1,8,0"/>
+                                                <TextBlock x:Name="BadgeHelpStored" TextWrapping="Wrap" MaxWidth="230"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Width="16" Height="16" CornerRadius="8" Background="#CCB0B0B0"
+                                                        VerticalAlignment="Top" Margin="0,1,8,0">
+                                                    <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <TextBlock x:Name="BadgeHelpMissing" TextWrapping="Wrap" MaxWidth="230"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ToolTip>
+                                </Border.ToolTip>
+                            </Border>
+
                             <!-- Lock toggle (next to pin) -->
-                            <Border x:Name="LockButton" Grid.Column="1" 
+                            <Border x:Name="LockButton" Grid.Column="2" 
                                     Width="24" Height="24" CornerRadius="6"
                                     Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" Margin="8,0,0,0"
@@ -68,7 +124,7 @@
                             </Border>
                             
                             <!-- Pin Button -->
-                            <Border x:Name="PinButton" Grid.Column="2" 
+                            <Border x:Name="PinButton" Grid.Column="3" 
                                     Width="24" Height="24" CornerRadius="6"
                                     Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" Margin="8,0,0,0"
@@ -119,14 +175,12 @@
                                                        MaxWidth="70" Margin="0,6,0,0" 
                                                        FontFamily="Segoe UI" FontWeight="Medium"/>
                                         </StackPanel>
-                                        <!-- Stored badge: file is not visible on the desktop anymore -->
-                                        <Border x:Name="StoredBadge" Width="16" Height="16" CornerRadius="8"
+                                        <!-- Stored badge: the file physically lives in Kobold storage -->
+                                        <Border x:Name="StoredBadge" Width="16" Height="16"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
-                                                Background="#E63B82F6" Visibility="Collapsed">
-                                            <Path Data="M4,6 L12,6 L11,14 L5,14 Z M8,2 L8,5 M6.5,3.5 L8,5.5 L9.5,3.5"
-                                                  Stroke="White" StrokeThickness="1.1" Fill="Transparent"
-                                                  Stretch="Uniform" Width="11" Height="11"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                Visibility="Collapsed">
+                                            <Image Source="{StaticResource StoredBadgeIcon}" Stretch="Uniform"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <!-- Missing badge: source file no longer exists -->
                                         <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"

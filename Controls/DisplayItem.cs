@@ -13,8 +13,8 @@ namespace Kobold.Controls
         public int Index { get; set; }
 
         /// <summary>
-        /// True when the file is not visible on the desktop anymore (physically
-        /// stored, or a reference whose desktop source was hidden)
+        /// True when the file physically lives in Kobold storage (moved out
+        /// of its original location)
         /// </summary>
         public bool IsStored { get; set; }
 

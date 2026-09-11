@@ -95,7 +95,6 @@ namespace Kobold.Controls
             _data = data;
             Left = data.PosX;
             Top = data.PosY;
-            PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             
             // Never leave the grabbing cursor stuck if capture is lost mid-drag.
             PanelHeader.LostMouseCapture += (s, e) => System.Windows.Input.Mouse.OverrideCursor = null;
@@ -129,7 +128,10 @@ namespace Kobold.Controls
         public void UpdateUI()
         {
             PanelHeaderText.Text = _data.Name;
-            PinButton.ToolTip = Localization.Get("UI_PinTooltip");
+            UpdatePinButtonVisual();
+            BadgeHelpTitle.Text = Localization.Get("UI_BadgeHelpTitle");
+            BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
+            BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
             
             // Lock indicator (header button)
             UpdateLockButtonVisual();
@@ -148,7 +150,7 @@ namespace Kobold.Controls
                 Icon = null,
                 Index = index,
                 TextColor = textBrush,
-                IsStored = !item.IsReference || IsHiddenDesktopSource(item.Path),
+                IsStored = !item.IsReference,
                 IsMissing = !System.IO.File.Exists(item.Path) && !System.IO.Directory.Exists(item.Path)
             }).ToList();
             
@@ -204,16 +206,6 @@ namespace Kobold.Controls
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
         
-        /// <summary>
-        /// True when a referenced file lives on the desktop but its icon is
-        /// hidden (i.e. it is "stored" from the user's point of view)
-        /// </summary>
-        private bool IsHiddenDesktopSource(string path)
-        {
-            string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            return StorageOps.IsUnder(path, desktopPath) && StorageOps.IsHidden(path);
-        }
-
         /// <summary>
         /// Gets display name for a file - removes .lnk extension from shortcuts
         /// </summary>

@@ -31,6 +31,7 @@ namespace Kobold.Controls
         {
             string storagePath = Utils.GetStoragePath();
             string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string publicDesktopPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
             bool hideDesktopSource = WidgetManager.Instance.Config.HideDesktopSourceOnStore;
 
             foreach (var sourcePath in paths)
@@ -56,8 +57,11 @@ namespace Kobold.Controls
                     // Pure reference - never move the source
                     _data.Items.Add(new WidgetItem(sourcePath, true));
 
-                    // Optional: hide the desktop icon, keep the file intact
-                    if (hideDesktopSource && StorageOps.IsUnder(sourcePath, desktopPath))
+                    // Optional: hide the desktop icon, keep the file intact.
+                    // Both the user's and the shared desktop count as "desktop".
+                    if (hideDesktopSource &&
+                        (StorageOps.IsUnder(sourcePath, desktopPath) ||
+                         StorageOps.IsUnder(sourcePath, publicDesktopPath)))
                     {
                         StorageOps.SetHidden(sourcePath, true);
                     }
