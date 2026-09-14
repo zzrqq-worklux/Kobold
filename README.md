@@ -41,6 +41,28 @@ development (二开) base.
   / exit, single-instance guard and optional auto-start with Windows.
 - **DPI aware** — PerMonitorV2, verified at 200% scaling.
 
+## Screenshots
+
+<p align="center">
+  <img src="Screenshot/island.png" height="104" alt="Island launcher, expanded"/>
+  <br/>
+  <sub>The island expands on hover: Desktop entry, widget tiles, add-widget and settings.</sub>
+</p>
+
+<p align="center">
+  <img src="Screenshot/panel-dark.png" height="200" alt="Folder panel in dark theme"/>
+  &nbsp;&nbsp;
+  <img src="Screenshot/context-menu.png" height="200" alt="Widget context menu"/>
+  <br/>
+  <sub>A folder panel, and the widget menu that follows its colour.</sub>
+</p>
+
+<p align="center">
+  <img src="Screenshot/light-theme.png" height="260" alt="Light theme"/>
+  <br/>
+  <sub>The same widget in light theme.</sub>
+</p>
+
 ## Install
 
 1. Download `Kobold-v1.0.0-win-x64.zip` from `Releases/`.
@@ -137,6 +159,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
   单实例保护，可选开机自启。
 - **DPI 友好** — PerMonitorV2，200% 缩放下已验证。
+
+> 界面预览见上方 [Screenshots](#screenshots)（灵动岛 / 深色面板 / 右键菜单 / 浅色主题）。
 
 ## 安装
 
