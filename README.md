@@ -65,7 +65,8 @@ development (二开) base.
 
 ## Install
 
-1. Download `Kobold-v1.0.0-win-x64.zip` from `Releases/`.
+1. Download the latest `Kobold-v*-win-x64.zip` from
+   [Releases](https://github.com/zzrqq-worklux/Kobold/releases).
 2. Extract it anywhere — no installer — and run `Kobold.exe`.
 3. Windows 10/11 with .NET Framework 4.8 (bundled with Windows 10 1903+
    and Windows 11).
@@ -164,7 +165,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 
 ## 安装
 
-1. 从 `Releases/` 下载 `Kobold-v1.0.0-win-x64.zip`。
+1. 从 [Releases](https://github.com/zzrqq-worklux/Kobold/releases) 下载最新的 `Kobold-v*-win-x64.zip`。
 2. 解压到任意目录（免安装），运行 `Kobold.exe`。
 3. 需要 Windows 10/11 与 .NET Framework 4.8（Win10 1903+ 与 Win11 自带）。
 

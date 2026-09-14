@@ -23,6 +23,13 @@ foreach ($file in 'Kobold.exe', 'Kobold.exe.config', 'Hardcodet.NotifyIcon.Wpf.d
 }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $stage -Force
 
+# Screenshots referenced by the bundled README
+$shots = Join-Path $stage 'Screenshot'
+New-Item -ItemType Directory -Force -Path $shots | Out-Null
+foreach ($shot in 'island.png', 'panel-dark.png', 'context-menu.png', 'light-theme.png') {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "Screenshot\$shot") -Destination $shots -Force
+}
+
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
 Remove-Item -LiteralPath $stage -Recurse -Force
