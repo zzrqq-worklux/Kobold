@@ -72,6 +72,27 @@ namespace Kobold.ScreenGeometryCheck
 
             Check(!ScreenGeometry.ContainsPhysicalPoint(window, 0, 2.0, 1560, 440),
                 "invalid scale is treated as outside");
+
+            // Menu placement: a popup may open to the right of the cursor only
+            // when it fits before the monitor's right work-area edge; otherwise
+            // it would be clipped off-screen.
+            Check(ScreenGeometry.FitsToTheRight(1000, 400, 1440),
+                "popup fits when cursor + width stays inside the work area");
+            Check(!ScreenGeometry.FitsToTheRight(1200, 400, 1440),
+                "popup does not fit when it would cross the work-area edge");
+            Check(ScreenGeometry.FitsToTheRight(1040, 400, 1440),
+                "popup exactly touching the work-area edge counts as fitting");
+            Check(!ScreenGeometry.FitsToTheRight(2000, 300, 1920),
+                "cursor beyond the work-area edge does not fit");
+
+            // Vertical counterpart: a popup near the bottom edge must be lifted
+            // so its bottom stays inside the monitor's work area.
+            Check(ScreenGeometry.OverflowPastBottom(700, 300, 1040) == 0,
+                "popup fully above the work-area bottom needs no lift");
+            Check(Math.Abs(ScreenGeometry.OverflowPastBottom(900, 300, 1040) - 160) < 0.001,
+                "popup overhanging the work-area bottom reports the exact lift");
+            Check(Math.Abs(ScreenGeometry.OverflowPastBottom(1040, 300, 1040) - 300) < 0.001,
+                "popup starting at the work-area bottom reports its full height");
         }
     }
 }

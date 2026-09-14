@@ -111,10 +111,24 @@ namespace Kobold.Helpers
             if (!SystemParameters.MenuDropAlignment) return;
 
             // Windows' MenuDropAlignment (left-handed/tablet setting) mirrors
-            // mouse-anchored popups to the left of the cursor. Shift the menu
-            // back so it always extends to the right. The offset equals the
-            // menu width, which makes it idempotent across reopens.
-            menu.Opened += (s, e) => menu.HorizontalOffset = menu.ActualWidth;
+            // mouse-anchored popups to the left of the cursor, and re-positioning
+            // them here drops WPF's own screen constraint. So place the menu
+            // ourselves: to the right when it fits, otherwise keep the mirrored
+            // position, and lift it when it would overhang the work area bottom.
+            menu.Opened += (s, e) =>
+            {
+                var cursor = System.Windows.Forms.Cursor.Position;
+                var screen = System.Windows.Forms.Screen.FromPoint(cursor);
+                double scale = VisualTreeHelper.GetDpi(menu).DpiScaleX;
+
+                bool fitsRight = ScreenGeometry.FitsToTheRight(
+                    cursor.X, menu.ActualWidth * scale, screen.WorkingArea.Right);
+                menu.HorizontalOffset = fitsRight ? menu.ActualWidth : 0;
+
+                double liftPx = ScreenGeometry.OverflowPastBottom(
+                    cursor.Y, menu.ActualHeight * scale, screen.WorkingArea.Bottom);
+                menu.VerticalOffset = liftPx > 0 ? -(liftPx / scale) : 0;
+            };
         }
 
         /// <summary>

@@ -26,5 +26,28 @@ namespace Kobold.Core
             return localX >= 0 && localX < windowBoundsDips.Width &&
                    localY >= 0 && localY < windowBoundsDips.Height;
         }
+
+        /// <summary>
+        /// True when a popup of the given physical width fits between the cursor
+        /// and the right edge of the monitor's work area. Used to decide whether
+        /// a context menu may open to the right without being clipped.
+        /// </summary>
+        public static bool FitsToTheRight(
+            double physicalCursorX, double physicalPopupWidth, double physicalWorkAreaRight)
+        {
+            return physicalCursorX + physicalPopupWidth <= physicalWorkAreaRight;
+        }
+
+        /// <summary>
+        /// Physical pixels a popup must move up so its bottom stays inside the
+        /// work area (0 when it already fits). Mirrors FitsToTheRight for the
+        /// vertical axis.
+        /// </summary>
+        public static double OverflowPastBottom(
+            double physicalCursorY, double physicalPopupHeight, double physicalWorkAreaBottom)
+        {
+            double overflow = physicalCursorY + physicalPopupHeight - physicalWorkAreaBottom;
+            return overflow > 0 ? overflow : 0;
+        }
     }
 }
