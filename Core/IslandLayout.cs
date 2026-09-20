@@ -1,9 +1,11 @@
 namespace Kobold.Core
 {
     /// <summary>
-    /// Expanded-island layout math: how wide the launcher becomes for a given
-    /// number of widgets, and how far its widget row scrolls once it no longer
-    /// fits on screen. Kept free of WPF types so it can be checked directly.
+    /// Island layout math. The island is three parts: a fixed desktop entry, a
+    /// scrollable middle that holds the widget tiles, and the fixed add/settings
+    /// entries. Only the middle section is capped (see
+    /// <see cref="MaxScreenFraction"/>) and scrolled - the fixed parts always
+    /// stay in view. Kept free of WPF types so it can be checked directly.
     /// </summary>
     public static class IslandLayout
     {
@@ -26,51 +28,54 @@ namespace Kobold.Core
         public const double DesktopEntryWidth = WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP + DividerWidth;
 
         /// <summary>
-        /// Share of the screen width the expanded island may occupy. Deliberately
-        /// small: the island sits over the top of the display, where browser tabs
-        /// and other window controls live, and a wide row makes a stray click hit
-        /// a widget tile. The rest of the row scrolls.
+        /// Share of the screen width the middle (widget) section may occupy.
+        /// Deliberately small: the island sits over the top of the display,
+        /// where browser tabs and other window controls live, and a wide tile
+        /// row makes a stray click hit a widget.
         /// </summary>
         public const double MaxScreenFraction = 0.25;
 
-        /// <summary>
-        /// Width of the widget row itself - what WPF measures and scrolls. The
-        /// trailing divider before the add/settings entries only appears once
-        /// at least one widget exists.
-        /// </summary>
-        public static double RowWidth(int widgetCount)
+        /// <summary>Width of the widget tiles - one tile plus its gap each.</summary>
+        public static double MiddleContentWidth(int widgetCount)
         {
             if (widgetCount < 0) widgetCount = 0;
+            return widgetCount * ScrollStep;
+        }
 
-            return DesktopEntryWidth
-                 + widgetCount * ScrollStep
+        /// <summary>
+        /// Widest the middle section may become on a screen of the given width:
+        /// a fraction of the screen, with one tile as the floor so even a tiny
+        /// screen still shows something.
+        /// </summary>
+        public static double MiddleMaxWidth(double screenWidth)
+        {
+            double fraction = screenWidth * MaxScreenFraction;
+            return fraction > ScrollStep ? fraction : ScrollStep;
+        }
+
+        /// <summary>Visible width of the middle section: its content, capped.</summary>
+        public static double MiddleViewWidth(int widgetCount, double screenWidth)
+        {
+            double content = MiddleContentWidth(widgetCount);
+            double cap = MiddleMaxWidth(screenWidth);
+            return content < cap ? content : cap;
+        }
+
+        /// <summary>
+        /// Capsule width: padding + fixed desktop entry + the middle section +
+        /// the trailing divider (only when widgets exist) + add + settings.
+        /// </summary>
+        public static double ContentWidth(int widgetCount, double screenWidth)
+        {
+            return Padding
+                 + DesktopEntryWidth
+                 + MiddleViewWidth(widgetCount, screenWidth)
                  + (widgetCount > 0 ? DividerWidth : 0)
                  + AddWidth
                  + SettingsWidth;
         }
 
-        /// <summary>
-        /// Width of the capsule for the given widget count: the row plus the
-        /// padding that keeps it off the rounded edges.
-        /// </summary>
-        public static double ContentWidth(int widgetCount)
-        {
-            return RowWidth(widgetCount) + Padding;
-        }
-
-        /// <summary>
-        /// Widest the island may become on a screen of the given width: a
-        /// fraction of the screen (see <see cref="MaxScreenFraction"/>), but
-        /// never narrower than the fixed entries it always shows.
-        /// </summary>
-        public static double MaxWidth(double screenWidth)
-        {
-            double fraction = screenWidth * MaxScreenFraction;
-            double fixedEntries = ContentWidth(0);
-            return fraction > fixedEntries ? fraction : fixedEntries;
-        }
-
-        /// <summary>Keeps a scroll offset inside the row - 0 to its scrollable width.</summary>
+        /// <summary>Keeps a scroll offset inside the middle - 0 to its scrollable width.</summary>
         public static double ClampOffset(double offset, double scrollableWidth)
         {
             if (scrollableWidth <= 0 || offset < 0) return 0;
@@ -79,7 +84,7 @@ namespace Kobold.Core
 
         /// <summary>
         /// Offset after rolling the wheel by whole tiles. Negative notches
-        /// scroll towards the start of the row, positive ones towards its end.
+        /// scroll towards the start of the tiles, positive ones towards their end.
         /// </summary>
         public static double ScrollTarget(double currentOffset, int notches, double scrollableWidth)
         {

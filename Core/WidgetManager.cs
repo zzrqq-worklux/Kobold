@@ -64,6 +64,7 @@ namespace Kobold.Core
             // The island is the shared entry point that launches widget panels
             _island = new IslandWindow();
             _island.WidgetActivated += OnWidgetActivated;
+            _island.WidgetMenuRequested += OnWidgetMenuRequested;
             RefreshIsland();
             _island.Show();
         }
@@ -91,6 +92,20 @@ namespace Kobold.Core
             }
 
             OpenPanel(widget);
+        }
+
+        /// <summary>
+        /// Opens a widget's menu (rename / colour / grid / size / delete) when its
+        /// island tile is right-clicked, keeping the island expanded while the
+        /// menu is up.
+        /// </summary>
+        private void OnWidgetMenuRequested(string folderId)
+        {
+            var widget = _widgets.FirstOrDefault(w => w.FolderId == folderId);
+            if (widget == null || _island == null) return;
+
+            _island.PauseAutoCollapse();
+            widget.ShowWidgetMenu(() => _island.ResumeAutoCollapse());
         }
 
         /// <summary>Opens a widget's panel; defaults to just below the island when unplaced.</summary>

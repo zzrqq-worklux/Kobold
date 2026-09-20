@@ -5,8 +5,10 @@ using Kobold.Core;
 namespace Kobold.IslandLayoutCheck
 {
     /// <summary>
-    /// Checks for IslandLayout: the expanded-island width formula and the
-    /// scrolling window used when the widget row no longer fits on screen.
+    /// Checks for IslandLayout: the island is three parts - a fixed desktop
+    /// entry, a scrollable middle that holds the widget tiles (capped to a
+    /// fraction of the screen) and the fixed add/settings entries. These checks
+    /// cover the middle-section widths and the scroll math.
     /// Exit code 0 = all green; 1 = failures. Run: dotnet run --project tests/IslandLayoutCheck
     /// </summary>
     internal static class Program
@@ -40,51 +42,54 @@ namespace Kobold.IslandLayoutCheck
             Check(IslandLayout.ScrollStep == WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP,
                 "wheel step equals one tile plus its gap");
 
-            // Expanded content width: padding + desktop entry + widget tiles +
-            // trailing divider (only when widgets exist) + add + settings.
-            Check(IslandLayout.ContentWidth(0) == 185, "no widgets: fixed entries only");
-            Check(IslandLayout.ContentWidth(1) == 250, "one widget adds a tile and the trailing divider");
-            Check(IslandLayout.ContentWidth(5) == 458, "each further widget adds exactly one tile");
+            // The middle section: one tile plus its gap per widget.
+            Check(IslandLayout.MiddleContentWidth(0) == 0, "no widgets: the middle section is empty");
+            Check(IslandLayout.MiddleContentWidth(3) == 156, "three widgets measure three tiles");
+            Check(IslandLayout.MiddleContentWidth(20) == 1040, "each widget adds exactly one tile");
 
-            // The row itself - what WPF measures and scrolls - is 24 narrower
-            // than the capsule, which keeps 12px of breathing room on each side.
-            Check(IslandLayout.RowWidth(0) == 161, "no widgets: the row holds just the fixed entries");
-            Check(IslandLayout.RowWidth(1) == 226, "one widget adds a tile and the trailing divider to the row");
-            Check(IslandLayout.RowWidth(5) == 434, "each further widget adds exactly one tile to the row");
+            // The middle section is capped to a quarter of the screen, with one
+            // tile as the floor so a tiny screen still shows something.
+            Check(Math.Abs(IslandLayout.MiddleMaxWidth(1920) - 480) < 0.001,
+                "a 1920 screen caps the middle section at a quarter of its width");
+            Check(Math.Abs(IslandLayout.MiddleMaxWidth(1560) - 390) < 0.001,
+                "a 1560 screen caps the middle section at a quarter of its width");
+            Check(IslandLayout.MiddleMaxWidth(200) == IslandLayout.ScrollStep,
+                "a tiny screen still shows at least one tile");
 
-            // The island is capped to a quarter of the screen so a wide row can
-            // never blanket the top of the display - browser tabs live there and
-            // a stray click on a tile would toggle a panel.
-            Check(Math.Abs(IslandLayout.MaxWidth(1920) - 480) < 0.001,
-                "a 1920 screen caps the island at a quarter of its width");
-            Check(Math.Abs(IslandLayout.MaxWidth(1560) - 390) < 0.001,
-                "a 1560 screen caps the island at a quarter of its width");
-            Check(IslandLayout.MaxWidth(200) == IslandLayout.ContentWidth(0),
-                "a tiny screen still fits the fixed entries, never less");
+            // Fit boundaries: on a 1560 screen seven tiles fit the capped middle
+            // section and the eighth scrolls; on a 1920 screen nine fit.
+            Check(IslandLayout.MiddleContentWidth(7) <= IslandLayout.MiddleViewWidth(7, 1560),
+                "7 widgets fit the middle section on a 1560 screen");
+            Check(IslandLayout.MiddleContentWidth(8) > IslandLayout.MiddleViewWidth(8, 1560),
+                "the 8th widget scrolls the middle section on a 1560 screen");
+            Check(IslandLayout.MiddleContentWidth(9) <= IslandLayout.MiddleViewWidth(9, 1920),
+                "9 widgets fit the middle section on a 1920 screen");
+            Check(IslandLayout.MiddleContentWidth(10) > IslandLayout.MiddleViewWidth(10, 1920),
+                "the 10th widget scrolls the middle section on a 1920 screen");
 
-            // Documented boundaries: a quarter-width island on a 1920 screen
-            // fits 5 widget tiles, on the 1560 screen 4; the next one is the
-            // first that has to be scrolled to. The row, not the slightly wider
-            // capsule, is what decides this.
-            Check(IslandLayout.RowWidth(5) <= IslandLayout.MaxWidth(1920),
-                "5 widgets still fit the quarter-width island on a 1920 screen");
-            Check(IslandLayout.RowWidth(6) > IslandLayout.MaxWidth(1920),
-                "6 widgets overflow it and have to scroll");
-            Check(IslandLayout.RowWidth(4) <= IslandLayout.MaxWidth(1560),
-                "4 widgets still fit the quarter-width island on a 1560 screen");
-            Check(IslandLayout.RowWidth(5) > IslandLayout.MaxWidth(1560),
-                "5 widgets overflow it and have to scroll");
+            // The viewport never exceeds the cap and never exceeds the content.
+            Check(IslandLayout.MiddleViewWidth(3, 1560) == 156,
+                "a small middle section is as wide as its content");
+            Check(IslandLayout.MiddleViewWidth(20, 1560) == 390,
+                "a large middle section stops at the cap");
 
-            // The scroll offset is clamped to the row: never before its start,
-            // never past its end, and a row that fits does not scroll at all.
+            // Capsule width: padding + fixed desktop entry + the middle section
+            // + trailing divider (only when widgets exist) + add + settings.
+            Check(IslandLayout.ContentWidth(0, 1560) == 185, "no widgets: fixed entries only");
+            Check(IslandLayout.ContentWidth(3, 1560) == 354, "three widgets: fixed entries plus three tiles");
+            Check(IslandLayout.ContentWidth(20, 1560) == 588,
+                "a capped middle section keeps the capsule at its maximum width");
+
+            // The scroll offset is clamped to the scrollable middle: never before
+            // its start, never past its end, and a middle that fits does not move.
             Check(IslandLayout.ClampOffset(-5, 200) == 0,
-                "a negative offset snaps back to the row start");
+                "a negative offset snaps back to the middle start");
             Check(IslandLayout.ClampOffset(120, 200) == 120,
-                "an offset inside the row stays put");
+                "an offset inside the middle stays put");
             Check(IslandLayout.ClampOffset(260, 200) == 200,
                 "an offset past the end snaps to the last position");
             Check(IslandLayout.ClampOffset(50, 0) == 0,
-                "a row that fits does not scroll at all");
+                "a middle that fits does not scroll at all");
 
             // Wheel notches move whole tiles and clamp at both ends.
             Check(IslandLayout.ScrollTarget(0, -1, 200) == 0,

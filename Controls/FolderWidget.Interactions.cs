@@ -156,7 +156,7 @@ namespace Kobold.Controls
         {
             // The desktop folder icon (old menu host) is gone in island mode, so the
             // widget menu - rename / color / lock / grid / size / delete - lives here.
-            ShowFolderContextMenu();
+            ShowWidgetMenu();
             e.Handled = true;
         }
 
@@ -378,16 +378,24 @@ namespace Kobold.Controls
 
         #region Context Menu
 
-        private void ShowFolderContextMenu()
+        /// <summary>
+        /// Shows the widget menu (rename / colour / grid / size / delete) at the
+        /// cursor. Shared by the panel header and the island tiles; onClosed
+        /// fires once the menu is gone.
+        /// </summary>
+        public void ShowWidgetMenu(Action onClosed = null)
         {
-            new MenuBuilder(_data.Color)
+            var menu = new MenuBuilder(_data.Color)
                 .AddItem("Menu_Rename", ShowRenameDialog)
                 .AddItem("Menu_ChangeColor", ShowColorPicker)
                 .AddMenuItem(CreateGridSizeMenu())
                 .AddMenuItem(CreateItemSizeMenu())
                 .AddSeparator()
                 .AddMenuItem(CreateDeleteMenuItem())
-                .Show();
+                .Build();
+
+            if (onClosed != null) menu.Closed += (s, e) => onClosed();
+            menu.IsOpen = true;
         }
         
         private MenuItem CreateGridSizeMenu()

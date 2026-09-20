@@ -29,6 +29,17 @@ namespace Kobold.Controls
         private bool _isExpanded;
         private List<FolderData> _folders = new List<FolderData>();
         private readonly DispatcherTimer _leaveTimer;
+        private readonly DispatcherTimer _expandTimer;
+
+        // Fades the scroll hint out once the user stops interacting with it.
+        private readonly DispatcherTimer _scrollIdleTimer;
+
+        // True while a widget menu opened from a tile is up - the island must
+        // not collapse underneath it.
+        private bool _menuOpen;
+
+        // Guards the two-way sync between the tile scroller and its hint bar.
+        private bool _syncingScrollBar;
 
         // Delays the desktop-tile single click so a double click can open the folder
         private readonly DispatcherTimer _desktopClickTimer;
@@ -42,6 +53,9 @@ namespace Kobold.Controls
         /// <summary>Raised with the folder id when a widget tile is clicked.</summary>
         public event Action<string> WidgetActivated;
 
+        /// <summary>Raised with the folder id when a widget tile is right-clicked.</summary>
+        public event Action<string> WidgetMenuRequested;
+
         public IslandWindow()
         {
             InitializeComponent();
@@ -52,15 +66,34 @@ namespace Kobold.Controls
             };
             _leaveTimer.Tick += (s, e) => Collapse();
 
+            _expandTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_EXPAND_DELAY_MS)
+            };
+            _expandTimer.Tick += (s, e) => { _expandTimer.Stop(); Expand(); };
+
+            _scrollIdleTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_SCROLLBAR_IDLE_MS)
+            };
+            _scrollIdleTimer.Tick += (s, e) => FadeScrollBarIfIdle();
+
             ThemeManager.ThemeChanged += OnThemeChanged;
             Closed += (s, e) =>
             {
                 _leaveTimer.Stop();
+                _expandTimer.Stop();
+                _scrollIdleTimer.Stop();
                 ThemeManager.ThemeChanged -= OnThemeChanged;
             };
 
             PillShape.Cursor = CursorHelper.OpenHand;
             PillShape.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
+
+            // Keep the hint bar and the tile scroller in step, both ways.
+            TileScroller.ScrollChanged += (s, e) => SyncScrollBarFromScroller();
+            TileScrollBar.ValueChanged += (s, e) => ScrollFromBar();
+            TileScrollBar.MouseEnter += (s, e) => FlashScrollBar();
 
             DesktopTile.MouseEnter += (s, e) => DesktopTile.Background = ThemeManager.IslandHoverBrush;
             DesktopTile.MouseLeave += (s, e) => DesktopTile.Background = Brushes.Transparent;
@@ -137,6 +170,8 @@ namespace Kobold.Controls
             {
                 double width = GetExpandedWidth();
                 AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
+                SyncScrollBarFromScroller();
+                FlashScrollBar();
             }
         }
 
@@ -145,13 +180,51 @@ namespace Kobold.Controls
         private void Window_MouseEnter(object sender, MouseEventArgs e)
         {
             _leaveTimer.Stop();
-            Expand();
+            if (_isExpanded)
+            {
+                // Coming back to the island brings its scroll hint up again.
+                FlashScrollBar();
+                return;
+            }
+
+            // Rest for a moment before expanding - see ISLAND_EXPAND_DELAY_MS.
+            // ShowIsland() (tray / second instance) expands immediately instead.
+            _expandTimer.Start();
         }
 
         private void Window_MouseLeave(object sender, MouseEventArgs e)
         {
-            if (!_isExpanded || _isDraggingIsland) return;
+            _expandTimer.Stop();
+            if (!_isExpanded || _isDraggingIsland || _menuOpen) return;
             _leaveTimer.Start();
+        }
+
+        /// <summary>
+        /// Suppresses auto-collapse while a widget menu opened from a tile is
+        /// up; <see cref="ResumeAutoCollapse"/> re-arms it when the menu closes.
+        /// </summary>
+        public void PauseAutoCollapse()
+        {
+            _leaveTimer.Stop();
+            _menuOpen = true;
+        }
+
+        /// <summary>Resumes the usual auto-collapse once that menu has closed.</summary>
+        public void ResumeAutoCollapse()
+        {
+            _menuOpen = false;
+            _leaveTimer.Stop();
+            if (!_isExpanded) return;
+
+            // The cursor may have wandered off while the menu was up and the
+            // usual MouseLeave was swallowed - collapse if it is outside now.
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var dpi = VisualTreeHelper.GetDpi(this);
+            if (!ScreenGeometry.ContainsPhysicalPoint(
+                    new Rect(Left, Top, Width, Height), dpi.DpiScaleX, dpi.DpiScaleY, cursor.X, cursor.Y))
+            {
+                _leaveTimer.Start();
+            }
         }
 
         #region Horizontal Drag (pill background)
@@ -161,6 +234,7 @@ namespace Kobold.Controls
             if (e.ChangedButton != MouseButton.Left) return;
 
             _leaveTimer.Stop();
+            _expandTimer.Stop(); // dragging the pill must not expand it mid-drag
             var cursor = System.Windows.Forms.Cursor.Position;
             _islandDragCursor = new Point(cursor.X, cursor.Y);
             _islandDragDpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
@@ -228,16 +302,90 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Scrolls the widget row by whole tiles, clamping at both ends. A row
-        /// that fits on screen does not move.
+        /// Scrolls the widget tiles by whole tiles, clamping at both ends. A row
+        /// that fits does not move.
         /// </summary>
         public void ScrollWidgets(int notches)
         {
             if (notches == 0) return;
 
+            FlashScrollBar();
             TileScroller.ScrollToHorizontalOffset(IslandLayout.ScrollTarget(
                 TileScroller.HorizontalOffset, notches, TileScroller.ScrollableWidth));
         }
+
+        /// <summary>
+        /// Mirrors the tile scroller onto its hint bar: thumb proportions, value
+        /// and whether a bar is needed at all.
+        /// </summary>
+        private void SyncScrollBarFromScroller()
+        {
+            if (_syncingScrollBar) return;
+
+            _syncingScrollBar = true;
+            try
+            {
+                TileScrollBar.ViewportSize = TileScroller.ViewportWidth;
+                TileScrollBar.Maximum = TileScroller.ScrollableWidth;
+                TileScrollBar.Value = TileScroller.HorizontalOffset;
+                TileScrollBar.Visibility = _isExpanded && TileScroller.ScrollableWidth > 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                if (TileScrollBar.Visibility != Visibility.Visible) _scrollIdleTimer.Stop();
+            }
+            finally
+            {
+                _syncingScrollBar = false;
+            }
+        }
+
+        /// <summary>Dragging the hint bar scrolls the tiles.</summary>
+        private void ScrollFromBar()
+        {
+            if (_syncingScrollBar) return;
+            FlashScrollBar();
+            TileScroller.ScrollToHorizontalOffset(TileScrollBar.Value);
+        }
+
+        /// <summary>
+        /// Brings the scroll hint up and restarts its idle timer. Design: a slim
+        /// pill that appears while the user is scrolling or hovering the island
+        /// and fades away shortly after they stop.
+        /// </summary>
+        private void FlashScrollBar()
+        {
+            if (!_isExpanded || TileScroller.ScrollableWidth <= 0)
+            {
+                _scrollIdleTimer.Stop();
+                return;
+            }
+
+            TileScrollBar.IsHitTestVisible = true;
+            TileScrollBar.Opacity = 1; // base value: what it settles on after the fade-in
+            TileScrollBar.BeginAnimation(OpacityProperty, From(0, 1, FadeDuration(), FadeEase()));
+            _scrollIdleTimer.Stop();
+            _scrollIdleTimer.Start();
+        }
+
+        /// <summary>Fades the hint out unless the pointer is on it (or dragging it).</summary>
+        private void FadeScrollBarIfIdle()
+        {
+            if (TileScrollBar.IsMouseOver || TileScrollBar.IsMouseCaptured)
+            {
+                _scrollIdleTimer.Start();
+                return;
+            }
+
+            _scrollIdleTimer.Stop();
+            TileScrollBar.IsHitTestVisible = false; // gone means click-through
+            TileScrollBar.Opacity = 0;
+            TileScrollBar.BeginAnimation(OpacityProperty, From(1, 0, FadeDuration(), FadeEase()));
+        }
+
+        private static Duration FadeDuration() =>
+            new Duration(TimeSpan.FromMilliseconds(WidgetConstants.ISLAND_SCROLLBAR_FADE_MS));
+
+        private static IEasingFunction FadeEase() => new QuadraticEase { EasingMode = EasingMode.EaseOut };
 
         #endregion
 
@@ -277,19 +425,27 @@ namespace Kobold.Controls
 
         private void ShowTiles()
         {
-            TileScroller.Visibility = Visibility.Visible;
+            IslandRow.Visibility = Visibility.Visible;
             var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(UiTokens.DurationNormalMs)))
             {
                 BeginTime = TimeSpan.FromMilliseconds(60),
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
             };
-            TilePanel.BeginAnimation(OpacityProperty, fade);
+            IslandRow.BeginAnimation(OpacityProperty, fade);
+            SyncScrollBarFromScroller();
+            FlashScrollBar();
         }
 
         private void HideTiles()
         {
-            TilePanel.BeginAnimation(OpacityProperty, null);
-            TileScroller.Visibility = Visibility.Hidden; // keep measurable for width calc
+            IslandRow.BeginAnimation(OpacityProperty, null);
+            IslandRow.Visibility = Visibility.Hidden; // keep measurable for width calc
+
+            _scrollIdleTimer.Stop();
+            TileScrollBar.BeginAnimation(OpacityProperty, null);
+            TileScrollBar.Opacity = 0;
+            TileScrollBar.IsHitTestVisible = false;
+            TileScrollBar.Visibility = Visibility.Collapsed;
         }
 
         #endregion
@@ -298,19 +454,17 @@ namespace Kobold.Controls
 
         private void RebuildTiles()
         {
-            // Fixed entries: desktop (0) + divider (1); widget tiles are
-            // inserted at index 2, and divider + add + settings stay last.
-            while (TilePanel.Children.Count > 5)
-            {
-                TilePanel.Children.RemoveAt(2);
-            }
+            TilePanel.Children.Clear();
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
-            int insertAt = 2;
             foreach (var folder in _folders)
             {
-                TilePanel.Children.Insert(insertAt++, CreateTile(folder, iconStyle));
+                TilePanel.Children.Add(CreateTile(folder, iconStyle));
             }
+
+            // The middle section measures itself: its content, capped to a share
+            // of the screen. Anything wider scrolls, with the hint bar below.
+            TileScroller.Width = IslandLayout.MiddleViewWidth(_folders.Count, SystemParameters.PrimaryScreenWidth);
 
             // Without widgets the trailing divider would sit right next to the
             // desktop divider - hide it so the entries stay separated once.
@@ -388,6 +542,13 @@ namespace Kobold.Controls
             tile.MouseEnter += (s, e) => tile.Background = ThemeManager.IslandHoverBrush;
             tile.MouseLeave += (s, e) => tile.Background = Brushes.Transparent;
             tile.MouseLeftButtonUp += (s, e) => ActivateTile(folder.Id);
+            tile.MouseRightButtonUp += (s, e) =>
+            {
+                // The widget menu (rename / colour / grid / size / delete) lives
+                // on the widget; WidgetManager routes the request to it.
+                WidgetMenuRequested?.Invoke(folder.Id);
+                e.Handled = true;
+            };
 
             return tile;
         }
@@ -404,12 +565,10 @@ namespace Kobold.Controls
 
         private double GetExpandedWidth()
         {
-            // Capped to a quarter of the screen so the expanded island cannot
-            // blanket the top of the display (browser tabs live there and a
-            // stray click would toggle a panel); the row scrolls past the cap.
-            return Math.Min(
-                IslandLayout.ContentWidth(_folders.Count),
-                IslandLayout.MaxWidth(SystemParameters.PrimaryScreenWidth));
+            // The middle (tile) section is capped to a share of the screen; the
+            // fixed desktop/add/settings entries always stay in view, so the
+            // capsule is the fixed parts plus that capped middle.
+            return IslandLayout.ContentWidth(_folders.Count, SystemParameters.PrimaryScreenWidth);
         }
 
         /// <summary>

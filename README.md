@@ -22,7 +22,9 @@ development (二开) base.
 
 - **Dynamic island launcher** — a slim pill at the top centre expands on
   hover into desktop / widget / add / settings entries. Click a widget
-  tile to toggle its panel; drag the pill to move the island.
+  tile to toggle its panel; drag the pill to move the island. Only the
+  widget tiles scroll (a slim bar underneath hints at it) when there are
+  more than fit; right-click a tile for that widget's options.
 - **Folder panels** — glassy, auto-sizing panels with per-widget colours,
   configurable grid columns and item size, lock, pin and rename.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
@@ -81,7 +83,7 @@ development (二开) base.
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
-| Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header |
+| Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
 
 Stored vs. referenced files: dropping a file creates a *reference* — the
 original stays where it is. Use **Store** in the item menu to physically
@@ -146,7 +148,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 ## 功能
 
 - **灵动岛启动器** — 屏幕顶部中央的胶囊，悬停展开为「桌面入口 / 组件 / 新建 / 设置」；
-  点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。
+  点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。组件多了只在中间区域滚动
+  （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
   网格列数、条目大小，支持锁定、置顶与重命名。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
@@ -180,7 +183,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
-| 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏 |
+| 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
 拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
 移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。

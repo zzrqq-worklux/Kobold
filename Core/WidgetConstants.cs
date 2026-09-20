@@ -61,6 +61,19 @@ namespace Kobold.Core
         /// <summary>Default ms after the mouse leaves the island before it collapses (configurable in settings)</summary>
         public const int ISLAND_LEAVE_DELAY_MS = 1000;
 
+        /// <summary>
+        /// ms the cursor must rest on the island before it expands. Without it a
+        /// cursor merely crossing the top of the screen (where browser tabs live)
+        /// would expand the island underneath the next click.
+        /// </summary>
+        public const int ISLAND_EXPAND_DELAY_MS = 200;
+
+        /// <summary>ms the scroll hint stays up after the last interaction before it fades away.</summary>
+        public const int ISLAND_SCROLLBAR_IDLE_MS = 1500;
+
+        /// <summary>ms of the scroll hint's fade in/out animation.</summary>
+        public const int ISLAND_SCROLLBAR_FADE_MS = 150;
+
         #endregion
 
         #region Drag-Drop
