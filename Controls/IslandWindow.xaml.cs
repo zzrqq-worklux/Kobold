@@ -25,10 +25,6 @@ namespace Kobold.Controls
         private const int ShadowPadding = 16;
         private const int TileIconSize = 32;
         private const double IslandDragThreshold = 4;
-        private const double DividerEntryWidth = 13; // divider line (1) + 6+6 margins
-        private const double SettingsTileWidth = 44;
-        private const double AddTileWidth = 52;      // 44 tile + 8 gap before the settings tile
-        private const double DesktopEntryWidth = WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP + DividerEntryWidth;
 
         private bool _isExpanded;
         private List<FolderData> _folders = new List<FolderData>();
@@ -220,6 +216,31 @@ namespace Kobold.Controls
 
         #endregion
 
+        #region Widget Row Scrolling
+
+        private void IslandBody_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (!_isExpanded || TileScroller.ScrollableWidth <= 0) return;
+
+            int notches = Math.Max(1, Math.Abs(e.Delta) / 120);
+            ScrollWidgets(e.Delta > 0 ? -notches : notches);
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Scrolls the widget row by whole tiles, clamping at both ends. A row
+        /// that fits on screen does not move.
+        /// </summary>
+        public void ScrollWidgets(int notches)
+        {
+            if (notches == 0) return;
+
+            TileScroller.ScrollToHorizontalOffset(IslandLayout.ScrollTarget(
+                TileScroller.HorizontalOffset, notches, TileScroller.ScrollableWidth));
+        }
+
+        #endregion
+
         private void Expand()
         {
             if (_isExpanded) return;
@@ -248,13 +269,15 @@ namespace Kobold.Controls
 
             PillShape.Fill = ThemeManager.IslandBackgroundBrush;
             HideTiles();
+            // The next expansion starts at the first tile again.
+            TileScroller.ScrollToHorizontalOffset(0);
             AnimateTo(WidgetConstants.ISLAND_HOVER_WIDTH, WidgetConstants.ISLAND_HOVER_HEIGHT,
                       WidgetConstants.ISLAND_PILL_WIDTH, WidgetConstants.ISLAND_PILL_HEIGHT);
         }
 
         private void ShowTiles()
         {
-            TilePanel.Visibility = Visibility.Visible;
+            TileScroller.Visibility = Visibility.Visible;
             var fade = new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(UiTokens.DurationNormalMs)))
             {
                 BeginTime = TimeSpan.FromMilliseconds(60),
@@ -266,7 +289,7 @@ namespace Kobold.Controls
         private void HideTiles()
         {
             TilePanel.BeginAnimation(OpacityProperty, null);
-            TilePanel.Visibility = Visibility.Hidden; // keep measurable for width calc
+            TileScroller.Visibility = Visibility.Hidden; // keep measurable for width calc
         }
 
         #endregion
@@ -381,16 +404,12 @@ namespace Kobold.Controls
 
         private double GetExpandedWidth()
         {
-            int count = Math.Max(0, _folders.Count);
-            double content = 24
-                + DesktopEntryWidth
-                + count * (WidgetConstants.ISLAND_TILE_SIZE + WidgetConstants.ISLAND_TILE_GAP)
-                + SettingsTileWidth
-                + AddTileWidth
-                + (count > 0 ? DividerEntryWidth : 0);
-            // Safety cap so the island can never grow wider than the screen.
-            double max = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, SystemParameters.PrimaryScreenWidth - 2 * ShadowPadding);
-            return Math.Min(content, max);
+            // Capped to a quarter of the screen so the expanded island cannot
+            // blanket the top of the display (browser tabs live there and a
+            // stray click would toggle a panel); the row scrolls past the cap.
+            return Math.Min(
+                IslandLayout.ContentWidth(_folders.Count),
+                IslandLayout.MaxWidth(SystemParameters.PrimaryScreenWidth));
         }
 
         /// <summary>

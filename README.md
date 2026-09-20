@@ -102,6 +102,7 @@ Console self-checks live under `tests/`:
 dotnet run --project tests/LangCheck
 dotnet run --project tests/WidgetItemsCheck
 dotnet run --project tests/ScreenGeometryCheck
+dotnet run --project tests/IslandLayoutCheck
 dotnet run --project tests/StorageOpsCheck
 dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
@@ -199,6 +200,7 @@ dotnet build Kobold.csproj -c Release
 dotnet run --project tests/LangCheck
 dotnet run --project tests/WidgetItemsCheck
 dotnet run --project tests/ScreenGeometryCheck
+dotnet run --project tests/IslandLayoutCheck
 dotnet run --project tests/StorageOpsCheck
 dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
