@@ -209,11 +209,14 @@
                                                     <Border Width="40" Height="40" CornerRadius="8">
                                                         <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
                                                     </Border>
-                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
-                                                       Foreground="{Binding TextColor}"
-                                                       TextTrimming="CharacterEllipsis" TextAlignment="Center"
-                                                       MaxWidth="70" Margin="0,6,0,0" 
-                                                       FontFamily="Segoe UI" FontWeight="Normal"/>
+                                                    <!-- Normal, not Medium: Medium exists in neither Segoe UI
+                                                         nor Microsoft YaHei UI, so Latin names would resolve to
+                                                         Semibold while Chinese names fell back to Regular. -->
+                                                    <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
+                                                               Foreground="{Binding TextColor}"
+                                                               TextTrimming="CharacterEllipsis" TextAlignment="Center"
+                                                               MaxWidth="70" Margin="0,6,0,0" 
+                                                               FontFamily="Segoe UI" FontWeight="Normal"/>
                                                 </StackPanel>
                                                 <!-- Stored badge: the file physically lives in Kobold storage -->
                                                 <Border x:Name="StoredBadge" Width="16" Height="16"
