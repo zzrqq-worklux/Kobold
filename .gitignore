@@ -284,3 +284,6 @@ ServiceFabricBackup/
 build_log.txt
 Setup/
 !Releases/
+
+# Isolated git worktrees (never commit their contents)
+.worktrees/
