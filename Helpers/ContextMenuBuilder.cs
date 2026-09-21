@@ -27,11 +27,12 @@ namespace Kobold.Helpers
         }
 
         /// <summary>
-        /// Add a simple menu item with click handler
+        /// Add a simple menu item with click handler. isEnabled=false renders it
+        /// greyed out (used when a browse selection makes the action ambiguous).
         /// </summary>
-        public MenuBuilder AddItem(string localizationKey, Action onClick)
+        public MenuBuilder AddItem(string localizationKey, Action onClick, bool isEnabled = true)
         {
-            var item = new MenuItem { Header = Localization.Get(localizationKey) };
+            var item = new MenuItem { Header = Localization.Get(localizationKey), IsEnabled = isEnabled };
             item.Click += (s, e) => onClick?.Invoke();
             _menu.Items.Add(item);
             return this;

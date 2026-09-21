@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,9 +17,12 @@ namespace Kobold.Helpers
     {
         /// <summary>
         /// Modal single-line input. Returns the entered text, or null when the
-        /// user cancels. Callers decide how to validate the value.
+        /// user cancels. validate may return an error message; it is shown
+        /// inside the dialog and the dialog stays open. Callers decide how to
+        /// validate the value.
         /// </summary>
-        public static string ShowInput(Window owner, string title, string prompt, string initialValue)
+        public static string ShowInput(Window owner, string title, string prompt, string initialValue,
+            Func<string, string> validate = null)
         {
             var dialog = new Window
             {
@@ -41,9 +45,34 @@ namespace Kobold.Helpers
             };
 
             string result = null;
+
+            var errorText = new TextBlock
+            {
+                Foreground = ThemeManager.DangerBrush,
+                FontSize = UiTokens.FontBody,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, UiTokens.Space2, 0, 0)
+            };
+
+            Action accept = () =>
+            {
+                string value = textBox.Text;
+                string error = validate == null ? null : validate(value);
+                if (error != null)
+                {
+                    errorText.Text = error;
+                    errorText.Visibility = Visibility.Visible;
+                    textBox.Focus();
+                    return;
+                }
+                result = value;
+                dialog.Close();
+            };
+
             var okButton = CreateButton("Dialog_OK", "Kobold.Style.PrimaryButton");
             okButton.IsDefault = true;
-            okButton.Click += (s, e) => { result = textBox.Text; dialog.Close(); };
+            okButton.Click += (s, e) => accept();
 
             var cancelButton = CreateButton("Dialog_Cancel", "Kobold.Style.SecondaryButton");
             cancelButton.IsCancel = true;
@@ -54,8 +83,7 @@ namespace Kobold.Helpers
             {
                 if (e.Key == Key.Enter)
                 {
-                    result = textBox.Text;
-                    dialog.Close();
+                    accept();
                     e.Handled = true;
                 }
             };
@@ -86,6 +114,7 @@ namespace Kobold.Helpers
                 Margin = new Thickness(0, UiTokens.Space2, 0, 0)
             });
             content.Children.Add(textBox);
+            content.Children.Add(errorText);
             content.Children.Add(buttons);
 
             dialog.Content = new Border

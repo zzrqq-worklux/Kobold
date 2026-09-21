@@ -114,6 +114,10 @@ namespace Kobold.Controls
             
             // Subscribe to theme changes for automatic updates
             ThemeManager.ThemeChanged += OnThemeChanged;
+
+            // The native shell menu (Task 5) needs the panel's HWND to forward
+            // WM_DRAWITEM/WM_MEASUREITEM/WM_INITMENUPOPUP to IContextMenu2/3.
+            SourceInitialized += (s, e) => EnsureMenuHook();
             
             Loaded += (s, e) =>
             {

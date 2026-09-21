@@ -20,11 +20,11 @@ namespace Kobold.Controls
 
         private void ShowRenameDialog()
         {
-            string newName = DialogFactory.ShowInput(
-                this,
+            string newName = ShowInputModal(
                 Localization.Get("Dialog_Rename"),
                 Localization.Get("Dialog_EnterName"),
-                _data.Name);
+                _data.Name,
+                null);
 
             if (string.IsNullOrWhiteSpace(newName)) return;
 

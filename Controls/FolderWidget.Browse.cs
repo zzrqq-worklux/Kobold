@@ -192,19 +192,6 @@ namespace Kobold.Controls
 
         #endregion
 
-        #region Read-Only Item Menu
-
-        private void ShowBrowseItemMenu(DisplayItem item)
-        {
-            new MenuBuilder(_data.Color)
-                .AddItem("Menu_Open", () => OpenWithShell(item.Path))
-                .AddItem("Menu_OpenLocation", () => OpenContainingFolder(item.Path))
-                .AddItem("Menu_CopyPath", () => CopyPathToClipboard(item.Path))
-                .Show();
-        }
-
-        #endregion
-
         #region Shell Helpers
 
         private static void OpenWithShell(string path)

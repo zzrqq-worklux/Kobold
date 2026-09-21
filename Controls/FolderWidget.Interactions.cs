@@ -171,7 +171,11 @@ namespace Kobold.Controls
         {
             // Always clear selection when window loses focus
             ClearAllSelections();
-            
+
+            // Our own modal dialog is up: keep the panel alive underneath it
+            // (HidePanel would also reset the browse stack).
+            if (_modalDepth > 0) return;
+
             // Don't close panel if pinned
             if (_isExpanded && !_data.IsPanelPinned)
             {
@@ -204,6 +208,12 @@ namespace Kobold.Controls
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            if (HandleMenuActionKey(e))
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Back && IsBrowsing)
             {
                 GoBack();
@@ -322,74 +332,8 @@ namespace Kobold.Controls
         {
             if (sender is Border b && b.DataContext is DisplayItem item)
             {
-                if (IsBrowsing)
-                {
-                    ShowBrowseItemMenu(item);
-                    e.Handled = true;
-                    return;
-                }
-
-                var menu = new ContextMenu();
-                
-                var openItem = new MenuItem { Header = Localization.Get("Menu_Open") };
-                openItem.Click += (s, a) => OpenWithShell(item.Path);
-
-                var locItem = new MenuItem { Header = Localization.Get("Menu_OpenLocation") };
-                locItem.Click += (s, a) => OpenContainingFolder(item.Path);
-                
-                // Store physically into Kobold storage (explicit action - by
-                // default dropped files are references and stay in place).
-                // Locked widgets forbid moving content in or out.
-                var dataItem = _data.Items.FirstOrDefault(i => i.Path == item.Path);
-                if (dataItem != null && dataItem.IsReference && !item.IsMissing && !_data.IsLocked)
-                {
-                    var storeItem = new MenuItem { Header = Localization.Get("Menu_StoreItem") };
-                    storeItem.Click += (s, a) => StoreItemIntoWidget(dataItem);
-                    menu.Items.Add(storeItem);
-                }
-
-                // Stored item: move the file back while keeping the entry in the widget
-                if (dataItem != null && !dataItem.IsReference && !_data.IsLocked)
-                {
-                    var unstoreItem = new MenuItem { Header = Localization.Get("Menu_UnstoreItem") };
-                    unstoreItem.Click += (s, a) => UnstoreItem(dataItem);
-                    menu.Items.Add(unstoreItem);
-                }
-
-                // Eject (remove from widget; stored files go back to their original location)
-                var remItem = new MenuItem
-                {
-                    Header = Localization.Get("Menu_RemoveItem"),
-                    IsEnabled = !_data.IsLocked // locked widgets forbid moving content out
-                };
-                remItem.Click += (s, a) => 
-                { 
-                    var itemToRemove = _data.Items.FirstOrDefault(i => i.Path == item.Path);
-                    if (itemToRemove != null)
-                    {
-                        EjectItem(itemToRemove);
-                        _data.Items.Remove(itemToRemove);
-                        UpdateUI();
-                        OnDataChanged?.Invoke();
-                    }
-                };
-                
-                // Copy Path to clipboard
-                var copyPathItem = new MenuItem { Header = Localization.Get("Menu_CopyPath") };
-                copyPathItem.Click += (s, a) => CopyPathToClipboard(item.Path);
-                
-                // Rename item
-                var renameItem = new MenuItem { Header = Localization.Get("Menu_RenameItem") };
-                renameItem.Click += (s, a) => RenameItem(item);
-                
-                menu.Items.Add(openItem);
-                menu.Items.Add(locItem);
-                menu.Items.Add(renameItem);
-                menu.Items.Add(copyPathItem);
-                menu.Items.Add(new Separator());
-                menu.Items.Add(remItem);
-                MenuBuilder.Prepare(menu, _data.Color);
-                menu.IsOpen = true;
+                if (IsBrowsing) ShowBrowseItemMenu(item);
+                else ShowRootItemMenu(item);
                 e.Handled = true;
             }
         }
@@ -478,8 +422,7 @@ namespace Kobold.Controls
             var item = new MenuItem { Header = Localization.Get("Menu_Delete") };
             item.Click += (s, a) =>
             {
-                if (MessageBox.Show(Localization.Format("Dialog_DeleteWidget", _data.Name), 
-                    Localization.Get("Dialog_Confirm"), MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                if (ShowConfirmModal(Localization.Format("Dialog_DeleteWidget", _data.Name)))
                 {
                     EjectAllItems();
                     OnDeleted?.Invoke(this);
@@ -502,8 +445,7 @@ namespace Kobold.Controls
                 // nothing happened (usually missing rights on public-desktop
                 // shortcuts, or a file that is in use).
                 System.Diagnostics.Debug.WriteLine($"[Kobold] Store failed: {witem.Path}");
-                MessageBox.Show(Localization.Get("Dialog_StoreFailed"), "Kobold",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowMessage(Localization.Get("Dialog_StoreFailed"));
                 return;
             }
             witem.OriginalPath = witem.Path;
@@ -516,11 +458,11 @@ namespace Kobold.Controls
         private void RenameItem(DisplayItem item)
         {
             string currentName = System.IO.Path.GetFileName(item.Path);
-            string newName = DialogFactory.ShowInput(
-                this,
+            string newName = ShowInputModal(
                 Localization.Get("Dialog_RenameItem_Title"),
                 Localization.Get("Dialog_RenameItem_Prompt"),
-                currentName);
+                currentName,
+                null);
             
             if (string.IsNullOrWhiteSpace(newName) || newName == currentName) return;
             
@@ -553,7 +495,7 @@ namespace Kobold.Controls
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error renaming: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowMessage($"Error renaming: {ex.Message}");
             }
         }
 
@@ -576,10 +518,11 @@ namespace Kobold.Controls
                 hit = VisualTreeHelper.GetParent(hit);
             }
             
-            // Browsing is a read-only view: the panel menu's New File / New Folder
-            // would write to storage and mutate the widget's items.
+            // Browsing writes to the current folder through its own actions, so
+            // the empty-area menu is the browse background menu instead.
             if (IsBrowsing)
             {
+                ShowBrowseBackgroundMenu();
                 e.Handled = true;
                 return;
             }
@@ -598,11 +541,11 @@ namespace Kobold.Controls
         
         private void CreateNewFile()
         {
-            string fileName = DialogFactory.ShowInput(
-                this,
+            string fileName = ShowInputModal(
                 Localization.Get("Dialog_NewFile_Title"),
                 Localization.Get("Dialog_NewFile_Prompt"),
-                "NewFile.txt");
+                "NewFile.txt",
+                null);
             
             if (string.IsNullOrWhiteSpace(fileName)) return;
             
@@ -621,17 +564,17 @@ namespace Kobold.Controls
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error creating file: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowMessage($"Error creating file: {ex.Message}");
             }
         }
         
         private void CreateNewFolder()
         {
-            string folderName = DialogFactory.ShowInput(
-                this,
+            string folderName = ShowInputModal(
                 Localization.Get("Dialog_NewFolder_Title"),
                 Localization.Get("Dialog_NewFolder_Prompt"),
-                "NewFolder");
+                "NewFolder",
+                null);
             
             if (string.IsNullOrWhiteSpace(folderName)) return;
             
@@ -650,7 +593,7 @@ namespace Kobold.Controls
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error creating folder: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowMessage($"Error creating folder: {ex.Message}");
             }
         }
         
