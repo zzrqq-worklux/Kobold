@@ -8,8 +8,9 @@ using Kobold.Core;
 namespace Kobold.FolderListingCheck
 {
     /// <summary>
-    /// Checks for FolderListing (ordering, filtering, truncation, error tolerance).
-    /// Pure logic, no UI. Exit code 0 = all green; 1 = failures.
+    /// Checks for FolderListing (ordering, filtering, truncation, error tolerance)
+    /// and BrowsePath (the path menu's level labels). Pure logic, no UI.
+    /// Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/FolderListingCheck
     /// </summary>
     internal static class Program
@@ -35,6 +36,7 @@ namespace Kobold.FolderListingCheck
                 MissingDirectoryFails();
                 NullOrEmptyInputFails();
                 NameIsTheRawFileName();
+                BrowsePathLabelsEveryLevel();
             }
             finally
             {
@@ -184,6 +186,41 @@ namespace Kobold.FolderListingCheck
             }
 
             Check(result.Entries[0].Name == "shortcut.lnk", "Name keeps the raw file name (.lnk not stripped here)");
+        }
+
+        private static void BrowsePathLabelsEveryLevel()
+        {
+            string dir = NewDir("case-browse-path");
+            string deep = Path.Combine(dir, "level2");
+            Directory.CreateDirectory(deep);
+
+            Check(BrowsePath.Label(dir) == "case-browse-path",
+                "browse-path: a normal directory is labelled with its own name");
+            Check(BrowsePath.Label(dir + Path.DirectorySeparatorChar) == "case-browse-path",
+                "browse-path: a trailing separator does not blank the label");
+            Check(BrowsePath.Label(@"C:\") == @"C:\",
+                "browse-path: a drive root falls back to the full path");
+
+            var stack = new List<string> { dir, deep };
+            var ancestry = BrowsePath.Ancestry("WORKING", stack);
+
+            Check(BrowsePath.Ancestry("WORKING", new List<string>()).Count == 1,
+                "browse-path: with an empty stack only the root row exists");
+
+            Check(BrowsePath.MenuHeader("my_project") == "my__project",
+                "browse-path: menu headers escape underscores so names are not mangled");
+            Check(BrowsePath.MenuHeader("plain") == "plain" && BrowsePath.MenuHeader(null) == null,
+                "browse-path: headers without underscores pass through unchanged");
+            Check(ancestry.Count == 3, "browse-path: ancestry is the widget root plus every browsed level");
+            if (ancestry.Count < 3)
+            {
+                Errors.Add("browse-path: not enough rows to check the labels");
+                return;
+            }
+
+            Check(ancestry[0] == "WORKING", "browse-path: the first row is the widget root label");
+            Check(ancestry[1] == "case-browse-path" && ancestry[2] == "level2",
+                "browse-path: the remaining rows follow the stack top-down");
         }
 
         private static void TryDelete(string path)

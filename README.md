@@ -86,7 +86,8 @@ development (二开) base.
 | Open settings | Island gear entry (or tray menu) |
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
-| Browse a folder inside a panel | Double-click a folder entry (Backspace goes back) |
+| Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
+| Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
 
@@ -191,7 +192,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 打开设置 | 岛的齿轮入口（或托盘菜单） |
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
-| 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级） |
+| 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
+| 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 

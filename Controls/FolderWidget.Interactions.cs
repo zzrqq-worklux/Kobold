@@ -179,6 +179,29 @@ namespace Kobold.Controls
             }
         }
         
+        /// <summary>
+        /// Space previews the selected item through QuickLook. Handled in the
+        /// tunnelling event because the ScrollViewer inside the panel also claims
+        /// Space (page down) once it has focus.
+        /// </summary>
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return;
+
+            // Holding Space repeats this event; QuickLook toggles on a repeated
+            // request, so without this the preview would strobe.
+            if (e.IsRepeat) return;
+
+            var item = GetSelectedItems().FirstOrDefault();
+            if (item == null) return;
+
+            // Folders and missing entries have nothing to preview - leave Space to
+            // the scroller instead.
+            if (item.IsDirectory || !System.IO.File.Exists(item.Path)) return;
+
+            if (QuickLookPreview.Request(item.Path)) e.Handled = true;
+        }
+
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Back && IsBrowsing)

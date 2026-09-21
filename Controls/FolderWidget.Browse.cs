@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Kobold.Core;
 using Kobold.Helpers;
@@ -21,6 +22,10 @@ namespace Kobold.Controls
         // Empty = the widget's own items (root). Last element = the folder on screen.
         private readonly List<string> _browseStack = new List<string>();
         private ListingResult _browseListing;
+
+        // True between a press on the chevron and its release, so a release that
+        // merely happens to land on the chevron does not open the path menu.
+        private bool _pathButtonPressed;
 
         private string CurrentBrowsePath =>
             _browseStack.Count == 0 ? null : _browseStack[_browseStack.Count - 1];
@@ -42,10 +47,7 @@ namespace Kobold.Controls
         {
             if (_browseStack.Count == 0) return;
 
-            _browseStack.RemoveAt(_browseStack.Count - 1);
-            ClearAllSelections();
-            UpdateUI();
-            ItemsScroller.ScrollToTop();
+            JumpToLevel(_browseStack.Count - 1);
         }
 
         /// <summary>Browsing is transient - the panel always reopens at the root.</summary>
@@ -59,6 +61,75 @@ namespace Kobold.Controls
         {
             GoBack();
             e.Handled = true; // must not start a panel drag through the header
+        }
+
+        /// <summary>
+        /// Swallows the press so the header cannot start a panel drag (the chevron
+        /// sits inside the drag handle) without opening the menu yet.
+        /// </summary>
+        private void PathButton_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _pathButtonPressed = true;
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Opens the breadcrumb menu on release: a menu opened on the press is
+        /// dismissed again by the release right after it, which makes the button
+        /// feel unresponsive.
+        /// </summary>
+        private void PathButton_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_pathButtonPressed) return; // press started elsewhere, released here
+            _pathButtonPressed = false;
+
+            ShowPathMenu();
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Breadcrumb menu for the current path: the widget's own items first, then
+        /// every browsed level. The folder on screen is the current row; clicking any
+        /// row above it jumps straight to that level instead of walking back one
+        /// folder at a time.
+        /// </summary>
+        private void ShowPathMenu()
+        {
+            if (!IsBrowsing) return;
+
+            var labels = BrowsePath.Ancestry(_data.Name, _browseStack);
+            var menu = new ContextMenu();
+
+            for (int i = 0; i < labels.Count; i++)
+            {
+                int levelsToKeep = i;                   // 0 = the widget's own items
+                bool isCurrent = i == labels.Count - 1; // the folder on screen
+
+                var item = new MenuItem
+                {
+                    Header = BrowsePath.MenuHeader(labels[i]),
+                    IsEnabled = !isCurrent,
+                    FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal
+                };
+                if (!isCurrent) item.Click += (s, a) => JumpToLevel(levelsToKeep);
+
+                menu.Items.Add(item);
+            }
+
+            MenuBuilder.Prepare(menu, _data.Color);
+            menu.IsOpen = true;
+        }
+
+        /// <summary>Cuts the browse stack back to the given depth and re-renders.</summary>
+        private void JumpToLevel(int levelsToKeep)
+        {
+            int keep = Math.Max(0, Math.Min(levelsToKeep, _browseStack.Count));
+            if (keep == _browseStack.Count) return;
+
+            _browseStack.RemoveRange(keep, _browseStack.Count - keep);
+            ClearAllSelections();
+            UpdateUI();
+            ItemsScroller.ScrollToTop();
         }
 
         private void MoreItemsText_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)

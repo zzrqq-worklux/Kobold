@@ -52,10 +52,19 @@ namespace Kobold.Controls
         private const int ITEM_MARGIN = WidgetConstants.ITEM_MARGIN;
         private const int HEADER_HEIGHT = WidgetConstants.HEADER_HEIGHT;
         private const int PADDING = WidgetConstants.PADDING;
+
+        // The panel's own border (1 DIP per side) sits outside the scroll viewport,
+        // so it has to be budgeted on top of PADDING or the last column overflows.
+        private const int PANEL_BORDER = 2;
         
-        // Get scaled item dimensions
-        private int GetScaledItemWidth() => (int)(BASE_ITEM_WIDTH * GetItemScale()) + ITEM_MARGIN;
-        private int GetScaledItemHeight() => (int)(BASE_ITEM_HEIGHT * GetItemScale()) + ITEM_MARGIN;
+        // Get scaled item dimensions. The items sit under a LayoutTransform, so the
+        // margin scales with the content: the real footprint is (base + margin) x
+        // scale, rounded UP. Rounding down leaves the panel a fraction of a pixel
+        // short of a whole number of rows - the ScrollViewer then shows a scrollbar
+        // that steals width, which makes every cell narrower than its item and clips
+        // the item border on the right.
+        private int GetScaledItemWidth() => (int)Math.Ceiling((BASE_ITEM_WIDTH + ITEM_MARGIN) * GetItemScale());
+        private int GetScaledItemHeight() => (int)Math.Ceiling((BASE_ITEM_HEIGHT + ITEM_MARGIN) * GetItemScale());
         
         private double GetItemScale()
         {
@@ -131,16 +140,12 @@ namespace Kobold.Controls
 
         public void UpdateUI()
         {
-            string title = IsBrowsing ? GetDisplayName(CurrentBrowsePath) : _data.Name;
-            if (IsBrowsing && string.IsNullOrEmpty(title))
-            {
-                title = CurrentBrowsePath; // drive/share roots have no file name to show
-            }
-
-            PanelHeaderText.Text = title;
+            PanelHeaderText.Text = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
             PanelHeaderText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
             BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
             BackButton.ToolTip = Localization.Get("UI_BrowseBack");
+            PathButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
+            PathButton.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
             UpdatePinButtonVisual();
             BadgeHelpTitle.Text = Localization.Get("UI_BadgeHelpTitle");
             BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");

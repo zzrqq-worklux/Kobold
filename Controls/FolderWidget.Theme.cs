@@ -158,7 +158,7 @@ namespace Kobold.Controls
             // scrollbar needs its width added so items are not clipped.
             bool scrolls = naturalHeight > maxHeight;
 
-            int width = cols * GetScaledItemWidth() + PADDING;
+            int width = cols * GetScaledItemWidth() + PADDING + PANEL_BORDER;
             if (scrolls) width += (int)SystemParameters.VerticalScrollBarWidth;
 
             int height = scrolls ? maxHeight : naturalHeight;
