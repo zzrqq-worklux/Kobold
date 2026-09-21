@@ -9,7 +9,8 @@
         AllowDrop="True"
         Deactivated="Window_Deactivated"
         KeyDown="Window_KeyDown"
-        PreviewKeyDown="Window_PreviewKeyDown">
+        PreviewKeyDown="Window_PreviewKeyDown"
+        TextOptions.TextFormattingMode="Display">
 
     <Window.Resources>
         <!-- Stored badge icon: folder cabinet (original SVG, 4 colored paths) -->
@@ -208,11 +209,11 @@
                                                     <Border Width="40" Height="40" CornerRadius="8">
                                                         <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
                                                     </Border>
-                                                    <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
-                                                               Foreground="{Binding TextColor}"
-                                                               TextTrimming="CharacterEllipsis" TextAlignment="Center"
-                                                               MaxWidth="70" Margin="0,6,0,0" 
-                                                               FontFamily="Segoe UI" FontWeight="Medium"/>
+                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
+                                                       Foreground="{Binding TextColor}"
+                                                       TextTrimming="CharacterEllipsis" TextAlignment="Center"
+                                                       MaxWidth="70" Margin="0,6,0,0" 
+                                                       FontFamily="Segoe UI" FontWeight="Normal"/>
                                                 </StackPanel>
                                                 <!-- Stored badge: the file physically lives in Kobold storage -->
                                                 <Border x:Name="StoredBadge" Width="16" Height="16"
