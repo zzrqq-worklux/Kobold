@@ -114,6 +114,10 @@ namespace Kobold.Core
                 ["Size_ExtraLarge"] = "Extra Large",
 
                 // Copy Path
+                ["UI_BrowseBack"] = "Back to the widget",
+                ["UI_FolderEmpty"] = "This folder is empty",
+                ["UI_FolderAccessDenied"] = "This folder cannot be opened",
+                ["UI_BrowseMoreItems"] = "{0} more items - click to open in Explorer",
                 ["Menu_CopyPath"] = "📋 Copy Path"
             },
 
@@ -218,6 +222,10 @@ namespace Kobold.Core
                 ["Size_ExtraLarge"] = "特大",
 
                 // Copy Path
+                ["UI_BrowseBack"] = "返回组件",
+                ["UI_FolderEmpty"] = "此文件夹为空",
+                ["UI_FolderAccessDenied"] = "无法访问此文件夹",
+                ["UI_BrowseMoreItems"] = "还有 {0} 项未显示 - 点击在资源管理器中打开",
                 ["Menu_CopyPath"] = "📋 复制路径"
             },
 
@@ -322,6 +330,10 @@ namespace Kobold.Core
                 ["Size_ExtraLarge"] = "特大",
 
                 // Copy Path
+                ["UI_BrowseBack"] = "ウィジェットに戻る",
+                ["UI_FolderEmpty"] = "このフォルダーは空です",
+                ["UI_FolderAccessDenied"] = "このフォルダーを開けません",
+                ["UI_BrowseMoreItems"] = "他に {0} 件あります - クリックでエクスプローラーで開く",
                 ["Menu_CopyPath"] = "📋 パスのコピー"
             }
         };

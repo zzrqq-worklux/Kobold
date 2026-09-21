@@ -84,21 +84,12 @@ namespace Kobold.Controls
         {
             if (e.ChangedButton == MouseButton.Left && sender is Border b && b.DataContext is DisplayItem item)
             {
-                // Double-click: Open file
+                // Double-click: folders are browsed in place, files keep opening in the shell
                 if (e.ClickCount == 2)
                 {
-                    try 
-                    { 
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo 
-                        { 
-                            FileName = item.Path, 
-                            UseShellExecute = true 
-                        }); 
-                    } 
-                    catch (Exception ex) 
-                    { 
-                        System.Diagnostics.Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); 
-                    }
+                    if (item.IsDirectory) EnterFolder(item.Path);
+                    else OpenWithShell(item.Path);
+
                     e.Handled = true;
                     return;
                 }
@@ -134,6 +125,9 @@ namespace Kobold.Controls
         {
             if (e.LeftButton != MouseButtonState.Pressed || _draggedItem == null)
                 return;
+
+            // Browsing is a read-only view: dragging entries out could move real files.
+            if (IsBrowsing) return;
             
             var currentPos = e.GetPosition(this);
             var diff = currentPos - _itemDragStartPos;
@@ -343,6 +337,15 @@ namespace Kobold.Controls
         
         private void ItemsContainer_DragOver(object sender, DragEventArgs e)
         {
+            if (IsBrowsing)
+            {
+                e.Effects = DragDropEffects.None;
+                DropIndicator.Visibility = Visibility.Collapsed;
+                DragDropSession.Current?.MarkTargetRefused();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Data.GetDataPresent("KoboldItem"))
             {
                 // Items from another widget: they get merged, so there is no
@@ -382,9 +385,9 @@ namespace Kobold.Controls
                     var top = target.TranslatePoint(new Point(edgeX, 0), indicatorHost);
                     var bottom = target.TranslatePoint(new Point(edgeX, target.ActualHeight), indicatorHost);
 
-                    // Mapped points start at the panel top, but the indicator's
-                    // margin starts below the header row.
-                    double rowTop = PanelHeader.ActualHeight;
+                    // The indicator's parent (ItemsHost) already starts below the
+                    // header row, so no header-height correction is needed.
+                    double rowTop = 0;
 
                     // Center the line on the boundary and on the row height
                     double indicatorX = Math.Max(0, top.X - DropIndicator.Width / 2);
@@ -410,6 +413,14 @@ namespace Kobold.Controls
         {
             // Hide indicator
             DropIndicator.Visibility = Visibility.Collapsed;
+
+            if (IsBrowsing)
+            {
+                e.Effects = DragDropEffects.None;
+                DragDropSession.Current?.MarkTargetRefused();
+                e.Handled = true;
+                return;
+            }
 
             // Items dragged from another widget: merge them into this one.
             if (TryGetCrossWidgetSource(e.Data, out var sourceId))

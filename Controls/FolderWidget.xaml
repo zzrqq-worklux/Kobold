@@ -49,6 +49,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="40"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
                     <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
@@ -66,9 +67,26 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             
-                            <TextBlock x:Name="PanelHeaderText" Grid.Column="0" Text="Files"
-                                       FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
-                                       VerticalAlignment="Center"/>
+                            <Grid Grid.Column="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Back: only visible while browsing a folder -->
+                                <Border x:Name="BackButton" Grid.Column="0" Width="24" Height="24" CornerRadius="6"
+                                        Background="Transparent" Cursor="Hand"
+                                        Margin="0,0,6,0" Visibility="Collapsed"
+                                        MouseLeftButtonDown="BackButton_Click">
+                                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M7,1 L1,7 L7,13" Stretch="Uniform" Width="8" Height="14"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock x:Name="PanelHeaderText" Grid.Column="1" Text="Files"
+                                           FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
                             
                             <!-- Help: what the item badges mean (hover) -->
                             <Border x:Name="HelpButton" Grid.Column="1"
@@ -144,104 +162,110 @@
                         </Grid>
                     </Border>
                     
-                    <!-- Items - with drag-drop reordering and lasso selection support -->
-                    <ItemsControl x:Name="ItemsContainer" Grid.Row="1" Margin="8,4,8,8"
-                                  AllowDrop="True" Background="Transparent"
-                                  DragOver="ItemsContainer_DragOver"
-                                  DragLeave="ItemsContainer_DragLeave"
-                                  Drop="ItemsContainer_Drop"
-                                  QueryContinueDrag="Panel_QueryContinueDrag"
-                                  MouseLeftButtonDown="ItemsContainer_MouseLeftButtonDown"
-                                  MouseMove="ItemsContainer_MouseMove"
-                                  MouseLeftButtonUp="ItemsContainer_MouseLeftButtonUp">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="8" 
-                                        Background="Transparent" Cursor="Hand"
-                                        BorderThickness="2" BorderBrush="Transparent"
-                                        MouseEnter="Item_MouseEnter" MouseLeave="Item_MouseLeave"
-                                        MouseLeftButtonDown="Item_MouseDown"
-                                        MouseLeftButtonUp="Item_MouseUp"
-                                        MouseMove="Item_MouseMove"
-                                        MouseRightButtonUp="Item_RightClick">
-                                    <Grid>
-                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                            <Border Width="40" Height="40" CornerRadius="8">
-                                                <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
-                                            </Border>
-                                            <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
-                                                       Foreground="{Binding TextColor}"
-                                                       TextTrimming="CharacterEllipsis" TextAlignment="Center"
-                                                       MaxWidth="70" Margin="0,6,0,0" 
-                                                       FontFamily="Segoe UI" FontWeight="Medium"/>
-                                        </StackPanel>
-                                        <!-- Stored badge: the file physically lives in Kobold storage -->
-                                        <Border x:Name="StoredBadge" Width="16" Height="16"
-                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
-                                                Visibility="Collapsed">
-                                            <Image Source="{StaticResource StoredBadgeIcon}" Stretch="Uniform"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <!-- Items - scrolls when the listing is taller than the panel cap -->
+                    <ScrollViewer x:Name="ItemsScroller" Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  PanningMode="VerticalOnly"
+                                  Background="Transparent">
+                        <Grid x:Name="ItemsHost" Background="Transparent">
+                            <ItemsControl x:Name="ItemsContainer" Margin="8,4,8,8"
+                                          AllowDrop="True" Background="Transparent"
+                                          DragOver="ItemsContainer_DragOver"
+                                          DragLeave="ItemsContainer_DragLeave"
+                                          Drop="ItemsContainer_Drop"
+                                          QueryContinueDrag="Panel_QueryContinueDrag"
+                                          MouseLeftButtonDown="ItemsContainer_MouseLeftButtonDown"
+                                          MouseMove="ItemsContainer_MouseMove"
+                                          MouseLeftButtonUp="ItemsContainer_MouseLeftButtonUp">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="8" 
+                                                Background="Transparent" Cursor="Hand"
+                                                BorderThickness="2" BorderBrush="Transparent"
+                                                MouseEnter="Item_MouseEnter" MouseLeave="Item_MouseLeave"
+                                                MouseLeftButtonDown="Item_MouseDown"
+                                                MouseLeftButtonUp="Item_MouseUp"
+                                                MouseMove="Item_MouseMove"
+                                                MouseRightButtonUp="Item_RightClick">
+                                            <Grid>
+                                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                    <Border Width="40" Height="40" CornerRadius="8">
+                                                        <Image x:Name="ItemIconImage" Source="{Binding Icon}" Stretch="Uniform"/>
+                                                    </Border>
+                                                    <TextBlock x:Name="ItemNameText" Text="{Binding Name}" FontSize="11"
+                                                               Foreground="{Binding TextColor}"
+                                                               TextTrimming="CharacterEllipsis" TextAlignment="Center"
+                                                               MaxWidth="70" Margin="0,6,0,0" 
+                                                               FontFamily="Segoe UI" FontWeight="Medium"/>
+                                                </StackPanel>
+                                                <!-- Stored badge: the file physically lives in Kobold storage -->
+                                                <Border x:Name="StoredBadge" Width="16" Height="16"
+                                                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
+                                                        Visibility="Collapsed">
+                                                    <Image Source="{StaticResource StoredBadgeIcon}" Stretch="Uniform"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <!-- Missing badge: source file no longer exists -->
+                                                <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0"
+                                                        Background="{DynamicResource Kobold.Brush.MissingBadge}" Visibility="Collapsed">
+                                                    <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                            </Grid>
                                         </Border>
-                                        <!-- Missing badge: source file no longer exists -->
-                                        <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"
-                                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0"
-                                                Background="{DynamicResource Kobold.Brush.MissingBadge}" Visibility="Collapsed">
-                                            <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </Grid>
-                                </Border>
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                        <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.SelectionBorder}"/>
-                                        <Setter TargetName="ItemBorder" Property="Background">
-                                            <Setter.Value>
-                                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="{StaticResource Kobold.Color.SelectionFillTop}" Offset="0"/>
-                                                    <GradientStop Color="{StaticResource Kobold.Color.SelectionFillBottom}" Offset="1"/>
-                                                </LinearGradientBrush>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsStored}" Value="True">
-                                        <Setter TargetName="StoredBadge" Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsMissing}" Value="True">
-                                        <Setter TargetName="ItemIconImage" Property="Opacity" Value="0.35"/>
-                                        <Setter TargetName="ItemNameText" Property="Foreground" Value="{DynamicResource Kobold.Brush.TextMuted}"/>
-                                        <Setter TargetName="MissingBadge" Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <local:BindableUniformGrid x:Name="ItemsGrid" 
-                                    BindableColumns="{Binding GridColumns, RelativeSource={RelativeSource AncestorType=local:FolderWidget}}"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
-                    
-                    <!-- Drop Indicator Line -->
-                    <Rectangle x:Name="DropIndicator" 
-                               Grid.Row="1"
-                               Width="3" Height="70"
-                               Fill="{DynamicResource Kobold.Brush.DropIndicator}"
-                               RadiusX="1.5" RadiusY="1.5"
-                               HorizontalAlignment="Left" VerticalAlignment="Top"
-                               Visibility="Collapsed"
-                               IsHitTestVisible="False">
-                        <Rectangle.Effect>
-                            <DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="White" Opacity="0.6"/>
-                        </Rectangle.Effect>
-                    </Rectangle>
-                    
-                    <!-- Selection Rectangle for lasso select -->
-                    <Rectangle x:Name="SelectionRect" 
-                               Grid.Row="1"
-                               Fill="{DynamicResource Kobold.Brush.LassoFill}" Stroke="{DynamicResource Kobold.Brush.LassoStroke}" StrokeThickness="1"
-                               HorizontalAlignment="Left" VerticalAlignment="Top"
-                               Visibility="Collapsed" IsHitTestVisible="False"/>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.SelectionBorder}"/>
+                                                <Setter TargetName="ItemBorder" Property="Background">
+                                                    <Setter.Value>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="{StaticResource Kobold.Color.SelectionFillTop}" Offset="0"/>
+                                                            <GradientStop Color="{StaticResource Kobold.Color.SelectionFillBottom}" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsStored}" Value="True">
+                                                <Setter TargetName="StoredBadge" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsMissing}" Value="True">
+                                                <Setter TargetName="ItemIconImage" Property="Opacity" Value="0.35"/>
+                                                <Setter TargetName="ItemNameText" Property="Foreground" Value="{DynamicResource Kobold.Brush.TextMuted}"/>
+                                                <Setter TargetName="MissingBadge" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <local:BindableUniformGrid x:Name="ItemsGrid" 
+                                            BindableColumns="{Binding GridColumns, RelativeSource={RelativeSource AncestorType=local:FolderWidget}}"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            
+                            <!-- Drop Indicator Line -->
+                            <Rectangle x:Name="DropIndicator" 
+                                       Width="3" Height="70"
+                                       Fill="{DynamicResource Kobold.Brush.DropIndicator}"
+                                       RadiusX="1.5" RadiusY="1.5"
+                                       HorizontalAlignment="Left" VerticalAlignment="Top"
+                                       Visibility="Collapsed"
+                                       IsHitTestVisible="False">
+                                <Rectangle.Effect>
+                                    <DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="White" Opacity="0.6"/>
+                                </Rectangle.Effect>
+                            </Rectangle>
+                            
+                            <!-- Selection Rectangle for lasso select -->
+                            <Rectangle x:Name="SelectionRect" 
+                                       Fill="{DynamicResource Kobold.Brush.LassoFill}" Stroke="{DynamicResource Kobold.Brush.LassoStroke}" StrokeThickness="1"
+                                       HorizontalAlignment="Left" VerticalAlignment="Top"
+                                       Visibility="Collapsed" IsHitTestVisible="False"/>
+                        </Grid>
+                    </ScrollViewer>
                     
                     <!-- Empty State -->
                     <StackPanel x:Name="EmptyState" Grid.Row="1" 
@@ -252,6 +276,15 @@
                                    Foreground="{DynamicResource Kobold.Brush.TextFaint}" FontSize="11" FontFamily="Segoe UI"
                                    Margin="0,6,0,0" HorizontalAlignment="Center"/>
                     </StackPanel>
+                    
+                    <!-- Truncated listing hint (browse mode only) -->
+                    <TextBlock x:Name="MoreItemsText" Grid.Row="2" Margin="12,0,12,8"
+                               FontSize="11" FontFamily="Segoe UI"
+                               Background="Transparent"
+                               Foreground="{DynamicResource Kobold.Brush.TextFaint}"
+                               TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"
+                               Cursor="Hand" Visibility="Collapsed"
+                               MouseLeftButtonUp="MoreItemsText_MouseLeftButtonUp"/>
                 </Grid>
             </Border>
         </Canvas>

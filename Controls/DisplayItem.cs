@@ -12,6 +12,9 @@ namespace Kobold.Controls
         public string Path { get; set; }
         public int Index { get; set; }
 
+        /// <summary>True when the entry points at a directory (double-click drills in instead of shell-open)</summary>
+        public bool IsDirectory { get; set; }
+
         /// <summary>
         /// True when the file physically lives in Kobold storage (moved out
         /// of its original location)

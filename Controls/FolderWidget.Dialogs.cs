@@ -118,16 +118,30 @@ namespace Kobold.Controls
             = new System.Collections.Generic.Dictionary<string, ImageSource>();
         private static readonly object _cacheLock = new object();
 
+        // Sentinel key: the generic "file" icon used for browse entries whose
+        // real icon was not loaded (memory guard for very long listings).
+        private const string GENERIC_FILE_ICON_KEY = "::file::";
+
         private ImageSource GetFileIcon(string path)
         {
             try
             {
-                // Create cache key based on extension (or folder marker)
-                // Special case: shortcuts (.lnk) need full path as key since each has different target icon
                 string cacheKey;
-                if (System.IO.Directory.Exists(path))
+                uint attributes = 0;
+                bool byAttributes = false;
+
+                if (string.Equals(path, GENERIC_FILE_ICON_KEY, StringComparison.Ordinal))
+                {
+                    // Attribute-based lookup on a name without extension -> the
+                    // shell's generic "file" icon.
+                    cacheKey = GENERIC_FILE_ICON_KEY;
+                    byAttributes = true;
+                }
+                else if (System.IO.Directory.Exists(path))
                 {
                     cacheKey = "::folder::";
+                    attributes = FILE_ATTRIBUTE_DIRECTORY;
+                    byAttributes = true;
                 }
                 else if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
                 {
@@ -137,7 +151,7 @@ namespace Kobold.Controls
                 {
                     cacheKey = System.IO.Path.GetExtension(path)?.ToLowerInvariant() ?? "::noext::";
                 }
-                
+
                 // Check cache first
                 lock (_cacheLock)
                 {
@@ -146,17 +160,16 @@ namespace Kobold.Controls
                         return cachedIcon;
                     }
                 }
-                
+
+                if (!byAttributes && !System.IO.File.Exists(path)) return null;
+
                 // Load icon from Shell
                 var shinfo = new SHFILEINFO();
-                uint flags = SHGFI_ICON | SHGFI_LARGEICON;
-                
-                if (System.IO.Directory.Exists(path))
-                    SHGetFileInfo(path, FILE_ATTRIBUTE_DIRECTORY, ref shinfo, (uint)Marshal.SizeOf(shinfo), flags | SHGFI_USEFILEATTRIBUTES);
-                else if (System.IO.File.Exists(path))
-                    SHGetFileInfo(path, 0, ref shinfo, (uint)Marshal.SizeOf(shinfo), flags);
-                else
-                    return null;
+                uint flags = SHGFI_ICON | SHGFI_LARGEICON | (byAttributes ? SHGFI_USEFILEATTRIBUTES : 0);
+                string lookupPath = byAttributes && cacheKey != "::folder::" ? "file" : path;
+
+                SHGetFileInfo(lookupPath, byAttributes ? attributes : 0, ref shinfo,
+                    (uint)Marshal.SizeOf(shinfo), flags);
                 
                 if (shinfo.hIcon != IntPtr.Zero)
                 {
@@ -196,6 +209,9 @@ namespace Kobold.Controls
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Kobold] Icon load failed: {ex.Message}"); }
             return null;
         }
+
+        /// <summary>Generic file icon for browse entries whose real icon was skipped.</summary>
+        private ImageSource GetGenericFileIcon() => GetFileIcon(GENERIC_FILE_ICON_KEY);
 
         [DllImport("shell32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);

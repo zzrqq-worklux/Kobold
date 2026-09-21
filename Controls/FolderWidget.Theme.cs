@@ -145,16 +145,28 @@ namespace Kobold.Controls
         private (int width, int height) CalculatePanelSize()
         {
             int cols = Math.Max(1, _data.GridColumns);
-            int itemCount = Math.Max(1, _data.Items.Count); // At least 1 for empty state
+            int itemCount = Math.Max(1, _lastItemCount); // At least 1 for empty state
             int rows = (int)Math.Ceiling((double)itemCount / cols);
-            
+
+            int naturalHeight = HEADER_HEIGHT + rows * GetScaledItemHeight() + PADDING;
+            if (_lastFooterVisible) naturalHeight += WidgetConstants.FOOTER_HEIGHT;
+
+            int maxHeight = Math.Max(120,
+                (int)(SystemParameters.WorkArea.Height * WidgetConstants.PANEL_MAX_HEIGHT_RATIO));
+
+            // A long listing scrolls instead of growing past the cap; the in-flow
+            // scrollbar needs its width added so items are not clipped.
+            bool scrolls = naturalHeight > maxHeight;
+
             int width = cols * GetScaledItemWidth() + PADDING;
-            int height = HEADER_HEIGHT + rows * GetScaledItemHeight() + PADDING;
-            
+            if (scrolls) width += (int)SystemParameters.VerticalScrollBarWidth;
+
+            int height = scrolls ? maxHeight : naturalHeight;
+
             // Minimum dimensions
             width = Math.Max(width, 180);
             height = Math.Max(height, 120);
-            
+
             return (width, height);
         }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
@@ -40,6 +41,9 @@ namespace Kobold.Controls
         private bool _isDraggingItem = false;
         private Point _itemDragStartPos;
         private DisplayItem _draggedItem = null;
+
+        private int _lastItemCount;
+        private bool _lastFooterVisible;
         
         // Constants from WidgetConstants for local access
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
@@ -127,83 +131,144 @@ namespace Kobold.Controls
 
         public void UpdateUI()
         {
-            PanelHeaderText.Text = _data.Name;
+            string title = IsBrowsing ? GetDisplayName(CurrentBrowsePath) : _data.Name;
+            if (IsBrowsing && string.IsNullOrEmpty(title))
+            {
+                title = CurrentBrowsePath; // drive/share roots have no file name to show
+            }
+
+            PanelHeaderText.Text = title;
+            PanelHeaderText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
+            BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
+            BackButton.ToolTip = Localization.Get("UI_BrowseBack");
             UpdatePinButtonVisual();
             BadgeHelpTitle.Text = Localization.Get("UI_BadgeHelpTitle");
             BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
             BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
-            
+
             // Lock indicator (header button)
             UpdateLockButtonVisual();
-            
+
             // Apply item scale transform BEFORE setting items
             double scale = GetItemScale();
             ItemsContainer.LayoutTransform = new ScaleTransform(scale, scale);
-            
-            // Items - include index for drag-drop reordering
-            var textBrush = ThemeManager.TextBrush;
-            
-            var items = _data.Items.Select((item, index) => new DisplayItem
-            {
-                Name = GetDisplayName(string.IsNullOrEmpty(item.Name) ? item.Path : item.Name),
-                Path = item.Path,
-                Icon = null,
-                Index = index,
-                TextColor = textBrush,
-                IsStored = !item.IsReference,
-                IsMissing = !System.IO.File.Exists(item.Path) && !System.IO.Directory.Exists(item.Path)
-            }).ToList();
-            
+
+            var items = IsBrowsing ? BuildBrowseItems() : BuildRootItems();
+            _lastItemCount = items.Count;
+
             // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property
             ItemsContainer.ItemsSource = items;
-            
-            // Load icons asynchronously
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                foreach (var item in items)
-                {
-                    try
-                    {
-                        var icon = GetFileIcon(item.Path);
-                        if (icon != null)
-                        {
-                            icon.Freeze();
-                            Dispatcher.BeginInvoke(new Action(() => item.Icon = icon), 
-                                System.Windows.Threading.DispatcherPriority.Normal);
-                        }
-                    }
-                    catch { /* Ignore icon load errors */ }
-                }
-            });
-            
+            LoadItemIcons(items);
+
+            // Must run before sizing: CalculatePanelSize reads the footer's height
+            UpdateEmptyState(items.Count);
+            UpdateMoreItemsFooter(items.Count);
+
             // Panel-only: keep the window sized to the panel while open
             if (_isExpanded)
             {
-                // Force layout update to ensure all elements are measured correctly before resizing
                 UpdateLayout();
-                
+
                 var (panelWidth, panelHeight) = CalculatePanelSize();
-                
+
                 ExpandedPanel.Width = panelWidth;
                 ExpandedPanel.Height = panelHeight;
-                
+
                 Width = panelWidth;
                 Height = panelHeight;
-                
+
                 System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
                 System.Windows.Controls.Canvas.SetTop(ExpandedPanel, 0);
             }
-            
-            // Empty state
-            EmptyState.Visibility = _data.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyText.Text = Localization.Get("UI_DropHere");
-            
+
             // Update panel colors
             UpdatePanelColor();
-            
+
             // Apply item text colors after items are rendered
-            Dispatcher.BeginInvoke(new Action(() => ApplyItemTextColors()), 
+            Dispatcher.BeginInvoke(new Action(() => ApplyItemTextColors()),
                 System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void LoadItemIcons(List<DisplayItem> items)
+        {
+            var realIcons = new List<DisplayItem>();
+            var extraFolders = new List<DisplayItem>();
+            var genericFiles = new List<DisplayItem>();
+
+            if (!IsBrowsing)
+            {
+                realIcons.AddRange(items); // root mode is unchanged: every icon loads
+            }
+            else
+            {
+                // The budget counts files only: directories share one cached icon,
+                // so a folder-heavy listing must not spend the budget on them.
+                int fileBudget = WidgetConstants.MAX_BROWSE_ICON_LOADS;
+                foreach (var item in items)
+                {
+                    if (item.IsDirectory) extraFolders.Add(item);
+                    else if (realIcons.Count < fileBudget) realIcons.Add(item);
+                    else genericFiles.Add(item);
+                }
+            }
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                foreach (var item in realIcons) ApplyIcon(item, GetFileIcon(item.Path));
+                foreach (var folder in extraFolders) ApplyIcon(folder, GetFileIcon(folder.Path));
+                if (genericFiles.Count > 0)
+                {
+                    var generic = GetGenericFileIcon();
+                    foreach (var item in genericFiles) ApplyIcon(item, generic);
+                }
+            });
+        }
+
+        private void ApplyIcon(DisplayItem item, ImageSource icon)
+        {
+            if (icon == null) return;
+
+            try
+            {
+                if (!icon.IsFrozen) icon.Freeze();
+                Dispatcher.BeginInvoke(new Action(() => item.Icon = icon),
+                    System.Windows.Threading.DispatcherPriority.Normal);
+            }
+            catch { /* Ignore icon load errors */ }
+        }
+
+        private void UpdateEmptyState(int itemCount)
+        {
+            if (itemCount > 0)
+            {
+                EmptyState.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            EmptyState.Visibility = Visibility.Visible;
+            if (!IsBrowsing)
+            {
+                EmptyText.Text = Localization.Get("UI_DropHere");
+                return;
+            }
+
+            EmptyText.Text = Localization.Get(_browseListing != null && _browseListing.Failed
+                ? "UI_FolderAccessDenied"
+                : "UI_FolderEmpty");
+        }
+
+        private void UpdateMoreItemsFooter(int itemCount)
+        {
+            bool show = IsBrowsing && _browseListing != null && _browseListing.Truncated;
+
+            _lastFooterVisible = show;
+            MoreItemsText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+            if (show)
+            {
+                MoreItemsText.Text = Localization.Format("UI_BrowseMoreItems",
+                    _browseListing.TotalCount - itemCount);
+            }
         }
         
         /// <summary>

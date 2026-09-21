@@ -37,6 +37,7 @@ namespace Kobold.XamlLoadCheck
                 int failures = 0;
                 failures += TryLoad("SettingsWindow", () => new SettingsWindow());
                 failures += TryLoad("IslandWindow", () => new IslandWindow());
+                failures += TryLoad("FolderWidget", () => new FolderWidget(new FolderData()));
 
                 Console.WriteLine();
                 if (failures == 0)

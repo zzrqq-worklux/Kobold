@@ -68,9 +68,14 @@ namespace Kobold.Controls
             }
 
             ClearAllSelections();
+            ResetBrowse(); // browsing is transient - the panel reopens at the widget's items
             _isExpanded = false;
             AnimationHelper.PanelClose(ExpandedPanel, () =>
             {
+                // Drop the listing once the fade is over: clearing it here keeps a
+                // long browse listing from staying resident, without blanking the
+                // panel while it fades out.
+                ItemsContainer.ItemsSource = null;
                 ExpandedPanel.Visibility = Visibility.Collapsed;
                 Hide();
             });
@@ -176,6 +181,13 @@ namespace Kobold.Controls
         
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Back && IsBrowsing)
+            {
+                GoBack();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Escape && _isExpanded)
             {
                 if (_data.IsPanelPinned)
@@ -283,36 +295,24 @@ namespace Kobold.Controls
                 b.Background = ThemeManager.TransparentBrush;
         }
         
-        /// <summary>
-        /// Opens file on double-click (Windows Explorer style)
-        /// </summary>
-        private void Item_DoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            if (sender is Border b && b.DataContext is DisplayItem item)
-            {
-                try 
-                { 
-                    Process.Start(new ProcessStartInfo { FileName = item.Path, UseShellExecute = true }); 
-                } 
-                catch (Exception ex) 
-                { 
-                    Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); 
-                }
-                e.Handled = true;
-            }
-        }
-
         private void Item_RightClick(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border b && b.DataContext is DisplayItem item)
             {
+                if (IsBrowsing)
+                {
+                    ShowBrowseItemMenu(item);
+                    e.Handled = true;
+                    return;
+                }
+
                 var menu = new ContextMenu();
                 
                 var openItem = new MenuItem { Header = Localization.Get("Menu_Open") };
-                openItem.Click += (s, a) => { try { Process.Start(new ProcessStartInfo { FileName = item.Path, UseShellExecute = true }); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Open failed: {ex.Message}"); } };
-                
+                openItem.Click += (s, a) => OpenWithShell(item.Path);
+
                 var locItem = new MenuItem { Header = Localization.Get("Menu_OpenLocation") };
-                locItem.Click += (s, a) => { try { Process.Start("explorer.exe", $"/select,\"{item.Path}\""); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Open location failed: {ex.Message}"); } };
+                locItem.Click += (s, a) => OpenContainingFolder(item.Path);
                 
                 // Store physically into Kobold storage (explicit action - by
                 // default dropped files are references and stay in place).
@@ -353,10 +353,7 @@ namespace Kobold.Controls
                 
                 // Copy Path to clipboard
                 var copyPathItem = new MenuItem { Header = Localization.Get("Menu_CopyPath") };
-                copyPathItem.Click += (s, a) => 
-                { 
-                    try { System.Windows.Clipboard.SetText(item.Path); } catch (Exception ex) { Debug.WriteLine($"[Kobold] Clipboard failed: {ex.Message}"); }
-                };
+                copyPathItem.Click += (s, a) => CopyPathToClipboard(item.Path);
                 
                 // Rename item
                 var renameItem = new MenuItem { Header = Localization.Get("Menu_RenameItem") };
@@ -556,6 +553,14 @@ namespace Kobold.Controls
                 hit = VisualTreeHelper.GetParent(hit);
             }
             
+            // Browsing is a read-only view: the panel menu's New File / New Folder
+            // would write to storage and mutate the widget's items.
+            if (IsBrowsing)
+            {
+                e.Handled = true;
+                return;
+            }
+
             ShowPanelContextMenu();
             e.Handled = true;
         }

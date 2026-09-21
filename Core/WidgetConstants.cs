@@ -76,6 +76,22 @@ namespace Kobold.Core
 
         #endregion
 
+        #region Folder Browse
+
+        /// <summary>Max entries a browse listing returns (the rest is reported as a footer hint)</summary>
+        public const int MAX_BROWSE_ENTRIES = 200;
+
+        /// <summary>Max real shell icons loaded for one browse listing (the rest fall back)</summary>
+        public const int MAX_BROWSE_ICON_LOADS = 60;
+
+        /// <summary>Height of the "more items" footer row when a listing is truncated</summary>
+        public const int FOOTER_HEIGHT = 20;
+
+        /// <summary>Panel height cap as a share of the work area</summary>
+        public const double PANEL_MAX_HEIGHT_RATIO = 0.6;
+
+        #endregion
+
         #region Drag-Drop
         
         /// <summary>Minimum distance to start drag operation</summary>
