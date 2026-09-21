@@ -27,6 +27,10 @@ development (二开) base.
   more than fit; right-click a tile for that widget's options.
 - **Folder panels** — glassy, auto-sizing panels with per-widget colours,
   configurable grid columns and item size, lock, pin and rename.
+- **Browse folders in place** — double-click a folder entry to list its
+  contents inside the panel: drill in, go back (button or Backspace), open
+  files with the shell. Browsing is read-only — it never touches the
+  widget's items or your files.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
   reorder entries with a drop indicator, move them between widgets, or
   drag them out to restore them to the Desktop.
@@ -82,6 +86,7 @@ development (二开) base.
 | Open settings | Island gear entry (or tray menu) |
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
+| Browse a folder inside a panel | Double-click a folder entry (Backspace goes back) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
 
@@ -109,6 +114,7 @@ dotnet run --project tests/StorageOpsCheck
 dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
+dotnet run --project tests/FolderListingCheck
 ```
 
 Package a release zip (Release build plus
@@ -152,6 +158,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
   网格列数、条目大小，支持锁定、置顶与重命名。
+- **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
+  逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。浏览是只读的，
+  不会改动组件条目，也不会改动磁盘上的文件。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
   拖出面板即还原到桌面。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
@@ -182,6 +191,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 打开设置 | 岛的齿轮入口（或托盘菜单） |
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
+| 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
@@ -208,6 +218,7 @@ dotnet run --project tests/StorageOpsCheck
 dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
+dotnet run --project tests/FolderListingCheck
 ```
 
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
