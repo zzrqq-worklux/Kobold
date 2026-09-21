@@ -31,6 +31,10 @@ development (二开) base.
   contents inside the panel: drill in, go back (button or Backspace), open
   files with the shell. Browsing is read-only — it never touches the
   widget's items or your files.
+- **File actions in panels** — while browsing a folder, create, rename and
+  delete (to the Recycle Bin) in place, open a terminal at the current
+  folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
+  properties…) via **Show more options**.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
   reorder entries with a drop indicator, move them between widgets, or
   drag them out to restore them to the Desktop.
@@ -87,6 +91,8 @@ development (二开) base.
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
 | Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
+| File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
+| The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
@@ -116,6 +122,7 @@ dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
+dotnet run --project tests/ShellOpsCheck
 ```
 
 Package a release zip (Release build plus
@@ -162,6 +169,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
   逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。浏览是只读的，
   不会改动组件条目，也不会改动磁盘上的文件。
+- **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
+  一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
+  （Git Bash、7-Zip、属性等）。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
   拖出面板即还原到桌面。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
@@ -193,6 +203,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
 | 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
+| 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
+| 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
@@ -221,6 +233,7 @@ dotnet run --project tests/DesktopIconsCheck
 dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
+dotnet run --project tests/ShellOpsCheck
 ```
 
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
