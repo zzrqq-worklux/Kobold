@@ -15,6 +15,14 @@ namespace Kobold
         private const string EventName = "Kobold_ActivateEvent_v3";
         private static Mutex _mutex;
         private static EventWaitHandle _eventWaitHandle;
+
+        /// <summary>
+        /// True only for the instance that actually created (and therefore owns) the
+        /// single-instance mutex. A second launch must not undo the running
+        /// instance's state, and must not release a mutex it never owned - doing so
+        /// throws ApplicationException from OnExit.
+        /// </summary>
+        private static bool _isPrimaryInstance;
         private TrayIconService _trayService;
 
         [DllImport("user32.dll")]
@@ -51,6 +59,7 @@ namespace Kobold
 
             // Create event handle for this instance
             _eventWaitHandle = new EventWaitHandle(false, EventResetMode.AutoReset, EventName);
+            _isPrimaryInstance = true;
 
             // Start listening for activation requests
             var activationThread = new Thread(() =>
@@ -121,10 +130,19 @@ namespace Kobold
 
         protected override void OnExit(ExitEventArgs e)
         {
-            try { WidgetManager.Instance.RestoreDesktopIconsOnExit(); } catch { }
+            // Only the instance that started the desktop-icon session may end it,
+            // and only that instance owns the mutex. A second launch exits here
+            // without touching either.
+            if (_isPrimaryInstance)
+            {
+                try { WidgetManager.Instance.RestoreDesktopIconsOnExit(); } catch { }
+
+                try { _mutex?.ReleaseMutex(); }
+                catch (Exception ex) { Debug.WriteLine($"[Kobold] ReleaseMutex failed: {ex.Message}"); }
+            }
+
             _trayService?.Dispose();
             _eventWaitHandle?.Dispose();
-            _mutex?.ReleaseMutex();
             _mutex?.Dispose();
             base.OnExit(e);
         }
