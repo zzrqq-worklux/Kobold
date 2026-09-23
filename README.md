@@ -26,7 +26,11 @@ development (二开) base.
   widget tiles scroll (a slim bar underneath hints at it) when there are
   more than fit; right-click a tile for that widget's options.
 - **Folder panels** — glassy, auto-sizing panels with per-widget colours,
-  configurable grid columns and item size, lock, pin and rename.
+  configurable grid columns and item size, lock, pin and rename. The panels
+  that were open when the app closed come back on the next launch, without
+  stealing focus.
+- **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
+  View while still behaving like normal, activatable windows.
 - **Browse folders in place** — double-click a folder entry to list its
   contents inside the panel: drill in, go back (button or Backspace), open
   files with the shell. While the panel is open the listing follows the
@@ -105,6 +109,7 @@ development (二开) base.
 | Open the Desktop folder | Double-click the island's desktop entry |
 | Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
 | File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
+| Color a folder | Right-click a folder entry → **Folder color** (nine colours, or **Default color** to undo) |
 | The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
@@ -186,7 +191,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。组件多了只在中间区域滚动
   （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
-  网格列数、条目大小，支持锁定、置顶与重命名。
+  网格列数、条目大小，支持锁定、置顶与重命名。退出时开着的面板会在下次启动时
+  自动恢复，且不抢焦点。
+- **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
   逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
   面板打开时列表会实时跟随该文件夹的变化；面板会记住你离开时所在的文件夹，
@@ -234,6 +241,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 打开桌面文件夹 | 双击岛的桌面入口 |
 | 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
 | 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
+| 给文件夹上色 | 右键文件夹条目 →「文件夹颜色」（9 种颜色；「恢复默认颜色」可还原） |
 | 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
