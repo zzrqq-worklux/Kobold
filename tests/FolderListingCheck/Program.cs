@@ -37,6 +37,8 @@ namespace Kobold.FolderListingCheck
                 NullOrEmptyInputFails();
                 NameIsTheRawFileName();
                 BrowsePathLabelsEveryLevel();
+                BrowseStackNormalization();
+                BrowseMoveFilters();
             }
             finally
             {
@@ -221,6 +223,70 @@ namespace Kobold.FolderListingCheck
             Check(ancestry[0] == "WORKING", "browse-path: the first row is the widget root label");
             Check(ancestry[1] == "case-browse-path" && ancestry[2] == "level2",
                 "browse-path: the remaining rows follow the stack top-down");
+        }
+
+        private static void BrowseStackNormalization()
+        {
+            string level1 = NewDir("case-stack-l1");
+            string level2 = Path.Combine(level1, "l2");
+            string level3 = Path.Combine(level2, "l3");
+            Directory.CreateDirectory(level2);
+            Directory.CreateDirectory(level3);
+            string file = Path.Combine(level1, "file.txt");
+            File.WriteAllText(file, "");
+
+            Check(BrowsePath.NormalizeStack(new List<string> { level1, level2, level3 }, Directory.Exists).Count == 3,
+                "stack: a fully valid stack is kept as-is");
+
+            var kept = BrowsePath.NormalizeStack(new List<string> { level1, level2, Path.Combine(level2, "gone") }, Directory.Exists);
+            Check(kept.Count == 2 && kept[1] == level2,
+                "stack: a missing last level is dropped (the panel reopens one level up)");
+
+            kept = BrowsePath.NormalizeStack(new List<string> { level1, Path.Combine(level1, "gone"), level3 }, Directory.Exists);
+            Check(kept.Count == 1 && kept[0] == level1,
+                "stack: everything after the first missing level is dropped");
+
+            Check(BrowsePath.NormalizeStack(new List<string> { Path.Combine(_root, "gone") }, Directory.Exists).Count == 0,
+                "stack: a stack with nothing valid falls back to the widget root");
+            Check(BrowsePath.NormalizeStack(new List<string>(), Directory.Exists).Count == 0,
+                "stack: an empty stack stays empty");
+            Check(BrowsePath.NormalizeStack(null, Directory.Exists).Count == 0,
+                "stack: a null stack stays empty");
+            Check(BrowsePath.NormalizeStack(new List<string> { level1, file }, Directory.Exists).Count == 1,
+                "stack: a file is not a browsable level");
+            Check(BrowsePath.NormalizeStack(new List<string> { level1, "   " }, Directory.Exists).Count == 1,
+                "stack: a blank level ends the valid prefix");
+        }
+
+        private static void BrowseMoveFilters()
+        {
+            string source = NewDir("case-move-source");
+            string target = NewDir("case-move-target");
+            string file = Path.Combine(source, "a.txt");
+            File.WriteAllText(file, "");
+            string folder = Path.Combine(source, "sub");
+            Directory.CreateDirectory(folder);
+
+            Func<string, bool> exists = p => File.Exists(p) || Directory.Exists(p);
+
+            Check(BrowseMove.MovableInto(new[] { file, folder }, target, exists).Count == 2,
+                "browse-move: existing files and folders move");
+
+            string already = Path.Combine(target, "there.txt");
+            File.WriteAllText(already, "");
+            Check(BrowseMove.MovableInto(new[] { already }, target, exists).Count == 0,
+                "browse-move: an item already in the target folder is skipped");
+            Check(BrowseMove.MovableInto(new[] { already }, target + Path.DirectorySeparatorChar, exists).Count == 0,
+                "browse-move: a trailing separator on the target still matches");
+            Check(BrowseMove.MovableInto(new[] { already }, target.ToUpperInvariant(), exists).Count == 0,
+                "browse-move: the folder comparison ignores case");
+
+            Check(BrowseMove.MovableInto(new[] { Path.Combine(source, "gone.txt") }, target, exists).Count == 0,
+                "browse-move: a path that does not exist is skipped");
+            Check(BrowseMove.MovableInto(new[] { file, "   ", null }, target, exists).Count == 1,
+                "browse-move: blank entries are skipped");
+            Check(BrowseMove.MovableInto(null, target, exists).Count == 0,
+                "browse-move: a null list moves nothing");
         }
 
         private static void TryDelete(string path)

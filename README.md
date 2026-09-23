@@ -29,15 +29,18 @@ development (二开) base.
   configurable grid columns and item size, lock, pin and rename.
 - **Browse folders in place** — double-click a folder entry to list its
   contents inside the panel: drill in, go back (button or Backspace), open
-  files with the shell. Browsing is read-only — it never touches the
-  widget's items or your files.
+  files with the shell. The panel remembers the folder it was left in, also
+  across restarts.
 - **File actions in panels** — while browsing a folder, create, rename and
   delete (to the Recycle Bin) in place, open a terminal at the current
   folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
   properties…) via **Show more options**.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
-  reorder entries with a drop indicator, move them between widgets, or
-  drag them out to restore them to the Desktop.
+  reorder entries with a drop indicator, move them between widgets, or drag
+  them out: the shell takes the files, so dropping into an Explorer window or
+  onto the desktop really moves them. Dragging entries from one browse panel
+  into another moves the files into the folder on screen — collisions and
+  progress stay Explorer's.
 - **Readable badges** — a coloured cabinet badge means the file lives in
   Kobold storage; a grey `!` means the source was deleted or moved.
 - **Safe by design** — ejecting or unstoring moves files back to their
@@ -98,11 +101,16 @@ development (二开) base.
 | The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
+| Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
 | Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
 
 Stored vs. referenced files: dropping a file creates a *reference* — the
 original stays where it is. Use **Store** in the item menu to physically
 move it into Kobold storage; **Unstore** or **Eject** puts it back.
+Dragging an item out of a panel hands the files to Windows: a drop a target
+accepts moves them for real, and a drop nothing accepts restores the item
+(references become visible again, stored files return to where they came
+from).
 
 ## Build & test
 
@@ -127,6 +135,7 @@ dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
 dotnet run --project tests/ShellOpsCheck
 dotnet run --project tests/MemoryTrimCheck
+dotnet run --project tests/DragOutCheck
 ```
 
 Package a release zip (Release build plus
@@ -171,13 +180,14 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
   网格列数、条目大小，支持锁定、置顶与重命名。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
-  逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。浏览是只读的，
-  不会改动组件条目，也不会改动磁盘上的文件。
+  逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
+  面板会记住你离开时所在的文件夹（重启后也记得）。
 - **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
   一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
   （Git Bash、7-Zip、属性等）。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
-  拖出面板即还原到桌面。
+  拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件；在浏览面板之间
+  拖动条目，会把文件移动进对方正在显示的文件夹——冲突提示与进度都是系统原生的。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
   源文件已被删除或移动。
 - **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
@@ -213,10 +223,13 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
+| 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
 | 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
 拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
-移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。
+移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。把条目拖出面板则交给系统：
+落点接受就真的移动文件；落点不收（例如不支持文件的窗口）按原规则还原——
+引用重新可见、收纳项搬回原位置。
 
 ## 构建与测试
 
@@ -241,6 +254,7 @@ dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
 dotnet run --project tests/ShellOpsCheck
 dotnet run --project tests/MemoryTrimCheck
+dotnet run --project tests/DragOutCheck
 ```
 
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：

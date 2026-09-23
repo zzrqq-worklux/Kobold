@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
 using Kobold.Helpers;
+using Kobold.Services;
 
 namespace Kobold.Controls
 {
@@ -18,6 +20,23 @@ namespace Kobold.Controls
         // Stored drag items for multi-selection support
         private List<DisplayItem> _currentDragItems;
         private bool _itemDragCanceled;
+
+        // Set by our own Drop handler: a drop the app handled itself (reorder,
+        // cross-widget merge) must never be mistaken for an external relocation.
+        private bool _dropHandledInsideApp;
+
+        // True when the drag was released outside this panel and not over another
+        // widget - only then can the shell's effect mean "the file moved away".
+        private bool _releasedOutsidePanel;
+
+        // Files this drag un-hid so an external move does not carry the hidden
+        // attribute into the new folder; hidden again when the items stay.
+        private readonly List<string> _unhiddenForDrag = new List<string>();
+
+        // Browse-mode drags carry the plain file paths plus the folder they came
+        // from, so another browse panel knows what to move and from where.
+        private const string BrowseDragPathsFormat = "KoboldBrowsePaths";
+        private const string BrowseDragSourceFormat = "KoboldBrowseSource";
         
         #region External File Drop
         
@@ -126,9 +145,6 @@ namespace Kobold.Controls
             if (e.LeftButton != MouseButtonState.Pressed || _draggedItem == null)
                 return;
 
-            // Browsing is a read-only view: dragging entries out could move real files.
-            if (IsBrowsing) return;
-            
             var currentPos = e.GetPosition(this);
             var diff = currentPos - _itemDragStartPos;
             
@@ -143,7 +159,15 @@ namespace Kobold.Controls
                 {
                     selectedItems = new List<DisplayItem> { _draggedItem };
                 }
-                
+
+                // Browsing drags move real files: the shell (or another browse
+                // panel) takes them - there are no widget items to update.
+                if (IsBrowsing)
+                {
+                    StartBrowseItemDrag((DependencyObject)sender, selectedItems);
+                    return;
+                }
+
                 // Store for use in Panel_QueryContinueDrag
                 _currentDragItems = selectedItems;
                 
@@ -161,13 +185,17 @@ namespace Kobold.Controls
                 dataObject.SetData("KoboldSourceFolderId", _data.Id);
                 dataObject.SetData("KoboldWidgetItems", BuildDragSnapshot(selectedItems));
                 
-                // For external drop (file list)
-                var fileList = new System.Collections.Specialized.StringCollection();
-                foreach (var sel in selectedItems)
+                // For external drop (file list). A locked widget never hands its
+                // files to another program, so it publishes no file list at all.
+                if (!_data.IsLocked)
                 {
-                    fileList.Add(sel.Path);
+                    var fileList = new System.Collections.Specialized.StringCollection();
+                    foreach (var sel in selectedItems)
+                    {
+                        fileList.Add(sel.Path);
+                    }
+                    dataObject.SetFileDropList(fileList);
                 }
-                dataObject.SetFileDropList(fileList);
                 
                 Mouse.Capture(null);
                 
@@ -193,10 +221,19 @@ namespace Kobold.Controls
                 ((Border)sender).GiveFeedback += feedbackHandler;
                 
                 _itemDragCanceled = false;
+                _dropHandledInsideApp = false;
+                _releasedOutsidePanel = false;
+                _unhiddenForDrag.Clear();
                 var session = DragDropSession.Begin(_data.Id, _data.IsLocked);
+
+                // The shell reports what it actually did with the files (move,
+                // copy or nothing) - that result decides what happens to the
+                // items, so a drop into Explorer relocates the file instead of
+                // fighting the shell for it. See Core/DragOutPolicy.
+                DragDropEffects performed;
                 try
                 {
-                    DragDrop.DoDragDrop((DependencyObject)sender, dataObject, DragDropEffects.Move);
+                    performed = DragDrop.DoDragDrop((DependencyObject)sender, dataObject, DragDropEffects.Move);
                 }
                 finally
                 {
@@ -211,12 +248,18 @@ namespace Kobold.Controls
                     // ejecting - the files themselves stay untouched.
                     if (session.AcceptedByOtherWidget)
                     {
+                        _unhiddenForDrag.Clear();
                         RemoveDraggedItems(selectedItems);
+                    }
+                    else
+                    {
+                        HandleDragOutcome(selectedItems, performed);
                     }
                 }
                 finally
                 {
                     DragDropSession.End();
+                    _unhiddenForDrag.Clear();
                 }
                 
                 _isDraggingItem = false;
@@ -235,6 +278,90 @@ namespace Kobold.Controls
             _draggedItem = null;
         }
         
+        /// <summary>
+        /// Starts a drag from a browsed folder. Explorer and the desktop take the
+        /// file list themselves; another browse panel moves the files into the
+        /// folder it shows, and a widget at its root adds them as references.
+        /// </summary>
+        private void StartBrowseItemDrag(DependencyObject source, List<DisplayItem> items)
+        {
+            // Widget-item bookkeeping must not see this drag.
+            _currentDragItems = null;
+
+            try
+            {
+                string sourceFolder = CurrentBrowsePath;
+                if (string.IsNullOrEmpty(sourceFolder) || items == null || items.Count == 0) return;
+
+                var paths = new List<string>();
+                foreach (var item in items)
+                {
+                    if (item != null && !string.IsNullOrEmpty(item.Path)) paths.Add(item.Path);
+                }
+                if (paths.Count == 0) return;
+
+                var fileList = new System.Collections.Specialized.StringCollection();
+                foreach (var path in paths) fileList.Add(path);
+
+                var dataObject = new DataObject();
+                dataObject.SetFileDropList(fileList);
+                dataObject.SetData(BrowseDragPathsFormat, paths);
+                dataObject.SetData(BrowseDragSourceFormat, sourceFolder);
+
+                var dragWindow = CreateDragVisual(items);
+                GiveFeedbackEventHandler feedbackHandler = (s, args) =>
+                {
+                    if (dragWindow != null && dragWindow.IsVisible)
+                    {
+                        var cursor = GetCursorInWindow();
+                        dragWindow.Left = Left + cursor.X + 10;
+                        dragWindow.Top = Top + cursor.Y + 10;
+                    }
+
+                    args.UseDefaultCursors = false;
+                    Mouse.OverrideCursor = args.Effects == DragDropEffects.None
+                        ? Cursors.No
+                        : CursorHelper.GrabHand;
+                    args.Handled = true;
+                };
+
+                var border = source as Border;
+                if (border != null) border.GiveFeedback += feedbackHandler;
+                try
+                {
+                    DragDrop.DoDragDrop(source, dataObject, DragDropEffects.Move | DragDropEffects.Copy);
+                }
+                finally
+                {
+                    if (border != null) border.GiveFeedback -= feedbackHandler;
+                    dragWindow?.Close();
+                    Mouse.OverrideCursor = null;
+                }
+
+                // Entries may have moved away: re-list what is still here.
+                UpdateUI();
+            }
+            finally
+            {
+                _isDraggingItem = false;
+                _draggedItem = null;
+            }
+        }
+
+        /// <summary>True for a drag started by a browse panel (any panel).</summary>
+        private static bool IsBrowseDrag(IDataObject data, out string sourceFolder)
+        {
+            sourceFolder = data == null ? null : data.GetData(BrowseDragSourceFormat) as string;
+            return data != null && data.GetDataPresent(BrowseDragPathsFormat) && !string.IsNullOrEmpty(sourceFolder);
+        }
+
+        /// <summary>Highlights the panel while another browse panel hovers it.</summary>
+        private void SetBrowseDropHighlight(bool on)
+        {
+            if (on) ExpandedPanel.BorderBrush = ThemeManager.AccentBlueBrush;
+            else ExpandedPanel.ClearValue(Border.BorderBrushProperty);
+        }
+
         /// <summary>
         /// Creates a transparent popup showing dragged item icons
         /// </summary>
@@ -339,9 +466,16 @@ namespace Kobold.Controls
         {
             if (IsBrowsing)
             {
-                e.Effects = DragDropEffects.None;
+                // Entries dragged from another browse panel move into the folder
+                // on screen; anything else is refused (browsing is a view, not a
+                // drop target for widget items).
+                bool accepted = IsBrowseDrag(e.Data, out var browseSource) &&
+                                !BrowseMove.SameFolder(browseSource, CurrentBrowsePath);
+
+                e.Effects = accepted ? DragDropEffects.Move : DragDropEffects.None;
+                SetBrowseDropHighlight(accepted);
                 DropIndicator.Visibility = Visibility.Collapsed;
-                DragDropSession.Current?.MarkTargetRefused();
+                if (!accepted) DragDropSession.Current?.MarkTargetRefused();
                 e.Handled = true;
                 return;
             }
@@ -406,6 +540,7 @@ namespace Kobold.Controls
         private void ItemsContainer_DragLeave(object sender, DragEventArgs e)
         {
             DropIndicator.Visibility = Visibility.Collapsed;
+            SetBrowseDropHighlight(false);
             DragDropSession.Current?.ClearTargetState();
         }
         
@@ -416,8 +551,7 @@ namespace Kobold.Controls
 
             if (IsBrowsing)
             {
-                e.Effects = DragDropEffects.None;
-                DragDropSession.Current?.MarkTargetRefused();
+                HandleBrowseDrop(e);
                 e.Handled = true;
                 return;
             }
@@ -425,6 +559,7 @@ namespace Kobold.Controls
             // Items dragged from another widget: merge them into this one.
             if (TryGetCrossWidgetSource(e.Data, out var sourceId))
             {
+                _dropHandledInsideApp = true;
                 HandleCrossWidgetDrop(e, sourceId);
                 e.Handled = true;
                 return;
@@ -433,6 +568,7 @@ namespace Kobold.Controls
             // Handle internal item reordering
             if (e.Data.GetDataPresent("KoboldItem"))
             {
+                _dropHandledInsideApp = true;
                 var draggedDisplayItem = e.Data.GetData("KoboldItem") as DisplayItem;
                 if (draggedDisplayItem == null) return;
                 
@@ -498,6 +634,43 @@ namespace Kobold.Controls
         }
         
         /// <summary>
+        /// Moves entries dragged from another browse panel into the folder on
+        /// screen. The shell performs the move, so collision prompts and progress
+        /// stay exactly like Explorer's.
+        /// </summary>
+        private void HandleBrowseDrop(DragEventArgs e)
+        {
+            SetBrowseDropHighlight(false);
+
+            if (!IsBrowseDrag(e.Data, out var sourceFolder) ||
+                BrowseMove.SameFolder(sourceFolder, CurrentBrowsePath))
+            {
+                e.Effects = DragDropEffects.None;
+                DragDropSession.Current?.MarkTargetRefused();
+                return;
+            }
+
+            var paths = e.Data.GetData(BrowseDragPathsFormat) as List<string>;
+            var movable = BrowseMove.MovableInto(paths, CurrentBrowsePath,
+                p => File.Exists(p) || Directory.Exists(p));
+
+            if (movable.Count == 0)
+            {
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            bool moved = ShellFileOperations.Move(
+                movable, CurrentBrowsePath, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            e.Effects = moved ? DragDropEffects.Move : DragDropEffects.None;
+
+            // Deferred so the re-list does not run inside the OLE drag loop; the
+            // listing may have gained entries (or kept some, when the shell
+            // skipped or the user cancelled).
+            Dispatcher.BeginInvoke(new Action(UpdateUI));
+        }
+
+        /// <summary>
         /// Force complete UI refresh - fixes visual glitches on pinned panels
         /// </summary>
         private void ForceRefreshUI()
@@ -542,11 +715,88 @@ namespace Kobold.Controls
             if (e.KeyStates != DragDropKeyStates.None || _itemDragCanceled) return;
 
             // The cursor is over another widget that can take the items, or over
-            // one that refused: the post-drag handling decides, no eject here.
+            // one that refused: that drop is ours to handle, never an external one.
             var session = DragDropSession.Current;
-            if (session != null && (session.PendingMove || session.TargetRefused)) return;
+            if (session != null && (session.PendingMove || session.TargetRefused))
+            {
+                _releasedOutsidePanel = false;
+                return;
+            }
 
-            EjectDraggedItemsOnRelease(_currentDragItems);
+            _releasedOutsidePanel = IsCursorOutsidePanel();
+            if (!_releasedOutsidePanel) return;
+
+            // An external drop is about to happen. The file must not carry its
+            // "managed by Kobold" hidden attribute into its new home, so make it
+            // visible before the shell moves it; the post-drag handling hides it
+            // again when the items stay here.
+            UnhideDraggedSources(_currentDragItems);
+        }
+
+        /// <summary>
+        /// Turns the finished drag into an action for the dragged items: the
+        /// shell's own effect decides (move = the files were relocated, copy =
+        /// they are still managed here, nothing = the panel's own restore).
+        /// See Core/DragOutPolicy for the rules.
+        /// </summary>
+        private void HandleDragOutcome(List<DisplayItem> selectedItems, DragDropEffects performed)
+        {
+            var effect = ExternalDropEffect.None;
+            if ((performed & DragDropEffects.Move) != 0) effect = ExternalDropEffect.Move;
+            else if ((performed & DragDropEffects.Copy) != 0) effect = ExternalDropEffect.Copy;
+
+            switch (DragOutPolicy.Resolve(effect, _dropHandledInsideApp, _releasedOutsidePanel, _data.IsLocked))
+            {
+                case DragOutAction.RemoveItems:
+                    // The shell relocated the files - the items have left the widget.
+                    _unhiddenForDrag.Clear();
+                    RemoveDraggedItems(selectedItems);
+                    break;
+
+                case DragOutAction.EjectAndRemove:
+                    // Nothing took the files: keep the restore behaviour.
+                    _unhiddenForDrag.Clear();
+                    EjectDraggedItemsOnRelease(selectedItems);
+                    break;
+
+                default:
+                    // The items stay managed here, so their files stay hidden.
+                    RestoreHiddenState();
+                    break;
+            }
+        }
+
+        /// <summary>Makes the dragged files visible for the moment they leave the panel.</summary>
+        private void UnhideDraggedSources(List<DisplayItem> items)
+        {
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                if (item == null || string.IsNullOrEmpty(item.Path)) continue;
+                if (!StorageOps.IsHidden(item.Path)) continue;
+                if (StorageOps.SetHidden(item.Path, false)) _unhiddenForDrag.Add(item.Path);
+            }
+        }
+
+        /// <summary>Hides the files this drag un-hid again - the items stay managed.</summary>
+        private void RestoreHiddenState()
+        {
+            foreach (var path in _unhiddenForDrag)
+            {
+                if (File.Exists(path) || Directory.Exists(path)) StorageOps.SetHidden(path, true);
+            }
+            _unhiddenForDrag.Clear();
+        }
+
+        /// <summary>Cursor in physical pixels against the window bounds in DIPs.</summary>
+        private bool IsCursorOutsidePanel()
+        {
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var dpi = VisualTreeHelper.GetDpi(this);
+            var bounds = new Rect(Left, Top, ActualWidth, ActualHeight);
+            return !ScreenGeometry.ContainsPhysicalPoint(
+                bounds, dpi.DpiScaleX, dpi.DpiScaleY, cursor.X, cursor.Y);
         }
 
         /// <summary>True when the drag data comes from a different widget.</summary>
@@ -616,8 +866,9 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Desktop restore: releasing outside this window ejects the dragged
-        /// items (references are unhidden, stored files move back to origin).
+        /// Restore path for a drop nothing accepted: the items are ejected
+        /// (references are un-hidden, stored files move back to where they came
+        /// from) and leave the widget. Only runs for a release outside the panel.
         /// </summary>
         private void EjectDraggedItemsOnRelease(List<DisplayItem> selectedItems)
         {
@@ -626,15 +877,7 @@ namespace Kobold.Controls
             // Locked widgets forbid moving content out
             if (_data.IsLocked) return;
 
-            // Cursor is in physical pixels, window bounds in DIPs (see ScreenGeometry).
-            var cursor = System.Windows.Forms.Cursor.Position;
-            var dpi = VisualTreeHelper.GetDpi(this);
-            var bounds = new Rect(Left, Top, ActualWidth, ActualHeight);
-            if (ScreenGeometry.ContainsPhysicalPoint(
-                    bounds, dpi.DpiScaleX, dpi.DpiScaleY, cursor.X, cursor.Y))
-            {
-                return;
-            }
+            if (!IsCursorOutsidePanel()) return;
 
             bool changed = false;
             foreach (var selItem in selectedItems)

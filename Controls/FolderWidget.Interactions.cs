@@ -68,7 +68,7 @@ namespace Kobold.Controls
             }
 
             ClearAllSelections();
-            ResetBrowse(); // browsing is transient - the panel reopens at the widget's items
+            // Browsing is remembered: the panel reopens at the folder it was left in.
             _isExpanded = false;
             AnimationHelper.PanelClose(ExpandedPanel, () =>
             {

@@ -30,8 +30,10 @@ namespace Kobold.ShellOpsCheck
             NameValidationAllowsCaseOnlyRename();
             RecyclePrecheckAcceptsFixedDriveOnly();
             DeleteFlagsKeepTheRecycleBinSafe();
+            MoveFlagsKeepCollisionsWithTheShell();
             DoubleNullTerminatedListing();
             CreateAndRenameInTemp();
+            MoveIntoFolderInTemp();
 
             Console.WriteLine();
             if (Errors.Count == 0)
@@ -192,6 +194,17 @@ namespace Kobold.ShellOpsCheck
                 "flags: FOF_NOCONFIRMATION is set (we confirm ourselves)");
         }
 
+        private static void MoveFlagsKeepCollisionsWithTheShell()
+        {
+            const ushort FOF_NOCONFIRMATION = 0x0010;
+            const ushort FOF_NOERRORUI = 0x0400;
+
+            Check((ShellFileOperations.MoveFlags & FOF_NOCONFIRMATION) == 0,
+                "move flags: the shell still asks before replacing an existing file");
+            Check((ShellFileOperations.MoveFlags & FOF_NOERRORUI) == 0,
+                "move flags: a failed move stays visible instead of failing silently");
+        }
+
         private static void DoubleNullTerminatedListing()
         {
             string one = ShellFileOperations.ToDoubleNullTerminated(new[] { @"C:\a\b.txt" });
@@ -203,6 +216,33 @@ namespace Kobold.ShellOpsCheck
                 "listing: multiple paths are concatenated with single NULs and a double NUL tail");
         }
 
+        private static void MoveIntoFolderInTemp()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "kobold-shellops-" + Guid.NewGuid().ToString("N"));
+            string target = Path.Combine(root, "target");
+            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(target);
+            try
+            {
+                string file = Path.Combine(root, "move-me.txt");
+                File.WriteAllText(file, "x");
+
+                Check(ShellFileOperations.Move(new[] { file }, target, IntPtr.Zero) &&
+                      File.Exists(Path.Combine(target, "move-me.txt")) &&
+                      !File.Exists(file),
+                    "move: a real file lands in the target folder and leaves the source");
+
+                Check(ShellFileOperations.Move(new string[0], target, IntPtr.Zero),
+                    "move: an empty list is a no-op that reports success");
+                Check(!ShellFileOperations.Move(new[] { file }, "   ", IntPtr.Zero),
+                    "move: a blank target folder is refused");
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
+
         private static void CreateAndRenameInTemp()
         {
             string root = Path.Combine(Path.GetTempPath(), "kobold-shellops-" + Guid.NewGuid().ToString("N"));
@@ -210,6 +250,7 @@ namespace Kobold.ShellOpsCheck
             try
             {
                 string error;
+
                 Check(ShellFileOperations.CreateFolder(root, "sub", out error) &&
                       Directory.Exists(Path.Combine(root, "sub")),
                     "create: a folder appears in the target directory");

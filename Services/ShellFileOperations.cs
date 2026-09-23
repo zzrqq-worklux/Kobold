@@ -225,6 +225,7 @@ namespace Kobold.Services
             }
         }
 
+        private const uint FO_MOVE = 0x0001;
         private const uint FO_DELETE = 0x0003;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -257,5 +258,43 @@ namespace Kobold.Services
         /// </summary>
         public const ushort DeleteFlags =
             FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING | FOF_NOERRORUI;
+
+        /// <summary>
+        /// A browse-drag move stays with the shell: collisions and errors keep
+        /// their own dialogs (no FOF_NOCONFIRMATION / FOF_NOERRORUI), and
+        /// FOF_ALLOWUNDO keeps the move undoable.
+        /// </summary>
+        public const ushort MoveFlags = FOF_ALLOWUNDO;
+
+        /// <summary>
+        /// Moves files/folders into targetFolder through the shell, so cross-drive
+        /// moves, collision prompts and progress behave exactly like Explorer.
+        /// Returns false when the shell refused or the user cancelled.
+        /// </summary>
+        public static bool Move(IList<string> paths, string targetFolder, IntPtr ownerHwnd)
+        {
+            if (paths == null || paths.Count == 0) return true;
+            if (string.IsNullOrWhiteSpace(targetFolder)) return false;
+
+            var operation = new SHFILEOPSTRUCT
+            {
+                hwnd = ownerHwnd,
+                wFunc = FO_MOVE,
+                pFrom = ToDoubleNullTerminated(paths),
+                pTo = ToDoubleNullTerminated(new[] { targetFolder }),
+                fFlags = MoveFlags
+            };
+
+            try
+            {
+                int result = SHFileOperation(ref operation);
+                return result == 0 && !operation.fAnyOperationsAborted;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Kobold] Move failed: " + ex.Message);
+                return false;
+            }
+        }
     }
 }

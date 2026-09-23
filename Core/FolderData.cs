@@ -58,6 +58,13 @@ namespace Kobold.Core
         public bool IsPanelPinned { get; set; } // Keep panel always open
         public double? PanelX { get; set; } // Remembered panel top-left (null = never dragged)
         public double? PanelY { get; set; }
+
+        /// <summary>
+        /// Remembered browse chain (folder path per browsed level, root first).
+        /// Empty = the panel shows the widget's own items.
+        /// </summary>
+        public List<string> BrowseStack { get; set; }
+
         public ObservableCollection<WidgetItem> Items { get; set; }
 
         public FolderData()
@@ -71,6 +78,7 @@ namespace Kobold.Core
             GridColumns = 3; // Default 3 columns
             IsLocked = false; // Unlocked by default
             IsPanelPinned = false; // Not pinned by default
+            BrowseStack = new List<string>();
             Items = new ObservableCollection<WidgetItem>();
         }
 

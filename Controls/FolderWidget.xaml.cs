@@ -108,6 +108,10 @@ namespace Kobold.Controls
             _data = data;
             Left = data.PosX;
             Top = data.PosY;
+
+            // Browsing is remembered across hiding the panel and restarting the
+            // app; a folder that is gone falls back to the widget's own items.
+            _browseStack.AddRange(BrowsePath.NormalizeStack(_data.BrowseStack, System.IO.Directory.Exists));
             
             // Never leave the grabbing cursor stuck if capture is lost mid-drag.
             PanelHeader.LostMouseCapture += (s, e) => System.Windows.Input.Mouse.OverrideCursor = null;

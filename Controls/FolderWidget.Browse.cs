@@ -13,7 +13,8 @@ namespace Kobold.Controls
 {
     /// <summary>
     /// FolderWidget - In-panel folder browsing. The browser is a read-only view
-    /// over the file system: it never touches _data.Items and never writes files.
+    /// over the file system: it never touches _data.Items and never writes files;
+    /// it only remembers where it was left (FolderData.BrowseStack).
     /// </summary>
     public partial class FolderWidget
     {
@@ -39,6 +40,7 @@ namespace Kobold.Controls
 
             _browseStack.Add(path);
             ClearAllSelections();
+            PersistBrowseStack();
             UpdateUI();
             ItemsScroller.ScrollToTop();
         }
@@ -50,11 +52,14 @@ namespace Kobold.Controls
             JumpToLevel(_browseStack.Count - 1);
         }
 
-        /// <summary>Browsing is transient - the panel always reopens at the root.</summary>
-        private void ResetBrowse()
+        /// <summary>
+        /// Mirrors the browse stack into the widget's data, so the panel reopens
+        /// where it was left - also after a restart.
+        /// </summary>
+        private void PersistBrowseStack()
         {
-            _browseStack.Clear();
-            _browseListing = null;
+            _data.BrowseStack = new List<string>(_browseStack);
+            WidgetManager.Instance.SaveConfig();
         }
 
         private void BackButton_Click(object sender, MouseButtonEventArgs e)
@@ -128,6 +133,7 @@ namespace Kobold.Controls
 
             _browseStack.RemoveRange(keep, _browseStack.Count - keep);
             ClearAllSelections();
+            PersistBrowseStack();
             UpdateUI();
             ItemsScroller.ScrollToTop();
         }

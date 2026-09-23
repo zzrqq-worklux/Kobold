@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Kobold.Core
@@ -42,6 +43,25 @@ namespace Kobold.Core
             }
 
             return labels;
+        }
+
+        /// <summary>
+        /// Longest prefix of a remembered browse stack whose levels all still
+        /// exist as directories. A folder that was renamed or deleted drops the
+        /// stack back to its last surviving level (empty = the widget's own items).
+        /// </summary>
+        public static List<string> NormalizeStack(IEnumerable<string> stack, Func<string, bool> isDirectory)
+        {
+            var kept = new List<string>();
+            if (stack == null) return kept;
+
+            foreach (var path in stack)
+            {
+                if (string.IsNullOrWhiteSpace(path)) break;
+                if (isDirectory == null || !isDirectory(path)) break;
+                kept.Add(path);
+            }
+            return kept;
         }
 
         /// <summary>
