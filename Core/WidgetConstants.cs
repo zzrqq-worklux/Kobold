@@ -90,6 +90,9 @@ namespace Kobold.Core
         /// <summary>Panel height cap as a share of the work area</summary>
         public const double PANEL_MAX_HEIGHT_RATIO = 0.6;
 
+        /// <summary>Quiet time after the last folder change before the browser re-reads it</summary>
+        public const int BROWSE_WATCH_DEBOUNCE_MS = 400;
+
         #endregion
 
         #region Drag-Drop
