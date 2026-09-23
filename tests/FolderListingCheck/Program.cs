@@ -39,6 +39,7 @@ namespace Kobold.FolderListingCheck
                 BrowsePathLabelsEveryLevel();
                 BrowseStackNormalization();
                 BrowseMoveFilters();
+                SameEntriesComparison();
             }
             finally
             {
@@ -287,6 +288,55 @@ namespace Kobold.FolderListingCheck
                 "browse-move: blank entries are skipped");
             Check(BrowseMove.MovableInto(null, target, exists).Count == 0,
                 "browse-move: a null list moves nothing");
+        }
+
+        private static void SameEntriesComparison()
+        {
+            string a = NewDir("case-same-a");
+            string b = NewDir("case-same-b");
+            File.WriteAllText(Path.Combine(a, "one.txt"), "");
+            Directory.CreateDirectory(Path.Combine(a, "sub"));
+            File.WriteAllText(Path.Combine(b, "one.txt"), "");
+            Directory.CreateDirectory(Path.Combine(b, "sub"));
+
+            var left = FolderListing.ListChildren(a, 100);
+            var right = FolderListing.ListChildren(b, 100);
+
+            // The browser only ever compares two reads of the same folder, so the
+            // full path is part of the identity: same names in another folder are
+            // not the same listing.
+            Check(FolderListing.SameEntries(left, FolderListing.ListChildren(a, 100)),
+                "same-entries: a re-read of the same folder matches");
+            Check(!FolderListing.SameEntries(left, right),
+                "same-entries: listings of different folders never match");
+            Check(FolderListing.SameEntries(left, left), "same-entries: a listing matches itself");
+            Check(!FolderListing.SameEntries(null, left) && !FolderListing.SameEntries(left, null),
+                "same-entries: null never matches a listing");
+            Check(FolderListing.SameEntries(null, null), "same-entries: two nulls match (nothing to redraw)");
+
+            File.WriteAllText(Path.Combine(b, "two.txt"), "");
+            Check(!FolderListing.SameEntries(left, FolderListing.ListChildren(b, 100)),
+                "same-entries: an added file is a difference");
+
+            var reordered = FolderListing.ListChildren(a, 100);
+            reordered.Entries.Reverse();
+            Check(!FolderListing.SameEntries(left, reordered), "same-entries: order matters");
+
+            var caseChanged = FolderListing.ListChildren(a, 100);
+            caseChanged.Entries[0].Path = caseChanged.Entries[0].Path.ToUpperInvariant();
+            Check(FolderListing.SameEntries(left, caseChanged),
+                "same-entries: paths compare case-insensitively (Windows)");
+
+            var kindChanged = FolderListing.ListChildren(a, 100);
+            kindChanged.Entries[0].IsDirectory = !kindChanged.Entries[0].IsDirectory;
+            Check(!FolderListing.SameEntries(left, kindChanged), "same-entries: a changed kind is a difference");
+
+            var unreadable = FolderListing.ListChildren(Path.Combine(_root, "does-not-exist"), 100);
+            Check(!FolderListing.SameEntries(left, unreadable),
+                "same-entries: an unreadable folder never matches a listing");
+
+            Check(!FolderListing.SameEntries(left, FolderListing.ListChildren(a, 1)),
+                "same-entries: a different total count is a difference");
         }
 
         private static void TryDelete(string path)

@@ -94,6 +94,34 @@ namespace Kobold.Core
             return result;
         }
 
+        /// <summary>
+        /// True when both listings describe the same entries in the same order.
+        /// The browser uses it to skip a re-render when a watched folder did not
+        /// change in a way the listing shows.
+        /// </summary>
+        public static bool SameEntries(ListingResult a, ListingResult b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return false;
+
+            // Failed drives the empty-state text: an inaccessible folder and an
+            // empty folder must never look the same to the browser.
+            if (a.Failed != b.Failed) return false;
+            if (a.TotalCount != b.TotalCount) return false;
+            if (a.Entries.Count != b.Entries.Count) return false;
+
+            for (int i = 0; i < a.Entries.Count; i++)
+            {
+                var left = a.Entries[i];
+                var right = b.Entries[i];
+
+                if (left.IsDirectory != right.IsDirectory) return false;
+                if (!string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+
+            return true;
+        }
+
         private static List<BrowseEntry> ReadEntries(IEnumerable<string> paths, bool isDirectory)
         {
             var entries = new List<BrowseEntry>();
