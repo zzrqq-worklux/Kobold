@@ -138,6 +138,17 @@ namespace Kobold.Core
             "#06B6D4", "#84CC16", "#F97316", "#6366F1", "#14B8A6", "#A855F7"
         };
 
+        /// <summary>
+        /// Folder icon colors offered by the folder-color menu. The hues reuse the
+        /// widget palette so the two pickers read as one family; the grey is the
+        /// one extra, since a desaturated folder has no widget counterpart.
+        /// </summary>
+        public static readonly string[] FolderIconPalette =
+        {
+            "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
+            "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+        };
+
         #region Radius scale
 
         public const double RadiusSmall = 4;

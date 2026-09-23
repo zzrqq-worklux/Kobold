@@ -40,6 +40,7 @@ namespace Kobold.FolderListingCheck
                 BrowseStackNormalization();
                 BrowseMoveFilters();
                 SameEntriesComparison();
+                SystemDirectoriesAreListed();
             }
             finally
             {
@@ -337,6 +338,39 @@ namespace Kobold.FolderListingCheck
 
             Check(!FolderListing.SameEntries(left, FolderListing.ListChildren(a, 1)),
                 "same-entries: a different total count is a difference");
+        }
+
+        private static void SystemDirectoriesAreListed()
+        {
+            string dir = NewDir("case-system-dir");
+
+            // Folder colors live in desktop.ini, and Explorer only reads that file
+            // for folders carrying the System flag - so such folders must stay
+            // visible here, or coloring one would hide it from our own browser.
+            string colored = Path.Combine(dir, "colored");
+            Directory.CreateDirectory(colored);
+            File.SetAttributes(colored, FileAttributes.System);
+
+            string plain = Path.Combine(dir, "plain");
+            Directory.CreateDirectory(plain);
+
+            var names = FolderListing.ListChildren(dir, 100).Entries.Select(e => e.Name).ToList();
+            Check(names.Contains("colored"), "system directory: a colored folder stays listed");
+            Check(names.Contains("plain"), "system directory: a plain folder is unaffected");
+
+            string hiddenDir = Path.Combine(dir, "hidden-dir");
+            Directory.CreateDirectory(hiddenDir);
+            File.SetAttributes(hiddenDir, FileAttributes.Hidden);
+
+            names = FolderListing.ListChildren(dir, 100).Entries.Select(e => e.Name).ToList();
+            Check(!names.Contains("hidden-dir"), "system directory: hidden directories stay filtered");
+
+            string systemFile = Path.Combine(dir, "system.txt");
+            File.WriteAllText(systemFile, "");
+            File.SetAttributes(systemFile, FileAttributes.System);
+
+            names = FolderListing.ListChildren(dir, 100).Entries.Select(e => e.Name).ToList();
+            Check(!names.Contains("system.txt"), "system directory: system files stay filtered");
         }
 
         private static void TryDelete(string path)

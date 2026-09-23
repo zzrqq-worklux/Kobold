@@ -130,7 +130,14 @@ namespace Kobold.Core
                 try
                 {
                     var attributes = File.GetAttributes(path);
-                    if ((attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;
+
+                    // Hidden entries never show. System is different: a folder
+                    // carries it once it has a desktop.ini (how Explorer knows to
+                    // read a custom icon), so only files are filtered on it -
+                    // desktop.ini and thumbs.db still stay out.
+                    bool hidden = (attributes & FileAttributes.Hidden) != 0;
+                    bool system = (attributes & FileAttributes.System) != 0;
+                    if (hidden || (system && !isDirectory)) continue;
 
                     string name = Path.GetFileName(path);
                     if (string.IsNullOrEmpty(name)) continue;
