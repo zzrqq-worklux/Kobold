@@ -46,6 +46,7 @@ namespace Kobold.Controls
 
             _isExpanded = true;
             UpdateBrowseWatch(); // the panel is open now: follow the folder on screen
+            PersistPanelState(true);
             if (!IsVisible)
             {
                 // Opening several panels together ("Show All") must not activate each
@@ -72,6 +73,7 @@ namespace Kobold.Controls
             // Browsing is remembered: the panel reopens at the folder it was left in.
             _isExpanded = false;
             UpdateBrowseWatch(); // closing: stop following the folder
+            PersistPanelState(false);
             AnimationHelper.PanelClose(ExpandedPanel, () =>
             {
                 // Drop the listing once the fade is over: clearing it here keeps a
@@ -81,6 +83,19 @@ namespace Kobold.Controls
                 ExpandedPanel.Visibility = Visibility.Collapsed;
                 Hide();
             });
+        }
+
+        /// <summary>
+        /// Remembers whether the panel was open, so the next launch can reopen it
+        /// (see StartupPanels). Saved directly rather than through OnDataChanged:
+        /// the island's tiles do not depend on this, so they need no rebuild.
+        /// </summary>
+        private void PersistPanelState(bool open)
+        {
+            if (_data.IsExpanded == open) return;
+
+            _data.IsExpanded = open;
+            WidgetManager.Instance.SaveConfig();
         }
 
         private static void ClampToScreen(ref double x, ref double y, double width, double height)

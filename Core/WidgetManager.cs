@@ -82,6 +82,14 @@ namespace Kobold.Core
             RefreshIsland();
             _island.Show();
 
+            // Reopen the panels that were still open when the app last closed.
+            // No activation: starting up must not steal focus from other apps.
+            foreach (var folder in StartupPanels.ToRestore(_config.Folders))
+            {
+                var widget = _widgets.FirstOrDefault(w => w.FolderId == folder.Id);
+                if (widget != null) OpenPanel(widget, activate: false);
+            }
+
             _trimTimer.Start();
         }
 
