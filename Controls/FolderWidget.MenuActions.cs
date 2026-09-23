@@ -24,6 +24,9 @@ namespace Kobold.Controls
         // collapse the panel, or a New/Rename/Delete prompt would reset browse.
         private int _modalDepth;
 
+        /// <summary>True while one of our modal dialogs is up (the idle trim must not run).</summary>
+        public bool IsModalOpen => _modalDepth > 0;
+
         /// <summary>Shows a modal dialog while shielding the panel from focus-loss collapse.</summary>
         private void RunModal(Action show)
         {

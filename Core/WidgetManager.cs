@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using Kobold.Core;
 using Kobold.Controls;
+using Kobold.Services;
 using Kobold.Windows;
 
 namespace Kobold.Core
@@ -19,6 +20,10 @@ namespace Kobold.Core
         private AppConfig _config;
         private List<FolderWidget> _widgets = new List<FolderWidget>();
         private IslandWindow _island;
+
+        private readonly IdleTrimPolicy _trimPolicy = new IdleTrimPolicy();
+        private readonly System.Windows.Threading.DispatcherTimer _trimTimer;
+        private DateTime _lastInteractionUtc = DateTime.UtcNow;
 
         public static WidgetManager Instance
         {
@@ -48,6 +53,15 @@ namespace Kobold.Core
             
             // Initialize theme system with current theme
             ThemeManager.Initialize(_config.Theme ?? "dark");
+
+            // WPF keeps its render caches for the life of the process (hiding or
+            // closing a window returns almost nothing), so a long-idle app hands
+            // its working set back to the OS instead. See Services/MemoryTrimmer.
+            _trimTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = IdleTrimPolicy.CheckInterval
+            };
+            _trimTimer.Tick += OnTrimTick;
         }
 
         /// <summary>
@@ -67,6 +81,29 @@ namespace Kobold.Core
             _island.WidgetMenuRequested += OnWidgetMenuRequested;
             RefreshIsland();
             _island.Show();
+
+            _trimTimer.Start();
+        }
+
+        /// <summary>Any input anywhere in the app restarts the idle window the trim uses.</summary>
+        public void NotifyInteraction()
+        {
+            _lastInteractionUtc = DateTime.UtcNow;
+            _trimPolicy.NotifyInteraction();
+        }
+
+        /// <summary>True while something in flight must not be paged out mid-way.</summary>
+        private bool IsBusy()
+        {
+            if (DragDropSession.Current != null) return true;
+            return _widgets.Any(w => w.IsModalOpen);
+        }
+
+        private void OnTrimTick(object sender, EventArgs e)
+        {
+            if (!_trimPolicy.ShouldTrim(DateTime.UtcNow - _lastInteractionUtc, IsBusy())) return;
+
+            if (MemoryTrimmer.Trim()) _trimPolicy.NotifyTrimmed();
         }
 
         /// <summary>
@@ -319,6 +356,8 @@ namespace Kobold.Core
         /// </summary>
         public void Shutdown()
         {
+            _trimTimer.Stop();
+
             // Ensure config is saved before exit
             _config.Save();
             

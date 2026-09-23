@@ -49,6 +49,9 @@ development (二开) base.
 - **Three languages** — English, 简体中文, 日本語.
 - **Tray + startup** — tray menu for add / show all / hide all / settings
   / exit, single-instance guard and optional auto-start with Windows.
+- **Idle memory trim** — after two minutes without interaction the app hands
+  its working set back to Windows: the Task Manager figure drops to a few MB
+  while idle, and the pages fault back in on demand.
 - **DPI aware** — PerMonitorV2, verified at 200% scaling.
 
 ## Screenshots
@@ -123,6 +126,7 @@ dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
 dotnet run --project tests/ShellOpsCheck
+dotnet run --project tests/MemoryTrimCheck
 ```
 
 Package a release zip (Release build plus
@@ -183,6 +187,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **三语界面** — English / 简体中文 / 日本語。
 - **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
   单实例保护，可选开机自启。
+- **空闲内存回收** — 静置两分钟无操作后把工作集交还给系统：任务管理器内存
+  降到个位数 MB，需要时自动换页回来。
 - **DPI 友好** — PerMonitorV2，200% 缩放下已验证。
 
 > 界面预览见上方 [Screenshots](#screenshots)（灵动岛 / 深色面板 / 右键菜单 / 浅色主题）。
@@ -234,6 +240,7 @@ dotnet run --project tests/UiTokensCheck
 dotnet run --project tests/XamlLoadCheck
 dotnet run --project tests/FolderListingCheck
 dotnet run --project tests/ShellOpsCheck
+dotnet run --project tests/MemoryTrimCheck
 ```
 
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：

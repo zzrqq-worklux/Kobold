@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Kobold.Core;
@@ -82,6 +83,11 @@ namespace Kobold
             // Initialize widget manager and create widgets
             WidgetManager.Instance.Initialize();
             WidgetManager.Instance.ApplyDesktopIconsOnStartup();
+
+            // Any input anywhere in the app restarts the idle window the memory
+            // trim uses (see IdleTrimPolicy / MemoryTrimmer).
+            InputManager.Current.PostProcessInput +=
+                (s, args) => WidgetManager.Instance.NotifyInteraction();
 
             // Sync registry with config (ensures startup setting is applied)
             SyncStartupRegistry();
