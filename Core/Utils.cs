@@ -41,6 +41,17 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Where generated folder-color icons live - colored folders point their
+        /// desktop.ini at a file in here.
+        /// </summary>
+        public static string GetFolderIconsPath()
+        {
+            string path = Path.Combine(GetAppDataPath(), "FolderIcons");
+            EnsureDirectoryExists(path);
+            return path;
+        }
+
+        /// <summary>
         /// Checks if two paths are on the same drive
         /// </summary>
         public static bool IsSameDrive(string path1, string path2)
