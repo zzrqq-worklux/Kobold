@@ -88,6 +88,11 @@ namespace Kobold.MenuRenderCheck
         private static void SwatchesArePainted(MenuItem menu)
         {
             var colors = UiTokens.FolderIconPalette;
+            var names = UiTokens.FolderIconPaletteNames;
+            Check(colors.Length == names.Length,
+                "palette: every colour carries a name key (" + colors.Length + " colours, " +
+                names.Length + " names)");
+
             Check(menu.Items.Count == colors.Length + 2,
                 "menu: " + colors.Length + " colors, a separator and the reset entry (got " +
                 menu.Items.Count + ")");
@@ -101,14 +106,54 @@ namespace Kobold.MenuRenderCheck
                     continue;
                 }
 
-                Check(entry.Header is System.Windows.Shapes.Rectangle,
+                Check(SwatchOf(entry) != null,
                     "entry " + colors[i] + ": the swatch rides in the header (the slot the template renders)");
+
+                string label = LabelOf(entry);
+                Check(!string.IsNullOrWhiteSpace(label) && label != names[i],
+                    "entry " + colors[i] + ": carries its name (" + label + ")");
 
                 var painted = PaintedColor(entry);
                 var wanted = (Color)ColorConverter.ConvertFromString(colors[i]);
                 Check(painted != null && SameColor(painted.Value, wanted),
                     "entry " + colors[i] + ": renders " + Describe(painted) + ", wanted " + Describe(wanted));
             }
+
+            // A key that does not resolve comes back as the key itself, and a
+            // mis-aligned name array shows up as duplicates.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < colors.Length && i < menu.Items.Count; i++)
+            {
+                string label = LabelOf(menu.Items[i] as MenuItem);
+                Check(label != null && seen.Add(label),
+                    "entry " + colors[i] + ": the name is unique (" + label + ")");
+            }
+        }
+
+        /// <summary>The coloured square inside a menu entry's header, if any.</summary>
+        private static System.Windows.Shapes.Rectangle SwatchOf(MenuItem entry)
+        {
+            return HeaderPart<System.Windows.Shapes.Rectangle>(entry);
+        }
+
+        /// <summary>The colour name inside a menu entry's header, if any.</summary>
+        private static string LabelOf(MenuItem entry)
+        {
+            var text = HeaderPart<System.Windows.Controls.TextBlock>(entry);
+            return text == null ? null : text.Text;
+        }
+
+        private static T HeaderPart<T>(MenuItem entry) where T : System.Windows.DependencyObject
+        {
+            var panel = entry == null ? null : entry.Header as System.Windows.Controls.Panel;
+            if (panel == null) return null;
+
+            foreach (var child in panel.Children)
+            {
+                var match = child as T;
+                if (match != null) return match;
+            }
+            return null;
         }
 
         private static void ResetEntryIsLabelled(MenuItem menu)

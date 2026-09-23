@@ -394,24 +394,36 @@ namespace Kobold.Controls
             var menu = new MenuItem { Header = Localization.Get("Menu_FolderColor") };
             string current = FolderColor.GetIconResource(item.Path);
 
-            foreach (var hex in UiTokens.FolderIconPalette)
+            for (int i = 0; i < UiTokens.FolderIconPalette.Length; i++)
             {
-                string color = hex;
+                string color = UiTokens.FolderIconPalette[i];
                 var swatch = new System.Windows.Shapes.Rectangle
                 {
                     Width = 16,
                     Height = 16,
                     RadiusX = 3,
                     RadiusY = 3,
+                    VerticalAlignment = VerticalAlignment.Center,
                     Fill = new SolidColorBrush(Utils.HexToColor(color))
                 };
 
-                // The swatch rides in Header, not Icon: the app's MenuItem template
-                // (App.xaml) renders only the header and the submenu arrow, so an
-                // Icon would never show up.
+                var name = new TextBlock
+                {
+                    Text = Localization.Get(UiTokens.FolderIconPaletteNames[i]),
+                    Margin = new Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                // The swatch and its name ride in Header, not Icon: the app's
+                // MenuItem template (App.xaml) renders only the header and the
+                // submenu arrow, so an Icon would never show up.
+                var header = new StackPanel { Orientation = Orientation.Horizontal };
+                header.Children.Add(swatch);
+                header.Children.Add(name);
+
                 var entry = new MenuItem
                 {
-                    Header = swatch,
+                    Header = header,
                     IsChecked = IconBelongsTo(current, color)
                 };
                 entry.Click += (s, a) => ApplyFolderColor(item, color);

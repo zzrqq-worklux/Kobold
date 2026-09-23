@@ -140,6 +140,15 @@ namespace Kobold.Core
                 ["Menu_FolderColorDefault"] = "Default color",
                 ["Dialog_FolderColorRefused"] = "This folder uses a system icon (Downloads, Documents, ...). Kobold leaves it alone because restoring it later would be guesswork.",
                 ["Dialog_FolderColorFailed"] = "The folder color could not be changed.",
+                ["Color_Red"] = "Red",
+                ["Color_Orange"] = "Orange",
+                ["Color_Yellow"] = "Yellow",
+                ["Color_Lime"] = "Lime",
+                ["Color_Green"] = "Green",
+                ["Color_Cyan"] = "Cyan",
+                ["Color_Blue"] = "Blue",
+                ["Color_Purple"] = "Purple",
+                ["Color_Gray"] = "Gray",
                 ["Menu_CopyPath"] = "📋 Copy Path"
             },
 
@@ -270,6 +279,15 @@ namespace Kobold.Core
                 ["Menu_FolderColorDefault"] = "恢复默认颜色",
                 ["Dialog_FolderColorRefused"] = "这个文件夹用的是系统自带图标（下载、文档等）。还原它们很麻烦，所以 Kobold 不动它。",
                 ["Dialog_FolderColorFailed"] = "文件夹颜色修改失败。",
+                ["Color_Red"] = "红色",
+                ["Color_Orange"] = "橙色",
+                ["Color_Yellow"] = "黄色",
+                ["Color_Lime"] = "青柠色",
+                ["Color_Green"] = "绿色",
+                ["Color_Cyan"] = "青色",
+                ["Color_Blue"] = "蓝色",
+                ["Color_Purple"] = "紫色",
+                ["Color_Gray"] = "灰色",
                 ["Menu_CopyPath"] = "📋 复制路径"
             },
 
@@ -400,6 +418,15 @@ namespace Kobold.Core
                 ["Menu_FolderColorDefault"] = "既定の色に戻す",
                 ["Dialog_FolderColorRefused"] = "このフォルダーはシステム標準のアイコン（ダウンロード、ドキュメントなど）を使っています。復元が困難なため、Kobold は変更しません。",
                 ["Dialog_FolderColorFailed"] = "フォルダーの色を変更できませんでした。",
+                ["Color_Red"] = "赤",
+                ["Color_Orange"] = "オレンジ",
+                ["Color_Yellow"] = "黄",
+                ["Color_Lime"] = "ライム",
+                ["Color_Green"] = "緑",
+                ["Color_Cyan"] = "シアン",
+                ["Color_Blue"] = "青",
+                ["Color_Purple"] = "紫",
+                ["Color_Gray"] = "グレー",
                 ["Menu_CopyPath"] = "📋 パスのコピー"
             }
         };

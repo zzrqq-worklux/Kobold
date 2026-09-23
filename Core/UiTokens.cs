@@ -149,6 +149,17 @@ namespace Kobold.Core
             "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
         };
 
+        /// <summary>
+        /// Localization keys for the palette above, index-aligned with it: a
+        /// colour swatch alone leaves the user guessing which hue is which.
+        /// tests/MenuRenderCheck fails when the two arrays drift apart.
+        /// </summary>
+        public static readonly string[] FolderIconPaletteNames =
+        {
+            "Color_Red", "Color_Orange", "Color_Yellow", "Color_Lime", "Color_Green",
+            "Color_Cyan", "Color_Blue", "Color_Purple", "Color_Gray"
+        };
+
         #region Radius scale
 
         public const double RadiusSmall = 4;
