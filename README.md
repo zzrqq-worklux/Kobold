@@ -29,8 +29,9 @@ development (二开) base.
   configurable grid columns and item size, lock, pin and rename.
 - **Browse folders in place** — double-click a folder entry to list its
   contents inside the panel: drill in, go back (button or Backspace), open
-  files with the shell. The panel remembers the folder you left it in,
-  across hides and restarts.
+  files with the shell. While the panel is open the listing follows the
+  folder live, and the panel remembers the folder you left it in, across
+  hides and restarts.
 - **File actions in panels** — while browsing a folder, create, rename and
   delete (to the Recycle Bin) in place, open a terminal at the current
   folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
@@ -185,7 +186,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   网格列数、条目大小，支持锁定、置顶与重命名。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
   逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
-  面板会记住你离开时所在的文件夹，收起再打开、重启之后都还在。
+  面板打开时列表会实时跟随该文件夹的变化；面板会记住你离开时所在的文件夹，
+  收起再打开、重启之后都还在。
 - **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
   一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
   （Git Bash、7-Zip、属性等）。

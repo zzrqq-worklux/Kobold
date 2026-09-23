@@ -119,6 +119,9 @@ namespace Kobold.Controls
             // Subscribe to theme changes for automatic updates
             ThemeManager.ThemeChanged += OnThemeChanged;
 
+            // Folder changes on disk refresh the browse view (see Watch.cs).
+            _browseWatcher.Changed += OnBrowseFolderChanged;
+
             // The native shell menu (Task 5) needs the panel's HWND to forward
             // WM_DRAWITEM/WM_MEASUREITEM/WM_INITMENUPOPUP to IContextMenu2/3.
             SourceInitialized += (s, e) => EnsureMenuHook();
@@ -134,6 +137,7 @@ namespace Kobold.Controls
             {
                 // Unsubscribe from theme changes
                 ThemeManager.ThemeChanged -= OnThemeChanged;
+                _browseWatcher.Dispose();
             };
         }
         
@@ -200,6 +204,10 @@ namespace Kobold.Controls
             // Apply item text colors after items are rendered
             Dispatcher.BeginInvoke(new Action(() => ApplyItemTextColors()),
                 System.Windows.Threading.DispatcherPriority.Loaded);
+
+            // Enter/leave folders and theme changes all land here; keep the
+            // watcher following the folder that is on screen now.
+            UpdateBrowseWatch();
         }
 
         private void LoadItemIcons(List<DisplayItem> items)

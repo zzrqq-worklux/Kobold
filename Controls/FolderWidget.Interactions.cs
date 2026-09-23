@@ -45,6 +45,7 @@ namespace Kobold.Controls
             Top = y;
 
             _isExpanded = true;
+            UpdateBrowseWatch(); // the panel is open now: follow the folder on screen
             if (!IsVisible)
             {
                 // Opening several panels together ("Show All") must not activate each
@@ -70,6 +71,7 @@ namespace Kobold.Controls
             ClearAllSelections();
             // Browsing is remembered: the panel reopens at the folder it was left in.
             _isExpanded = false;
+            UpdateBrowseWatch(); // closing: stop following the folder
             AnimationHelper.PanelClose(ExpandedPanel, () =>
             {
                 // Drop the listing once the fade is over: clearing it here keeps a
