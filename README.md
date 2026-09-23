@@ -92,11 +92,32 @@ development (二开) base.
 
 1. Download the latest `Kobold-v*-win-x64.zip` from
    [Releases](https://github.com/zzrqq-worklux/Kobold/releases).
-2. Extract it anywhere — no installer — and run `Kobold.exe`.
+2. Extract it anywhere and run `Kobold.exe` — the portable way. Or run
+   `tools\install.cmd` to install it for the current user: the app goes to
+   `%LocalAppData%\Programs\Kobold`, with a Start Menu shortcut and an
+   uninstall entry. No admin rights needed.
 3. Windows 10/11 with .NET Framework 4.8 (bundled with Windows 10 1903+
    and Windows 11).
-4. The build is unsigned — SmartScreen may warn on first launch
-   ("More info" → "Run anyway").
+4. The build is unsigned — SmartScreen (or an antivirus) may warn on first
+   run ("More info" → "Run anyway").
+
+### Update
+
+Extract the new zip over the old folder, or run `tools\install.cmd` again on an
+installed copy: it stops the running instance, replaces the files and starts
+the new version. Settings and stored files are kept.
+
+### Uninstall
+
+- Installed copy: **Settings → Apps → Kobold → Uninstall**, or run
+  `uninstall.cmd` in the install folder (it is `tools\uninstall.cmd` in the
+  zip). The script also works as a cleanup for a portable copy that was
+  deleted by hand: it removes the leftover autostart entry and nothing else
+  that isn't yours.
+- Your data is kept by default. `%AppData%\Kobold` holds `config.json`
+  (settings — safe to delete), `Storage\` (**your files** — they were moved
+  there, not copied) and `FolderIcons\` (what your coloured folders point at).
+  The uninstaller lists all three and asks before deleting anything.
 
 ## Usage
 
@@ -150,6 +171,16 @@ dotnet run --project tests/ShellOpsCheck
 dotnet run --project tests/MemoryTrimCheck
 dotnet run --project tests/DragOutCheck
 ```
+
+The installer scripts have their own quiet self-check — logic only, temp
+folders, no registry writes and no child processes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\installer.Tests.ps1
+```
+
+End-to-end install/uninstall is verified by a one-off manual drill before a
+release (it writes a real uninstall entry and a shortcut).
 
 Package a release zip (Release build plus
 `Releases\Kobold-v<version>-win-x64.zip`):
@@ -226,9 +257,25 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 ## 安装
 
 1. 从 [Releases](https://github.com/zzrqq-worklux/Kobold/releases) 下载最新的 `Kobold-v*-win-x64.zip`。
-2. 解压到任意目录（免安装），运行 `Kobold.exe`。
+2. 解压到任意目录，运行 `Kobold.exe`（免安装）；或运行 `tools\install.cmd`
+   为当前用户安装：程序装到 `%LocalAppData%\Programs\Kobold`，带开始菜单
+   快捷方式与卸载项，无需管理员权限。
 3. 需要 Windows 10/11 与 .NET Framework 4.8（Win10 1903+ 与 Win11 自带）。
-4. 构建未签名，首次运行 SmartScreen 可能提示（「更多信息」→「仍要运行」）。
+4. 构建未签名，首次运行 SmartScreen（或杀毒软件）可能提示（「更多信息」→「仍要运行」）。
+
+### 更新
+
+把新 zip 解压覆盖旧目录即可；已安装的副本再跑一次 `tools\install.cmd`：
+它会停掉正在运行的实例、替换文件并启动新版本，设置与收纳的文件都保留。
+
+### 卸载
+
+- 已安装副本：**设置 → 应用 → Kobold → 卸载**，或运行安装目录里的
+  `uninstall.cmd`（zip 里是 `tools\uninstall.cmd`）。该脚本也能清理
+  「手动删了便携版文件夹」的残留：只删属于它的自启项，不动别的东西。
+- 默认保留你的数据。`%AppData%\Kobold` 里有 `config.json`（设置，删了无害）、
+  `Storage\`（**你的文件**——是被移进来的，不是复制）和 `FolderIcons\`
+  （上过色的文件夹指向这里）。卸载器会把三者列出来，删任何东西前先问你。
 
 ## 用法
 
@@ -279,6 +326,15 @@ dotnet run --project tests/ShellOpsCheck
 dotnet run --project tests/MemoryTrimCheck
 dotnet run --project tests/DragOutCheck
 ```
+
+安装器脚本另有一份安静的纯逻辑自检（只在临时目录里验文件与判断逻辑，
+不写注册表、不启子进程）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\installer.Tests.ps1
+```
+
+端到端安装/卸载由发布前的一次性人工演练覆盖（会写真实的卸载注册表项与快捷方式）。
 
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
 

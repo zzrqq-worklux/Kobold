@@ -5,6 +5,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'installer-common.ps1')
+
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $outDir = Join-Path $repoRoot 'bin\Release\net48'
 $stage = Join-Path $env:TEMP "Kobold-package-$Version"
@@ -18,10 +20,18 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $zip) | Out-Null
 
 # Runtime files only - no .pdb, no obj/bin leftovers
-foreach ($file in 'Kobold.exe', 'Kobold.exe.config', 'Hardcodet.NotifyIcon.Wpf.dll', 'Newtonsoft.Json.dll') {
+foreach ($file in $KoboldRuntimeFiles) {
     Copy-Item -LiteralPath (Join-Path $outDir $file) -Destination $stage -Force
 }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $stage -Force
+
+# The installer travels in tools\: in the extracted zip the user double-clicks
+# tools\install.cmd, and install.ps1 carries the uninstaller from there.
+$tools = Join-Path $stage 'tools'
+New-Item -ItemType Directory -Force -Path $tools | Out-Null
+foreach ($file in @('install.cmd', 'install.ps1') + $KoboldUninstallerFiles) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $tools -Force
+}
 
 # Screenshots referenced by the bundled README
 $shots = Join-Path $stage 'Screenshot'
