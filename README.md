@@ -29,18 +29,19 @@ development (二开) base.
   configurable grid columns and item size, lock, pin and rename.
 - **Browse folders in place** — double-click a folder entry to list its
   contents inside the panel: drill in, go back (button or Backspace), open
-  files with the shell. The panel remembers the folder it was left in, also
-  across restarts.
+  files with the shell. The panel remembers the folder you left it in,
+  across hides and restarts.
 - **File actions in panels** — while browsing a folder, create, rename and
   delete (to the Recycle Bin) in place, open a terminal at the current
   folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
   properties…) via **Show more options**.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
   reorder entries with a drop indicator, move them between widgets, or drag
-  them out: the shell takes the files, so dropping into an Explorer window or
-  onto the desktop really moves them. Dragging entries from one browse panel
-  into another moves the files into the folder on screen — collisions and
-  progress stay Explorer's.
+  them out. Windows performs the move, so dropping an entry into an Explorer
+  window or onto the desktop really relocates the file — collision prompts
+  and progress are the shell's own.
+- **Move files between panels** — browse a folder in two panels and drag
+  entries from one into the other: the files move into the folder on screen.
 - **Readable badges** — a coloured cabinet badge means the file lives in
   Kobold storage; a grey `!` means the source was deleted or moved.
 - **Safe by design** — ejecting or unstoring moves files back to their
@@ -86,6 +87,8 @@ development (二开) base.
 2. Extract it anywhere — no installer — and run `Kobold.exe`.
 3. Windows 10/11 with .NET Framework 4.8 (bundled with Windows 10 1903+
    and Windows 11).
+4. The build is unsigned — SmartScreen may warn on first launch
+   ("More info" → "Run anyway").
 
 ## Usage
 
@@ -102,13 +105,14 @@ development (二开) base.
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
+| Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
 | Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
 
-Stored vs. referenced files: dropping a file creates a *reference* — the
-original stays where it is. Use **Store** in the item menu to physically
-move it into Kobold storage; **Unstore** or **Eject** puts it back.
-Dragging an item out of a panel hands the files to Windows: a drop a target
-accepts moves them for real, and a drop nothing accepts restores the item
+Stored vs. referenced files: dropping a file in creates a *reference* — the
+original stays where it is. **Store** in the item menu physically moves it
+into Kobold storage; **Unstore** or **Eject** puts it back. Dragging an item
+*out* of a panel hands the files to Windows: a target that accepts the drop
+moves them for real, and a drop nothing accepts restores the item
 (references become visible again, stored files return to where they came
 from).
 
@@ -142,7 +146,7 @@ Package a release zip (Release build plus
 `Releases\Kobold-v<version>-win-x64.zip`):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 -Version 1.1.0
 ```
 
 ## Data
@@ -153,8 +157,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 Source layout: `Core/` (models, config, localization, design tokens,
 theme manager), `Controls/` (island + folder widget windows),
 `Windows/` (settings), `Helpers/` (dialogs, menus, animation, cursors),
-`Themes/` (XAML control styles), `Services/` (tray), `tests/` (console
-checks).
+`Themes/` (XAML control styles), `Services/` (tray, shell integration,
+terminal, memory trim), `tests/` (console checks).
 
 ## Credits & License
 
@@ -181,13 +185,15 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   网格列数、条目大小，支持锁定、置顶与重命名。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
   逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
-  面板会记住你离开时所在的文件夹（重启后也记得）。
+  面板会记住你离开时所在的文件夹，收起再打开、重启之后都还在。
 - **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
   一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
   （Git Bash、7-Zip、属性等）。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
-  拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件；在浏览面板之间
-  拖动条目，会把文件移动进对方正在显示的文件夹——冲突提示与进度都是系统原生的。
+  拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件，冲突提示与进度
+  都是系统原生的。
+- **面板之间移动文件** — 两个面板各浏览一个文件夹，把一个面板里的条目拖进另一个，
+  文件就会移动进对方正在显示的文件夹。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
   源文件已被删除或移动。
 - **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
@@ -208,6 +214,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 1. 从 [Releases](https://github.com/zzrqq-worklux/Kobold/releases) 下载最新的 `Kobold-v*-win-x64.zip`。
 2. 解压到任意目录（免安装），运行 `Kobold.exe`。
 3. 需要 Windows 10/11 与 .NET Framework 4.8（Win10 1903+ 与 Win11 自带）。
+4. 构建未签名，首次运行 SmartScreen 可能提示（「更多信息」→「仍要运行」）。
 
 ## 用法
 
@@ -224,6 +231,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
+| 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
 | 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
 拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
@@ -260,7 +268,7 @@ dotnet run --project tests/DragOutCheck
 打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 -Version 1.1.0
 ```
 
 ## 数据目录
@@ -270,7 +278,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
 `Windows/`（设置）、`Helpers/`（弹窗、菜单、动画、光标）、`Themes/`（XAML 控件样式）、
-`Services/`（托盘）、`tests/`（控制台自检）。
+`Services/`（托盘、Shell 集成、终端、内存回收）、`tests/`（控制台自检）。
 
 ## 许可
 
