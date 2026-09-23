@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Kobold.Core;
+using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
@@ -124,7 +125,11 @@ namespace Kobold.Controls
 
             // The native shell menu (Task 5) needs the panel's HWND to forward
             // WM_DRAWITEM/WM_MEASUREITEM/WM_INITMENUPOPUP to IContextMenu2/3.
-            SourceInitialized += (s, e) => EnsureMenuHook();
+            SourceInitialized += (s, e) =>
+            {
+                EnsureMenuHook();
+                WindowSwitcher.HideFromSwitcher(this); // panels stay out of Alt+Tab
+            };
             
             Loaded += (s, e) =>
             {
@@ -138,6 +143,7 @@ namespace Kobold.Controls
                 // Unsubscribe from theme changes
                 ThemeManager.ThemeChanged -= OnThemeChanged;
                 _browseWatcher.Dispose();
+                WindowSwitcher.ReleaseOwner(this);
             };
         }
         

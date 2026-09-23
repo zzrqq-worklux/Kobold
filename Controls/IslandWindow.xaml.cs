@@ -79,12 +79,14 @@ namespace Kobold.Controls
             _scrollIdleTimer.Tick += (s, e) => FadeScrollBarIfIdle();
 
             ThemeManager.ThemeChanged += OnThemeChanged;
+            SourceInitialized += (s, e) => WindowSwitcher.HideFromSwitcher(this); // stay out of Alt+Tab
             Closed += (s, e) =>
             {
                 _leaveTimer.Stop();
                 _expandTimer.Stop();
                 _scrollIdleTimer.Stop();
                 ThemeManager.ThemeChanged -= OnThemeChanged;
+                WindowSwitcher.ReleaseOwner(this);
             };
 
             PillShape.Cursor = CursorHelper.OpenHand;
