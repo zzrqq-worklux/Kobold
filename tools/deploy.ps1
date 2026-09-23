@@ -18,14 +18,32 @@ foreach ($proc in $running) {
         if ($proc.Path -and $proc.Path.StartsWith($target, [System.StringComparison]::OrdinalIgnoreCase)) {
             Write-Host "Stopping running Kobold from deploy folder (PID $($proc.Id))..."
             Stop-Process -Id $proc.Id -Force
+            # The exe stays locked for a moment after the kill; copying into a
+            # lock throws IOException, which used to leave a half-updated install.
+            $proc.WaitForExit(5000) | Out-Null
         }
     } catch { }
 }
 
 # 3. Clean-copy the build output into the deploy folder
+function Copy-WithRetry {
+    param([string]$Source, [string]$Destination, [int]$Attempts = 5)
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force
+            return
+        } catch {
+            if ($attempt -eq $Attempts) { throw }
+            Write-Host "Copy retry $attempt for $(Split-Path $Source -Leaf)..."
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $repoRoot 'bin\Release\net48') -File | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+    Copy-WithRetry -Source $_.FullName -Destination $target
 }
 
 # 4. Point the startup entry at the deployed exe
