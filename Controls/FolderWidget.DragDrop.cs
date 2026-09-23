@@ -76,11 +76,12 @@ namespace Kobold.Controls
                     // Pure reference - never move the source
                     _data.Items.Add(new WidgetItem(sourcePath, true));
 
-                    // Optional: hide the desktop icon, keep the file intact.
-                    // Both the user's and the shared desktop count as "desktop".
+                    // Optional: hide the desktop icon, keep the file intact. Both
+                    // the user's and the shared desktop count, but only an item
+                    // sitting directly on one of them has an icon to hide - an
+                    // item inside a desktop folder must stay visible.
                     if (hideDesktopSource &&
-                        (StorageOps.IsUnder(sourcePath, desktopPath) ||
-                         StorageOps.IsUnder(sourcePath, publicDesktopPath)))
+                        StorageOps.IsDesktopIcon(sourcePath, desktopPath, publicDesktopPath))
                     {
                         StorageOps.SetHidden(sourcePath, true);
                     }

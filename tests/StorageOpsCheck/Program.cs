@@ -113,6 +113,43 @@ namespace Kobold.StorageOpsCheck
             Check(StorageOps.IsUnder(Path.Combine(storage, "note.md"), storage) &&
                   !StorageOps.IsUnder(desktop, storage),
                 "IsUnder detects containment");
+
+            // 11. Desktop-icon detection: only items sitting directly on a desktop
+            //     count - an item inside a desktop folder is not a desktop icon.
+            string publicDesktop = Path.Combine(_root, "PublicDesktop");
+            Directory.CreateDirectory(publicDesktop);
+
+            string desktopFolder = Path.Combine(desktop, "folder"); // created in 8
+            string nestedInFolder = Path.Combine(desktopFolder, "inner");
+            Directory.CreateDirectory(nestedInFolder);
+            string desktopFile = Path.Combine(desktop, "icon.txt");
+            File.WriteAllText(desktopFile, "x");
+
+            Check(StorageOps.IsDirectChildOf(Path.Combine(storage, "note.md"), storage) &&
+                  !StorageOps.IsDirectChildOf(storage, storage),
+                "IsDirectChildOf: a child matches, the root itself does not");
+
+            Check(StorageOps.IsDesktopIcon(desktopFolder, desktop, publicDesktop),
+                "IsDesktopIcon: a folder directly on the desktop is a desktop icon");
+            Check(StorageOps.IsDesktopIcon(desktopFile, desktop, publicDesktop),
+                "IsDesktopIcon: a file directly on the desktop is a desktop icon");
+            Check(StorageOps.IsDesktopIcon(Path.Combine(publicDesktop, "shared.txt"), desktop, publicDesktop),
+                "IsDesktopIcon: the shared desktop counts as a desktop");
+            Check(!StorageOps.IsDesktopIcon(nestedInFolder, desktop, publicDesktop),
+                "IsDesktopIcon: an item inside a desktop folder is not a desktop icon");
+            Check(!StorageOps.IsDesktopIcon(Path.Combine(publicDesktop, "sub", "deep.txt"), desktop, publicDesktop),
+                "IsDesktopIcon: an item inside a shared-desktop folder is not a desktop icon");
+            Check(!StorageOps.IsDesktopIcon(desktop, desktop, publicDesktop),
+                "IsDesktopIcon: the desktop folder itself is not a desktop icon");
+            Check(!StorageOps.IsDesktopIcon(Path.Combine(_root, "DesktopX", "f.txt"), desktop, publicDesktop),
+                "IsDesktopIcon: a sibling with a similar prefix is not inside the desktop");
+            Check(StorageOps.IsDesktopIcon(desktopFolder + Path.DirectorySeparatorChar, desktop, publicDesktop),
+                "IsDesktopIcon: a trailing separator does not break the match");
+            Check(StorageOps.IsDesktopIcon(desktopFolder, desktop.ToUpperInvariant(), publicDesktop),
+                "IsDesktopIcon: the desktop comparison ignores case");
+            Check(!StorageOps.IsDesktopIcon(null, desktop, publicDesktop) &&
+                  !StorageOps.IsDesktopIcon("   ", desktop, publicDesktop),
+                "IsDesktopIcon: blank paths are never desktop icons");
         }
     }
 }

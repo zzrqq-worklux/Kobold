@@ -86,6 +86,43 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// True when path sits directly inside root (case-insensitive, boundary-safe).
+        /// The root itself and deeper descendants do not count.
+        /// </summary>
+        public static bool IsDirectChildOf(string path, string root)
+        {
+            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root)) return false;
+
+            try
+            {
+                string parent = Path.GetDirectoryName(TrimSeparators(path));
+                if (string.IsNullOrEmpty(parent)) return false;
+
+                return string.Equals(TrimSeparators(parent), TrimSeparators(root),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false; // invalid path characters
+            }
+        }
+
+        /// <summary>
+        /// True when path is an item on one of the desktops. Only such an item has
+        /// a desktop icon to hide - something inside a folder that merely lives on
+        /// the desktop must stay visible.
+        /// </summary>
+        public static bool IsDesktopIcon(string path, string desktopDir, string publicDesktopDir)
+        {
+            return IsDirectChildOf(path, desktopDir) || IsDirectChildOf(path, publicDesktopDir);
+        }
+
+        private static string TrimSeparators(string path)
+        {
+            return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        /// <summary>
         /// Sets or clears the hidden attribute on a file or directory.
         /// Returns false when the path does not exist (safe no-op).
         /// </summary>
