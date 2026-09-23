@@ -122,6 +122,17 @@ namespace Kobold.Controls
         // real icon was not loaded (memory guard for very long listings).
         private const string GENERIC_FILE_ICON_KEY = "::file::";
 
+        /// <summary>Drops one path's cached icon - its shell icon just changed.</summary>
+        private static void ForgetIcon(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+
+            lock (_cacheLock)
+            {
+                _iconCache.Remove(path.ToLowerInvariant());
+            }
+        }
+
         private ImageSource GetFileIcon(string path)
         {
             try
@@ -139,9 +150,21 @@ namespace Kobold.Controls
                 }
                 else if (System.IO.Directory.Exists(path))
                 {
-                    cacheKey = "::folder::";
-                    attributes = FILE_ATTRIBUTE_DIRECTORY;
-                    byAttributes = true;
+                    // A colored folder carries the System flag and a desktop.ini,
+                    // and only then is its icon folder-specific: ask the shell for
+                    // the real path so it reads that file. Every other folder
+                    // shares one generic icon (memory guard for long listings).
+                    if ((System.IO.File.GetAttributes(path) & System.IO.FileAttributes.System) != 0)
+                    {
+                        cacheKey = path.ToLowerInvariant();
+                        byAttributes = false;
+                    }
+                    else
+                    {
+                        cacheKey = "::folder::";
+                        attributes = FILE_ATTRIBUTE_DIRECTORY;
+                        byAttributes = true;
+                    }
                 }
                 else if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
                 {
@@ -161,7 +184,7 @@ namespace Kobold.Controls
                     }
                 }
 
-                if (!byAttributes && !System.IO.File.Exists(path)) return null;
+                if (!byAttributes && !System.IO.File.Exists(path) && !System.IO.Directory.Exists(path)) return null;
 
                 // Load icon from Shell
                 var shinfo = new SHFILEINFO();

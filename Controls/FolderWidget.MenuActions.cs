@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using Kobold.Core;
 using Kobold.Helpers;
 using Kobold.Services;
@@ -245,11 +246,15 @@ namespace Kobold.Controls
             bool keyboardAnchored = anchor != null;
 
             Action pendingNativeMenu = null;
-            var menu = new MenuBuilder(_data.Color)
+            var builder = new MenuBuilder(_data.Color)
                 .AddItem("Menu_Open", () => OpenItem(item), single)
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(item.Path, item.IsDirectory), single)
                 .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(item.Path, item.IsDirectory), single)
-                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected))
+                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected));
+
+            if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorMenu(item));
+
+            var menu = builder
                 .AddSeparator()
                 .AddItem("Menu_RenameItem", () => RenameBrowseItem(item), single)
                 .AddItem("Menu_DeleteItem", () => DeleteToRecycleBin(selected))
@@ -367,10 +372,116 @@ namespace Kobold.Controls
             menu.Items.Add(terminalItem);
             menu.Items.Add(renameItem);
             menu.Items.Add(copyPathItem);
+            if (IsColorable(item)) menu.Items.Add(CreateFolderColorMenu(item));
             menu.Items.Add(new Separator());
             menu.Items.Add(remItem);
             MenuBuilder.Prepare(menu, _data.Color);
             ShowMenu(menu, anchor);
+        }
+
+        // ---------- folder color ----------
+
+        /// <summary>Only a folder that really exists can carry a custom icon.</summary>
+        private static bool IsColorable(DisplayItem item)
+        {
+            return item != null && item.IsDirectory && !item.IsMissing &&
+                   Directory.Exists(item.Path);
+        }
+
+        /// <summary>Swatch submenu: one entry per palette color, then "default".</summary>
+        private MenuItem CreateFolderColorMenu(DisplayItem item)
+        {
+            var menu = new MenuItem { Header = Localization.Get("Menu_FolderColor") };
+            string current = FolderColor.GetIconResource(item.Path);
+
+            foreach (var hex in UiTokens.FolderIconPalette)
+            {
+                string color = hex;
+                var swatch = new System.Windows.Shapes.Rectangle
+                {
+                    Width = 16,
+                    Height = 16,
+                    RadiusX = 3,
+                    RadiusY = 3,
+                    Fill = new SolidColorBrush(Utils.HexToColor(color))
+                };
+
+                // The swatch rides in Header, not Icon: the app's MenuItem template
+                // (App.xaml) renders only the header and the submenu arrow, so an
+                // Icon would never show up.
+                var entry = new MenuItem
+                {
+                    Header = swatch,
+                    IsChecked = IconBelongsTo(current, color)
+                };
+                entry.Click += (s, a) => ApplyFolderColor(item, color);
+                menu.Items.Add(entry);
+            }
+
+            menu.Items.Add(new Separator());
+
+            var reset = new MenuItem
+            {
+                Header = Localization.Get("Menu_FolderColorDefault"),
+                IsEnabled = current != null
+            };
+            reset.Click += (s, a) => RestoreFolderColor(item);
+            menu.Items.Add(reset);
+
+            return menu;
+        }
+
+        /// <summary>True when the folder already shows the cached icon of this color.</summary>
+        private static bool IconBelongsTo(string iconResource, string colorHex)
+        {
+            if (string.IsNullOrEmpty(iconResource)) return false;
+
+            // Cache files are named "<RRGGBB>-<osBuild>.ico".
+            string expected = colorHex.TrimStart('#').ToUpperInvariant() + "-";
+            return Path.GetFileName(iconResource)
+                .StartsWith(expected, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ApplyFolderColor(DisplayItem item, string colorHex)
+        {
+            string icon = FolderIconFactory.EnsureIcon(colorHex, Utils.GetFolderIconsPath());
+            if (icon == null)
+            {
+                ShowMessage(Localization.Get("Dialog_FolderColorFailed"));
+                return;
+            }
+
+            var result = FolderColor.Apply(item.Path, icon, 0);
+            if (result == FolderColorResult.RefusedSpecialFolder)
+            {
+                ShowMessage(Localization.Get("Dialog_FolderColorRefused"));
+                return;
+            }
+            if (result != FolderColorResult.Applied)
+            {
+                ShowMessage(Localization.Get("Dialog_FolderColorFailed"));
+                return;
+            }
+
+            RefreshAfterFolderColor(item);
+        }
+
+        private void RestoreFolderColor(DisplayItem item)
+        {
+            if (FolderColor.Restore(item.Path) != FolderColorResult.Restored)
+            {
+                ShowMessage(Localization.Get("Dialog_FolderColorFailed"));
+                return;
+            }
+
+            RefreshAfterFolderColor(item);
+        }
+
+        /// <summary>The folder's shell icon changed: drop the cached bitmap and redraw.</summary>
+        private void RefreshAfterFolderColor(DisplayItem item)
+        {
+            ForgetIcon(item.Path);
+            UpdateUI();
         }
 
         /// <summary>Opens at the cursor, or anchored to the element for keyboard use.</summary>

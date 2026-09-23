@@ -136,6 +136,10 @@ namespace Kobold.Core
                 ["Dialog_TerminalNotFound"] = "No terminal was found (Windows Terminal, PowerShell or cmd).",
                 ["UI_NewFolderDefault"] = "New Folder",
                 ["UI_NewTextFileDefault"] = "New Text Document.txt",
+                ["Menu_FolderColor"] = "Folder color",
+                ["Menu_FolderColorDefault"] = "Default color",
+                ["Dialog_FolderColorRefused"] = "This folder uses a system icon (Downloads, Documents, ...). Kobold leaves it alone because restoring it later would be guesswork.",
+                ["Dialog_FolderColorFailed"] = "The folder color could not be changed.",
                 ["Menu_CopyPath"] = "📋 Copy Path"
             },
 
@@ -262,6 +266,10 @@ namespace Kobold.Core
                 ["Dialog_TerminalNotFound"] = "未找到可用的终端（Windows Terminal / PowerShell / cmd）。",
                 ["UI_NewFolderDefault"] = "新建文件夹",
                 ["UI_NewTextFileDefault"] = "新建文本文档.txt",
+                ["Menu_FolderColor"] = "文件夹颜色",
+                ["Menu_FolderColorDefault"] = "恢复默认颜色",
+                ["Dialog_FolderColorRefused"] = "这个文件夹用的是系统自带图标（下载、文档等）。还原它们很麻烦，所以 Kobold 不动它。",
+                ["Dialog_FolderColorFailed"] = "文件夹颜色修改失败。",
                 ["Menu_CopyPath"] = "📋 复制路径"
             },
 
@@ -388,6 +396,10 @@ namespace Kobold.Core
                 ["Dialog_TerminalNotFound"] = "使用できるターミナルが見つかりません（Windows Terminal / PowerShell / cmd）。",
                 ["UI_NewFolderDefault"] = "新しいフォルダー",
                 ["UI_NewTextFileDefault"] = "新しいテキスト ドキュメント.txt",
+                ["Menu_FolderColor"] = "フォルダーの色",
+                ["Menu_FolderColorDefault"] = "既定の色に戻す",
+                ["Dialog_FolderColorRefused"] = "このフォルダーはシステム標準のアイコン（ダウンロード、ドキュメントなど）を使っています。復元が困難なため、Kobold は変更しません。",
+                ["Dialog_FolderColorFailed"] = "フォルダーの色を変更できませんでした。",
                 ["Menu_CopyPath"] = "📋 パスのコピー"
             }
         };

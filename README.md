@@ -36,6 +36,9 @@ development (二开) base.
   delete (to the Recycle Bin) in place, open a terminal at the current
   folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
   properties…) via **Show more options**.
+- **Folder colors** — right-click a folder in a panel and give it one of nine
+  colors: the icon changes everywhere (Explorer included), and **Default
+  color** puts the system icon back.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
   reorder entries with a drop indicator, move them between widgets, or drag
   them out. Windows performs the move, so dropping an entry into an Explorer
@@ -191,6 +194,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
   一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
   （Git Bash、7-Zip、属性等）。
+- **文件夹颜色** — 右键面板里的文件夹，可给它换 9 种颜色中的一种：图标会在所有
+  地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
   拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件，冲突提示与进度
   都是系统原生的。
