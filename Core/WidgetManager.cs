@@ -20,6 +20,7 @@ namespace Kobold.Core
         private AppConfig _config;
         private List<FolderWidget> _widgets = new List<FolderWidget>();
         private IslandWindow _island;
+        private FullscreenWatcher _fullscreenWatcher;
 
         private readonly IdleTrimPolicy _trimPolicy = new IdleTrimPolicy();
         private readonly System.Windows.Threading.DispatcherTimer _trimTimer;
@@ -81,6 +82,10 @@ namespace Kobold.Core
             _island.WidgetMenuRequested += OnWidgetMenuRequested;
             RefreshIsland();
             _island.Show();
+
+            // Keep the always-on-top island out of the way of fullscreen games/videos.
+            _fullscreenWatcher = new FullscreenWatcher(avoid => _island?.SetTopmost(!avoid));
+            _fullscreenWatcher.Start();
 
             // Reopen the panels that were still open when the app last closed.
             // No activation: starting up must not steal focus from other apps.
@@ -374,6 +379,8 @@ namespace Kobold.Core
         /// </summary>
         public void Shutdown()
         {
+            _fullscreenWatcher?.Dispose();
+            _fullscreenWatcher = null;
             _trimTimer.Stop();
 
             // Ensure config is saved before exit

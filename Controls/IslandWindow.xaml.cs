@@ -164,6 +164,13 @@ namespace Kobold.Controls
         /// <summary>Horizontal centre (DIP) of the island - where panels open centred.</summary>
         public double CenterX => Left + Width / 2;
 
+        /// <summary>Steps the island out of the way of a fullscreen app (and back).</summary>
+        public void SetTopmost(bool topmost)
+        {
+            if (Topmost == topmost) return;
+            Topmost = topmost;
+        }
+
         /// <summary>The work area (DIP) of the monitor the island currently sits on.</summary>
         private Rect GetWorkArea()
         {

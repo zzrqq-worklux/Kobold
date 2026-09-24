@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
 
@@ -31,10 +32,17 @@ namespace Kobold.Core
 
         private static bool _isDarkTheme = true;
 
+        // System high-contrast colors override the semantic palette per key;
+        // rebuilt on every UpdateBrushes call.
+        private static readonly Dictionary<string, string> _hcOverride = new Dictionary<string, string>();
+
         /// <summary>
         /// Returns true if current theme is dark
         /// </summary>
         public static bool IsDarkTheme => _isDarkTheme;
+
+        /// <summary>True while the system high-contrast preference is on.</summary>
+        public static bool IsHighContrast { get; private set; }
 
         /// <summary>
         /// Sets the theme and notifies all subscribers
@@ -58,6 +66,46 @@ namespace Kobold.Core
             _isDarkTheme = theme == "dark";
             UpdateBrushes();
             InstallScalarTokens();
+            StartSystemPreferenceWatch();
+        }
+
+        #endregion
+
+        #region System preference watch (high contrast)
+
+        private static bool _watchingPreferences;
+
+        /// <summary>
+        /// Starts listening for system preference changes so a high-contrast
+        /// toggle refreshes the theme without a restart. Idempotent.
+        /// </summary>
+        public static void StartSystemPreferenceWatch()
+        {
+            if (_watchingPreferences) return;
+            _watchingPreferences = true;
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        }
+
+        /// <summary>Unsubscribes on exit (<see cref="App.OnExit"/> calls this).</summary>
+        public static void StopSystemPreferenceWatch()
+        {
+            if (!_watchingPreferences) return;
+            _watchingPreferences = false;
+            try { Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged; } catch { }
+        }
+
+        private static void OnUserPreferenceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+        {
+            // Delivered on a system thread; only the dispatcher may touch brushes/resources.
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                bool highContrast = SystemParameters.HighContrast;
+                if (highContrast == IsHighContrast) return; // not a contrast change: keep the user's theme
+
+                IsHighContrast = highContrast;
+                UpdateBrushes();
+                ThemeChanged?.Invoke();
+            }));
         }
 
         #endregion
@@ -147,6 +195,23 @@ namespace Kobold.Core
         /// </summary>
         private static void UpdateBrushes()
         {
+            IsHighContrast = SystemParameters.HighContrast;
+            _hcOverride.Clear();
+            if (IsHighContrast)
+            {
+                foreach (var pair in HighContrastPalette.Build(
+                    Utils.ColorToHex(SystemColors.WindowColor),
+                    Utils.ColorToHex(SystemColors.WindowTextColor),
+                    Utils.ColorToHex(SystemColors.HighlightColor),
+                    Utils.ColorToHex(SystemColors.HighlightTextColor),
+                    Utils.ColorToHex(SystemColors.GrayTextColor),
+                    Utils.ColorToHex(SystemColors.ControlDarkColor),
+                    Utils.ColorToHex(SystemColors.ControlTextColor)))
+                {
+                    _hcOverride[pair.Key] = pair.Value;
+                }
+            }
+
             BackgroundBrush = Themed("Background", UiTokens.Dark.Background, UiTokens.Light.Background);
             SurfaceBrush = Themed("Surface", UiTokens.Dark.Surface, UiTokens.Light.Surface);
             SurfaceHoverBrush = Themed("SurfaceHover", UiTokens.Dark.SurfaceHover, UiTokens.Light.SurfaceHover);
@@ -223,9 +288,15 @@ namespace Kobold.Core
             var resources = Application.Current?.Resources;
             if (resources == null) return;
 
-            resources[BrushKeyPrefix + "Accent"] = AccentBlueBrush;
+            // High contrast: the accent follows the system highlight color so
+            // selected/focused controls stay legible against the system palette.
+            resources[BrushKeyPrefix + "Accent"] = IsHighContrast
+                ? FreezeColor(SystemColors.HighlightColor)
+                : AccentBlueBrush;
             resources[BrushKeyPrefix + "AccentHover"] = AccentHoverBrush;
-            resources[BrushKeyPrefix + "OnAccent"] = OnAccentBrush;
+            resources[BrushKeyPrefix + "OnAccent"] = IsHighContrast
+                ? FreezeColor(SystemColors.HighlightTextColor)
+                : OnAccentBrush;
             resources[BrushKeyPrefix + "Danger"] = DangerBrush;
             resources[BrushKeyPrefix + "PinGold"] = PinGoldBrush;
             resources[BrushKeyPrefix + "PinDarkGold"] = PinDarkGoldBrush;
@@ -238,7 +309,10 @@ namespace Kobold.Core
 
         private static SolidColorBrush Themed(string key, string darkHex, string lightHex)
         {
-            var brush = FreezeColor(Utils.HexToColor(_isDarkTheme ? darkHex : lightHex));
+            string hex = _hcOverride.Count > 0 && _hcOverride.TryGetValue(key, out string highContrast)
+                ? highContrast
+                : (_isDarkTheme ? darkHex : lightHex);
+            var brush = FreezeColor(Utils.HexToColor(hex));
             var resources = Application.Current?.Resources;
             if (resources != null) resources[BrushKeyPrefix + key] = brush;
             return brush;

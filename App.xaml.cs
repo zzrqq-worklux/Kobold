@@ -150,6 +150,7 @@ namespace Kobold
             if (_isPrimaryInstance)
             {
                 try { WidgetManager.Instance.RestoreDesktopIconsOnExit(); } catch { }
+                try { ThemeManager.StopSystemPreferenceWatch(); } catch { }
 
                 try { _mutex?.ReleaseMutex(); }
                 catch (Exception ex) { Debug.WriteLine($"[Kobold] ReleaseMutex failed: {ex.Message}"); }
