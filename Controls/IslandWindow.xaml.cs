@@ -161,6 +161,15 @@ namespace Kobold.Controls
         /// <summary>Y coordinate (DIP) where a panel opened from the island should start.</summary>
         public double PanelTop => WidgetConstants.ISLAND_EXPANDED_HEIGHT + WidgetConstants.ISLAND_PANEL_GAP;
 
+        /// <summary>Horizontal centre (DIP) of the island - where panels open centred.</summary>
+        public double CenterX => Left + Width / 2;
+
+        /// <summary>The work area (DIP) of the monitor the island currently sits on.</summary>
+        private Rect GetWorkArea()
+        {
+            return MonitorInterop.WorkAreaDipForWindow(this);
+        }
+
         /// <summary>Feeds the widget list rendered as tiles when expanded.</summary>
         public void SetWidgets(IEnumerable<FolderData> folders)
         {
@@ -265,7 +274,12 @@ namespace Kobold.Controls
             double step = (cursor.X - _islandDragLastCursor.X) / dpi;
             _islandDragLastCursor = new Point(cursor.X, cursor.Y);
 
-            double centerX = ClampCenterX(Left + Width / 2 + step, Width);
+            // Immediate feedback clamps to the virtual desktop; the drop
+            // re-clamps against the island monitor's work area (mouse-up).
+            double half = Width / 2;
+            double minX = SystemParameters.VirtualScreenLeft + half;
+            double maxX = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - half;
+            double centerX = Math.Max(minX, Math.Min(Left + Width / 2 + step, maxX));
             Left = centerX - Width / 2;
             e.Handled = true;
         }
@@ -279,6 +293,8 @@ namespace Kobold.Controls
             if (_isDraggingIsland)
             {
                 _isDraggingIsland = false;
+                // Snap onto the monitor's work area before remembering the spot.
+                UpdateWindowGeometry();
                 try
                 {
                     // Remember the pill center so it survives expanded-width changes.
@@ -465,8 +481,9 @@ namespace Kobold.Controls
             }
 
             // The middle section measures itself: its content, capped to a share
-            // of the screen. Anything wider scrolls, with the hint bar below.
-            TileScroller.Width = IslandLayout.MiddleViewWidth(_folders.Count, SystemParameters.PrimaryScreenWidth);
+            // of the island monitor's work area. Anything wider scrolls, with
+            // the hint bar below.
+            TileScroller.Width = IslandLayout.MiddleViewWidth(_folders.Count, GetWorkArea().Width);
 
             // Without widgets the trailing divider would sit right next to the
             // desktop divider - hide it so the entries stay separated once.
@@ -569,8 +586,10 @@ namespace Kobold.Controls
         {
             // The middle (tile) section is capped to a share of the screen; the
             // fixed desktop/add/settings entries always stay in view, so the
-            // capsule is the fixed parts plus that capped middle.
-            return IslandLayout.ContentWidth(_folders.Count, SystemParameters.PrimaryScreenWidth);
+            // capsule is the fixed parts plus that capped middle. The cap uses
+            // the island monitor's work area, matching RebuildTiles, so the tile
+            // scroller never outgrows the capsule.
+            return IslandLayout.ContentWidth(_folders.Count, GetWorkArea().Width);
         }
 
         /// <summary>
@@ -584,9 +603,11 @@ namespace Kobold.Controls
             Width = widest + 2 * ShadowPadding;
             Height = WidgetConstants.ISLAND_EXPANDED_HEIGHT + ShadowPadding;
 
-            double centerX = GetSavedCenterX() ?? (SystemParameters.PrimaryScreenWidth / 2);
-            Left = ClampCenterX(centerX, Width) - Width / 2;
-            Top = 0;
+            Rect work = GetWorkArea();
+            double fallbackCenter = work.Left + work.Width / 2;
+            double centerX = ClampCenterX(GetSavedCenterX() ?? fallbackCenter, Width);
+            Left = centerX - Width / 2;
+            Top = 0; // glued to the top of the WPF virtual desktop, as before
         }
 
         private static double? GetSavedCenterX()
@@ -595,12 +616,13 @@ namespace Kobold.Controls
             catch { return null; }
         }
 
-        /// <summary>Keeps the whole island window (including shadow) on screen.</summary>
-        private static double ClampCenterX(double centerX, double windowWidth)
+        /// <summary>Keeps the whole island window (including shadow) on its monitor.</summary>
+        private double ClampCenterX(double centerX, double windowWidth)
         {
+            Rect work = GetWorkArea();
             double half = windowWidth / 2;
-            double screen = SystemParameters.PrimaryScreenWidth;
-            return Math.Max(half, Math.Min(centerX, screen - half));
+            if (windowWidth >= work.Width) return work.Left + work.Width / 2;
+            return Math.Max(work.Left + half, Math.Min(centerX, work.Right - half));
         }
 
         /// <summary>

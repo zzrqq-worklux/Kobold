@@ -34,6 +34,7 @@ $checks = @(
     @{ Name = 'FolderIconCheck';       Ci = $true  }
     @{ Name = 'FolderWatchCheck';      Ci = $true  }
     @{ Name = 'StartupPanelsCheck';    Ci = $true  }
+    @{ Name = 'MonitorPlacementCheck'; Ci = $true  }
     @{ Name = 'XamlLoadCheck';         Ci = $false }   # needs an interactive desktop
     @{ Name = 'MenuRenderCheck';       Ci = $false }   # WPF off-screen render details
     @{ Name = 'WindowSwitcherCheck';   Ci = $false }   # real window management

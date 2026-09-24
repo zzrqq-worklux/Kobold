@@ -60,6 +60,12 @@ namespace Kobold.Core
         public double? PanelY { get; set; }
 
         /// <summary>
+        /// DPI scale the panel position was captured at (null = legacy save,
+        /// interpreted with the current window DPI).
+        /// </summary>
+        public double? PanelDpiScale { get; set; }
+
+        /// <summary>
         /// Remembered browse chain (folder path per browsed level, root first).
         /// Empty = the panel shows the widget's own items.
         /// </summary>

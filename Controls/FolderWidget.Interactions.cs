@@ -40,7 +40,7 @@ namespace Kobold.Controls
 
             double x = _data.PanelX ?? defaultLeft;
             double y = _data.PanelY ?? defaultTop;
-            ClampToScreen(ref x, ref y, panelWidth, panelHeight);
+            (x, y) = ResolvePanelPosition(x, y, panelWidth, panelHeight);
             Left = x;
             Top = y;
 
@@ -98,14 +98,42 @@ namespace Kobold.Controls
             WidgetManager.Instance.SaveConfig();
         }
 
-        private static void ClampToScreen(ref double x, ref double y, double width, double height)
+        /// <summary>
+        /// Places a panel that has a remembered position: interprets it with the
+        /// DPI scale it was saved at, picks the monitor it belongs to, clamps it
+        /// into that monitor's work area and converts back to DIPs for the
+        /// destination monitor. Falls back to the virtual-screen clamp whenever
+        /// the monitor data is unavailable.
+        /// </summary>
+        private (double x, double y) ResolvePanelPosition(double x, double y, double width, double height)
+        {
+            try
+            {
+                double currentScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+                var device = PanelPlacement.ToDeviceRect(x, y, width, height, _data.PanelDpiScale ?? 0, currentScale);
+                var monitors = MonitorInterop.GetMonitors();
+                if (monitors.Count == 0) return ClampToVirtualScreen(x, y, width, height);
+
+                var clamped = PanelPlacement.ClampToMonitors(device, monitors);
+                var target = MonitorInterop.GetMonitorForDevicePoint(
+                    new Point(clamped.X + clamped.Width / 2, clamped.Y + clamped.Height / 2)) ?? monitors[0];
+                var dip = PanelPlacement.ToDipRect(clamped, target);
+                return (dip.X, dip.Y);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] panel placement fallback: {ex.Message}");
+                return ClampToVirtualScreen(x, y, width, height);
+            }
+        }
+
+        private static (double x, double y) ClampToVirtualScreen(double x, double y, double width, double height)
         {
             double minX = SystemParameters.VirtualScreenLeft;
             double minY = SystemParameters.VirtualScreenTop;
             double maxX = minX + SystemParameters.VirtualScreenWidth - width;
             double maxY = minY + SystemParameters.VirtualScreenHeight - height;
-            x = Math.Max(minX, Math.Min(x, maxX));
-            y = Math.Max(minY, Math.Min(y, maxY));
+            return (Math.Max(minX, Math.Min(x, maxX)), Math.Max(minY, Math.Min(y, maxY)));
         }
 
         #region Panel Drag (header handle)
@@ -166,9 +194,11 @@ namespace Kobold.Controls
             if (_isDraggingWindow)
             {
                 _isDraggingWindow = false;
-                // Remember where the user parked this panel.
+                // Remember where the user parked this panel, and the DPI scale
+                // its (DIP) coordinates are relative to.
                 _data.PanelX = Left;
                 _data.PanelY = Top;
+                _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
                 OnDataChanged?.Invoke();
             }
             e.Handled = true;
