@@ -1,13 +1,19 @@
 # Packages the Release build into Releases\Kobold-v<version>-win-x64.zip
-# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 [-Version 1.0.0]
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 [-Version 1.2.0]
+# Version defaults to the <Version> in Kobold.csproj - one source of truth.
 param(
-    [string]$Version = '1.0.0'
+    [string]$Version
 )
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'installer-common.ps1')
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
+if (-not $Version) {
+    [xml]$project = Get-Content -LiteralPath (Join-Path $repoRoot 'Kobold.csproj')
+    $Version = @($project.Project.PropertyGroup.Version | Where-Object { $_ })[0]
+    if (-not $Version) { throw 'No <Version> in Kobold.csproj; pass -Version explicitly.' }
+}
 $outDir = Join-Path $repoRoot 'bin\Release\net48'
 $stage = Join-Path $env:TEMP "Kobold-package-$Version"
 $zip = Join-Path $repoRoot "Releases\Kobold-v$Version-win-x64.zip"

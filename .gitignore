@@ -287,3 +287,6 @@ Setup/
 
 # Isolated git worktrees (never commit their contents)
 .worktrees/
+
+# Installer self-test sandbox (used when %TEMP% is blocked by security software)
+tools/tests/.sandbox/
