@@ -153,12 +153,12 @@ namespace Kobold.Core
             widget.ShowWidgetMenu(() => _island.ResumeAutoCollapse());
         }
 
-        /// <summary>Opens a widget's panel; defaults to just below the island when unplaced.</summary>
+        /// <summary>Opens a widget's panel; defaults to centered below the island when unplaced.</summary>
         private void OpenPanel(FolderWidget widget, bool activate = true)
         {
             if (_island == null) return;
             var (panelWidth, _) = widget.GetPanelSize();
-            double left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - panelWidth) / 2);
+            double left = _island.CenterX - panelWidth / 2; // clamped per-monitor inside ShowPanel
             widget.ShowPanel(left, _island.PanelTop, activate);
         }
 
