@@ -360,6 +360,16 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Final save for a Windows logoff/shutdown: the session may not live
+        /// long enough for the debounced timer, and no further writes should
+        /// start afterwards. The tray-exit path keeps its own Shutdown().
+        /// </summary>
+        public void BeginExitSave()
+        {
+            _config.BeginClosing();
+        }
+
+        /// <summary>
         /// Shuts down all widgets
         /// </summary>
         public void Shutdown()

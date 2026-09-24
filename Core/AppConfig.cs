@@ -41,57 +41,162 @@ namespace Kobold.Core
             Folders = new List<FolderData>();
         }
 
+        // Where this instance was loaded from, so Save writes back to the same
+        // place. Instances created directly (not via Load) fall back to the
+        // shared %AppData% location.
+        private string _configPath;
+        private string _backupPath;
+
+        // True until the first successful save after a load that could not use
+        // the main file: the backup is the recovery source then, and the first
+        // save must not overwrite it with a main file we could not trust.
+        private bool _skipBackupRefreshOnce;
+
+        // Set by BeginClosing: the session is ending, so writes must happen now
+        // and no new debounced writes may be scheduled.
+        private bool _closing;
+
         /// <summary>
-        /// Loads configuration from JSON file, or creates default if not exists
+        /// Loads configuration from the shared location, or creates a default
+        /// one on a fresh install.
         /// </summary>
         public static AppConfig Load()
         {
-            string configPath = Utils.GetConfigPath();
-            string backupPath = configPath + ".backup";
-            
-            // Try main config first, then backup
-            foreach (string path in new[] { configPath, backupPath })
+            return Load(Utils.GetConfigPath(), Utils.GetConfigPath() + ".backup");
+        }
+
+        /// <summary>
+        /// Loads configuration from explicit paths. When the main file cannot be
+        /// read the backup is used; when neither can be read the unreadable
+        /// files are first kept as '*.failed-&lt;timestamp&gt;' evidence copies
+        /// and only then is a default config created - never a silent overwrite.
+        /// </summary>
+        public static AppConfig Load(string configPath, string backupPath)
+        {
+            bool mainExisted = File.Exists(configPath);
+            bool backupExisted = File.Exists(backupPath);
+
+            bool mainUnreadable;
+            AppConfig loaded = TryReadConfig(configPath, out mainUnreadable);
+
+            bool loadedFromBackup = false;
+            bool backupUnreadable = false;
+            if (loaded == null)
             {
-                try
-                {
-                    if (File.Exists(path))
-                    {
-                        string json = File.ReadAllText(path);
-                        var config = JsonConvert.DeserializeObject<AppConfig>(json);
-                        
-                        if (config != null)
-                        {
-                            // Fix missing Names in WidgetItems (for old configs)
-                            foreach (var folder in config.Folders)
-                            {
-                                foreach (var item in folder.Items)
-                                {
-                                    if (string.IsNullOrEmpty(item.Name) && !string.IsNullOrEmpty(item.Path))
-                                    {
-                                        item.Name = System.IO.Path.GetFileName(item.Path);
-                                    }
-                                }
-                            }
-                            return config;
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-                    // Try next file (backup)
-                }
+                loaded = TryReadConfig(backupPath, out backupUnreadable);
+                loadedFromBackup = loaded != null;
             }
 
-            // Create and save default config with one folder
-            var defaultConfig = new AppConfig();
-            defaultConfig.Folders.Add(FolderData.Create(Localization.Get("UI_DefaultFolderName"), UiTokens.DefaultFolderColor, 100, 100, defaultConfig.DefaultGridColumns));
-            defaultConfig.Save();
-            return defaultConfig;
+            bool defaulted = false;
+            if (loaded == null)
+            {
+                loaded = new AppConfig();
+                loaded.Folders.Add(FolderData.Create(Localization.Get("UI_DefaultFolderName"),
+                    UiTokens.DefaultFolderColor, 100, 100, loaded.DefaultGridColumns));
+                defaulted = true;
+            }
+
+            // A file that existed but could not be read gets a timestamped copy
+            // before anything can overwrite it - whether or not we recovered.
+            if (mainExisted && mainUnreadable) PreserveFailedFile(configPath);
+            if (backupExisted && backupUnreadable) PreserveFailedFile(backupPath);
+
+            loaded._configPath = configPath;
+            loaded._backupPath = backupPath;
+            loaded._skipBackupRefreshOnce =
+                mainUnreadable || loadedFromBackup || (defaulted && (mainExisted || backupExisted));
+
+            if (defaulted) loaded.Save();
+            return loaded;
+        }
+
+        /// <summary>
+        /// Reads one config file; 'unreadable' tells the caller that a file was
+        /// there but could not be used (as opposed to simply not existing).
+        /// </summary>
+        private static AppConfig TryReadConfig(string path, out bool unreadable)
+        {
+            unreadable = false;
+            try
+            {
+                if (!File.Exists(path)) return null;
+
+                var config = JsonConvert.DeserializeObject<AppConfig>(File.ReadAllText(path));
+                if (config == null)
+                {
+                    unreadable = true;
+                    return null;
+                }
+
+                RepairLegacyItems(config);
+                return config;
+            }
+            catch (Exception)
+            {
+                unreadable = true;
+                return null;
+            }
+        }
+
+        /// <summary>Fills in Names missing from configs written before they existed.</summary>
+        private static void RepairLegacyItems(AppConfig config)
+        {
+            foreach (var folder in config.Folders)
+            {
+                foreach (var item in folder.Items)
+                {
+                    if (string.IsNullOrEmpty(item.Name) && !string.IsNullOrEmpty(item.Path))
+                    {
+                        item.Name = Path.GetFileName(item.Path);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Keeps a copy of a file that could not be read, so a later save can
+        /// never destroy the user's real data without a trace. Best effort: if
+        /// the copy itself fails, startup still continues.
+        /// </summary>
+        private static void PreserveFailedFile(string path)
+        {
+            try
+            {
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                string candidate = path + ".failed-" + stamp;
+                int suffix = 2;
+                while (File.Exists(candidate))
+                {
+                    candidate = path + ".failed-" + stamp + "-" + suffix++;
+                }
+                File.Copy(path, candidate, false);
+            }
+            catch (Exception)
+            {
+                // Evidence is best effort - never block startup over it.
+            }
         }
 
         private System.Timers.Timer _saveTimer;
+        private System.Timers.Timer _forceSaveTimer;
         private readonly object _saveLock = new object();
-        
+        private readonly object _timerLock = new object();
+
+        /// <summary>
+        /// Raised when a save fails (disk full, permissions, lock). The tray
+        /// subscribes to show the user a one-time notice instead of failing
+        /// silently.
+        /// </summary>
+        public static event Action<string> SaveFailed;
+
+        /// <summary>
+        /// Upper bound on how long a pending save may be pushed back by rapid
+        /// changes (every debounce reset would otherwise postpone it again), so
+        /// edits always reach the disk eventually.
+        /// </summary>
+        [JsonIgnore]
+        public int ForceSaveIntervalMs { get; set; } = 10000;
+
         /// <summary>
         /// Saves current configuration to JSON file with backup
         /// </summary>
@@ -101,43 +206,89 @@ namespace Kobold.Core
             {
                 try
                 {
-                    string configPath = Utils.GetConfigPath();
-                    string backupPath = configPath + ".backup";
-                    
+                    string configPath = _configPath ?? Utils.GetConfigPath();
+                    string backupPath = _backupPath ?? configPath + ".backup";
+
                     Utils.EnsureDirectoryExists(Path.GetDirectoryName(configPath));
-                    
-                    // Create backup of existing config
-                    if (File.Exists(configPath))
+
+                    // Create backup of the existing config - except while the
+                    // current main file is not trusted (it failed to load, or the
+                    // backup is the recovery source we just came from).
+                    if (File.Exists(configPath) && !_skipBackupRefreshOnce)
                     {
                         File.Copy(configPath, backupPath, true);
                     }
-                    
+
                     string json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                    File.WriteAllText(configPath, json);
+                    AtomicFile.WriteAllText(configPath, json);
+                    _skipBackupRefreshOnce = false;
+                    StopSaveTimers();
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Silently fail - config backup exists if needed
+                    // The backup is the safety net; the user still deserves to
+                    // know that this save did not land.
+                    System.Diagnostics.Debug.WriteLine("[Kobold] config save failed: " + ex.Message);
+                    SaveFailed?.Invoke(ex.Message);
                 }
             }
         }
 
         /// <summary>
         /// Schedules a save operation (Debounce)
-        /// Prevents disk spamming during rapid changes (dragging, etc.)
+        /// Prevents disk spamming during rapid changes (dragging, etc.), and is
+        /// paired with a force-save cap so a long stream of changes cannot keep
+        /// postponing the write forever.
         /// </summary>
         public void SaveDebounced(int delayMs = 1000)
         {
-            if (_saveTimer == null)
+            if (_closing) return;
+
+            int forceMs = ForceSaveIntervalMs > 0 ? ForceSaveIntervalMs : 10000;
+            lock (_timerLock)
             {
-                _saveTimer = new System.Timers.Timer(delayMs);
-                _saveTimer.AutoReset = false;
-                _saveTimer.Elapsed += (s, e) => Save();
+                if (_saveTimer == null)
+                {
+                    _saveTimer = new System.Timers.Timer(delayMs);
+                    _saveTimer.AutoReset = false;
+                    _saveTimer.Elapsed += (s, e) => Save();
+                }
+                if (_forceSaveTimer == null)
+                {
+                    _forceSaveTimer = new System.Timers.Timer(forceMs);
+                    _forceSaveTimer.AutoReset = false;
+                    _forceSaveTimer.Elapsed += (s, e) => Save();
+                }
+
+                _saveTimer.Stop();
+                _saveTimer.Interval = delayMs;
+                _saveTimer.Start();
+
+                _forceSaveTimer.Stop();
+                _forceSaveTimer.Interval = forceMs;
+                _forceSaveTimer.Start();
             }
-            
-            _saveTimer.Stop();
-            _saveTimer.Interval = delayMs;
-            _saveTimer.Start();
+        }
+
+        /// <summary>
+        /// Final synchronous save for a Windows session end (logoff/shutdown):
+        /// writes now - there may be no time for the debounce timer - and stops
+        /// accepting new debounced writes.
+        /// </summary>
+        public void BeginClosing()
+        {
+            _closing = true;
+            Save();
+        }
+
+        /// <summary>Stops both pending-save timers once a save has landed.</summary>
+        private void StopSaveTimers()
+        {
+            lock (_timerLock)
+            {
+                _saveTimer?.Stop();
+                _forceSaveTimer?.Stop();
+            }
         }
 
         /// <summary>
@@ -175,5 +326,3 @@ namespace Kobold.Core
         }
     }
 }
-
-

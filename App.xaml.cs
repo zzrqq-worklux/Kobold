@@ -94,6 +94,14 @@ namespace Kobold
             
             // Initialize system tray
             _trayService = new TrayIconService();
+
+            // Windows logoff/shutdown: land one final config write. Normal exit
+            // paths (tray exit / OnExit) keep their existing behaviour.
+            Current.SessionEnding += (sender, args) =>
+            {
+                try { WidgetManager.Instance.BeginExitSave(); }
+                catch (Exception ex) { Debug.WriteLine($"[Kobold] session-end save failed: {ex.Message}"); }
+            };
         }
         
         private void SyncStartupRegistry()
