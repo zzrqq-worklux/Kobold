@@ -54,6 +54,13 @@ namespace Kobold.Core
         public int PosY { get; set; }
         public bool IsExpanded { get; set; }
         public int GridColumns { get; set; } // Default 3, user can change
+
+        /// <summary>
+        /// Max item rows this panel grows to before it scrolls (1-6,
+        /// <see cref="PanelRows.DefaultMaxRows"/> when unset). Per widget, so
+        /// one panel can stay compact without changing the others.
+        /// </summary>
+        public int MaxPanelRows { get; set; }
         public bool IsLocked { get; set; } // Widget lock state
         public bool IsPanelPinned { get; set; } // Keep panel always open
         public double? PanelX { get; set; } // Remembered panel top-left (null = never dragged)
@@ -82,6 +89,7 @@ namespace Kobold.Core
             PosY = 100;
             IsExpanded = false;
             GridColumns = 3; // Default 3 columns
+            MaxPanelRows = PanelRows.DefaultMaxRows; // Compact by default
             IsLocked = false; // Unlocked by default
             IsPanelPinned = false; // Not pinned by default
             BrowseStack = new List<string>();

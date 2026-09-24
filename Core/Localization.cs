@@ -107,6 +107,8 @@ namespace Kobold.Core
                 // Grid
                 ["Menu_GridSize"] = "📊 Grid Size",
                 ["Menu_Columns"] = "Columns",
+                ["Menu_MaxRows"] = "📏 Max Rows",
+                ["Menu_Rows"] = "Rows",
                 ["Menu_ItemSize"] = "📐 Item Size",
                 ["Size_Small"] = "Small",
                 ["Size_Normal"] = "Normal",
@@ -248,6 +250,8 @@ namespace Kobold.Core
                 // Grid
                 ["Menu_GridSize"] = "📊 网格大小",
                 ["Menu_Columns"] = "列",
+                ["Menu_MaxRows"] = "📏 最大行数",
+                ["Menu_Rows"] = "行",
                 ["Menu_ItemSize"] = "📐 图标大小",
                 ["Size_Small"] = "小",
                 ["Size_Normal"] = "普通",
@@ -389,6 +393,8 @@ namespace Kobold.Core
                 // Grid
                 ["Menu_GridSize"] = "📊 グリッド サイズ",
                 ["Menu_Columns"] = "列",
+                ["Menu_MaxRows"] = "📏 最大行数",
+                ["Menu_Rows"] = "行",
                 ["Menu_ItemSize"] = "📐 アイテム サイズ",
                 ["Size_Small"] = "小",
                 ["Size_Normal"] = "標準",

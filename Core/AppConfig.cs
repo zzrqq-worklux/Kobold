@@ -143,6 +143,13 @@ namespace Kobold.Core
         {
             foreach (var folder in config.Folders)
             {
+                // A missing MaxPanelRows already defaults in the FolderData
+                // constructor; only hand-edited out-of-range values need repair.
+                if (folder.MaxPanelRows < PanelRows.MinAllowedRows || folder.MaxPanelRows > PanelRows.MaxAllowedRows)
+                {
+                    folder.MaxPanelRows = PanelRows.DefaultMaxRows;
+                }
+
                 foreach (var item in folder.Items)
                 {
                     if (string.IsNullOrEmpty(item.Name) && !string.IsNullOrEmpty(item.Path))

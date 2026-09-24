@@ -146,22 +146,26 @@ namespace Kobold.Controls
         {
             int cols = Math.Max(1, _data.GridColumns);
             int itemCount = Math.Max(1, _lastItemCount); // At least 1 for empty state
-            int rows = (int)Math.Ceiling((double)itemCount / cols);
 
-            int naturalHeight = HEADER_HEIGHT + rows * GetScaledItemHeight() + PADDING;
+            // This widget's own row cap decides how tall the panel grows; any
+            // extra rows scroll. The work-area ratio stays as an outer bound
+            // for tiny screens combined with the largest icon size.
+            int visibleRows = PanelRows.VisibleRows(itemCount, cols, _data.MaxPanelRows);
+
+            int naturalHeight = HEADER_HEIGHT + visibleRows * GetScaledItemHeight() + PADDING;
             if (_lastFooterVisible) naturalHeight += WidgetConstants.FOOTER_HEIGHT;
 
             int maxHeight = Math.Max(120,
                 (int)(SystemParameters.WorkArea.Height * WidgetConstants.PANEL_MAX_HEIGHT_RATIO));
 
-            // A long listing scrolls instead of growing past the cap; the in-flow
-            // scrollbar needs its width added so items are not clipped.
-            bool scrolls = naturalHeight > maxHeight;
+            // The in-flow scrollbar needs its width added so items are not clipped.
+            bool scrolls = PanelRows.NeedsScroll(itemCount, cols, _data.MaxPanelRows)
+                || naturalHeight > maxHeight;
 
             int width = cols * GetScaledItemWidth() + PADDING + PANEL_BORDER;
             if (scrolls) width += (int)SystemParameters.VerticalScrollBarWidth;
 
-            int height = scrolls ? maxHeight : naturalHeight;
+            int height = Math.Min(naturalHeight, maxHeight);
 
             // Minimum dimensions
             width = Math.Max(width, 180);

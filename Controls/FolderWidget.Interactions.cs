@@ -400,6 +400,7 @@ namespace Kobold.Controls
                 .AddItem("Menu_Rename", ShowRenameDialog)
                 .AddItem("Menu_ChangeColor", ShowColorPicker)
                 .AddMenuItem(CreateGridSizeMenu())
+                .AddMenuItem(CreateMaxRowsMenu())
                 .AddMenuItem(CreateItemSizeMenu())
                 .AddSeparator()
                 .AddMenuItem(CreateDeleteMenuItem())
@@ -427,6 +428,32 @@ namespace Kobold.Controls
             return gridItem;
         }
         
+        /// <summary>
+        /// Per-widget row cap: how many item rows this panel grows to before it
+        /// scrolls. One widget staying compact does not affect the others.
+        /// </summary>
+        private MenuItem CreateMaxRowsMenu()
+        {
+            var rowsItem = new MenuItem { Header = Localization.Get("Menu_MaxRows") };
+            for (int rows = PanelRows.MinAllowedRows; rows <= PanelRows.MaxAllowedRows; rows++)
+            {
+                int r = rows;
+                var rowItem = new MenuItem
+                {
+                    Header = rows + " " + Localization.Get("Menu_Rows"),
+                    IsChecked = _data.MaxPanelRows == rows
+                };
+                rowItem.Click += (s, a) =>
+                {
+                    _data.MaxPanelRows = r;
+                    UpdateUI();
+                    OnDataChanged?.Invoke();
+                };
+                rowsItem.Items.Add(rowItem);
+            }
+            return rowsItem;
+        }
+
         private MenuItem CreateItemSizeMenu()
         {
             var sizeItem = new MenuItem { Header = Localization.Get("Menu_ItemSize") };
