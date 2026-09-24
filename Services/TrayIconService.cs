@@ -16,10 +16,37 @@ namespace Kobold.Services
     {
         private TaskbarIcon _trayIcon;
         private bool _disposed = false;
+        private bool _saveFailureReported = false;
 
         public TrayIconService()
         {
             InitializeTrayIcon();
+            AppConfig.SaveFailed += OnSaveFailed;
+        }
+
+        /// <summary>
+        /// Tells the user once per run that a save did not land; repeated
+        /// failures would otherwise spam balloons for every retry.
+        /// </summary>
+        private void OnSaveFailed(string message)
+        {
+            if (_saveFailureReported) return;
+            _saveFailureReported = true;
+
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    _trayIcon.ShowBalloonTip(
+                        Localization.Get("Tray_SaveFailedTitle"),
+                        Localization.Format("Tray_SaveFailedBody", message),
+                        BalloonIcon.Warning);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Kobold] save-failure balloon failed: {ex.Message}");
+                }
+            }));
         }
 
         private void InitializeTrayIcon()
@@ -168,6 +195,7 @@ namespace Kobold.Services
             {
                 if (disposing)
                 {
+                    AppConfig.SaveFailed -= OnSaveFailed;
                     _trayIcon?.Dispose();
                 }
                 _disposed = true;

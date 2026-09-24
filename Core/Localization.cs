@@ -49,6 +49,8 @@ namespace Kobold.Core
                 ["Tray_HideAll"] = "👁️‍🗨️ Hide All Widgets",
                 ["Tray_Settings"] = "⚙️ Settings",
                 ["Tray_Exit"] = "🚪 Exit",
+                ["Tray_SaveFailedTitle"] = "Kobold",
+                ["Tray_SaveFailedBody"] = "Couldn't save settings: {0}",
 
                 // Dialogs
                 ["Dialog_Rename"] = "Rename Folder",
@@ -188,6 +190,8 @@ namespace Kobold.Core
                 ["Tray_HideAll"] = "👁️‍🗨️ 隐藏全部组件",
                 ["Tray_Settings"] = "⚙️ 设置",
                 ["Tray_Exit"] = "🚪 退出",
+                ["Tray_SaveFailedTitle"] = "Kobold",
+                ["Tray_SaveFailedBody"] = "设置保存失败：{0}",
 
                 // Dialogs
                 ["Dialog_Rename"] = "重命名文件夹",
@@ -327,6 +331,8 @@ namespace Kobold.Core
                 ["Tray_HideAll"] = "👁️‍🗨️ すべて非表示",
                 ["Tray_Settings"] = "⚙️ 設定",
                 ["Tray_Exit"] = "🚪 終了",
+                ["Tray_SaveFailedTitle"] = "Kobold",
+                ["Tray_SaveFailedBody"] = "設定を保存できませんでした: {0}",
 
                 // Dialogs
                 ["Dialog_Rename"] = "フォルダー名の変更",
