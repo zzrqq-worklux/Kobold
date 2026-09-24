@@ -1,0 +1,42 @@
+name: Checks
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Build and check (Windows)
+    # Runs when the pushed HEAD commit mentions [ci], or on manual dispatch -
+    # so an ordinary push does not burn runner minutes.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[ci]')
+    runs-on: windows-latest
+    timeout-minutes: 30
+    concurrency:
+      group: checks-${{ github.ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build (Release)
+        run: dotnet build Kobold.csproj -c Release --nologo
+
+      - name: Run checks (ci group)
+        run: ./tools/Run-Checks.ps1 -Group ci -Configuration Release

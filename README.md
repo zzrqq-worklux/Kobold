@@ -155,43 +155,44 @@ dotnet build Kobold.csproj -c Release
 # -> bin\Release\net48\Kobold.exe
 ```
 
-Console self-checks live under `tests/`:
+Run the console self-checks through one entry point - it runs every selected
+check, prints a summary and exits non-zero when anything fails:
 
 ```powershell
-dotnet run --project tests/LangCheck
-dotnet run --project tests/WidgetItemsCheck
-dotnet run --project tests/ScreenGeometryCheck
-dotnet run --project tests/IslandLayoutCheck
-dotnet run --project tests/StorageOpsCheck
-dotnet run --project tests/DesktopIconsCheck
-dotnet run --project tests/UiTokensCheck
-dotnet run --project tests/XamlLoadCheck
-dotnet run --project tests/FolderListingCheck
-dotnet run --project tests/ShellOpsCheck
-dotnet run --project tests/MemoryTrimCheck
-dotnet run --project tests/DragOutCheck
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List   # show the matrix
 ```
 
-The installer scripts have their own quiet self-check — logic only, temp
-folders, no registry writes and no child processes:
+`checks` = every console self-check, `ci` = the subset that runs on GitHub
+runners (the window/desktop-heavy checks stay local), `installer` = the
+installer self-check (logic only, temp folders, no registry writes) and
+`all` = checks + installer.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\installer.Tests.ps1
-```
+A GitHub Actions workflow runs the `ci` group on every push whose HEAD commit
+mentions `[ci]` (or on manual dispatch), keeping runner usage deliberate.
 
 End-to-end install/uninstall is verified by a one-off manual drill before a
 release (it writes a real uninstall entry and a shortcut).
 
-Package a release zip (Release build plus
-`Releases\Kobold-v<version>-win-x64.zip`):
+Package a release zip; the version defaults to the one in `Kobold.csproj`:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 -Version 1.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+```
+
+Release notes come from `CHANGELOG.md`, and a missing version section is a hard
+error - a release cannot go out without changelog entries:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Version 1.2.0
+# -> prints the notes, or write them with -OutFile notes.md
 ```
 
 ## Data
 
-- Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`)
+- Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).
+  A config file that could not be read is first kept aside as
+  `config.json.failed-<timestamp>` before defaults are used.
 - Stored files: `%AppData%\Kobold\Storage`
 
 Source layout: `Core/` (models, config, localization, design tokens,
@@ -206,7 +207,9 @@ Derived from [FoldRa](https://github.com/YusufEren97/FoldRa) by
 [Yusuf Eren Seyrek](https://github.com/YusufEren97) and
 [Mehmet Delin](https://github.com/Deleny), licensed under the MIT License.
 This project keeps the MIT license; see the original repository for
-upstream history.
+upstream history. Kobold's own license is in [LICENSE](LICENSE); the
+third-party components it ships with are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ---
 
@@ -310,41 +313,40 @@ dotnet build Kobold.csproj -c Release
 # 产物：bin\Release\net48\Kobold.exe
 ```
 
-`tests/` 下是控制台自检：
+`tests/` 下是控制台自检，通过一个入口运行（逐项执行、汇总结果、失败非零退出）：
 
 ```powershell
-dotnet run --project tests/LangCheck
-dotnet run --project tests/WidgetItemsCheck
-dotnet run --project tests/ScreenGeometryCheck
-dotnet run --project tests/IslandLayoutCheck
-dotnet run --project tests/StorageOpsCheck
-dotnet run --project tests/DesktopIconsCheck
-dotnet run --project tests/UiTokensCheck
-dotnet run --project tests/XamlLoadCheck
-dotnet run --project tests/FolderListingCheck
-dotnet run --project tests/ShellOpsCheck
-dotnet run --project tests/MemoryTrimCheck
-dotnet run --project tests/DragOutCheck
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List   # 只看矩阵
 ```
 
-安装器脚本另有一份安静的纯逻辑自检（只在临时目录里验文件与判断逻辑，
-不写注册表、不启子进程）：
+`checks` = 全部控制台自检；`ci` = 可在 GitHub runner 上运行的保守子集（依赖真实桌面
+会话的检查留在本地）；`installer` = 安装器纯逻辑自检（只在临时目录，不写注册表）；
+`all` = 两者之和。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\installer.Tests.ps1
-```
+GitHub Actions 工作流在 HEAD 提交信息含 `[ci]`（或手动触发）时运行 `ci` 组，
+避免每次 push 都消耗 runner。
 
 端到端安装/卸载由发布前的一次性人工演练覆盖（会写真实的卸载注册表项与快捷方式）。
 
-打包发布 zip（Release 构建 + `Releases\Kobold-v<版本>-win-x64.zip`）：
+打包发布 zip，版本号默认读 `Kobold.csproj`（单一真源）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 -Version 1.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
+```
+
+Release 正文从 `CHANGELOG.md` 生成；缺少对应版本小节会直接报错——不让没有更新
+日志的版本发布：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Version 1.2.0
+# 输出正文；用 -OutFile notes.md 写入文件
 ```
 
 ## 数据目录
 
-- 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）
+- 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。
+  读不出的配置文件会先保留为 `config.json.failed-<时间戳>`，再退回默认设置。
 - 收纳文件：`%AppData%\Kobold\Storage`
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
@@ -354,4 +356,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1 -Version 1
 ## 许可
 
 上游 [FoldRa](https://github.com/YusufEren97/FoldRa)（作者 Yusuf Eren Seyrek、
-Mehmet Delin）为 MIT 协议，本项目沿用 MIT 协议。
+Mehmet Delin）为 MIT 协议，本项目沿用 MIT 协议。Kobold 自身的许可全文见
+[LICENSE](LICENSE)，随包分发的第三方组件见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。

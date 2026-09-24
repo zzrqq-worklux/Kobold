@@ -60,7 +60,26 @@ function Section {
     }
 }
 
-$sandbox = Join-Path $env:TEMP ('kobold-installer-tests-' + [guid]::NewGuid().ToString('N'))
+# Sandbox root: %TEMP% normally, but some antivirus products refuse writes of
+# '<exe>.config' inside user temp (a known sidecar-hijack vector), so probe for
+# a writable location and fall back to an ignored repo-local folder.
+function Get-KoboldTestSandbox {
+    param([string]$Name)
+    foreach ($root in @($env:TEMP, (Join-Path $PSScriptRoot '.sandbox'))) {
+        if (-not $root) { continue }
+        try {
+            $candidate = Join-Path $root $Name
+            New-Item -ItemType Directory -Force -Path $candidate | Out-Null
+            $probe = Join-Path $candidate 'probe.exe.config'
+            Set-Content -LiteralPath $probe -Value 'probe' -ErrorAction Stop
+            Remove-Item -LiteralPath $probe -Force
+            return $candidate
+        } catch { }
+    }
+    throw 'installer tests: no writable sandbox location found'
+}
+
+$sandbox = Get-KoboldTestSandbox -Name ('kobold-installer-tests-' + [guid]::NewGuid().ToString('N'))
 $source = Join-Path $sandbox 'source'
 $installDir = Join-Path $sandbox 'install'
 $dataDir = Join-Path $sandbox 'data'
