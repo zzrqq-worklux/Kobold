@@ -83,6 +83,25 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Clamps an island centre (DIP) so the whole window stays inside its
+        /// monitor's work area: a position inside keeps the centre, the edges
+        /// clamp by half the window, and a window at least as wide as the work
+        /// area sits centred. The work area arrives in work-area coordinates
+        /// (a monitor left of the primary has a negative left edge).
+        /// </summary>
+        public static double ClampCenter(double centerX, double windowWidth, double workLeft, double workWidth)
+        {
+            double half = windowWidth / 2;
+            if (windowWidth >= workWidth) return workLeft + workWidth / 2;
+
+            double min = workLeft + half;
+            double max = workLeft + workWidth - half;
+            if (centerX < min) return min;
+            if (centerX > max) return max;
+            return centerX;
+        }
+
+        /// <summary>
         /// Offset after rolling the wheel by whole tiles. Negative notches
         /// scroll towards the start of the tiles, positive ones towards their end.
         /// </summary>

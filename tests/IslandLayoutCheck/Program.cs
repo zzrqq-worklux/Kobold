@@ -104,6 +104,24 @@ namespace Kobold.IslandLayoutCheck
                 "scrolling past the end clamps to the last position");
             Check(IslandLayout.ScrollTarget(10, 0, 200) == 10,
                 "no notches leaves the offset alone");
+
+            // Dropping the island clamps the dragged centre into the island
+            // monitor's work area: a position inside stays put, the edges
+            // clamp by half the window, and a window at least as wide as the
+            // work area sits centred. (Work-area coordinates, not screen ones:
+            // a second monitor left of the primary has a negative workLeft.)
+            Check(IslandLayout.ClampCenter(960, 500, 0, 1920) == 960,
+                "a dragged centre inside the work area stays put");
+            Check(IslandLayout.ClampCenter(100, 500, 0, 1920) == 250,
+                "a dragged centre at the left edge clamps by half the window");
+            Check(IslandLayout.ClampCenter(1900, 500, 0, 1920) == 1670,
+                "a dragged centre at the right edge clamps by half the window");
+            Check(IslandLayout.ClampCenter(960, 2000, 0, 1920) == 960,
+                "a window wider than the work area sits centred");
+            Check(IslandLayout.ClampCenter(100, 500, 1920, 1920) == 2170,
+                "the clamp works in a second monitor's own coordinates");
+            Check(IslandLayout.ClampCenter(-1900, 500, -1920, 1920) == -1670,
+                "the clamp works left of the primary monitor too");
         }
     }
 }

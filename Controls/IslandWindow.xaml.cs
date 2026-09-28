@@ -300,12 +300,15 @@ namespace Kobold.Controls
             if (_isDraggingIsland)
             {
                 _isDraggingIsland = false;
-                // Snap onto the monitor's work area before remembering the spot.
-                UpdateWindowGeometry();
                 try
                 {
+                    // Snap the dragged spot onto the island monitor's work area
+                    // and remember that centre - never the previously saved one,
+                    // which is what UpdateWindowGeometry would restore.
+                    double center = ClampCenterX(Left + Width / 2, Width);
+                    Left = center - Width / 2;
                     // Remember the pill center so it survives expanded-width changes.
-                    WidgetManager.Instance.Config.IslandX = Left + Width / 2;
+                    WidgetManager.Instance.Config.IslandX = center;
                     WidgetManager.Instance.SaveConfig();
                 }
                 catch { }
@@ -627,9 +630,7 @@ namespace Kobold.Controls
         private double ClampCenterX(double centerX, double windowWidth)
         {
             Rect work = GetWorkArea();
-            double half = windowWidth / 2;
-            if (windowWidth >= work.Width) return work.Left + work.Width / 2;
-            return Math.Max(work.Left + half, Math.Min(centerX, work.Right - half));
+            return IslandLayout.ClampCenter(centerX, windowWidth, work.Left, work.Width);
         }
 
         /// <summary>
