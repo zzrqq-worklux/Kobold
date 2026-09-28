@@ -16,7 +16,7 @@ expand it: open the Desktop, jump into any widget, create a new one, or
 open Settings — no need to hunt for the tray icon.
 
 Built from [FoldRa](https://github.com/YusufEren97/FoldRa) as a secondary
-development (二开) base.
+development base.
 
 ## Features
 
@@ -26,11 +26,14 @@ development (二开) base.
   widget tiles scroll (a slim bar underneath hints at it) when there are
   more than fit; right-click a tile for that widget's options.
 - **Folder panels** — glassy, auto-sizing panels with per-widget colours,
-  configurable grid columns and item size, lock, pin and rename. The panels
-  that were open when the app closed come back on the next launch, without
-  stealing focus.
+  configurable grid columns, item size and a row cap (1–6), lock, pin and
+  rename. The panels that were open when the app closed come back on the next
+  launch, on the monitor and scale they were saved on, without stealing focus.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
+- **Steps aside for fullscreen** — while a fullscreen app or video is in
+  front, the island steps out of the way and comes back when the fullscreen
+  session ends.
 - **Browse folders in place** — double-click a folder entry to list its
   contents inside the panel: drill in, go back (button or Backspace), open
   files with the shell. While the panel is open the listing follows the
@@ -57,7 +60,8 @@ development (二开) base.
 - **Desktop icons toggle** — single-click the island's desktop entry to
   hide/show desktop icons, double-click to open the Desktop folder.
 - **Theming** — dark/light applies to every surface (panels, island,
-  settings, menus, tooltips); context menus pick up their widget's colour.
+  settings, menus, tooltips); context menus pick up their widget's colour;
+  with Windows high contrast on, every surface follows the system colours.
 - **Three languages** — English, 简体中文, 日本語.
 - **Tray + startup** — tray menu for add / show all / hide all / settings
   / exit, single-instance guard and optional auto-start with Windows.
@@ -136,7 +140,7 @@ the new version. Settings and stored files are kept.
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
 | Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
-| Widget options (rename, colour, lock, grid, size, delete) | Right-click a panel header or an island tile |
+| Widget options (rename, colour, lock, grid, rows, size, delete) | Right-click a panel header or an island tile |
 
 Stored vs. referenced files: dropping a file in creates a *reference* — the
 original stays where it is. **Store** in the item menu physically moves it
@@ -225,9 +229,10 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。组件多了只在中间区域滚动
   （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
-  网格列数、条目大小，支持锁定、置顶与重命名。退出时开着的面板会在下次启动时
-  自动恢复，且不抢焦点。
+  网格列数、条目大小与行数上限（1–6），支持锁定、置顶与重命名。退出时开着的
+  面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
+- **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
   逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
   面板打开时列表会实时跟随该文件夹的变化；面板会记住你离开时所在的文件夹，
@@ -247,7 +252,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
 - **桌面图标开关** — 单击岛的桌面入口隐藏/显示桌面图标，双击打开桌面文件夹。
 - **主题** — 深色/浅色覆盖所有界面（面板、岛、设置、菜单、Tooltip）；
-  右键菜单会带上所属组件的颜色。
+  右键菜单会带上所属组件的颜色；系统开启高对比度时界面跟随系统色。
 - **三语界面** — English / 简体中文 / 日本語。
 - **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
   单实例保护，可选开机自启。
@@ -297,7 +302,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
 | 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
-| 组件选项（改名、改色、锁定、列数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
+| 组件选项（改名、改色、锁定、列数、行数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
 拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
 移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。把条目拖出面板则交给系统：

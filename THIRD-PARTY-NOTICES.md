@@ -5,7 +5,7 @@ entry lists the component, how it is used, and its license.
 
 ## FoldRa
 
-- Used as: the upstream project Kobold is a secondary development (二开) of.
+- Used as: the upstream project Kobold is a secondary development of.
 - License: MIT. Copyright (c) 2024-2025 Yusuf Eren Seyrek and Mehmet Delin.
 - Source: <https://github.com/YusufEren97/FoldRa>
 
