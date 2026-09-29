@@ -39,6 +39,12 @@ namespace Kobold.XamlLoadCheck
                 failures += TryLoad("IslandWindow", () => new IslandWindow());
                 failures += TryLoad("FolderWidget", () => new FolderWidget(new FolderData()));
 
+                // The shared widget shell must construct and repaint for every
+                // theme a host window can be in.
+                failures += TryLoad("WidgetChrome [dark]", () => LoadChrome("dark"));
+                failures += TryLoad("WidgetChrome [light]", () => LoadChrome("light"));
+                failures += TryLoad("WidgetChrome [high contrast]", () => LoadChrome("high contrast"));
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -61,6 +67,29 @@ namespace Kobold.XamlLoadCheck
                 }
                 return 1;
             }
+        }
+
+        /// <summary>
+        /// Exercises the shared chrome the way a host window does: theme first,
+        /// then title/lock/pin, then a repaint at 80% opacity. WPF cannot toggle
+        /// system high contrast, so that pass rebuilds the brushes under whatever
+        /// the session reports (the palette itself is covered by HighContrastCheck).
+        /// </summary>
+        private static WidgetChrome LoadChrome(string theme)
+        {
+            if (theme == "dark") ThemeManager.Initialize("dark");
+            else if (theme == "light") ThemeManager.Initialize("light");
+            else ThemeManager.Initialize(ThemeManager.IsDarkTheme ? "dark" : "light");
+
+            var chrome = new WidgetChrome
+            {
+                Title = "Chrome check",
+                IsLocked = true,
+                IsPinned = true
+            };
+            chrome.ApplyTheme();
+            chrome.ApplyOpacity(0.8);
+            return chrome;
         }
 
         private static int TryLoad(string name, Func<object> create)

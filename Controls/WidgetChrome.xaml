@@ -1,0 +1,89 @@
+<UserControl x:Class="Kobold.Controls.WidgetChrome"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             TextOptions.TextFormattingMode="Display">
+
+    <!-- Content-agnostic widget shell: rounded border + shadow, a 40px header
+         (title / lock / pin / drag / right-click) and the content slots. Visual
+         values and DynamicResource keys mirror FolderWidget.xaml's panel shell. -->
+    <Grid>
+        <Border x:Name="Shell" x:FieldModifier="public"
+                CornerRadius="16"
+                BorderThickness="1" BorderBrush="{DynamicResource Kobold.Brush.PanelBorder}"
+                RenderOptions.BitmapScalingMode="HighQuality"
+                SnapsToDevicePixels="True">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="25" ShadowDepth="8" Opacity="0.5" Color="Black" RenderingBias="Quality"/>
+            </Border.Effect>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
+                <Border x:Name="Header" x:FieldModifier="public" Grid.Row="0" CornerRadius="16,16,0,0" Padding="12,0"
+                        Cursor="Hand"
+                        MouseLeftButtonDown="Header_MouseLeftButtonDown"
+                        MouseMove="Header_MouseMove"
+                        MouseLeftButtonUp="Header_MouseLeftButtonUp"
+                        MouseRightButtonDown="Header_MouseRightButtonDown">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <ContentPresenter x:Name="HeaderLeading" x:FieldModifier="public" Grid.Column="0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TitleText" x:FieldModifier="public" Grid.Column="1" FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <ContentPresenter x:Name="HeaderTrailing" x:FieldModifier="public" Grid.Column="2" VerticalAlignment="Center"/>
+
+                        <!-- Lock toggle (next to pin) -->
+                        <Border x:Name="LockButton" x:FieldModifier="public" Grid.Column="3"
+                                Width="24" Height="24" CornerRadius="6"
+                                Background="Transparent" Cursor="Hand"
+                                VerticalAlignment="Center" Margin="8,0,0,0"
+                                MouseLeftButtonDown="LockButton_MouseLeftButtonDown">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="LockButtonScale" x:FieldModifier="public" ScaleX="1" ScaleY="1" CenterX="12" CenterY="12"/>
+                            </Border.RenderTransform>
+                            <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <Path x:Name="LockIcon" x:FieldModifier="public"
+                                      Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
+                                      Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"/>
+                            </Canvas>
+                        </Border>
+
+                        <!-- Pin button -->
+                        <Border x:Name="PinButton" x:FieldModifier="public" Grid.Column="4"
+                                Width="24" Height="24" CornerRadius="6"
+                                Background="Transparent" Cursor="Hand"
+                                VerticalAlignment="Center" Margin="8,0,0,0"
+                                MouseLeftButtonDown="PinButton_MouseLeftButtonDown">
+                            <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <!-- Pin Icon (pushpin shape) -->
+                                <Path x:Name="PinIcon" x:FieldModifier="public"
+                                      Data="M4,0 L10,0 L10,2 L9,2 L9,6 L11,8 L11,9 L8,9 L8,14 L6,14 L6,9 L3,9 L3,8 L5,6 L5,2 L4,2 Z"
+                                      Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"
+                                      RenderTransformOrigin="0.5,0.5">
+                                    <Path.RenderTransform>
+                                        <RotateTransform x:Name="PinIconRotation" x:FieldModifier="public" Angle="45"/>
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Canvas>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <ContentPresenter x:Name="ContentHost" x:FieldModifier="public" Grid.Row="1"/>
+                <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="2"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
