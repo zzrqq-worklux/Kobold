@@ -240,11 +240,23 @@ namespace Kobold.Core
 
         private static void RepairTodo(TodoData todo)
         {
+            if (todo.SelectedDate.HasValue) todo.SelectedDate = todo.SelectedDate.Value.Date;
+
             foreach (var item in todo.Items)
             {
                 if (string.IsNullOrEmpty(item.Id)) item.Id = Guid.NewGuid().ToString();
+                if (item.Text == null) item.Text = string.Empty;
                 if (item.Date.HasValue) item.Date = item.Date.Value.Date;
                 if (item.CompletedDate.HasValue) item.CompletedDate = item.CompletedDate.Value.Date;
+
+                // Children are optional per item; a null list is filled in so
+                // the UI can add the first sub-todo without a special case.
+                if (item.Children == null) item.Children = new List<SubTodoItem>();
+                foreach (var child in item.Children)
+                {
+                    if (string.IsNullOrEmpty(child.Id)) child.Id = Guid.NewGuid().ToString();
+                    if (child.Text == null) child.Text = string.Empty;
+                }
             }
         }
 

@@ -65,6 +65,8 @@ namespace Kobold.WidgetKindsCheck
             UnknownKindIsKeptVerbatim();
             WidgetsWinOverFolders();
             TodoRoundTrips();
+            TodoRepairNormalizes();
+            WidgetKindRegistryChecks();
             FreshConfigGetsOneFolder();
             CorruptWidgetListsAreUnreadable();
         }
@@ -206,6 +208,78 @@ namespace Kobold.WidgetKindsCheck
             Check(rt != null && rt.Items.Count == 1 && rt.Items[0].Children.Count == 1
                   && rt.Items[0].Date == new DateTime(2026, 9, 25),
                 "a todo widget survives a full round trip");
+        }
+
+        private static void TodoRepairNormalizes()
+        {
+            string dir = NewCase("todo-repair");
+            string main = Path.Combine(dir, "config.json");
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""todo"", ""Id"": ""t1"", ""Items"": [ " +
+                @"{ ""Text"": null, ""Children"": null }, " +
+                @"{ ""Id"": ""i2"", ""Text"": ""kept"", " +
+                @"""Date"": ""2026-09-25T13:45:00"", ""CompletedDate"": ""2026-09-26T08:30:00"", " +
+                @"""Children"": [ { ""Text"": null }, { ""Id"": ""c2"", ""Text"": ""  spaced  "" } ] } ], " +
+                @"""SelectedDate"": ""2026-09-28T13:45:00"" } ] }");
+            var cfg = AppConfig.Load(main, main + ".backup");
+
+            var todo = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as TodoData : null;
+            Check(todo != null && todo.Items.Count == 2,
+                "a todo with null text/children still loads");
+
+            Check(todo != null && todo.SelectedDate == new DateTime(2026, 9, 28),
+                "SelectedDate is repaired to a whole day");
+
+            var first = todo != null && todo.Items.Count > 0 ? todo.Items[0] : null;
+            Check(first != null && !string.IsNullOrEmpty(first.Id), "a todo item missing its Id gets one");
+            Check(first != null && first.Text == string.Empty, "a null todo text becomes empty");
+            Check(first != null && first.Children != null && first.Children.Count == 0,
+                "null children become an empty list");
+
+            var second = todo != null && todo.Items.Count > 1 ? todo.Items[1] : null;
+            Check(second != null && second.Date == new DateTime(2026, 9, 25)
+                  && second.CompletedDate == new DateTime(2026, 9, 26),
+                "repaired todo dates keep only the day");
+
+            var sub = second != null && second.Children != null && second.Children.Count > 0
+                ? second.Children[0] : null;
+            Check(sub != null && !string.IsNullOrEmpty(sub.Id), "a sub-todo missing its Id gets one");
+            Check(sub != null && sub.Text == string.Empty, "a null sub-todo text becomes empty");
+
+            var kept = second != null && second.Children != null && second.Children.Count > 1
+                ? second.Children[1] : null;
+            Check(kept != null && kept.Text == "  spaced  ", "repair keeps whitespace around a text");
+        }
+
+        private static void WidgetKindRegistryChecks()
+        {
+            var folder = WidgetKindRegistry.Find("folder");
+            var todo = WidgetKindRegistry.Find("todo");
+
+            Check(WidgetKindRegistry.All.Count == 2 && folder != null && todo != null,
+                "the registry holds folder and todo");
+            Check(folder != null && folder.Id == "folder" && folder.NameKey == "UI_DefaultFolderName"
+                  && folder.IconKey == "folder", "the folder kind carries its id, name key and icon key");
+            Check(todo != null && todo.Id == "todo" && todo.NameKey == "UI_DefaultTodoName"
+                  && todo.IconKey == "todo", "the todo kind carries its id, name key and icon key");
+            Check(WidgetKindRegistry.Find("weather") == null, "an unknown kind id is not found");
+
+            Check(folder != null && folder.SupportsGridColumns && folder.SupportsItemScale
+                  && folder.SupportsMaxRows, "folder supports grid columns, item scale and max rows");
+            Check(todo != null && !todo.SupportsGridColumns && !todo.SupportsItemScale
+                  && !todo.SupportsMaxRows, "todo supports no folder layout options");
+
+            var defaultFolder = folder?.CreateDefault() as FolderData;
+            Check(defaultFolder != null && defaultFolder.Name == Localization.Get("UI_DefaultFolderName")
+                  && defaultFolder.Color == UiTokens.DefaultFolderColor,
+                "the folder factory builds the default folder");
+            Check(defaultFolder != null && !string.IsNullOrEmpty(defaultFolder.Id),
+                "the folder factory gives the widget an id");
+
+            var defaultTodo = todo?.CreateDefault() as TodoData;
+            Check(defaultTodo != null && defaultTodo.Items != null && defaultTodo.Items.Count == 0
+                  && defaultTodo.Kind == "todo", "the todo factory builds an empty todo");
         }
 
         private static void FreshConfigGetsOneFolder()
