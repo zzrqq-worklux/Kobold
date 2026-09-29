@@ -27,7 +27,7 @@ namespace Kobold.Controls
         private const double IslandDragThreshold = 4;
 
         private bool _isExpanded;
-        private List<FolderData> _folders = new List<FolderData>();
+        private List<WidgetData> _widgets = new List<WidgetData>();
         private readonly DispatcherTimer _leaveTimer;
         private readonly DispatcherTimer _expandTimer;
 
@@ -178,9 +178,9 @@ namespace Kobold.Controls
         }
 
         /// <summary>Feeds the widget list rendered as tiles when expanded.</summary>
-        public void SetWidgets(IEnumerable<FolderData> folders)
+        public void SetWidgets(IEnumerable<WidgetData> widgets)
         {
-            _folders = folders.ToList();
+            _widgets = widgets?.ToList() ?? new List<WidgetData>();
             RebuildTiles();
             UpdateWindowGeometry();
 
@@ -485,7 +485,8 @@ namespace Kobold.Controls
             TilePanel.Children.Clear();
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
-            foreach (var folder in _folders)
+            var folders = _widgets.OfType<FolderData>().ToList();
+            foreach (var folder in folders)
             {
                 TilePanel.Children.Add(CreateTile(folder, iconStyle));
             }
@@ -493,11 +494,11 @@ namespace Kobold.Controls
             // The middle section measures itself: its content, capped to a share
             // of the island monitor's work area. Anything wider scrolls, with
             // the hint bar below.
-            TileScroller.Width = IslandLayout.MiddleViewWidth(_folders.Count, GetWorkArea().Width);
+            TileScroller.Width = IslandLayout.MiddleViewWidth(folders.Count, GetWorkArea().Width);
 
             // Without widgets the trailing divider would sit right next to the
             // desktop divider - hide it so the entries stay separated once.
-            SettingsDivider.Visibility = _folders.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SettingsDivider.Visibility = folders.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void DesktopTile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -599,7 +600,7 @@ namespace Kobold.Controls
             // capsule is the fixed parts plus that capped middle. The cap uses
             // the island monitor's work area, matching RebuildTiles, so the tile
             // scroller never outgrows the capsule.
-            return IslandLayout.ContentWidth(_folders.Count, GetWorkArea().Width);
+            return IslandLayout.ContentWidth(_widgets.Count(w => w is FolderData), GetWorkArea().Width);
         }
 
         /// <summary>

@@ -45,14 +45,8 @@ namespace Kobold.Core
     /// <summary>
     /// Represents the data for a folder widget
     /// </summary>
-    public class FolderData
+    public class FolderData : WidgetData
     {
-        public string Id { get; set; }
-        public string Name { get; set; }
-        public string Color { get; set; }
-        public int PosX { get; set; }
-        public int PosY { get; set; }
-        public bool IsExpanded { get; set; }
         public int GridColumns { get; set; } // Default 3, user can change
 
         /// <summary>
@@ -61,16 +55,6 @@ namespace Kobold.Core
         /// one panel can stay compact without changing the others.
         /// </summary>
         public int MaxPanelRows { get; set; }
-        public bool IsLocked { get; set; } // Widget lock state
-        public bool IsPanelPinned { get; set; } // Keep panel always open
-        public double? PanelX { get; set; } // Remembered panel top-left (null = never dragged)
-        public double? PanelY { get; set; }
-
-        /// <summary>
-        /// DPI scale the panel position was captured at (null = legacy save,
-        /// interpreted with the current window DPI).
-        /// </summary>
-        public double? PanelDpiScale { get; set; }
 
         /// <summary>
         /// Remembered browse chain (folder path per browsed level, root first).
@@ -92,6 +76,7 @@ namespace Kobold.Core
             MaxPanelRows = PanelRows.DefaultMaxRows; // Compact by default
             IsLocked = false; // Unlocked by default
             IsPanelPinned = false; // Not pinned by default
+            Kind = "folder";
             BrowseStack = new List<string>();
             Items = new ObservableCollection<WidgetItem>();
         }

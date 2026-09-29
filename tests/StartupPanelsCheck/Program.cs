@@ -39,14 +39,14 @@ namespace Kobold.StartupPanelsCheck
             else Errors.Add(what);
         }
 
-        private static FolderData Widget(string id, bool open)
+        private static WidgetData Widget(string id, bool open)
         {
             return new FolderData { Id = id, Name = id, IsExpanded = open };
         }
 
         private static void OnlyOpenPanelsComeBack()
         {
-            var folders = new List<FolderData>
+            var widgets = new List<WidgetData>
             {
                 Widget("closed-a", false),
                 Widget("open-a", true),
@@ -54,7 +54,7 @@ namespace Kobold.StartupPanelsCheck
                 Widget("open-b", true)
             };
 
-            var restore = StartupPanels.ToRestore(folders);
+            var restore = StartupPanels.ToRestore(widgets);
 
             Check(restore.Count == 2, "restore: only the open panels come back (got " + restore.Count + ")");
             if (restore.Count < 2)
@@ -68,19 +68,19 @@ namespace Kobold.StartupPanelsCheck
             Check(restore.TrueForAll(f => f.IsExpanded),
                 "restore: nothing closed slips through");
 
-            folders[1].IsExpanded = false;
-            Check(StartupPanels.ToRestore(folders).Count == 1,
+            widgets[1].IsExpanded = false;
+            Check(StartupPanels.ToRestore(widgets).Count == 1,
                 "restore: closing a panel drops it from the next launch");
         }
 
         private static void EmptyAndMissingInputsAreSafe()
         {
             Check(StartupPanels.ToRestore(null).Count == 0, "restore: a null config opens nothing");
-            Check(StartupPanels.ToRestore(new List<FolderData>()).Count == 0,
+            Check(StartupPanels.ToRestore(new List<WidgetData>()).Count == 0,
                 "restore: an empty config opens nothing");
-            Check(StartupPanels.ToRestore(new List<FolderData> { null, Widget("open", true), null }).Count == 1,
+            Check(StartupPanels.ToRestore(new List<WidgetData> { null, Widget("open", true), null }).Count == 1,
                 "restore: null entries are skipped");
-            Check(StartupPanels.ToRestore(new List<FolderData>
+            Check(StartupPanels.ToRestore(new List<WidgetData>
                 {
                     new FolderData { Id = "default", Name = "default" }
                 }).Count == 0,

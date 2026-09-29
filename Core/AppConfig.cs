@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Kobold.Core
 {
@@ -22,6 +24,14 @@ namespace Kobold.Core
         public int DefaultGridColumns { get; set; }
         public string IconStyle { get; set; }  // classic, modern, minimal, rounded
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
+        public List<WidgetData> Widgets { get; set; }
+
+        /// <summary>
+        /// Read-only migration entrance for configs written before widget
+        /// kinds existed. Never written back: <see cref="Load"/> moves its
+        /// entries into <see cref="Widgets"/> and clears it.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public List<FolderData> Folders { get; set; }
 
         public AppConfig()
@@ -38,6 +48,7 @@ namespace Kobold.Core
             IslandCollapseDelay = 1.0; // seconds
             HideDesktopIcons = false;
             HideIconsOriginal = null;
+            Widgets = new List<WidgetData>();
             Folders = new List<FolderData>();
         }
 
@@ -91,7 +102,7 @@ namespace Kobold.Core
             if (loaded == null)
             {
                 loaded = new AppConfig();
-                loaded.Folders.Add(FolderData.Create(Localization.Get("UI_DefaultFolderName"),
+                loaded.Widgets.Add(FolderData.Create(Localization.Get("UI_DefaultFolderName"),
                     UiTokens.DefaultFolderColor, 100, 100, loaded.DefaultGridColumns));
                 defaulted = true;
             }
@@ -100,6 +111,10 @@ namespace Kobold.Core
             // before anything can overwrite it - whether or not we recovered.
             if (mainExisted && mainUnreadable) PreserveFailedFile(configPath);
             if (backupExisted && backupUnreadable) PreserveFailedFile(backupPath);
+
+            // Legacy Folders move into Widgets before anything reads the list
+            // or writes it back. New-format configs are already migrated.
+            loaded.MigrateLegacyWidgets();
 
             loaded._configPath = configPath;
             loaded._backupPath = backupPath;
@@ -121,13 +136,17 @@ namespace Kobold.Core
             {
                 if (!File.Exists(path)) return null;
 
-                var config = JsonConvert.DeserializeObject<AppConfig>(File.ReadAllText(path));
+                string json = File.ReadAllText(path);
+                var config = JsonConvert.DeserializeObject<AppConfig>(json);
                 if (config == null)
                 {
                     unreadable = true;
                     return null;
                 }
 
+                // A structurally corrupt widget list is treated exactly like
+                // unparseable JSON: evidence copy, backup recovery, default.
+                EnsureStructurallySound(config, json);
                 RepairLegacyItems(config);
                 return config;
             }
@@ -138,25 +157,94 @@ namespace Kobold.Core
             }
         }
 
-        /// <summary>Fills in Names missing from configs written before they existed.</summary>
-        private static void RepairLegacyItems(AppConfig config)
+        /// <summary>
+        /// Moves a config written before widget kinds existed (only "Folders")
+        /// into "Widgets", keeping order and fields. When both lists are
+        /// present Widgets wins; the legacy list is always dropped so a save
+        /// never writes it out again.
+        /// </summary>
+        private void MigrateLegacyWidgets()
         {
+            if (Widgets.Count == 0 && Folders.Count > 0)
+            {
+                Widgets.AddRange(Folders.Cast<WidgetData>());
+            }
+
+            Folders = null;
+        }
+
+        /// <summary>
+        /// Rejects a config whose widget lists are explicitly null or hold null
+        /// entries, or whose item lists are explicitly null. Missing properties
+        /// are fine - the constructors initialize every list. Throwing here lets
+        /// the caller treat such a file as unreadable, so a null list can never
+        /// reach the UI and recovery follows the usual evidence/backup path.
+        /// </summary>
+        private static void EnsureStructurallySound(AppConfig config, string json)
+        {
+            // An explicit "Folders": null never reaches the property: its
+            // NullValueHandling.Ignore keeps the constructor's list. Check the
+            // raw token so such a file is still rejected below.
+            if (JObject.Parse(json)["Folders"]?.Type == JTokenType.Null)
+                throw new InvalidDataException("config Folders is null");
+
+            if (config.Folders == null) throw new InvalidDataException("config Folders is null");
+            if (config.Widgets == null) throw new InvalidDataException("config Widgets is null");
+
             foreach (var folder in config.Folders)
             {
-                // A missing MaxPanelRows already defaults in the FolderData
-                // constructor; only hand-edited out-of-range values need repair.
-                if (folder.MaxPanelRows < PanelRows.MinAllowedRows || folder.MaxPanelRows > PanelRows.MaxAllowedRows)
-                {
-                    folder.MaxPanelRows = PanelRows.DefaultMaxRows;
-                }
+                if (folder == null) throw new InvalidDataException("config Folders holds a null entry");
+                if (folder.Items == null) throw new InvalidDataException("config folder Items is null");
+            }
 
-                foreach (var item in folder.Items)
+            foreach (var widget in config.Widgets)
+            {
+                if (widget == null) throw new InvalidDataException("config Widgets holds a null entry");
+                if (widget is FolderData folder && folder.Items == null)
+                    throw new InvalidDataException("config folder Items is null");
+                if (widget is TodoData todo && todo.Items == null)
+                    throw new InvalidDataException("config todo Items is null");
+            }
+        }
+
+        /// <summary>Fills in fields missing from configs written before they existed.</summary>
+        private static void RepairLegacyItems(AppConfig config)
+        {
+            // Legacy entries are repaired before the migration moves them.
+            foreach (var folder in config.Folders) RepairFolder(folder);
+
+            foreach (var widget in config.Widgets)
+            {
+                if (widget is FolderData folder) RepairFolder(folder);
+                else if (widget is TodoData todo) RepairTodo(todo);
+            }
+        }
+
+        private static void RepairFolder(FolderData folder)
+        {
+            // A missing MaxPanelRows already defaults in the FolderData
+            // constructor; only hand-edited out-of-range values need repair.
+            if (folder.MaxPanelRows < PanelRows.MinAllowedRows || folder.MaxPanelRows > PanelRows.MaxAllowedRows)
+            {
+                folder.MaxPanelRows = PanelRows.DefaultMaxRows;
+            }
+
+            foreach (var item in folder.Items)
+            {
+                if (string.IsNullOrEmpty(item.Name) && !string.IsNullOrEmpty(item.Path))
                 {
-                    if (string.IsNullOrEmpty(item.Name) && !string.IsNullOrEmpty(item.Path))
-                    {
-                        item.Name = Path.GetFileName(item.Path);
-                    }
+                    item.Name = Path.GetFileName(item.Path);
                 }
+            }
+        }
+
+        private static void RepairTodo(TodoData todo)
+        {
+            foreach (var item in todo.Items)
+            {
+                if (string.IsNullOrEmpty(item.Id)) item.Id = Guid.NewGuid().ToString();
+                if (item.Date.HasValue) item.Date = item.Date.Value.Date;
+                if (item.CompletedDate.HasValue) item.CompletedDate = item.CompletedDate.Value.Date;
             }
         }
 
@@ -306,7 +394,7 @@ namespace Kobold.Core
             var folder = FolderData.Create(name, color, posX, posY, gridColumns);
             lock (_saveLock)
             {
-                Folders.Add(folder);
+                Widgets.Add(folder);
             }
             SaveDebounced();
             return folder;
@@ -319,7 +407,7 @@ namespace Kobold.Core
         {
             lock (_saveLock)
             {
-                Folders.RemoveAll(f => f.Id == id);
+                Widgets.RemoveAll(w => w is FolderData && w.Id == id);
             }
             SaveDebounced();
         }
@@ -329,7 +417,7 @@ namespace Kobold.Core
         /// </summary>
         public FolderData GetFolder(string id)
         {
-            return Folders.Find(f => f.Id == id);
+            return Widgets.Find(w => w is FolderData && w.Id == id) as FolderData;
         }
     }
 }

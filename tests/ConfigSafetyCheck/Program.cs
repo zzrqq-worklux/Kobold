@@ -100,7 +100,7 @@ namespace Kobold.ConfigSafetyCheck
             File.WriteAllText(backup2, "also broken");
 
             var cfg2 = AppConfig.Load(main2, backup2);
-            Check(cfg2.Folders.Count == 1, "both unreadable => default config with one folder");
+            Check(cfg2.Widgets.Count == 1, "both unreadable => default config with one folder");
             Check(Directory.GetFiles(dir2, "config.json.failed-*").Length == 1 &&
                   Directory.GetFiles(dir2, "config.json.backup.failed-*").Length == 1,
                 "both unreadable files get evidence copies");
@@ -112,7 +112,7 @@ namespace Kobold.ConfigSafetyCheck
             // After the default write the main file is valid again - the next
             // start uses it and produces no further evidence copies.
             var cfg2b = AppConfig.Load(main2, backup2);
-            Check(cfg2b.Folders.Count == 1 &&
+            Check(cfg2b.Widgets.Count == 1 &&
                   Directory.GetFiles(dir2, "config.json.failed-*").Length == 1,
                 "the rewritten main is used on the next start (no new evidence copies)");
 
@@ -122,7 +122,7 @@ namespace Kobold.ConfigSafetyCheck
             string main3 = Path.Combine(dir3, "config.json");
             string backup3 = main3 + ".backup";
             var cfg3 = AppConfig.Load(main3, backup3);
-            Check(cfg3.Folders.Count == 1 && File.Exists(main3),
+            Check(cfg3.Widgets.Count == 1 && File.Exists(main3),
                 "fresh install writes the default config");
             Check(Directory.GetFiles(dir3, "*.failed-*").Length == 0,
                 "fresh install leaves no evidence copies");

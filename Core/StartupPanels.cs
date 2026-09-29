@@ -13,14 +13,14 @@ namespace Kobold.Core
         /// panels collapse when they lose focus, and at that moment they are
         /// closed as far as the user is concerned.
         /// </summary>
-        public static List<FolderData> ToRestore(IEnumerable<FolderData> folders)
+        public static List<WidgetData> ToRestore(IEnumerable<WidgetData> widgets)
         {
-            var restore = new List<FolderData>();
-            if (folders == null) return restore;
+            var restore = new List<WidgetData>();
+            if (widgets == null) return restore;
 
-            foreach (var folder in folders)
+            foreach (var widget in widgets)
             {
-                if (folder != null && folder.IsExpanded) restore.Add(folder);
+                if (widget != null && widget.IsExpanded) restore.Add(widget);
             }
             return restore;
         }

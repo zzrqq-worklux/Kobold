@@ -70,10 +70,11 @@ namespace Kobold.Core
         /// </summary>
         public void Initialize()
         {
-            // Create widgets for each folder in config
-            foreach (var folderData in _config.Folders)
+            // Create widgets for each folder in config. Other kinds are kept in
+            // the config but have no window yet in this phase.
+            foreach (var data in _config.Widgets)
             {
-                CreateWidgetInternal(folderData);
+                if (data is FolderData folderData) CreateWidgetInternal(folderData);
             }
 
             // The island is the shared entry point that launches widget panels
@@ -89,9 +90,9 @@ namespace Kobold.Core
 
             // Reopen the panels that were still open when the app last closed.
             // No activation: starting up must not steal focus from other apps.
-            foreach (var folder in StartupPanels.ToRestore(_config.Folders))
+            foreach (var data in StartupPanels.ToRestore(_config.Widgets))
             {
-                var widget = _widgets.FirstOrDefault(w => w.FolderId == folder.Id);
+                var widget = _widgets.FirstOrDefault(w => w.FolderId == data.Id);
                 if (widget != null) OpenPanel(widget, activate: false);
             }
 
@@ -124,7 +125,7 @@ namespace Kobold.Core
         /// </summary>
         public void RefreshIsland()
         {
-            _island?.SetWidgets(_config.Folders);
+            _island?.SetWidgets(_config.Widgets);
         }
 
         /// <summary>
