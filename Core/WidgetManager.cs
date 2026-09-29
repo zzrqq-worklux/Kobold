@@ -18,7 +18,7 @@ namespace Kobold.Core
         private static readonly object _lock = new object();
         
         private AppConfig _config;
-        private List<FolderWidget> _widgets = new List<FolderWidget>();
+        private List<IWidgetWindow> _widgets = new List<IWidgetWindow>();
         private IslandWindow _island;
         private FullscreenWatcher _fullscreenWatcher;
 
@@ -45,7 +45,7 @@ namespace Kobold.Core
         }
 
         public AppConfig Config => _config;
-        public IReadOnlyList<FolderWidget> Widgets => _widgets.AsReadOnly();
+        public IReadOnlyList<IWidgetWindow> Widgets => _widgets.AsReadOnly();
 
         private WidgetManager()
         {
@@ -70,11 +70,11 @@ namespace Kobold.Core
         /// </summary>
         public void Initialize()
         {
-            // Create widgets for each folder in config. Other kinds are kept in
-            // the config but have no window yet in this phase.
+            // One window per config entry of a known kind; unknown kinds stay
+            // in the config untouched but get no window.
             foreach (var data in _config.Widgets)
             {
-                if (data is FolderData folderData) CreateWidgetInternal(folderData);
+                CreateWidgetInternal(data);
             }
 
             // The island is the shared entry point that launches widget panels
@@ -92,7 +92,7 @@ namespace Kobold.Core
             // No activation: starting up must not steal focus from other apps.
             foreach (var data in StartupPanels.ToRestore(_config.Widgets))
             {
-                var widget = _widgets.FirstOrDefault(w => w.FolderId == data.Id);
+                var widget = _widgets.FirstOrDefault(w => w.WidgetId == data.Id);
                 if (widget != null) OpenPanel(widget, activate: false);
             }
 
@@ -131,9 +131,9 @@ namespace Kobold.Core
         /// <summary>
         /// Opens the clicked widget's panel centered below the island.
         /// </summary>
-        private void OnWidgetActivated(string folderId)
+        private void OnWidgetActivated(string widgetId)
         {
-            var widget = _widgets.FirstOrDefault(w => w.FolderId == folderId);
+            var widget = _widgets.FirstOrDefault(w => w.WidgetId == widgetId);
             if (widget == null || _island == null) return;
 
             if (widget.IsPanelOpen)
@@ -146,13 +146,13 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Opens a widget's menu (rename / colour / grid / size / delete) when its
-        /// island tile is right-clicked, keeping the island expanded while the
-        /// menu is up.
+        /// Opens a widget's menu (rename / colour / grid / size / delete) when
+        /// its island tile is right-clicked, keeping the island expanded while
+        /// the menu is up.
         /// </summary>
-        private void OnWidgetMenuRequested(string folderId)
+        private void OnWidgetMenuRequested(string widgetId)
         {
-            var widget = _widgets.FirstOrDefault(w => w.FolderId == folderId);
+            var widget = _widgets.FirstOrDefault(w => w.WidgetId == widgetId);
             if (widget == null || _island == null) return;
 
             _island.PauseAutoCollapse();
@@ -160,22 +160,51 @@ namespace Kobold.Core
         }
 
         /// <summary>Opens a widget's panel; defaults to centered below the island when unplaced.</summary>
-        private void OpenPanel(FolderWidget widget, bool activate = true)
+        private void OpenPanel(IWidgetWindow widget, bool activate = true)
         {
-            if (_island == null) return;
+            if (widget == null || _island == null) return;
             var (panelWidth, _) = widget.GetPanelSize();
             double left = _island.CenterX - panelWidth / 2; // clamped per-monitor inside ShowPanel
             widget.ShowPanel(left, _island.PanelTop, activate);
         }
 
-        /// <summary>
-        /// Creates a new widget and adds it to config
-        /// </summary>
-        public FolderWidget CreateWidget(string name, string color, int posX, int posY, int gridColumns = 3)
+        /// <summary>Toggles a widget's panel - shared by the widget menu.</summary>
+        public void ToggleWidgetPanel(IWidgetWindow widget)
         {
-            var folderData = _config.AddFolder(name, color, posX, posY, gridColumns);
-            folderData.IsPanelPinned = true; // opens pinned so it survives while being filled
-            var widget = CreateWidgetInternal(folderData);
+            if (widget == null) return;
+            if (widget.IsPanelOpen)
+            {
+                widget.HidePanel();
+                return;
+            }
+            OpenPanel(widget);
+        }
+
+        /// <summary>
+        /// Creates a widget of the given kind with the default name, palette
+        /// colour and staggered position - shared by the island add menu and
+        /// the tray new-widget submenu.
+        /// </summary>
+        public IWidgetWindow CreateWidget(string kindId)
+        {
+            var kind = WidgetKindRegistry.Find(kindId);
+            if (kind == null) return null;
+
+            var data = kind.CreateDefault();
+            int screenWidth = (int)SystemParameters.PrimaryScreenWidth;
+            int screenHeight = (int)SystemParameters.PrimaryScreenHeight;
+            int widgetCount = _widgets.Count;
+
+            data.PosX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
+            data.PosY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
+            data.Color = UiTokens.FolderPalette[widgetCount % 5];
+            data.Name = Localization.Get(kind.NameKey);
+            data.IsPanelPinned = true; // opens pinned so it survives while being filled
+
+            if (data is FolderData folder) folder.GridColumns = _config.DefaultGridColumns;
+
+            _config.AddWidget(data);
+            var widget = CreateWidgetInternal(data);
             RefreshIsland();
             OpenPanel(widget);
             SaveConfig();
@@ -194,26 +223,6 @@ namespace Kobold.Core
         public void ShowSettings()
         {
             new SettingsWindow().ShowDialog();
-        }
-
-        /// <summary>
-        /// Creates a widget with the default name/color/position - shared by
-        /// the tray menu and the island add entry.
-        /// </summary>
-        public void CreateWidgetWithDefaults()
-        {
-            int screenWidth = (int)SystemParameters.PrimaryScreenWidth;
-            int screenHeight = (int)SystemParameters.PrimaryScreenHeight;
-            int widgetCount = _widgets.Count;
-
-            int posX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
-            int posY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
-
-            string color = UiTokens.FolderPalette[widgetCount % 5];
-            string name = Localization.Get("UI_DefaultFolderName");
-            int gridColumns = _config.DefaultGridColumns;
-
-            CreateWidget(name, color, posX, posY, gridColumns);
         }
 
         /// <summary>Pushes the persisted island settings (collapse delay + position) to the island.</summary>
@@ -253,28 +262,43 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Creates a widget for existing folder data
+        /// Creates the window for an existing config entry and wires it to the
+        /// manager. Unknown kinds have no window: they stay config-only.
         /// </summary>
-        private FolderWidget CreateWidgetInternal(FolderData data)
+        private IWidgetWindow CreateWidgetInternal(WidgetData data)
         {
-            var widget = new FolderWidget(data);
-            
+            var widget = CreateWindow(data);
+            if (widget == null) return null;
+
             widget.OnDeleted += (w) =>
             {
                 _widgets.Remove(w);
-                _config.RemoveFolder(w.FolderId);
+                _config.RemoveWidget(w.WidgetId);
                 RefreshIsland();
             };
-            
+
             widget.OnDataChanged += () =>
             {
                 SaveConfig();
                 RefreshIsland();
             };
-            
+
             _widgets.Add(widget);
-            
+
             return widget;
+        }
+
+        /// <summary>
+        /// The window class for a data entry, chosen through the kind registry
+        /// so unknown kinds are skipped without touching their data.
+        /// </summary>
+        private static IWidgetWindow CreateWindow(WidgetData data)
+        {
+            if (data == null || WidgetKindRegistry.Find(data.Kind) == null) return null;
+
+            if (data is FolderData folder) return new FolderWidget(folder);
+            if (data is TodoData todo) return new TodoWidget(todo);
+            return null;
         }
 
         /// <summary>
@@ -282,12 +306,12 @@ namespace Kobold.Core
         /// </summary>
         public void RemoveWidget(string id)
         {
-            var widget = _widgets.FirstOrDefault(w => w.FolderId == id);
+            var widget = _widgets.FirstOrDefault(w => w.WidgetId == id);
             if (widget != null)
             {
                 _widgets.Remove(widget);
-                widget.Close();
-                _config.RemoveFolder(id);
+                if (widget is Window window) window.Close();
+                _config.RemoveWidget(id);
                 RefreshIsland();
             }
         }
@@ -389,7 +413,7 @@ namespace Kobold.Core
             
             foreach (var widget in _widgets.ToList())
             {
-                widget.Close();
+                if (widget is Window window) window.Close();
             }
             _widgets.Clear();
         }

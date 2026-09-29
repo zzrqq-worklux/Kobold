@@ -226,10 +226,15 @@ namespace Kobold.Controls
                 return;
             }
 
-            _isDragActive = true;
+            // Capture first: Mouse.Capture re-enters WPF input dispatch and can
+            // synchronously pump a pending MouseMove into Header_MouseMove, so
+            // nothing may forward a drag before the host holds its anchor.
+            // _isDragActive flips to true only after HeaderDragStarted: a move
+            // pumped during the capture sees false and is dropped.
             Mouse.Capture(Header);
             Mouse.OverrideCursor = CursorHelper.GrabHand;
             HeaderDragStarted?.Invoke(ScreenCursor());
+            _isDragActive = true;
             e.Handled = true;
         }
 

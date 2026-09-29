@@ -248,7 +248,8 @@ namespace Kobold.Windows
             // Live preview on pinned panels (visible next to the modal settings window)
             foreach (var widget in WidgetManager.Instance.Widgets)
             {
-                widget.ApplyPanelOpacity();
+                if (widget is FolderWidget folder) folder.ApplyPanelOpacity();
+                else if (widget is WidgetWindowBase window) window.ApplyPanelOpacity();
             }
         }
 

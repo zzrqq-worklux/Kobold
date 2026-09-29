@@ -16,7 +16,7 @@ namespace Kobold.Controls
     /// Partial classes: Theme.cs, Dialogs.cs, Interactions.cs
     /// Implements INotifyPropertyChanged for data binding
     /// </summary>
-    public partial class FolderWidget : Window, INotifyPropertyChanged
+    public partial class FolderWidget : Window, INotifyPropertyChanged, IWidgetWindow
     {
         #region INotifyPropertyChanged
         
@@ -82,7 +82,32 @@ namespace Kobold.Controls
         public FolderData Data => _data;
         public string FolderId => _data.Id;
         public bool IsPanelOpen => _isExpanded;
-        
+
+        #region IWidgetWindow (explicit - behaviour unchanged until phase 3)
+
+        string IWidgetWindow.WidgetId => _data.Id;
+        WidgetData IWidgetWindow.Data => _data;
+
+        event Action<IWidgetWindow> IWidgetWindow.OnDeleted
+        {
+            add { OnDeleted += value; }
+            remove { OnDeleted -= value; }
+        }
+
+        event Action IWidgetWindow.OnDataChanged
+        {
+            add { OnDataChanged += value; }
+            remove { OnDataChanged -= value; }
+        }
+
+        (double width, double height) IWidgetWindow.GetPanelSize()
+        {
+            var (width, height) = CalculatePanelSize();
+            return (width, height);
+        }
+
+        #endregion
+
         /// <summary>
         /// Grid columns for XAML binding - automatically updates UniformGrid
         /// </summary>

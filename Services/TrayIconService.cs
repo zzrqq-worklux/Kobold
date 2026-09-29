@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
 using Kobold.Core;
+using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Services
@@ -71,13 +72,17 @@ namespace Kobold.Services
         {
             var menu = new ContextMenu();
             
-            // Add New Widget
+            // Add New Widget: a submenu with one entry per widget kind
             var addItem = new MenuItem 
             { 
                 Header = Localization.Get("Tray_AddWidget"),
                 FontWeight = FontWeights.Bold
             };
-            addItem.Click += (s, e) => AddNewWidget();
+            foreach (var kindItem in WidgetMenuBuilder.BuildKindChoices(
+                kind => WidgetManager.Instance.CreateWidget(kind)))
+            {
+                addItem.Items.Add(kindItem);
+            }
             
             // Show All
             var showAllItem = new MenuItem { Header = Localization.Get("Tray_ShowAll") };
@@ -122,11 +127,6 @@ namespace Kobold.Services
         {
             WidgetManager.Instance.ShowSettings();
             RefreshMenu(); // Refresh menu in case language changed
-        }
-
-        private void AddNewWidget()
-        {
-            WidgetManager.Instance.CreateWidgetWithDefaults();
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]

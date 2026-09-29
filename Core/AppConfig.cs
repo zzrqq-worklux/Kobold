@@ -399,27 +399,25 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Adds a new folder widget
+        /// Adds a widget of any kind
         /// </summary>
-        public FolderData AddFolder(string name, string color, int posX, int posY, int gridColumns = 3)
+        public void AddWidget(WidgetData widget)
         {
-            var folder = FolderData.Create(name, color, posX, posY, gridColumns);
             lock (_saveLock)
             {
-                Widgets.Add(folder);
+                Widgets.Add(widget);
             }
             SaveDebounced();
-            return folder;
         }
 
         /// <summary>
-        /// Removes a folder widget by ID
+        /// Removes a widget of any kind by ID
         /// </summary>
-        public void RemoveFolder(string id)
+        public void RemoveWidget(string id)
         {
             lock (_saveLock)
             {
-                Widgets.RemoveAll(w => w is FolderData && w.Id == id);
+                Widgets.RemoveAll(w => w.Id == id);
             }
             SaveDebounced();
         }

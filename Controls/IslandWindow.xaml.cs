@@ -113,7 +113,7 @@ namespace Kobold.Controls
             AddTile.MouseLeave += (s, e) => AddTile.Background = Brushes.Transparent;
             AddTile.MouseLeftButtonDown += (s, e) =>
             {
-                WidgetManager.Instance.CreateWidgetWithDefaults();
+                ShowAddWidgetMenu();
                 e.Handled = true;
             };
 
@@ -485,20 +485,47 @@ namespace Kobold.Controls
             TilePanel.Children.Clear();
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
-            var folders = _widgets.OfType<FolderData>().ToList();
-            foreach (var folder in folders)
+            var widgets = _widgets.Where(HasWindowKind).ToList();
+            foreach (var widget in widgets)
             {
-                TilePanel.Children.Add(CreateTile(folder, iconStyle));
+                TilePanel.Children.Add(CreateTile(widget, iconStyle));
             }
 
             // The middle section measures itself: its content, capped to a share
             // of the island monitor's work area. Anything wider scrolls, with
             // the hint bar below.
-            TileScroller.Width = IslandLayout.MiddleViewWidth(folders.Count, GetWorkArea().Width);
+            TileScroller.Width = IslandLayout.MiddleViewWidth(widgets.Count, GetWorkArea().Width);
 
             // Without widgets the trailing divider would sit right next to the
             // desktop divider - hide it so the entries stay separated once.
-            SettingsDivider.Visibility = folders.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SettingsDivider.Visibility = widgets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>Unknown kinds have neither tile nor window; they only stay in the config.</summary>
+        private static bool HasWindowKind(WidgetData widget)
+        {
+            return widget != null && WidgetKindRegistry.Find(widget.Kind) != null;
+        }
+
+        /// <summary>Type picker for the island's + tile: create a folder or a todo.</summary>
+        private void ShowAddWidgetMenu()
+        {
+            var menu = new ContextMenu();
+            foreach (var item in WidgetMenuBuilder.BuildKindChoices(
+                kind => WidgetManager.Instance.CreateWidget(kind)))
+            {
+                menu.Items.Add(item);
+            }
+
+            MenuBuilder.Prepare(menu);
+            menu.PlacementTarget = AddTile;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+
+            // Keep the island expanded while the menu is up, exactly like a
+            // widget tile's menu.
+            PauseAutoCollapse();
+            menu.Closed += (s, e) => ResumeAutoCollapse();
+            menu.IsOpen = true;
         }
 
         private void DesktopTile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -552,10 +579,17 @@ namespace Kobold.Controls
             DesktopTile.ToolTip = action + " · " + Localization.Get("Island_DesktopOpenHint");
         }
 
-        private Border CreateTile(FolderData folder, string iconStyle)
+        private Border CreateTile(WidgetData widget, string iconStyle)
         {
             var iconCanvas = new Canvas { Width = 64, Height = 64 };
-            IconRendererFactory.Create(iconStyle).Render(iconCanvas, folder.Color);
+            if (widget.Kind == "todo")
+            {
+                RenderTodoGlyph(iconCanvas, widget.Color);
+            }
+            else
+            {
+                IconRendererFactory.Create(iconStyle).Render(iconCanvas, widget.Color);
+            }
 
             var tile = new Border
             {
@@ -564,29 +598,80 @@ namespace Kobold.Controls
                 CornerRadius = new CornerRadius(8),
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
-                ToolTip = folder.Name,
+                ToolTip = widget.Name,
                 Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
                 Child = new Viewbox { Width = TileIconSize, Height = TileIconSize, Child = iconCanvas }
             };
 
             tile.MouseEnter += (s, e) => tile.Background = ThemeManager.IslandHoverBrush;
             tile.MouseLeave += (s, e) => tile.Background = Brushes.Transparent;
-            tile.MouseLeftButtonUp += (s, e) => ActivateTile(folder.Id);
+            tile.MouseLeftButtonUp += (s, e) => ActivateTile(widget.Id);
             tile.MouseRightButtonUp += (s, e) =>
             {
-                // The widget menu (rename / colour / grid / size / delete) lives
+                // The widget menu (rename / colour / lock / pin / delete) lives
                 // on the widget; WidgetManager routes the request to it.
-                WidgetMenuRequested?.Invoke(folder.Id);
+                WidgetMenuRequested?.Invoke(widget.Id);
                 e.Handled = true;
             };
 
             return tile;
         }
 
-        private void ActivateTile(string folderId)
+        /// <summary>
+        /// Calendar glyph for todo tiles, painted in the widget colour so the
+        /// island keeps reading as one family.
+        /// </summary>
+        private static void RenderTodoGlyph(Canvas canvas, string color)
+        {
+            Color baseColor = Utils.HexToColor(color);
+            var bodyBrush = new SolidColorBrush(baseColor);
+            var headerBrush = new SolidColorBrush(Utils.DarkenColor(baseColor, 0.3));
+            var ringBrush = new SolidColorBrush(Utils.DarkenColor(baseColor, 0.45));
+            var dotBrush = new SolidColorBrush(Utils.LightenColor(baseColor, 1.6));
+
+            // Rings first: the header covers their lower half.
+            for (int i = 0; i < 2; i++)
+            {
+                var ring = new Rectangle
+                {
+                    Width = 5,
+                    Height = 12,
+                    RadiusX = 2.5,
+                    RadiusY = 2.5,
+                    Fill = ringBrush
+                };
+                Canvas.SetLeft(ring, i == 0 ? 16 : 40);
+                Canvas.SetTop(ring, 2);
+                canvas.Children.Add(ring);
+            }
+
+            var header = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M9,8 H51 A7,7 0 0 1 58,15 V22 H2 V15 A7,7 0 0 1 9,8 Z"),
+                Fill = headerBrush
+            };
+            canvas.Children.Add(header);
+
+            var body = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M2,22 H58 V51 A7,7 0 0 1 51,58 H9 A7,7 0 0 1 2,51 Z"),
+                Fill = bodyBrush
+            };
+            canvas.Children.Add(body);
+
+            for (int i = 0; i < 3; i++)
+            {
+                var dot = new Ellipse { Width = 6, Height = 6, Fill = dotBrush };
+                Canvas.SetLeft(dot, 14 + i * 12);
+                Canvas.SetTop(dot, 34);
+                canvas.Children.Add(dot);
+            }
+        }
+
+        private void ActivateTile(string widgetId)
         {
             // Keep the island open so several panels can be toggled without re-hovering.
-            WidgetActivated?.Invoke(folderId);
+            WidgetActivated?.Invoke(widgetId);
         }
 
         #endregion
@@ -600,7 +685,7 @@ namespace Kobold.Controls
             // capsule is the fixed parts plus that capped middle. The cap uses
             // the island monitor's work area, matching RebuildTiles, so the tile
             // scroller never outgrows the capsule.
-            return IslandLayout.ContentWidth(_widgets.Count(w => w is FolderData), GetWorkArea().Width);
+            return IslandLayout.ContentWidth(_widgets.Count(HasWindowKind), GetWorkArea().Width);
         }
 
         /// <summary>
