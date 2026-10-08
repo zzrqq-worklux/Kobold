@@ -236,15 +236,12 @@
                                         </Border>
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <!-- Both keys are overridden on ExpandedPanel from the
+                                                     widget's colour (fix round 15, R3), so the selection
+                                                     repaints on a live colour change; the app-level
+                                                     SelectionFill stays as the blue fallback. -->
                                                 <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.SelectionBorder}"/>
-                                                <Setter TargetName="ItemBorder" Property="Background">
-                                                    <Setter.Value>
-                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                            <GradientStop Color="{StaticResource Kobold.Color.SelectionFillTop}" Offset="0"/>
-                                                            <GradientStop Color="{StaticResource Kobold.Color.SelectionFillBottom}" Offset="1"/>
-                                                        </LinearGradientBrush>
-                                                    </Setter.Value>
-                                                </Setter>
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource Kobold.Brush.SelectionFill}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding IsStored}" Value="True">
                                                 <Setter TargetName="StoredBadge" Property="Visibility" Value="Visible"/>

@@ -32,6 +32,14 @@ namespace Kobold.Core
                 ["UI_BadgeHelpStored"] = "Colored cabinet: the file is stored in Kobold (no longer at its original place)",
                 ["UI_BadgeHelpMissing"] = "Grey !: the source file is missing (moved or deleted outside Kobold)",
 
+                // Todo widget
+                ["Todo_TodayButton"] = "Today",
+                ["Todo_AddPlaceholder"] = "Add todo…",
+                ["Todo_AddChild"] = "Add sub-todo",
+                ["Todo_CarriedBadge"] = "Carried over",
+                ["Todo_ItemCountFormat"] = "{0} items",
+                ["Todo_EmptyDay"] = "No todos for this day",
+
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ Rename",
                 ["Menu_ChangeColor"] = "🎨 Change Color",
@@ -183,6 +191,14 @@ namespace Kobold.Core
                 ["UI_BadgeHelpStored"] = "彩色文件柜：文件已收纳到 Kobold 存储（不在原位置）",
                 ["UI_BadgeHelpMissing"] = "灰色 !：源文件已丢失（在 Kobold 之外被移动或删除）",
 
+                // Todo widget
+                ["Todo_TodayButton"] = "今天",
+                ["Todo_AddPlaceholder"] = "添加待办…",
+                ["Todo_AddChild"] = "添加子项",
+                ["Todo_CarriedBadge"] = "顺延",
+                ["Todo_ItemCountFormat"] = "{0} 项",
+                ["Todo_EmptyDay"] = "这一天没有待办",
+
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ 重命名",
                 ["Menu_ChangeColor"] = "🎨 更改颜色",
@@ -333,6 +349,14 @@ namespace Kobold.Core
                 ["UI_BadgeHelpTitle"] = "バッジの説明",
                 ["UI_BadgeHelpStored"] = "カラフルなキャビネット: ファイルは Kobold ストレージに収納済み（元の場所にはありません）",
                 ["UI_BadgeHelpMissing"] = "グレーの !: 元ファイルが見つかりません（Kobold 以外で移動または削除）",
+
+                // Todo widget
+                ["Todo_TodayButton"] = "今日",
+                ["Todo_AddPlaceholder"] = "ToDo を追加…",
+                ["Todo_AddChild"] = "サブToDoを追加",
+                ["Todo_CarriedBadge"] = "持ち越し",
+                ["Todo_ItemCountFormat"] = "{0} 件",
+                ["Todo_EmptyDay"] = "この日のToDoはありません",
 
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ 名前の変更",

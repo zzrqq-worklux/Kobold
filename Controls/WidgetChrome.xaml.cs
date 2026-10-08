@@ -28,6 +28,7 @@ namespace Kobold.Controls
         private bool _isPinned;
         private bool _isDragActive;
         private double _panelOpacity = MAX_PANEL_OPACITY;
+        private string _panelColor;
 
         /// <summary>Lock button pressed; the host toggles its own lock state and sets <see cref="IsLocked"/>.</summary>
         public event Action LockClicked;
@@ -89,6 +90,22 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// The host widget's colour. The whole panel backdrop is tinted from it
+        /// (same gradient maths as FolderWidget's panel); null/empty keeps the
+        /// neutral surface so colourless usage is unchanged.
+        /// </summary>
+        public string PanelColor
+        {
+            get => _panelColor;
+            set
+            {
+                if (string.Equals(_panelColor, value, StringComparison.Ordinal)) return;
+                _panelColor = value;
+                UpdatePanelBackground();
+            }
+        }
+
+        /// <summary>
         /// Repaints everything theme-dependent: panel backdrop, header tint,
         /// title and the lock/pin icon states.
         /// </summary>
@@ -115,13 +132,16 @@ namespace Kobold.Controls
         #region Theme and state visuals
 
         /// <summary>
-        /// Mirrors FolderWidget's panel colours with the theme's neutral panel
-        /// surface (the chrome carries no widget colour of its own).
+        /// Mirrors FolderWidget's panel colours: the backdrop is tinted from
+        /// <see cref="PanelColor"/> when one is set, otherwise from the
+        /// theme's neutral panel surface.
         /// </summary>
         private void UpdatePanelBackground()
         {
             bool isDark = ThemeManager.IsDarkTheme;
-            Color baseColor = Utils.HexToColor(isDark ? UiTokens.Dark.Surface : UiTokens.Light.Surface);
+            Color baseColor = string.IsNullOrEmpty(_panelColor)
+                ? Utils.HexToColor(isDark ? UiTokens.Dark.Surface : UiTokens.Light.Surface)
+                : Utils.HexToColor(_panelColor);
             Color darkColor = Utils.DarkenColor(baseColor, 0.3);
 
             var panelBrush = new LinearGradientBrush

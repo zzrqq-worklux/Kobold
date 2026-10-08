@@ -305,6 +305,19 @@ namespace Kobold.Core
             // are identical in both themes.
             resources["Kobold.Color.SelectionFillTop"] = Utils.HexToColor(UiTokens.Dark.SelectionFillTop);
             resources["Kobold.Color.SelectionFillBottom"] = Utils.HexToColor(UiTokens.Dark.SelectionFillBottom);
+
+            // The folder widget's selected-item fill as one brush resource
+            // (fix round 15, R3): a widget shadows it locally to follow its own
+            // colour, so this app-level default keeps today's blue look.
+            var selectionFill = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1)
+            };
+            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(UiTokens.Dark.SelectionFillTop), 0));
+            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(UiTokens.Dark.SelectionFillBottom), 1));
+            selectionFill.Freeze();
+            resources[BrushKeyPrefix + "SelectionFill"] = selectionFill;
         }
 
         private static SolidColorBrush Themed(string key, string darkHex, string lightHex)

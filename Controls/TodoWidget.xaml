@@ -6,9 +6,11 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="False" ResizeMode="NoResize" ShowInTaskbar="False"
         Width="340" Height="40"
+        PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
         TextOptions.TextFormattingMode="Display">
 
-    <!-- The shared shell. The content host stays empty until the calendar and
-         day list arrive (Task 2.4); the widget menu comes from WidgetMenuBuilder. -->
+    <!-- The shared shell. TodoCalendarView is injected into the chrome's
+         ContentHost by the code-behind (it needs the data + host reference);
+         the widget menu comes from WidgetMenuBuilder. -->
     <local:WidgetChrome x:Name="TodoChrome"/>
 </local:WidgetWindowBase>

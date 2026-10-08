@@ -98,16 +98,25 @@ namespace Kobold.Controls
         public bool IsModalOpen => _modalDepth > 0;
 
         /// <summary>
-        /// Size (DIP) this widget's content needs; the 40px chrome header is
-        /// added on top by <see cref="GetPanelSize"/>.
+        /// Size (DIP) this widget's content needs; the 40px chrome header and
+        /// the chrome shell's border are added on top by
+        /// <see cref="GetPanelSize"/>.
         /// </summary>
         protected abstract (double width, double height) GetContentSize();
 
-        /// <summary>Full panel size used for placement and the window itself.</summary>
+        /// <summary>
+        /// Full panel size used for placement and the window itself: the
+        /// content size plus the chrome header and the chrome shell's border.
+        /// The shell border lives inside the window, so leaving it out would
+        /// arrange the content 2 DIP short in each dimension and WPF's layout
+        /// clip would cut the view's edge.
+        /// </summary>
         public (double width, double height) GetPanelSize()
         {
             var (contentWidth, contentHeight) = GetContentSize();
-            return (contentWidth, WidgetConstants.HEADER_HEIGHT + contentHeight);
+            var border = Chrome == null ? new Thickness(0) : Chrome.Shell.BorderThickness;
+            return (contentWidth + border.Left + border.Right,
+                    WidgetConstants.HEADER_HEIGHT + contentHeight + border.Top + border.Bottom);
         }
 
         /// <summary>
@@ -169,13 +178,14 @@ namespace Kobold.Controls
 
         public abstract void ShowWidgetMenu(Action onClosed = null);
 
-        /// <summary>Pushes the widget's persisted state (title / lock / pin) onto the chrome.</summary>
+        /// <summary>Pushes the widget's persisted state (title / colour / lock / pin) onto the chrome.</summary>
         public virtual void UpdateUI()
         {
             if (Chrome == null) return;
             Chrome.Title = _data.Name;
             Chrome.IsLocked = _data.IsLocked;
             Chrome.IsPinned = _data.IsPanelPinned;
+            Chrome.PanelColor = _data.Color;
         }
 
         /// <summary>Re-applies the theme and the configured panel opacity.</summary>
@@ -416,6 +426,44 @@ namespace Kobold.Controls
             double maxX = minX + SystemParameters.VirtualScreenWidth - width;
             double maxY = minY + SystemParameters.VirtualScreenHeight - height;
             return (Math.Max(minX, Math.Min(x, maxX)), Math.Max(minY, Math.Min(y, maxY)));
+        }
+
+        /// <summary>
+        /// Moves the window back inside a monitor's work area after its size
+        /// changed, so a panel that grew downward never hangs off the bottom
+        /// (its add row and editors live at the very bottom). Same monitor
+        /// maths as <see cref="ResolvePanelPosition"/>, but with the window's
+        /// current position and DPI scale instead of a remembered placement.
+        /// </summary>
+        protected void FitPanelToWorkArea()
+        {
+            try
+            {
+                double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+                var device = PanelPlacement.ToDeviceRect(Left, Top, Width, Height, 0, scale);
+                var monitors = MonitorInterop.GetMonitors();
+                if (monitors.Count == 0)
+                {
+                    var fallback = ClampToVirtualScreen(Left, Top, Width, Height);
+                    Left = fallback.x;
+                    Top = fallback.y;
+                    return;
+                }
+
+                var clamped = PanelPlacement.ClampToMonitors(device, monitors);
+                var target = MonitorInterop.GetMonitorForDevicePoint(
+                    new Point(clamped.X + clamped.Width / 2, clamped.Y + clamped.Height / 2)) ?? monitors[0];
+                var dip = PanelPlacement.ToDipRect(clamped, target);
+                Left = dip.X;
+                Top = dip.Y;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] panel fit fallback: {ex.Message}");
+                var fallback = ClampToVirtualScreen(Left, Top, Width, Height);
+                Left = fallback.x;
+                Top = fallback.y;
+            }
         }
 
         /// <summary>

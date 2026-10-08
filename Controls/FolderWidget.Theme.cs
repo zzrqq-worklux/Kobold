@@ -105,6 +105,25 @@ namespace Kobold.Controls
             
             // Header text color
             PanelHeaderText.Foreground = new SolidColorBrush(isDark ? Colors.White : Color.FromRgb(40, 40, 40));
+
+            // Fix round 15 (R3): the item-selection visual follows the widget's
+            // own colour (the raw base colour, no readability fallback). The
+            // ItemTemplate's DynamicResource lookups resolve these keys up the
+            // tree, so overriding them on ExpandedPanel repaints the selection
+            // on every colour, theme and opacity path that lands here.
+            var selectionBorder = new SolidColorBrush(baseColor);
+            selectionBorder.Freeze();
+            ExpandedPanel.Resources["Kobold.Brush.SelectionBorder"] = selectionBorder;
+
+            var selectionFill = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(0, 1)
+            };
+            selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x15, baseColor.R, baseColor.G, baseColor.B), 0));
+            selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x25, baseColor.R, baseColor.G, baseColor.B), 1));
+            selectionFill.Freeze();
+            ExpandedPanel.Resources["Kobold.Brush.SelectionFill"] = selectionFill;
         }
 
         /// <summary>

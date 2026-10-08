@@ -1,0 +1,131 @@
+<UserControl x:Class="Kobold.Controls.TodoCalendarView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             TextOptions.TextFormattingMode="Display">
+
+    <!-- The todo content: month navigation + grid, the selected day's list and
+         the inline add row. The dynamic parts (day cells, list rows) are built
+         in code by the renderer; this file fixes the skeleton and its metrics. -->
+    <Grid x:Name="Root" Margin="12,8,12,10" Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Month navigation: ‹  2026年9月  ›  [今天] -->
+        <Grid x:Name="MonthNav" Grid.Row="0" Height="28">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="22"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="22"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="PrevMonthButton" Grid.Column="0" Width="22" Height="22" CornerRadius="6"
+                    Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
+                    MouseLeftButtonDown="PrevMonth_Click">
+                <TextBlock Text="‹" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+
+            <TextBlock x:Name="MonthTitle" Grid.Column="1" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+            <Border x:Name="NextMonthButton" Grid.Column="2" Width="22" Height="22" CornerRadius="6"
+                    Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
+                    MouseLeftButtonDown="NextMonth_Click">
+                <TextBlock Text="›" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Shown only while the viewed month is not the month of today -->
+            <Border x:Name="TodayButton" Grid.Column="3" Height="20" Padding="7,0" CornerRadius="10"
+                    Background="{DynamicResource Kobold.Brush.ButtonSecondary}" Cursor="Hand"
+                    VerticalAlignment="Center" Visibility="Collapsed"
+                    MouseLeftButtonDown="TodayButton_Click">
+                <TextBlock x:Name="TodayText" FontSize="10" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Kobold.Brush.TextPrimary}"/>
+            </Border>
+        </Grid>
+
+        <!-- Weekday headers: culture abbreviations, rotated to FirstDayOfWeek -->
+        <UniformGrid x:Name="WeekdayGrid" Grid.Row="1" Columns="7" Height="18"/>
+
+        <!-- Day cells: number + up to 3 marker dots (+ when more), built in code -->
+        <UniformGrid x:Name="DayGrid" Grid.Row="2" Columns="7"/>
+
+        <Border Grid.Row="3" Height="1" Margin="0,4,0,4"
+                Background="{DynamicResource Kobold.Brush.Border}"/>
+
+        <!-- Selected day header: "9月28日 · 3 项" -->
+        <Grid Grid.Row="4" Height="24">
+            <TextBlock x:Name="DayHeaderText" FontSize="12" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                       VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Day list: parent rows, indented sub-todo rows; 2-6 visible rows -->
+        <ScrollViewer x:Name="ItemsScroller" Grid.Row="5"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      PanningMode="VerticalOnly" Background="Transparent">
+            <StackPanel x:Name="ItemsPanel"/>
+        </ScrollViewer>
+
+        <!-- Inline add: a pill button until clicked, then the inline box. On an
+             empty day the revealed box and the pill stack (checkbox row first);
+             on a non-empty day the box replaces the pill. Enter commits and
+             keeps the box (continuous entry); an empty box that loses focus
+             returns to the pill. -->
+        <StackPanel x:Name="AddRow" Grid.Row="6" Background="Transparent"
+                    MouseLeftButtonDown="AddRow_MouseLeftButtonDown">
+            <!-- Revealed state: a todo-like row - the unticked checkbox leading,
+                 then the input. No background band: the caret is the only cue
+                 (there is no placeholder text at all). -->
+            <Border x:Name="AddInputHost" Height="30" Visibility="Collapsed" CornerRadius="8"
+                    Background="Transparent">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="20"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <ContentPresenter x:Name="AddCheckHost" Grid.Column="0" VerticalAlignment="Center"/>
+
+                    <!-- No padding/inset: the caret starts where a list row's
+                         text starts, right beside the checkbox. The shared
+                         style's 10,6 padding would also squeeze the line box,
+                         so both insets are stripped. -->
+                    <TextBox x:Name="AddBox" Grid.Column="1" FontSize="13" Height="22" Padding="0"
+                             VerticalAlignment="Center"
+                             Background="Transparent" BorderThickness="0"
+                             Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                             CaretBrush="{DynamicResource Kobold.Brush.TextPrimary}"
+                             VerticalContentAlignment="Center"
+                             LostKeyboardFocus="AddBox_LostKeyboardFocus"
+                             KeyDown="AddBox_KeyDown"/>
+                </Grid>
+            </Border>
+
+            <!-- Collapsed state: full-width pill with a single centered "+".
+                 The border follows the widget colour like the glyph (fix
+                 round 14): it is set in code on the Refresh pass. Fix round
+                 18: the top margin is the missing half-leading, so the pill's
+                 top border sits at the list's inter-row pitch. -->
+            <Border x:Name="AddPill" Height="30" CornerRadius="15" Margin="0,6,0,0"
+                    Background="Transparent"
+                    BorderThickness="1"
+                    Cursor="Hand"
+                    MouseEnter="AddPill_MouseEnter" MouseLeave="AddPill_MouseLeave"
+                    MouseLeftButtonDown="AddPill_MouseLeftButtonDown">
+                <TextBlock x:Name="AddPillGlyph" Text="＋" FontSize="14"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>
