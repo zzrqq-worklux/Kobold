@@ -235,6 +235,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("quick access: matching rejects empty paths", QuickAccessMatchRejectsEmptyPaths);
                 failures += TryCheck("quick access: the state probe is read-only", QuickAccessProbeIsReadOnly);
                 failures += TryCheck("settings: the storage row is present", SettingsStorageRowIsPresent);
+                failures += TryCheck("settings: storage buttons are comfortable and fit all languages",
+                    SettingsStorageButtonsFitAllLanguages);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -3505,6 +3507,103 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the pin button shows '" + label + "', wanted one of the localized Pin/Unpin labels");
+            }
+        }
+
+        /// <summary>
+        /// Fix round 1 (R1): the storage buttons must be comfortable (>= 34
+        /// high, >= 16 horizontal padding) and the two buttons + gap must fit
+        /// the section in en/zh/ja without clipping or overflowing - checked
+        /// for BOTH toggle labels (the machine's real pin state is irrelevant;
+        /// the ja pin label is the longest).
+        /// </summary>
+        private static void SettingsStorageButtonsFitAllLanguages()
+        {
+            ThemeManager.Initialize("dark");
+            string original = Localization.CurrentLanguage;
+            try
+            {
+                foreach (var lang in new[] { "en", "zh", "ja" })
+                {
+                    Localization.SetLanguage(lang);
+                    var window = new SettingsWindow();
+
+                    var root = window.Content as FrameworkElement;
+                    if (root == null)
+                        throw new InvalidOperationException(lang + ": the settings window has no content");
+
+                    var row = window.FindName("StorageButtonsRow") as FrameworkElement;
+                    var open = window.FindName("StorageOpenButton") as Button;
+                    var pin = window.FindName("StoragePinButton") as Button;
+                    if (row == null || open == null || pin == null)
+                        throw new InvalidOperationException(lang + ": the storage button row is missing");
+
+                    open.Content = Localization.Get("Settings_StorageOpen");
+                    foreach (var labelKey in new[] { "Settings_StoragePin", "Settings_StorageUnpin" })
+                    {
+                        pin.Content = Localization.Get(labelKey);
+
+                        root.InvalidateMeasure();
+                        root.Measure(new Size(window.Width, window.Height));
+                        root.Arrange(new Rect(0, 0, window.Width, window.Height));
+                        root.UpdateLayout();
+
+                        // The offscreen layout must have produced real numbers,
+                        // or the fit comparison would silently pass on NaN. The
+                        // row is right-aligned (content-sized); the section's
+                        // inner StackPanel carries the available width.
+                        var section = row.Parent as FrameworkElement;
+                        if (section == null || double.IsNaN(section.ActualWidth) || section.ActualWidth < 200)
+                        {
+                            throw new InvalidOperationException(
+                                lang + ": the storage section was not laid out (width " +
+                                (section == null ? "no parent" : section.ActualWidth.ToString("0.##")) + ")");
+                        }
+                        if (double.IsNaN(open.ActualWidth) || double.IsNaN(pin.ActualWidth) ||
+                            open.ActualWidth <= 0 || pin.ActualWidth <= 0)
+                        {
+                            throw new InvalidOperationException(
+                                lang + ": the buttons were not laid out (" + open.ActualWidth + "/" + pin.ActualWidth + ")");
+                        }
+
+                        if (open.MinHeight < 34 || pin.MinHeight < 34)
+                        {
+                            throw new InvalidOperationException(
+                                lang + ": MinHeight " + open.MinHeight + "/" + pin.MinHeight + " < 34");
+                        }
+                        if (open.ActualHeight < 34 || pin.ActualHeight < 34)
+                        {
+                            throw new InvalidOperationException(
+                                lang + ": button height " + open.ActualHeight.ToString("0.##") + "/" +
+                                pin.ActualHeight.ToString("0.##") + " < 34");
+                        }
+                        if (open.Padding.Left < 16 || pin.Padding.Left < 16)
+                        {
+                            throw new InvalidOperationException(
+                                lang + ": horizontal padding " + open.Padding + "/" + pin.Padding + " < 16");
+                        }
+
+                        double total = open.ActualWidth + pin.Margin.Left + pin.ActualWidth;
+                        if (total > section.ActualWidth + 0.5)
+                        {
+                            throw new InvalidOperationException(
+                                lang + " [" + labelKey + "]: the buttons need " + total.ToString("0.##") +
+                                " of the section's " + section.ActualWidth.ToString("0.##") + " (overflow)");
+                        }
+                    }
+
+                    // Auto width is what guarantees the localized text is never
+                    // clipped; an explicit Width would break that silently.
+                    if (!double.IsNaN(open.Width) || !double.IsNaN(pin.Width))
+                    {
+                        throw new InvalidOperationException(
+                            lang + ": an explicit button Width can clip the localized text");
+                    }
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage(original);
             }
         }
 

@@ -137,6 +137,20 @@ namespace Kobold.ConfigSafetyCheck
             Check(Directory.GetFiles(dir4, "*.failed-*").Length == 0,
                 "no evidence copies when load succeeds");
 
+            // --- Storage pin desired state: default true, explicit false survives.
+
+            Check(new AppConfig().PinStorageToQuickAccess,
+                "a new config desires the storage pin (default true)");
+            Check(cfg4.PinStorageToQuickAccess,
+                "an old config without the storage-pin field defaults to the desired pin");
+
+            string dir6 = NewCase("case6");
+            string main6 = Path.Combine(dir6, "config.json");
+            File.WriteAllText(main6, "{\"PinStorageToQuickAccess\":false}");
+            var cfg6 = AppConfig.Load(main6, main6 + ".backup");
+            Check(!cfg6.PinStorageToQuickAccess,
+                "an explicit false for the storage pin survives the load");
+
             // --- Force-save cap: a debounce that keeps being pushed back still lands.
 
             string dir5 = NewCase("case5");

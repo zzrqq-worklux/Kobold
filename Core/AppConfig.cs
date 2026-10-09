@@ -24,6 +24,7 @@ namespace Kobold.Core
         public int DefaultGridColumns { get; set; }
         public string IconStyle { get; set; }  // classic, handdrawn
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
+        public bool PinStorageToQuickAccess { get; set; } // Desired Quick Access state for the storage folder
         public List<WidgetData> Widgets { get; set; }
 
         /// <summary>
@@ -48,6 +49,7 @@ namespace Kobold.Core
             IslandCollapseDelay = 1.0; // seconds
             HideDesktopIcons = false;
             HideIconsOriginal = null;
+            PinStorageToQuickAccess = true; // the storage folder is pinned unless the user turns it off
             Widgets = new List<WidgetData>();
             Folders = new List<FolderData>();
         }

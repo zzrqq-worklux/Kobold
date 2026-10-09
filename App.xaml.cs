@@ -2,10 +2,12 @@ using System;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Kobold.Core;
 using Kobold.Controls;
+using Kobold.Helpers;
 using Kobold.Services;
 
 namespace Kobold
@@ -94,6 +96,18 @@ namespace Kobold
             
             // Initialize system tray
             _trayService = new TrayIconService();
+
+            // Best-effort Quick Access reconciliation, off the critical path:
+            // when the user wants the storage folder pinned, apply it once the
+            // dispatcher is idle. Never auto-unpins (a manual pin survives a
+            // desired state of false).
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (WidgetManager.Instance.Config.PinStorageToQuickAccess)
+                {
+                    QuickAccess.EnsurePinned(Utils.GetStoragePath());
+                }
+            }), DispatcherPriority.Background);
 
             // Windows logoff/shutdown: land one final config write. Normal exit
             // paths (tray exit / OnExit) keep their existing behaviour.

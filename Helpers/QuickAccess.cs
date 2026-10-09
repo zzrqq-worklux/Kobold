@@ -34,6 +34,27 @@ namespace Kobold.Helpers
         }
 
         /// <summary>
+        /// Best-effort reconciliation for the desired state true: pins the
+        /// folder only when it is not already pinned. Never unpins - a manual
+        /// pin must survive a desired state of false. Silent except Debug.
+        /// </summary>
+        public static void EnsurePinned(string path)
+        {
+            try
+            {
+                if (TryIsPinned(path) == true) return;
+                if (!Pin(path))
+                {
+                    Debug.WriteLine($"[Kobold] Quick Access auto-pin failed for {path}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] Quick Access auto-pin failed for {path}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Read-only: true when the folder is a Quick Access entry, false when
         /// it is not, null when the namespace could not be enumerated.
         /// </summary>

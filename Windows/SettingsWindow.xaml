@@ -204,11 +204,11 @@
                             <TextBlock x:Name="StoragePathText" Text=""
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
                                        TextTrimming="CharacterEllipsis" FontFamily="Segoe UI"/>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-                                <Button x:Name="StorageOpenButton" Content="Open folder" Height="30" Padding="12,0"
+                            <StackPanel x:Name="StorageButtonsRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                                <Button x:Name="StorageOpenButton" Content="Open folder" MinHeight="34" MinWidth="96" Padding="16,0" FontSize="12"
                                         Style="{StaticResource Kobold.Style.SecondaryButton}"
                                         Click="StorageOpenButton_Click"/>
-                                <Button x:Name="StoragePinButton" Content="Pin to Quick Access" Height="30" Padding="12,0" Margin="8,0,0,0"
+                                <Button x:Name="StoragePinButton" Content="Pin to Quick Access" MinHeight="34" MinWidth="120" Padding="16,0" FontSize="12" Margin="8,0,0,0"
                                         Style="{StaticResource Kobold.Style.PrimaryButton}"
                                         Click="StoragePinButton_Click"/>
                             </StackPanel>

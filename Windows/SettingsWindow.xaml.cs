@@ -24,6 +24,7 @@ namespace Kobold.Windows
         private string _originalIconStyle;
         private double _originalPanelOpacity;
         private double _originalIslandDelay;
+        private bool _originalPinStorage;
 
         // Storage row: the real Quick Access state (probe is read-only; the
         // pin/unpin actions only ever run from the button click).
@@ -45,6 +46,7 @@ namespace Kobold.Windows
             _originalIconStyle = _config.IconStyle;
             _originalPanelOpacity = _config.PanelOpacity;
             _originalIslandDelay = _config.IslandCollapseDelay;
+            _originalPinStorage = _config.PinStorageToQuickAccess;
             
             LoadSettings();
             UpdateLocalizedText();
@@ -327,6 +329,9 @@ namespace Kobold.Windows
             // Re-read the real state (read-only) so the toggle never lies.
             _storagePinned = WaitForPinState(path, !isPinned);
             UpdateStoragePinButtonText();
+
+            // The desired state follows the successful action; Save persists it.
+            _config.PinStorageToQuickAccess = !isPinned;
         }
 
         /// <summary>
@@ -380,6 +385,13 @@ namespace Kobold.Windows
             _config.IconStyle = _originalIconStyle;
             _config.PanelOpacity = _originalPanelOpacity;
             _config.IslandCollapseDelay = _originalIslandDelay;
+            _config.PinStorageToQuickAccess = _originalPinStorage;
+            // Best-effort: re-apply a desired pin, but never auto-unpin, so a
+            // manual pin done while the dialog was open survives the cancel.
+            if (_originalPinStorage)
+            {
+                QuickAccess.EnsurePinned(Utils.GetStoragePath());
+            }
             PanelOpacitySlider.Value = _originalPanelOpacity * 100.0; // re-applies opacity to widgets
             IslandDelaySlider.Value = _originalIslandDelay * 1000.0; // re-applies delay to the island
             
