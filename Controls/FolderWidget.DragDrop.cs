@@ -359,8 +359,8 @@ namespace Kobold.Controls
         /// <summary>Highlights the panel while another browse panel hovers it.</summary>
         private void SetBrowseDropHighlight(bool on)
         {
-            if (on) ExpandedPanel.BorderBrush = ThemeManager.AccentBlueBrush;
-            else ExpandedPanel.ClearValue(Border.BorderBrushProperty);
+            if (on) Chrome.Shell.BorderBrush = ThemeManager.AccentBlueBrush;
+            else Chrome.Shell.ClearValue(Border.BorderBrushProperty);
         }
 
         /// <summary>

@@ -5,7 +5,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using Kobold.Core;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
@@ -30,11 +29,9 @@ namespace Kobold.Controls
             UpdateUI();
 
             var (panelWidth, panelHeight) = CalculatePanelSize();
-            ExpandedPanel.Width = panelWidth;
-            ExpandedPanel.Height = panelHeight;
-            ExpandedPanel.Visibility = Visibility.Visible;
-            System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
-            System.Windows.Controls.Canvas.SetTop(ExpandedPanel, 0);
+            Chrome.Shell.Width = panelWidth;
+            Chrome.Shell.Height = panelHeight;
+            Chrome.Visibility = Visibility.Visible;
             Width = panelWidth;
             Height = panelHeight;
 
@@ -57,7 +54,7 @@ namespace Kobold.Controls
                 ShowActivated = true;
             }
             if (activate) Activate();
-            AnimationHelper.PanelOpen(ExpandedPanel);
+            AnimationHelper.PanelOpen(Chrome.Shell);
         }
 
         /// <summary>Fades the panel out and hides its window.</summary>
@@ -74,13 +71,13 @@ namespace Kobold.Controls
             _isExpanded = false;
             UpdateBrowseWatch(); // closing: stop following the folder
             PersistPanelState(false);
-            AnimationHelper.PanelClose(ExpandedPanel, () =>
+            AnimationHelper.PanelClose(Chrome.Shell, () =>
             {
                 // Drop the listing once the fade is over: clearing it here keeps a
                 // long browse listing from staying resident, without blanking the
                 // panel while it fades out.
                 ItemsContainer.ItemsSource = null;
-                ExpandedPanel.Visibility = Visibility.Collapsed;
+                Chrome.Visibility = Visibility.Collapsed;
                 Hide();
             });
         }
@@ -136,37 +133,20 @@ namespace Kobold.Controls
             return (Math.Max(minX, Math.Min(x, maxX)), Math.Max(minY, Math.Min(y, maxY)));
         }
 
-        #region Panel Drag (header handle)
+        #region Panel Drag (chrome header events)
 
-        private void PanelHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void OnChromeHeaderDragStarted(Point cursor)
         {
-            if (e.ChangedButton != MouseButton.Left) return;
-
-            if (_data.IsLocked)
-            {
-                // Locked: the panel cannot move - flash the lock as feedback.
-                FlashLockIndicator();
-                e.Handled = true;
-                return;
-            }
-
-            // Snapshot the anchor; a click without movement is not a drag.
-            var cursor = System.Windows.Forms.Cursor.Position;
-            _dragStartCursor = new Point(cursor.X, cursor.Y);
+            // Snapshot the anchor; a click without movement is not a drag. The
+            // chrome has already captured the header and handles the locked
+            // flash / No cursor itself, so the folder only moves the window.
+            _dragStartCursor = cursor;
             _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
             _isDraggingWindow = false;
-            Mouse.Capture(PanelHeader);
-            Mouse.OverrideCursor = CursorHelper.GrabHand;
-            e.Handled = true;
         }
 
-        private void PanelHeader_MouseMove(object sender, MouseEventArgs e)
+        private void OnChromeHeaderDragMoved(Point cursor)
         {
-            if (e.LeftButton != MouseButtonState.Pressed) return;
-            if (_data.IsLocked || !ReferenceEquals(Mouse.Captured, PanelHeader)) return;
-
-            var cursor = System.Windows.Forms.Cursor.Position;
-
             if (!_isDraggingWindow)
             {
                 double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
@@ -181,35 +161,20 @@ namespace Kobold.Controls
             double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             Left += (cursor.X - _dragLastCursor.X) / dpi;
             Top += (cursor.Y - _dragLastCursor.Y) / dpi;
-            _dragLastCursor = new Point(cursor.X, cursor.Y);
-            e.Handled = true;
+            _dragLastCursor = cursor;
         }
 
-        private void PanelHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void OnChromeHeaderDragEnded(Point cursor)
         {
-            if (e.ChangedButton != MouseButton.Left) return;
-            Mouse.Capture(null);
-            Mouse.OverrideCursor = null;
+            if (!_isDraggingWindow) return; // a click, not a drag
+            _isDraggingWindow = false;
 
-            if (_isDraggingWindow)
-            {
-                _isDraggingWindow = false;
-                // Remember where the user parked this panel, and the DPI scale
-                // its (DIP) coordinates are relative to.
-                _data.PanelX = Left;
-                _data.PanelY = Top;
-                _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-                OnDataChanged?.Invoke();
-            }
-            e.Handled = true;
-        }
-
-        private void PanelHeader_RightClick(object sender, MouseButtonEventArgs e)
-        {
-            // The desktop folder icon (old menu host) is gone in island mode, so the
-            // widget menu - rename / color / lock / grid / size / delete - lives here.
-            ShowWidgetMenu();
-            e.Handled = true;
+            // Remember where the user parked this panel, and the DPI scale
+            // its (DIP) coordinates are relative to.
+            _data.PanelX = Left;
+            _data.PanelY = Top;
+            _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            OnDataChanged?.Invoke();
         }
 
         #endregion
@@ -284,34 +249,14 @@ namespace Kobold.Controls
             }
         }
         
-        private void PinButton_Click(object sender, MouseButtonEventArgs e)
+        private void PinButton_Click()
         {
             _data.IsPanelPinned = !_data.IsPanelPinned;
-            UpdatePinButtonVisual();
+            // The chrome paints the pin visuals (rotation, gold tint, tooltip).
+            Chrome.IsPinned = _data.IsPanelPinned;
             OnDataChanged?.Invoke();
-            e.Handled = true;
         }
-        
-        private void UpdatePinButtonVisual()
-        {
-            if (_data.IsPanelPinned)
-            {
-                // Pinned state - rotate to 0 (vertical) and highlight
-                PinIconRotation.Angle = 0;
-                PinIcon.Fill = ThemeManager.PinGoldBrush;
-                PinIcon.Stroke = ThemeManager.PinDarkGoldBrush;
-                PinButton.ToolTip = Localization.Get("UI_UnpinTooltip");
-            }
-            else
-            {
-                // Unpinned state - rotate 45 degrees and dim
-                PinIconRotation.Angle = 45;
-                PinIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
-                PinIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
-                PinButton.ToolTip = Localization.Get("UI_PinTooltip");
-            }
-        }
-        
+
         private void HelpButton_Click(object sender, MouseButtonEventArgs e)
         {
             // The tooltip is the help; swallow the click so it does not start a
@@ -319,41 +264,11 @@ namespace Kobold.Controls
             e.Handled = true;
         }
 
-        private void LockButton_Click(object sender, MouseButtonEventArgs e)
+        private void LockButton_Click()
         {
             _data.IsLocked = !_data.IsLocked;
             UpdateUI();
             OnDataChanged?.Invoke();
-            e.Handled = true;
-        }
-
-        private void UpdateLockButtonVisual()
-        {
-            if (_data.IsLocked)
-            {
-                LockIcon.Fill = ThemeManager.PinGoldBrush;
-                LockIcon.Stroke = ThemeManager.PinDarkGoldBrush;
-                LockButton.ToolTip = Localization.Get("UI_UnlockTooltip");
-            }
-            else
-            {
-                LockIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
-                LockIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
-                LockButton.ToolTip = Localization.Get("UI_LockTooltip");
-            }
-
-            // Locked panels cannot be dragged - show a forbidden cursor over the header.
-            PanelHeader.Cursor = _data.IsLocked ? Cursors.No : CursorHelper.OpenHand;
-        }
-
-        private void FlashLockIndicator()
-        {
-            var pulse = new DoubleAnimationUsingKeyFrames();
-            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.4, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(120))));
-            pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(320))));
-            LockButtonScale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
-            LockButtonScale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
         }
         
         #endregion
@@ -577,12 +492,12 @@ namespace Kobold.Controls
         
         #region Panel Context Menu (New File/Folder)
         
-        private void ExpandedPanel_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        private void PanelShell_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
             // Only show panel context menu if clicking on empty area (not on an item)
             var hit = e.OriginalSource as DependencyObject;
             
-            while (hit != null && hit != ExpandedPanel)
+            while (hit != null && hit != Chrome.Shell)
             {
                 if (hit is Border b && b.DataContext is DisplayItem)
                 {

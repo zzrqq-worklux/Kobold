@@ -83,6 +83,14 @@ namespace Kobold.Controls
         public string FolderId => _data.Id;
         public bool IsPanelOpen => _isExpanded;
 
+        /// <summary>
+        /// The panel's shell element (the chrome's border): its backdrop,
+        /// hit-test root and the carrier of the widget-local selection brush
+        /// resources. Exposed for the XamlLoadCheck pin that used to name
+        /// ExpandedPanel directly.
+        /// </summary>
+        public FrameworkElement PanelShell => Chrome.Shell;
+
         #region IWidgetWindow (explicit - behaviour unchanged until phase 3)
 
         string IWidgetWindow.WidgetId => _data.Id;
@@ -138,10 +146,21 @@ namespace Kobold.Controls
             // Browsing is remembered across hiding the panel and restarting the
             // app; a folder that is gone falls back to the widget's own items.
             _browseStack.AddRange(BrowsePath.NormalizeStack(_data.BrowseStack, System.IO.Directory.Exists));
-            
-            // Never leave the grabbing cursor stuck if capture is lost mid-drag.
-            PanelHeader.LostMouseCapture += (s, e) => System.Windows.Input.Mouse.OverrideCursor = null;
-            
+
+            // The shared chrome owns the shell, the lock/pin buttons and the
+            // header drag/right-click input; the folder keeps its own behaviour
+            // and subscribes to the chrome's events (see InstallChromeSlots and
+            // the drag handlers in FolderWidget.Interactions.cs).
+            InstallChromeSlots();
+            Chrome.LockClicked += LockButton_Click;
+            Chrome.PinClicked += PinButton_Click;
+            Chrome.HeaderRightClicked += () => ShowWidgetMenu();
+            Chrome.HeaderDragStarted += OnChromeHeaderDragStarted;
+            Chrome.HeaderDragMoved += OnChromeHeaderDragMoved;
+            Chrome.HeaderDragEnded += OnChromeHeaderDragEnded;
+            Chrome.Shell.MouseLeftButtonDown += PanelShell_MouseLeftButtonDown;
+            Chrome.Shell.MouseRightButtonDown += PanelShell_MouseRightButtonDown;
+
             // Subscribe to theme changes for automatic updates
             ThemeManager.ThemeChanged += OnThemeChanged;
 
@@ -160,7 +179,6 @@ namespace Kobold.Controls
             {
                 // Apply theme colors (panel colors + item text) and pin state
                 RefreshTheme();
-                UpdatePinButtonVisual();
             };
             
             Closing += (s, e) =>
@@ -176,6 +194,43 @@ namespace Kobold.Controls
         {
             Dispatcher.Invoke(() => RefreshTheme());
         }
+
+        /// <summary>
+        /// Moves the folder's header buttons, content grid and footer hint from
+        /// the XAML staging grid into the chrome's slots. The chrome exposes
+        /// its slots as fields (ContentPresenter), so the assignment has to
+        /// happen here; the layout each slot used to have is unchanged.
+        /// </summary>
+        private void InstallChromeSlots()
+        {
+            // Detach from the staging grid first: WPF refuses to hand an element
+            // that already has a logical parent to a ContentPresenter.
+            SlotSource.Children.Remove(BackButton);
+            SlotSource.Children.Remove(PathButton);
+            SlotSource.Children.Remove(HelpButton);
+            SlotSource.Children.Remove(ContentPanel);
+            SlotSource.Children.Remove(MoreItemsText);
+
+            Chrome.HeaderLeading.Content = BackButton;
+
+            // Path + Help share the trailing slot (the old header had them in
+            // separate columns; a horizontal stack keeps the same order/spacing
+            // before the chrome's lock/pin).
+            var trailing = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            trailing.Children.Add(PathButton);
+            trailing.Children.Add(HelpButton);
+            Chrome.HeaderTrailing.Content = trailing;
+
+            Chrome.ContentHost.Content = ContentPanel;
+            Chrome.FooterHost.Content = MoreItemsText;
+
+            // The staging grid has served its purpose; drop it from the window.
+            RootGrid.Children.Remove(SlotSource);
+        }
         
         #endregion
 
@@ -183,19 +238,20 @@ namespace Kobold.Controls
 
         public void UpdateUI()
         {
-            PanelHeaderText.Text = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
-            PanelHeaderText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
+            Chrome.Title = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
+            Chrome.TitleText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
             BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
             BackButton.ToolTip = Localization.Get("UI_BrowseBack");
             PathButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
             PathButton.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
-            UpdatePinButtonVisual();
             BadgeHelpTitle.Text = Localization.Get("UI_BadgeHelpTitle");
             BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
             BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
 
-            // Lock indicator (header button)
-            UpdateLockButtonVisual();
+            // Lock/unlock + pin visuals (icons, tooltips, No cursor) are the
+            // chrome's: only the persisted state is pushed over.
+            Chrome.IsLocked = _data.IsLocked;
+            Chrome.IsPinned = _data.IsPanelPinned;
 
             // Apply item scale transform BEFORE setting items
             double scale = GetItemScale();
@@ -219,14 +275,11 @@ namespace Kobold.Controls
 
                 var (panelWidth, panelHeight) = CalculatePanelSize();
 
-                ExpandedPanel.Width = panelWidth;
-                ExpandedPanel.Height = panelHeight;
+                Chrome.Shell.Width = panelWidth;
+                Chrome.Shell.Height = panelHeight;
 
                 Width = panelWidth;
                 Height = panelHeight;
-
-                System.Windows.Controls.Canvas.SetLeft(ExpandedPanel, 0);
-                System.Windows.Controls.Canvas.SetTop(ExpandedPanel, 0);
             }
 
             // Update panel colors

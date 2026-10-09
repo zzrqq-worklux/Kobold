@@ -52,13 +52,13 @@ namespace Kobold.Controls
         /// <summary>
         /// Clears selection when clicking on panel background
         /// </summary>
-        private void ExpandedPanel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void PanelShell_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             // Only clear if clicking directly on panel background, not on items
             var hit = e.OriginalSource as DependencyObject;
             
             // Check if we clicked on an item
-            while (hit != null && hit != ExpandedPanel)
+            while (hit != null && hit != Chrome.Shell)
             {
                 if (hit is Border b && b.DataContext is DisplayItem)
                 {

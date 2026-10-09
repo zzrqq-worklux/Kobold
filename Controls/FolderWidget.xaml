@@ -29,157 +29,83 @@
             </DrawingImage.Drawing>
         </DrawingImage>
     </Window.Resources>
-    
+
+    <!-- Task 3.1: the hand-built shell (border/header/lock/pin) is gone; the
+         shared WidgetChrome draws it and owns the lock/pin/drag/right-click
+         input. The chrome exposes its slots as public fields, which XAML
+         cannot target with property-element syntax, so the folder content is
+         declared in the SlotSource staging grid (same namescope, removed by
+         the constructor) and moved into the chrome slots there. -->
     <Grid x:Name="RootGrid">
-        <!-- Use Canvas for absolute positioning - prevents any shifting -->
-        <Canvas>
-            <!-- Expanded Panel - fills the window (island mode: no desktop icon) -->
-            <Border x:Name="ExpandedPanel" 
-                    Canvas.Left="0" Canvas.Top="0"
-                    CornerRadius="16"
-                    BorderThickness="1" BorderBrush="{DynamicResource Kobold.Brush.PanelBorder}"
-                    Visibility="Collapsed"
-                    RenderOptions.BitmapScalingMode="HighQuality"
-                    SnapsToDevicePixels="True"
-                    MouseLeftButtonDown="ExpandedPanel_MouseLeftButtonDown"
-                    MouseRightButtonDown="ExpandedPanel_MouseRightButtonDown">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="25" ShadowDepth="8" Opacity="0.5" Color="Black" RenderingBias="Quality"/>
-                </Border.Effect>
-                
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="40"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    
-                    <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
-                    <Border x:Name="PanelHeader" Grid.Row="0" CornerRadius="16,16,0,0" Padding="12,0"
-                            Cursor="Hand"
-                            MouseLeftButtonDown="PanelHeader_MouseLeftButtonDown"
-                            MouseMove="PanelHeader_MouseMove"
-                            MouseLeftButtonUp="PanelHeader_MouseLeftButtonUp"
-                            MouseRightButtonDown="PanelHeader_RightClick">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            
-                            <Grid Grid.Column="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
+        <local:WidgetChrome x:Name="Chrome" Visibility="Collapsed"/>
 
-                                <!-- Back: only visible while browsing a folder -->
-                                <Border x:Name="BackButton" Grid.Column="0" Width="24" Height="24" CornerRadius="6"
-                                        Background="Transparent" Cursor="Hand"
-                                        Margin="0,0,6,0" Visibility="Collapsed"
-                                        MouseLeftButtonDown="BackButton_Click">
-                                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          Data="M7,1 L1,7 L7,13" Stretch="Uniform" Width="8" Height="14"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <TextBlock x:Name="PanelHeaderText" Grid.Column="1" Text="Files"
-                                           FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        <Grid x:Name="SlotSource" Visibility="Collapsed">
 
-                                <!-- Path menu: jump straight to any level of the current path (browse only) -->
-                                <Border x:Name="PathButton" Grid.Column="2" Width="24" Height="24" CornerRadius="6"
-                                        Background="Transparent" Cursor="Hand" Margin="2,0,0,0"
-                                        VerticalAlignment="Center" Visibility="Collapsed"
-                                        ToolTipService.InitialShowDelay="250"
-                                        MouseLeftButtonDown="PathButton_MouseDown"
-                                        MouseLeftButtonUp="PathButton_MouseUp">
-                                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          Data="M1,4 L6,9 L11,4" Stretch="Uniform" Width="10" Height="6"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </Grid>
-                            
-                            <!-- Help: what the item badges mean (hover) -->
-                            <Border x:Name="HelpButton" Grid.Column="1"
-                                    Width="24" Height="24" CornerRadius="6"
-                                    Background="Transparent" Cursor="Help"
-                                    VerticalAlignment="Center" Margin="8,0,0,0"
-                                    MouseLeftButtonDown="HelpButton_Click"
-                                    ToolTipService.InitialShowDelay="250"
-                                    ToolTipService.ShowDuration="20000">
-                                <Path Fill="{DynamicResource Kobold.Brush.IconFill}" Stretch="Uniform" Width="14" Height="14"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <Path.Data>
-                                        <PathGeometry FillRule="Nonzero"
-                                                      Figures="M490.496 942.08h46.08l109.568-110.592h153.6l32.768-31.744V645.12l110.592-110.592v-45.056l-109.568-109.568V223.232l-31.744-31.744h-155.648l-109.568-108.544h-46.08L384 191.488H226.304L192.512 224.256v155.648l-108.544 109.568v45.056l108.544 110.592v154.624l33.792 31.744H384l106.496 110.592zM394.24 768H256v-136.192l-7.168-22.528L151.552 512l95.232-96.256 9.216-22.528V256h138.24l23.552-9.216L512 150.528l98.304 96.256 22.528 9.216H768v137.216l11.264 22.528L876.544 512l-99.328 97.28-9.216 22.528V768h-135.168l-24.576 9.216L512 874.496l-94.208-97.28L394.24 768z m92.16-374.784q-5.12 8.192-8.192 18.432t-4.096 20.48v2.048h-57.344v-3.072q2.048-30.72 14.336-55.296 4.096-10.24 11.776-19.968t18.944-17.92 27.136-13.312 33.28-4.096q27.648-1.024 47.104 8.192t31.232 23.552 17.408 33.28 5.632 37.888-6.144 34.816-15.36 29.696-19.968 26.624-18.944 23.552-14.336 22.016q-6.144 9.216-6.144 20.48v30.72H486.4v-34.816q0-16.384 6.144-29.696t14.848-25.088 19.456-23.552 19.456-23.552 14.848-24.064 5.12-26.624q0-11.264-3.072-20.48-2.048-9.216-7.68-15.872t-13.824-9.728q-9.216-4.096-19.968-4.096t-19.968 5.632-15.36 13.824z m57.344 310.272h-56.32v-56.32h56.32v56.32z"/>
-                                    </Path.Data>
-                                </Path>
-                                <Border.ToolTip>
-                                    <ToolTip>
-                                        <StackPanel MaxWidth="280">
-                                            <TextBlock x:Name="BadgeHelpTitle" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                                <Image Source="{StaticResource StoredBadgeIcon}" Width="16" Height="16"
-                                                       VerticalAlignment="Top" Margin="0,1,8,0"/>
-                                                <TextBlock x:Name="BadgeHelpStored" TextWrapping="Wrap" MaxWidth="230"/>
-                                            </StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource Kobold.Brush.MissingBadge}"
-                                                        VerticalAlignment="Top" Margin="0,1,8,0">
-                                                    <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
-                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                </Border>
-                                                <TextBlock x:Name="BadgeHelpMissing" TextWrapping="Wrap" MaxWidth="230"/>
-                                            </StackPanel>
-                                        </StackPanel>
-                                    </ToolTip>
-                                </Border.ToolTip>
-                            </Border>
+                <!-- Back: only visible while browsing a folder -->
+                <Border x:Name="BackButton" Width="24" Height="24" CornerRadius="6"
+                        Background="Transparent" Cursor="Hand"
+                        Margin="0,0,6,0" Visibility="Collapsed"
+                        MouseLeftButtonDown="BackButton_Click">
+                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          Data="M7,1 L1,7 L7,13" Stretch="Uniform" Width="8" Height="14"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
 
-                            <!-- Lock toggle (next to pin) -->
-                            <Border x:Name="LockButton" Grid.Column="2" 
-                                    Width="24" Height="24" CornerRadius="6"
-                                    Background="Transparent" Cursor="Hand"
-                                    VerticalAlignment="Center" Margin="8,0,0,0"
-                                    MouseLeftButtonDown="LockButton_Click">
-                                <Border.RenderTransform>
-                                    <ScaleTransform x:Name="LockButtonScale" ScaleX="1" ScaleY="1" CenterX="12" CenterY="12"/>
-                                </Border.RenderTransform>
-                                <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                    <Path x:Name="LockIcon" 
-                                          Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
-                                          Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"/>
-                                </Canvas>
-                            </Border>
-                            
-                            <!-- Pin Button -->
-                            <Border x:Name="PinButton" Grid.Column="3" 
-                                    Width="24" Height="24" CornerRadius="6"
-                                    Background="Transparent" Cursor="Hand"
-                                    VerticalAlignment="Center" Margin="8,0,0,0"
-                                    MouseLeftButtonDown="PinButton_Click">
-                                <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                    <!-- Pin Icon (pushpin shape) -->
-                                    <Path x:Name="PinIcon" 
-                                          Data="M4,0 L10,0 L10,2 L9,2 L9,6 L11,8 L11,9 L8,9 L8,14 L6,14 L6,9 L3,9 L3,8 L5,6 L5,2 L4,2 Z"
-                                          Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"
-                                          RenderTransformOrigin="0.5,0.5">
-                                        <Path.RenderTransform>
-                                            <RotateTransform x:Name="PinIconRotation" Angle="45"/>
-                                        </Path.RenderTransform>
-                                    </Path>
-                                </Canvas>
-                            </Border>
-                        </Grid>
-                    </Border>
-                    
+                <!-- Path menu: jump straight to any level of the current path (browse only) -->
+                <Border x:Name="PathButton" Width="24" Height="24" CornerRadius="6"
+                        Background="Transparent" Cursor="Hand" Margin="2,0,0,0"
+                        VerticalAlignment="Center" Visibility="Collapsed"
+                        ToolTipService.InitialShowDelay="250"
+                        MouseLeftButtonDown="PathButton_MouseDown"
+                        MouseLeftButtonUp="PathButton_MouseUp">
+                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          Data="M1,4 L6,9 L11,4" Stretch="Uniform" Width="10" Height="6"
+                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Help: what the item badges mean (hover) -->
+                <Border x:Name="HelpButton"
+                        Width="24" Height="24" CornerRadius="6"
+                        Background="Transparent" Cursor="Help"
+                        VerticalAlignment="Center" Margin="8,0,0,0"
+                        MouseLeftButtonDown="HelpButton_Click"
+                        ToolTipService.InitialShowDelay="250"
+                        ToolTipService.ShowDuration="20000">
+                    <Path Fill="{DynamicResource Kobold.Brush.IconFill}" Stretch="Uniform" Width="14" Height="14"
+                          HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <Path.Data>
+                            <PathGeometry FillRule="Nonzero"
+                                          Figures="M490.496 942.08h46.08l109.568-110.592h153.6l32.768-31.744V645.12l110.592-110.592v-45.056l-109.568-109.568V223.232l-31.744-31.744h-155.648l-109.568-108.544h-46.08L384 191.488H226.304L192.512 224.256v155.648l-108.544 109.568v45.056l108.544 110.592v154.624l33.792 31.744H384l106.496 110.592zM394.24 768H256v-136.192l-7.168-22.528L151.552 512l95.232-96.256 9.216-22.528V256h138.24l23.552-9.216L512 150.528l98.304 96.256 22.528 9.216H768v137.216l11.264 22.528L876.544 512l-99.328 97.28-9.216 22.528V768h-135.168l-24.576 9.216L512 874.496l-94.208-97.28L394.24 768z m92.16-374.784q-5.12 8.192-8.192 18.432t-4.096 20.48v2.048h-57.344v-3.072q2.048-30.72 14.336-55.296 4.096-10.24 11.776-19.968t18.944-17.92 27.136-13.312 33.28-4.096q27.648-1.024 47.104 8.192t31.232 23.552 17.408 33.28 5.632 37.888-6.144 34.816-15.36 29.696-19.968 26.624-18.944 23.552-14.336 22.016q-6.144 9.216-6.144 20.48v30.72H486.4v-34.816q0-16.384 6.144-29.696t14.848-25.088 19.456-23.552 19.456-23.552 14.848-24.064 5.12-26.624q0-11.264-3.072-20.48-2.048-9.216-7.68-15.872t-13.824-9.728q-9.216-4.096-19.968-4.096t-19.968 5.632-15.36 13.824z m57.344 310.272h-56.32v-56.32h56.32v56.32z"/>
+                        </Path.Data>
+                    </Path>
+                    <Border.ToolTip>
+                        <ToolTip>
+                            <StackPanel MaxWidth="280">
+                                <TextBlock x:Name="BadgeHelpTitle" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Image Source="{StaticResource StoredBadgeIcon}" Width="16" Height="16"
+                                           VerticalAlignment="Top" Margin="0,1,8,0"/>
+                                    <TextBlock x:Name="BadgeHelpStored" TextWrapping="Wrap" MaxWidth="230"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource Kobold.Brush.MissingBadge}"
+                                            VerticalAlignment="Top" Margin="0,1,8,0">
+                                        <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <TextBlock x:Name="BadgeHelpMissing" TextWrapping="Wrap" MaxWidth="230"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </ToolTip>
+                    </Border.ToolTip>
+                </Border>
+
+                <!-- Files grid + empty state (both live in the chrome's content row) -->
+                <Grid x:Name="ContentPanel">
                     <!-- Items - scrolls when the listing is taller than the panel cap -->
-                    <ScrollViewer x:Name="ItemsScroller" Grid.Row="1"
+                    <ScrollViewer x:Name="ItemsScroller"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
                                   PanningMode="VerticalOnly"
@@ -236,8 +162,8 @@
                                         </Border>
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                <!-- Both keys are overridden on ExpandedPanel from the
-                                                     widget's colour (fix round 15, R3), so the selection
+                                                <!-- Both keys are overridden on the chrome's Shell from
+                                                     the widget's colour (fix round 15, R3), so the selection
                                                      repaints on a live colour change; the app-level
                                                      SelectionFill stays as the blue fallback. -->
                                                 <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.SelectionBorder}"/>
@@ -284,7 +210,7 @@
                     </ScrollViewer>
                     
                     <!-- Empty State -->
-                    <StackPanel x:Name="EmptyState" Grid.Row="1" 
+                    <StackPanel x:Name="EmptyState"
                                 VerticalAlignment="Center" HorizontalAlignment="Center"
                                 Visibility="Collapsed">
                         <TextBlock Text="📂" FontSize="32" HorizontalAlignment="Center" Opacity="0.6"/>
@@ -292,19 +218,16 @@
                                    Foreground="{DynamicResource Kobold.Brush.TextFaint}" FontSize="11" FontFamily="Segoe UI"
                                    Margin="0,6,0,0" HorizontalAlignment="Center"/>
                     </StackPanel>
-                    
-                    <!-- Truncated listing hint (browse mode only) -->
-                    <TextBlock x:Name="MoreItemsText" Grid.Row="2" Margin="12,0,12,8"
-                               FontSize="11" FontFamily="Segoe UI"
-                               Background="Transparent"
-                               Foreground="{DynamicResource Kobold.Brush.TextFaint}"
-                               TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"
-                               Cursor="Hand" Visibility="Collapsed"
-                               MouseLeftButtonUp="MoreItemsText_MouseLeftButtonUp"/>
                 </Grid>
-            </Border>
-        </Canvas>
+
+                <!-- Truncated listing hint (browse mode only) -->
+                <TextBlock x:Name="MoreItemsText" Margin="12,0,12,8"
+                           FontSize="11" FontFamily="Segoe UI"
+                           Background="Transparent"
+                           Foreground="{DynamicResource Kobold.Brush.TextFaint}"
+                           TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"
+                           Cursor="Hand" Visibility="Collapsed"
+                           MouseLeftButtonUp="MoreItemsText_MouseLeftButtonUp"/>
+        </Grid>
     </Grid>
 </Window>
-
-

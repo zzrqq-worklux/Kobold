@@ -33,9 +33,11 @@ namespace Kobold.Controls
         {
             var textBrush = ThemeManager.TextBrush;
             
-            // Panel header text
-            PanelHeaderText.Foreground = textBrush;
-            
+            // Panel shell, title, lock/pin icons and header tint: the chrome
+            // repaints all of them from its own state (same maths as the old
+            // hand-built shell).
+            Chrome.ApplyTheme();
+
             // Empty state text
             EmptyText.Foreground = textBrush;
             
@@ -64,56 +66,22 @@ namespace Kobold.Controls
         private void UpdatePanelColor()
         {
             Color baseColor = Utils.HexToColor(_data.Color);
-            Color darkColor = Utils.DarkenColor(baseColor, 0.3);
-            
-            // Use ThemeManager for theme state
-            bool isDark = ThemeManager.IsDarkTheme;
 
-            // The configured opacity scales the background ALPHA only, so panel
-            // content (icons, labels) stays fully crisp while the backdrop goes
-            // more or less transparent.
-            double opacity = GetPanelOpacity();
-            
-            // Panel background
-            var panelBrush = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(1, 1)
-            };
-            
-            if (isDark)
-            {
-                // Dark theme
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(210 * opacity), darkColor.R, darkColor.G, darkColor.B), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(230 * opacity), (byte)(darkColor.R * 0.6), (byte)(darkColor.G * 0.6), (byte)(darkColor.B * 0.6)), 1));
-            }
-            else
-            {
-                // Light theme - brighter, pastel-like colors
-                Color lightColor = Utils.LightenColor(baseColor, 0.6);
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(240 * opacity), 250, 250, 250), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(250 * opacity), lightColor.R, lightColor.G, lightColor.B), 1));
-            }
-            
-            ExpandedPanel.Background = panelBrush;
-            
-            // Panel header
-            var headerBrush = new SolidColorBrush(isDark 
-                ? Color.FromArgb((byte)(50 * opacity), 255, 255, 255) 
-                : Color.FromArgb((byte)(40 * opacity), 0, 0, 0));
-            PanelHeader.Background = headerBrush;
-            
-            // Header text color
-            PanelHeaderText.Foreground = new SolidColorBrush(isDark ? Colors.White : Color.FromRgb(40, 40, 40));
+            // The chrome owns the backdrop gradient and the header tint (the
+            // exact folder maths are pinned in XamlLoadCheck); pushing the
+            // colour and the configured opacity repaints both. The opacity
+            // scales the background ALPHA only, so panel content stays crisp.
+            Chrome.PanelColor = _data.Color;
+            Chrome.ApplyOpacity(GetPanelOpacity());
 
             // Fix round 15 (R3): the item-selection visual follows the widget's
             // own colour (the raw base colour, no readability fallback). The
             // ItemTemplate's DynamicResource lookups resolve these keys up the
-            // tree, so overriding them on ExpandedPanel repaints the selection
-            // on every colour, theme and opacity path that lands here.
+            // tree, so overriding them on the chrome's shell repaints the
+            // selection on every colour, theme and opacity path that lands here.
             var selectionBorder = new SolidColorBrush(baseColor);
             selectionBorder.Freeze();
-            ExpandedPanel.Resources["Kobold.Brush.SelectionBorder"] = selectionBorder;
+            Chrome.Shell.Resources["Kobold.Brush.SelectionBorder"] = selectionBorder;
 
             var selectionFill = new LinearGradientBrush
             {
@@ -123,7 +91,7 @@ namespace Kobold.Controls
             selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x15, baseColor.R, baseColor.G, baseColor.B), 0));
             selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x25, baseColor.R, baseColor.G, baseColor.B), 1));
             selectionFill.Freeze();
-            ExpandedPanel.Resources["Kobold.Brush.SelectionFill"] = selectionFill;
+            Chrome.Shell.Resources["Kobold.Brush.SelectionFill"] = selectionFill;
         }
 
         /// <summary>

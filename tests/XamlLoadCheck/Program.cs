@@ -2528,7 +2528,8 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Fix round 15 (R3): the folder widget's item-selection visual follows
-        /// the widget's own colour. ExpandedPanel carries widget-local brush
+        /// the widget's own colour. The panel shell (task 3.1: the chrome's
+        /// Shell border, exposed as PanelShell) carries widget-local brush
         /// resources (loaded from the colour path before the first read), and
         /// a live colour change + RefreshTheme updates both; the app-level
         /// default fill stays the shared blue gradient fallback.
@@ -2543,8 +2544,8 @@ namespace Kobold.XamlLoadCheck
             // RefreshTheme (the pin runs the same method explicitly).
             widget.RefreshTheme();
 
-            var panel = widget.FindName("ExpandedPanel") as FrameworkElement;
-            if (panel == null) throw new InvalidOperationException("ExpandedPanel not found");
+            var panel = widget.PanelShell;
+            if (panel == null) throw new InvalidOperationException("panel shell not found");
             AssertSelectionResources("initial", panel, "#E8A33D");
 
             data.Color = "#3B82F6";
