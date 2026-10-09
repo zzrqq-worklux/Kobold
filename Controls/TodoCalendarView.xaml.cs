@@ -54,9 +54,19 @@ namespace Kobold.Controls
         private string _addingChildToId;
 
         // The screen point a text click opened the editor at (fix round 17,
-        // R2): the editor's Loaded handler places the caret at that character
-        // instead of selecting all. One-shot - consumed by ApplyEditorCaret.
+        // R2; fix round 19, R1): the active session's editor places the caret
+        // at that character instead of selecting all - on its first build
+        // and on every rebuild, so a rebuild never SelectAll()s. It lives
+        // for the whole session and is cleared when the session ends or the
+        // user takes the box over (clicks/types in it), so a later rebuild
+        // never yanks the caret back to the original click.
         private Point? _editorCaretAt;
+
+        // Fix round 19 (R1): the active editor was opened without a click
+        // point - only the child adder - so it keeps the select-all default.
+        // A click-opened session never selects all, not even after the
+        // caret point above was cleared by user interaction.
+        private bool _editorSelectAllOnLoad;
 
         // One-shot scroll targets applied by the next BuildDayList: the row
         // (item or child id) or the child adder (parent id) to bring into view.
@@ -533,7 +543,7 @@ namespace Kobold.Controls
             {
                 text = BuildEditor(item.Text, PARENT_FONT,
                     value => { CommitItemEdit(item, value); return true; },
-                    () => { _editingItemId = null; Refresh(); });
+                    () => { _editingItemId = null; _editorCaretAt = null; Refresh(); });
             }
             else
             {
@@ -586,7 +596,7 @@ namespace Kobold.Controls
             {
                 text = BuildEditor(child.Text, CHILD_FONT,
                     value => { CommitChildEdit(parent, child, value); return true; },
-                    () => { _editingChildId = null; Refresh(); });
+                    () => { _editingChildId = null; _editorCaretAt = null; Refresh(); });
             }
             else
             {
@@ -655,6 +665,7 @@ namespace Kobold.Controls
                 () =>
                 {
                     _addingChildToId = null;
+                    _editorCaretAt = null;
                     Refresh();
                     _host?.RequestContentResize(); // one row fewer
                 },
@@ -663,6 +674,7 @@ namespace Kobold.Controls
                     if (_addingChildToId != parent.Id) return true; // replaced by another adder
                     string text = (value ?? string.Empty).Trim();
                     _addingChildToId = null;
+                    _editorCaretAt = null;
                     if (text.Length > 0)
                     {
                         var added = TodoListOps.AddChild(parent, text);
@@ -778,8 +790,14 @@ namespace Kobold.Controls
             bool settled = false;
 
             box.Loaded += (s, e) => ApplyEditorCaret(box);
+            // Fix round 19 (R1): once the user takes the box over (clicks in
+            // it, types or moves the caret), a rebuild must not re-anchor the
+            // caret to the original click point anymore.
+            box.PreviewMouseLeftButtonDown += (s, e) => _editorCaretAt = null;
+            box.TextChanged += (s, e) => _editorCaretAt = null;
             box.KeyDown += (s, e) =>
             {
+                _editorCaretAt = null;
                 if (e.Key == Key.Enter)
                 {
                     e.Handled = true;
@@ -796,6 +814,13 @@ namespace Kobold.Controls
             box.LostKeyboardFocus += (s, e) =>
             {
                 if (settled) return;
+                // Fix round 19 (R2): a rebuild replaces this box with a fresh
+                // one and the focus hand-off looks like a blur; the destroyed
+                // box must not schedule a commit for the session the rebuild
+                // kept alive (that stale commit would close it). A genuine
+                // blur of a live box (still inside the view) keeps the
+                // deferred-commit behavior.
+                if (!IsInside(box, this)) return;
                 string text = box.Text;
                 Action pending = null;
                 pending = () =>
@@ -811,23 +836,26 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Focuses a freshly loaded editor and sets its selection (fix round
-        /// 17, R2): a text click places the caret at the clicked character
-        /// instead of selecting all, while every other editor (child adder,
-        /// keyboard paths) keeps the select-all default. The one-shot screen
-        /// point is consumed here.
+        /// Focuses a freshly (re)built editor and sets its selection (fix
+        /// round 17, R2; fix round 19, R1): a session opened by a text click
+        /// keeps its click point for its whole life, so every rebuild of its
+        /// editor re-places the caret at the clicked character instead of
+        /// selecting all. The child adder - the only editor opened without a
+        /// click point - keeps the select-all default. A click-opened session
+        /// whose point the user cleared by interacting with the box gets no
+        /// selection change at all, never a select-all.
         /// </summary>
         private void ApplyEditorCaret(TextBox box)
         {
             box.Focus();
-            if (!_editorCaretAt.HasValue)
+            if (_editorSelectAllOnLoad)
             {
                 box.SelectAll();
                 return;
             }
+            if (!_editorCaretAt.HasValue) return; // the user already took the caret over
 
             Point screen = _editorCaretAt.Value;
-            _editorCaretAt = null;
 
             Point local = box.PointFromScreen(screen);
             int index = box.GetCharacterIndexFromPoint(local, true);
@@ -856,6 +884,7 @@ namespace Kobold.Controls
         private void StartItemEdit(string itemId, Point screenPoint)
         {
             _editorCaretAt = screenPoint;
+            _editorSelectAllOnLoad = false;
             _editingItemId = itemId;
             _editingChildId = null;
             _addingChildToId = null;
@@ -867,6 +896,7 @@ namespace Kobold.Controls
         private void StartChildEdit(string childId, Point screenPoint)
         {
             _editorCaretAt = screenPoint;
+            _editorSelectAllOnLoad = false;
             _editingItemId = null;
             _editingChildId = childId;
             _addingChildToId = null;
@@ -878,6 +908,7 @@ namespace Kobold.Controls
         private void StartChildAdd(string itemId)
         {
             _editorCaretAt = null; // the adder keeps the select-all default
+            _editorSelectAllOnLoad = true;
             _editingItemId = null;
             _editingChildId = null;
             _addingChildToId = itemId;
@@ -894,15 +925,27 @@ namespace Kobold.Controls
 
         private void RemoveItem(TodoItem item)
         {
-            if (_editingItemId == item.Id) _editingItemId = null;
-            if (_addingChildToId == item.Id) _addingChildToId = null;
+            if (_editingItemId == item.Id)
+            {
+                _editingItemId = null;
+                _editorCaretAt = null; // the session ended with the removal
+            }
+            if (_addingChildToId == item.Id)
+            {
+                _addingChildToId = null;
+                _editorCaretAt = null;
+            }
             TodoListOps.RemoveItem(_data, item.Id);
             AfterItemEdit();
         }
 
         private void RemoveChild(TodoItem parent, SubTodoItem child)
         {
-            if (_editingChildId == child.Id) _editingChildId = null;
+            if (_editingChildId == child.Id)
+            {
+                _editingChildId = null;
+                _editorCaretAt = null;
+            }
             TodoListOps.RemoveChild(parent, child.Id);
             AfterItemEdit();
         }
@@ -930,7 +973,11 @@ namespace Kobold.Controls
         {
             // A deferred commit may arrive after the user opened another row's
             // editor; that newer editor must survive the rebuild.
-            if (_editingItemId == item.Id) _editingItemId = null;
+            if (_editingItemId == item.Id)
+            {
+                _editingItemId = null;
+                _editorCaretAt = null; // the session ended with this commit
+            }
             if (string.IsNullOrWhiteSpace(value)) TodoListOps.RemoveItem(_data, item.Id);
             else item.Text = value.Trim();
             AfterItemEdit();
@@ -938,7 +985,11 @@ namespace Kobold.Controls
 
         private void CommitChildEdit(TodoItem parent, SubTodoItem child, string value)
         {
-            if (_editingChildId == child.Id) _editingChildId = null;
+            if (_editingChildId == child.Id)
+            {
+                _editingChildId = null;
+                _editorCaretAt = null;
+            }
             if (string.IsNullOrWhiteSpace(value)) TodoListOps.RemoveChild(parent, child.Id);
             else child.Text = value.Trim();
             AfterItemEdit();

@@ -197,6 +197,17 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: en day cells carry no label", TodoEnglishDayCellsCarryNoLabel);
                 failures += TryCheck("todo: holiday region menu has five checked regions", TodoHolidayRegionMenu);
 
+                // Fix round 19: the click-to-edit interleaving the human smoke
+                // reported - while one todo is edited, clicking another opens
+                // its editor; the first editor's deferred commit then rebuilds
+                // every row. The rebuild must neither select all in the
+                // surviving editor nor let its destroyed box schedule a commit
+                // that closes the live session; the child adder keeps the
+                // select-all default.
+                failures += TryCheck("todo: rebuild keeps the click caret", TodoRebuildKeepsTheClickCaret);
+                failures += TryCheck("todo: rebuild does not close the surviving editor", TodoRebuildDoesNotCloseTheSurvivingEditor);
+                failures += TryCheck("todo: child adder still selects all on load", TodoChildAdderStillSelectsAllOnLoad);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -1572,6 +1583,171 @@ namespace Kobold.XamlLoadCheck
             var box = EditorBoxInList(view);
             InvokeApplyEditorCaret(view, box);
             return (box.CaretIndex, box.SelectionLength);
+        }
+
+        /// <summary>
+        /// Fix round 19 (R3): the exact interleaving of the human smoke report.
+        /// Child editor A is open (click caret); a click on child B blurs A
+        /// (the window hook's ClearFocus -> deferred commit) and opens B with
+        /// its own click point; A's deferred commit then rebuilds every row.
+        /// The rebuilt editor for B must come back at B's click caret with
+        /// SelectionLength 0 - a select-all flash is the defect (D1).
+        /// </summary>
+        private static void TodoRebuildKeepsTheClickCaret()
+        {
+            RunInterleavedChildEditors((view, b, rebuilt, firstEditorFocused) =>
+            {
+                if (rebuilt.CaretIndex != b.Text.Length || rebuilt.SelectionLength != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the rebuilt editor carries caret " + rebuilt.CaretIndex +
+                        "/selection " + rebuilt.SelectionLength + " of " + b.Text.Length +
+                        " characters, wanted the click caret with no select-all");
+                }
+                // Real keyboard focus needs an active window; when the
+                // offscreen source granted it to the first editor, the
+                // rebuilt one must have taken it over too.
+                if (firstEditorFocused && !rebuilt.IsKeyboardFocused)
+                {
+                    throw new InvalidOperationException(
+                        "the rebuilt editor is not keyboard-focused (the first editor was)");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Fix round 19 (R3): the same interleaving, checking D2 - the box the
+        /// rebuild destroyed must not schedule a deferred commit (a stale
+        /// pending) and must not end B's still-active session. Runs any
+        /// pending so the failure shows the closed session, not just the
+        /// queued callback.
+        /// </summary>
+        private static void TodoRebuildDoesNotCloseTheSurvivingEditor()
+        {
+            RunInterleavedChildEditors((view, b, rebuilt, firstEditorFocused) =>
+            {
+                bool stalePending = PendingEditorCommit(view) != null;
+                RunPendingEditorCommitIfAny(view);
+                bool stillEditing = PrivateField<string>(view, "_editingChildId") == b.Id;
+                bool boxOpen = EditorBoxInListOrNull(view) != null;
+                if (stalePending || !stillEditing || !boxOpen)
+                {
+                    throw new InvalidOperationException(
+                        "stalePending=" + stalePending + " editingChild=" + stillEditing +
+                        " boxOpen=" + boxOpen + ", wanted no deferred commit from the " +
+                        "destroyed box and B's session still open");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Fix round 19 (R3) guard: the child adder is the only editor opened
+        /// without a click point, so the select-all default must stay - the
+        /// session's own click point must never leak into a later adder.
+        /// </summary>
+        private static void TodoChildAdderStillSelectsAllOnLoad()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+            InvokeViewEdit(view, "StartChildAdd", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "New child";
+            InvokeApplyEditorCaret(view, box);
+
+            if (box.CaretIndex != 0 || box.SelectionLength != box.Text.Length)
+            {
+                throw new InvalidOperationException(
+                    "the adder's editor carries caret " + box.CaretIndex +
+                    "/selection " + box.SelectionLength + " of " + box.Text.Length +
+                    " characters, wanted the intact select-all default");
+            }
+        }
+
+        /// <summary>
+        /// Fix round 19 (R3) harness: drives the deterministic offscreen
+        /// interleaving and hands the rebuilt surviving editor to the check.
+        /// The view lives in an invisible offscreen HwndSource because the
+        /// caret path resolves screen coordinates. The destroyed box's focus
+        /// loss (which production raises when the rebuilt box takes focus) is
+        /// raised explicitly; Loaded handlers do not run in this harness, so
+        /// each editor's caret placement is invoked the same way r17's pin
+        /// does. The flag tells the check whether keyboard focus worked at
+        /// all in this offscreen environment.
+        /// </summary>
+        private static void RunInterleavedChildEditors(
+            Action<TodoCalendarView, SubTodoItem, TextBox, bool> check)
+        {
+            ThemeManager.Initialize("dark");
+            DateTime today = DateTime.Today;
+            var data = new TodoData { SelectedDate = today };
+            var item = TodoListOps.AddItem(data, "Parent", today);
+            var a = TodoListOps.AddChild(item, "Alpha");
+            var b = TodoListOps.AddChild(item, "Bravo");
+            var view = new TodoCalendarView();
+            view.Attach(data, null);
+
+            var source = new System.Windows.Interop.HwndSource(
+                new System.Windows.Interop.HwndSourceParameters("xamlloadcheck-fix19")
+                {
+                    WindowStyle = 0,
+                    Width = 400,
+                    Height = 700,
+                    PositionX = -10000,
+                    PositionY = -10000
+                });
+            source.RootVisual = view;
+            try
+            {
+                LayoutView(view);
+
+                // A click past B's text resolves to its trailing insertion
+                // edge (r17's trailing-edge rule), a deterministic caret
+                // expectation that also distinguishes it from a select-all.
+                Point aPoint = BeyondTextPoint(RowAt(view, 1));
+                Point bPoint = BeyondTextPoint(RowAt(view, 2));
+
+                InvokeViewEditAt(view, "StartChildEdit", a.Id, aPoint);
+                LayoutView(view);
+                var aBox = EditorBoxInList(view);
+                InvokeApplyEditorCaret(view, aBox);
+                bool firstEditorFocused = aBox.IsKeyboardFocused;
+
+                // The click on B: the window hook clears A's focus first,
+                // which schedules A's deferred commit.
+                RaiseLostFocus(aBox);
+
+                InvokeViewEditAt(view, "StartChildEdit", b.Id, bPoint);
+                LayoutView(view);
+                var bBox = EditorBoxInList(view);
+                InvokeApplyEditorCaret(view, bBox);
+
+                // A's deferred commit now runs and rebuilds every row,
+                // destroying B's focused box.
+                RunPendingEditorCommit(view);
+
+                // The rebuild's focus hand-off on the destroyed box.
+                RaiseLostFocus(bBox);
+
+                // The rebuilt B editor's Loaded handler.
+                var rebuilt = EditorBoxInList(view);
+                InvokeApplyEditorCaret(view, rebuilt);
+
+                check(view, b, rebuilt, firstEditorFocused);
+            }
+            finally
+            {
+                source.Dispose();
+            }
+        }
+
+        /// <summary>The screen point just past a row text's trailing edge.</summary>
+        private static Point BeyondTextPoint(FrameworkElement row)
+        {
+            var block = FirstDescendant<TextBlock>(row);
+            if (block == null) throw new InvalidOperationException("row text block not found");
+            return block.PointToScreen(new Point(block.ActualWidth + 100, block.ActualHeight / 2.0));
         }
 
         private static void InvokeViewSelectDay(TodoCalendarView view, DateTime day)
