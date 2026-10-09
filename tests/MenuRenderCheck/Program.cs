@@ -37,6 +37,7 @@ namespace Kobold.MenuRenderCheck
                 var app = new App();
                 app.InitializeComponent();               // App.xaml: the menu styles
                 WidgetManager.Instance.ToString();       // theme tokens
+                WidgetPaletteMatchesFolderPalette();
 
                 var widget = new FolderWidget(new FolderData());
                 var factory = typeof(FolderWidget).GetMethod("CreateFolderColorMenu",
@@ -154,6 +155,43 @@ namespace Kobold.MenuRenderCheck
                 if (match != null) return match;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Pins the widget colour picker to the folder-colour picker: the same
+        /// nine hues in the same order, so the two pickers read as one family.
+        /// </summary>
+        private static void WidgetPaletteMatchesFolderPalette()
+        {
+            var widgets = UiTokens.FolderPalette;
+            var folders = UiTokens.FolderIconPalette;
+
+            Check(widgets.Length == 9,
+                "widget palette: offers nine colours (got " + widgets.Length + ")");
+            Check(widgets.Length == folders.Length,
+                "widget palette: same count as the folder palette (" + widgets.Length +
+                " vs " + folders.Length + ")");
+
+            for (int i = 0; i < widgets.Length && i < folders.Length; i++)
+            {
+                Check(string.Equals(widgets[i], folders[i], StringComparison.OrdinalIgnoreCase),
+                    "widget palette: entry " + i + " matches the folder palette (" +
+                    widgets[i] + " vs " + folders[i] + ")");
+            }
+
+            // Hard-coded so breaking both arrays at once still trips the pin.
+            var expected = new[]
+            {
+                "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
+                "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+            };
+            Check(widgets.Length == expected.Length,
+                "widget palette: matches the agreed nine-colour count");
+            for (int i = 0; i < widgets.Length && i < expected.Length; i++)
+            {
+                Check(string.Equals(widgets[i], expected[i], StringComparison.OrdinalIgnoreCase),
+                    "widget palette: entry " + i + " is the agreed hex " + expected[i]);
+            }
         }
 
         private static void ResetEntryIsLabelled(MenuItem menu)

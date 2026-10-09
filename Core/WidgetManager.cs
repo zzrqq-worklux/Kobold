@@ -181,6 +181,21 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// New widgets cycle blue -&gt; red -&gt; green -&gt; purple -&gt; orange, the
+        /// look the old 12-colour picker produced. The hexes are read from
+        /// <see cref="UiTokens.FolderPalette"/> (pinned to the folder palette by
+        /// tests/MenuRenderCheck) so they stay defined in one place.
+        /// </summary>
+        private static readonly string[] CreationColors =
+        {
+            UiTokens.FolderPalette[6], // blue
+            UiTokens.FolderPalette[0], // red
+            UiTokens.FolderPalette[4], // green
+            UiTokens.FolderPalette[7], // purple
+            UiTokens.FolderPalette[1]  // orange
+        };
+
+        /// <summary>
         /// Creates a widget of the given kind with the default name, palette
         /// colour and staggered position - shared by the island add menu and
         /// the tray new-widget submenu.
@@ -197,7 +212,7 @@ namespace Kobold.Core
 
             data.PosX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
             data.PosY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
-            data.Color = UiTokens.FolderPalette[widgetCount % 5];
+            data.Color = CreationColors[widgetCount % CreationColors.Length];
             data.Name = Localization.Get(kind.NameKey);
             data.IsPanelPinned = true; // opens pinned so it survives while being filled
 

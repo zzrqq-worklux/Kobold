@@ -3283,6 +3283,9 @@ namespace Kobold.XamlLoadCheck
             try
             {
                 island.SetWidgets(new WidgetData[] { new FolderData { Name = "style-check", Color = "#EF4444" } });
+                // Start from a known style: the persisted config may already pick hand-drawn.
+                WidgetManager.Instance.Config.IconStyle = "classic";
+                island.RefreshIconStyle();
                 string before = IconFingerprint(TileIconCanvas(island));
 
                 WidgetManager.Instance.Config.IconStyle = "handdrawn";
@@ -3307,6 +3310,9 @@ namespace Kobold.XamlLoadCheck
             try
             {
                 island.SetWidgets(new WidgetData[] { new TodoData { Name = "style-check", Color = "#EF4444" } });
+                // Start from a known style: the persisted config may already pick hand-drawn.
+                WidgetManager.Instance.Config.IconStyle = "classic";
+                island.RefreshIconStyle();
                 string before = IconFingerprint(TileIconCanvas(island));
 
                 WidgetManager.Instance.Config.IconStyle = "handdrawn";

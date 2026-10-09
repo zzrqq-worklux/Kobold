@@ -131,17 +131,22 @@ namespace Kobold.Core
 
         public const string DefaultFolderColor = "#3B82F6";
 
-        /// <summary>Folder color choices offered in the picker and tray defaults.</summary>
+        /// <summary>
+        /// Widget colour choices offered by the picker. Must stay identical to
+        /// <see cref="FolderIconPalette"/> - same hues, same order - so both
+        /// pickers read as one family; tests/MenuRenderCheck pins the two
+        /// together. Existing widget colours outside this set are left as-is.
+        /// </summary>
         public static readonly string[] FolderPalette =
         {
-            "#3B82F6", "#EF4444", "#22C55E", "#F59E0B", "#8B5CF6", "#EC4899",
-            "#06B6D4", "#84CC16", "#F97316", "#6366F1", "#14B8A6", "#A855F7"
+            "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
+            "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
         };
 
         /// <summary>
-        /// Folder icon colors offered by the folder-color menu. The hues reuse the
-        /// widget palette so the two pickers read as one family; the grey is the
-        /// one extra, since a desaturated folder has no widget counterpart.
+        /// Folder icon colors offered by the folder-color menu. Must stay
+        /// identical to <see cref="FolderPalette"/> - same hues, same order;
+        /// tests/MenuRenderCheck pins the two together.
         /// </summary>
         public static readonly string[] FolderIconPalette =
         {
