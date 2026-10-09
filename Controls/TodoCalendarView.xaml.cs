@@ -202,11 +202,15 @@ namespace Kobold.Controls
                     : (cell.InMonth ? ThemeManager.TextBrush : ThemeManager.MutedTextBrush)
             });
 
+            // Task 2.5: the zh second line (区域假日 > 节日 > 节气 > 农历日).
+            var label = BuildDayCellLabel(cell);
+            if (label != null) stack.Children.Add(label);
+
             var marks = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Height = 5,
+                Height = label == null ? 5 : 4,
                 Opacity = cell.InMonth ? 1.0 : 0.5
             };
             AddCountMarks(marks, cell.TopLevelCount);
@@ -241,6 +245,51 @@ namespace Kobold.Controls
 
             border.MouseLeftButtonDown += (s, e) => { e.Handled = true; SelectDay(cell.Date); };
             return border;
+        }
+
+        /// <summary>
+        /// Task 2.5: the day cell's second line, shown in the zh UI only (en/ja
+        /// keep pure numbers). The region holiday mark wins when one exists,
+        /// otherwise the base layer is festival > solar term > lunar day.
+        /// Colours: an off day wears the widget's readable accent, a make-up
+        /// workday and every base-layer label the muted theme text (the label
+        /// keeps its own colour, never OnAccent). Padding days dim to the
+        /// marks' 0.5. Fits inside the 28 DIP cell via the 8pt/10px slot.
+        /// </summary>
+        private TextBlock BuildDayCellLabel(TodoDayCell cell)
+        {
+            if (Localization.CurrentLanguage != "zh") return null;
+
+            string region = PublicHolidays.NormalizeRegion(_data.HolidayRegion);
+            string holiday = PublicHolidays.GetLabel(region, cell.Date);
+            string text;
+            Brush foreground;
+            if (holiday != null)
+            {
+                text = holiday;
+                foreground = holiday == PublicHolidays.WorkdayMark
+                    ? ThemeManager.MutedTextBrush
+                    : ReadableWidgetAccentBrush();
+            }
+            else
+            {
+                text = LunarCalendar.FestivalName(cell.Date)
+                    ?? LunarCalendar.SolarTermName(cell.Date)
+                    ?? LunarCalendar.DayName(cell.Date);
+                foreground = ThemeManager.MutedTextBrush;
+            }
+            if (text == null) return null;
+
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = 8,
+                Height = 10,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = foreground,
+                Opacity = cell.InMonth ? 1.0 : 0.5
+            };
         }
 
         /// <summary>

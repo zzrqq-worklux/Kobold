@@ -12,6 +12,13 @@ namespace Kobold.Core
         public List<TodoItem> Items { get; set; }
         public DateTime? SelectedDate { get; set; }
 
+        /// <summary>
+        /// The day-cell holiday region ("none"/"cn"/"jp"/"us"/"uk"). Plain
+        /// JSON property; null or unknown values normalize to "cn" at use
+        /// (see <see cref="PublicHolidays.NormalizeRegion"/>).
+        /// </summary>
+        public string HolidayRegion { get; set; }
+
         public TodoData()
         {
             Id = Guid.NewGuid().ToString();

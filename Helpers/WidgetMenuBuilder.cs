@@ -35,6 +35,7 @@ namespace Kobold.Helpers
             if (kind != null && kind.SupportsGridColumns) menu.AddMenuItem(CreateGridSizeMenu(host));
             if (kind != null && kind.SupportsMaxRows) menu.AddMenuItem(CreateMaxRowsMenu(host));
             if (kind != null && kind.SupportsItemScale) menu.AddMenuItem(CreateItemSizeMenu());
+            if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
 
             var built = menu.AddSeparator()
                 .AddItem("Menu_Delete", () => Delete(host))
@@ -213,6 +214,51 @@ namespace Kobold.Helpers
             {
                 widget.UpdateUI();
             }
+        }
+
+        #endregion
+
+        #region Kind-specific appendices (todo)
+
+        /// <summary>
+        /// Task 2.5: the todo widget's 假日地区 single-select submenu
+        /// (中国/日本/美国/英国/关闭). The checked item follows the data through
+        /// <see cref="PublicHolidays.NormalizeRegion"/> (missing/unknown = 中国),
+        /// and a pick writes the region back through the widget's usual change
+        /// path (repaint + persist). The day cells keep their height.
+        /// </summary>
+        private static MenuItem CreateHolidayRegionMenu(IWidgetWindow host)
+        {
+            var regionItem = new MenuItem { Header = Localization.Get("Menu_HolidayRegion") };
+            string current = PublicHolidays.NormalizeRegion((host.Data as TodoData)?.HolidayRegion);
+
+            string[] keys =
+            {
+                "Holiday_RegionCn", "Holiday_RegionJp", "Holiday_RegionUs",
+                "Holiday_RegionUk", "Holiday_RegionNone"
+            };
+            string[] ids =
+            {
+                PublicHolidays.RegionCn, PublicHolidays.RegionJp, PublicHolidays.RegionUs,
+                PublicHolidays.RegionUk, PublicHolidays.RegionNone
+            };
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string id = ids[i];
+                var item = new MenuItem
+                {
+                    Header = Localization.Get(keys[i]),
+                    IsChecked = current == id
+                };
+                item.Click += (s, e) =>
+                {
+                    if (host.Data is TodoData data) data.HolidayRegion = id;
+                    DataChanged(host);
+                };
+                regionItem.Items.Add(item);
+            }
+            return regionItem;
         }
 
         #endregion

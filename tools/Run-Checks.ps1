@@ -41,6 +41,7 @@ $checks = @(
     @{ Name = 'WidgetKindsCheck';      Ci = $true  }
     @{ Name = 'TodoRolloverCheck';     Ci = $true  }
     @{ Name = 'TodoCalendarCheck';     Ci = $true  }
+    @{ Name = 'LunarCalendarCheck';    Ci = $true  }
     @{ Name = 'XamlLoadCheck';         Ci = $false }   # needs an interactive desktop
     @{ Name = 'MenuRenderCheck';       Ci = $false }   # WPF off-screen render details
     @{ Name = 'WindowSwitcherCheck';   Ci = $false }   # real window management

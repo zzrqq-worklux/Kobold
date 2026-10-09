@@ -39,6 +39,13 @@ namespace Kobold.Core
                 ["Todo_CarriedBadge"] = "Carried over",
                 ["Todo_ItemCountFormat"] = "{0} items",
                 ["Todo_EmptyDay"] = "No todos for this day",
+                ["Menu_HolidayRegion"] = "Holiday Region",
+                ["Holiday_RegionNone"] = "Off",
+                ["Holiday_RegionCn"] = "China",
+                ["Holiday_RegionJp"] = "Japan",
+                ["Holiday_RegionUs"] = "United States",
+                ["Holiday_RegionUk"] = "United Kingdom",
+                ["Todo_WorkdayMark"] = "Work",
 
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ Rename",
@@ -198,6 +205,13 @@ namespace Kobold.Core
                 ["Todo_CarriedBadge"] = "顺延",
                 ["Todo_ItemCountFormat"] = "{0} 项",
                 ["Todo_EmptyDay"] = "这一天没有待办",
+                ["Menu_HolidayRegion"] = "假日地区",
+                ["Holiday_RegionNone"] = "关闭",
+                ["Holiday_RegionCn"] = "中国",
+                ["Holiday_RegionJp"] = "日本",
+                ["Holiday_RegionUs"] = "美国",
+                ["Holiday_RegionUk"] = "英国",
+                ["Todo_WorkdayMark"] = "班",
 
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ 重命名",
@@ -357,6 +371,13 @@ namespace Kobold.Core
                 ["Todo_CarriedBadge"] = "持ち越し",
                 ["Todo_ItemCountFormat"] = "{0} 件",
                 ["Todo_EmptyDay"] = "この日のToDoはありません",
+                ["Menu_HolidayRegion"] = "祝日の地域",
+                ["Holiday_RegionNone"] = "オフ",
+                ["Holiday_RegionCn"] = "中国",
+                ["Holiday_RegionJp"] = "日本",
+                ["Holiday_RegionUs"] = "アメリカ",
+                ["Holiday_RegionUk"] = "イギリス",
+                ["Todo_WorkdayMark"] = "仕事",
 
                 // Context Menu - Folder
                 ["Menu_Rename"] = "✏️ 名前の変更",

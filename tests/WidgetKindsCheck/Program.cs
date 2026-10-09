@@ -65,6 +65,7 @@ namespace Kobold.WidgetKindsCheck
             UnknownKindIsKeptVerbatim();
             WidgetsWinOverFolders();
             TodoRoundTrips();
+            TodoHolidayRegionRoundTrips();
             TodoRepairNormalizes();
             WidgetKindRegistryChecks();
             FreshConfigGetsOneFolder();
@@ -208,6 +209,38 @@ namespace Kobold.WidgetKindsCheck
             Check(rt != null && rt.Items.Count == 1 && rt.Items[0].Children.Count == 1
                   && rt.Items[0].Date == new DateTime(2026, 9, 25),
                 "a todo widget survives a full round trip");
+        }
+
+        private static void TodoHolidayRegionRoundTrips()
+        {
+            string dir = NewCase("todo-holiday-region");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""todo"", ""Id"": ""t1"", ""HolidayRegion"": ""jp"" } ] }");
+            var cfg = AppConfig.Load(main, backup);
+
+            var todo = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as TodoData : null;
+            Check(todo != null && todo.HolidayRegion == "jp",
+                "HolidayRegion round-trips through the config");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var rt = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as TodoData : null;
+            Check(rt != null && rt.HolidayRegion == "jp", "HolidayRegion survives a save/reload");
+
+            string missingDir = NewCase("todo-holiday-region-missing");
+            string missingMain = Path.Combine(missingDir, "config.json");
+            File.WriteAllText(missingMain,
+                @"{ ""Widgets"": [ { ""Kind"": ""todo"", ""Id"": ""t2"" } ] }");
+            var missingCfg = AppConfig.Load(missingMain, missingMain + ".backup");
+            var missing = missingCfg.Widgets.Count == 1 ? missingCfg.Widgets[0] as TodoData : null;
+            Check(missing != null && missing.HolidayRegion == null &&
+                  PublicHolidays.NormalizeRegion(missing.HolidayRegion) == "cn",
+                "a missing HolidayRegion normalizes to cn");
+            Check(PublicHolidays.NormalizeRegion("unknown") == "cn",
+                "an unknown HolidayRegion normalizes to cn");
         }
 
         private static void TodoRepairNormalizes()

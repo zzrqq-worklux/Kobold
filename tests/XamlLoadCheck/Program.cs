@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using Kobold.Controls;
 using Kobold.Core;
+using Kobold.Helpers;
 using Kobold.Windows;
 using Localization = Kobold.Core.Localization;
 
@@ -184,6 +185,17 @@ namespace Kobold.XamlLoadCheck
                 // whitespace from the last row's text to the pill's top border
                 // matches the whitespace between two adjacent rows' texts.
                 failures += TryCheck("todo: add pill keeps the list pitch", TodoAddPillKeepsTheListPitch);
+
+                // Task 2.5 pins: the zh day cell carries the holiday/lunar
+                // second line (region > festival > solar term > lunar day)
+                // that fits the 28px cell; en keeps pure numbers; the todo
+                // menu offers the five-region 假日地区 submenu backed by the
+                // widget's HolidayRegion.
+                failures += TryCheck("todo: zh day cell shows the region holiday label", TodoHolidayLabelShowsInZh);
+                failures += TryCheck("todo: zh day cell labels fit the cell", TodoHolidayLabelFitsTheCell);
+                failures += TryCheck("todo: zh base-layer labels use muted text", TodoBaseLayerLabelUsesMutedText);
+                failures += TryCheck("todo: en day cells carry no label", TodoEnglishDayCellsCarryNoLabel);
+                failures += TryCheck("todo: holiday region menu has five checked regions", TodoHolidayRegionMenu);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -645,6 +657,304 @@ namespace Kobold.XamlLoadCheck
                     "the pill is not at the child row's pitch: pill gap " + childPillGap.ToString("0.##") +
                     " vs inter-row gap " + childInterRowGap.ToString("0.##"));
             }
+        }
+
+        /// <summary>
+        /// Task 2.5: in the zh UI the 2026-10-01 cell (region cn) shows the
+        /// 国庆节 region holiday as the second line, below the day number and
+        /// in the widget's readable accent (an off day, not 班).
+        /// </summary>
+        private static void TodoHolidayLabelShowsInZh()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 1), HolidayRegion = "cn" };
+                var view = new TodoWidget(data).CalendarView;
+                LayoutView(view);
+
+                var cell = DayCellFor(view, 1);
+                var label = DayCellLabelBlock(cell);
+                if (label == null || label.Text != "国庆节")
+                {
+                    throw new InvalidOperationException(
+                        "the 2026-10-01 cell shows '" + (label == null ? "<no label>" : label.Text) +
+                        "', wanted 国庆节");
+                }
+
+                var number = FirstDescendant<TextBlock>(cell);
+                if (number == null || number.Text != "1")
+                    throw new InvalidOperationException("the labelled cell lost its day number");
+                double numberBottom = number.TransformToAncestor(cell)
+                    .Transform(new Point(0, number.ActualHeight)).Y;
+                double labelTop = label.TransformToAncestor(cell).Transform(new Point(0, 0)).Y;
+                if (labelTop < numberBottom - 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the label is not on the second line: label top " + labelTop.ToString("0.##") +
+                        " vs number bottom " + numberBottom.ToString("0.##"));
+                }
+
+                Color wanted = Utils.HexToColor(data.Color);
+                var brush = label.Foreground as SolidColorBrush;
+                if (brush == null || brush.Color != wanted)
+                {
+                    throw new InvalidOperationException(
+                        "the off-day label is not the widget accent: " +
+                        (brush == null ? "no solid brush" : Describe(brush.Color)) +
+                        ", wanted " + Describe(wanted));
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>
+        /// Task 2.5: the label's geometry stays inside its day cell (zh,
+        /// 2026-10-08 carries the 寒露 solar term as the base-layer label), so
+        /// the stack number -> label -> marks fits the 28 DIP cell.
+        /// </summary>
+        private static void TodoHolidayLabelFitsTheCell()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 8) };
+                var view = new TodoWidget(data).CalendarView;
+                LayoutView(view);
+
+                var cell = DayCellFor(view, 8);
+                var label = DayCellLabelBlock(cell);
+                if (label == null || label.Text != "寒露")
+                {
+                    throw new InvalidOperationException(
+                        "the 2026-10-08 cell shows '" + (label == null ? "<no label>" : label.Text) +
+                        "', wanted the base-layer 寒露");
+                }
+
+                if (cell.ActualHeight <= 0 || cell.ActualHeight > 28.01)
+                {
+                    throw new InvalidOperationException(
+                        "the day cell height is " + cell.ActualHeight.ToString("0.##") + ", wanted <= 28");
+                }
+                double top = label.TransformToAncestor(cell).Transform(new Point(0, 0)).Y;
+                double bottom = label.TransformToAncestor(cell)
+                    .Transform(new Point(0, label.ActualHeight)).Y;
+                if (top < -0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the label top " + top.ToString("0.##") + " pokes above the cell");
+                }
+                if (bottom > cell.ActualHeight + 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the label bottom " + bottom.ToString("0.##") +
+                        " pokes below the cell bottom " + cell.ActualHeight.ToString("0.##"));
+                }
+
+                // The whole number -> label -> marks stack must stay inside
+                // the 28 DIP grid cell (the border adds the 1 DIP margin).
+                var stack = FirstDescendant<StackPanel>(cell);
+                var marks = stack == null
+                    ? null
+                    : stack.Children[stack.Children.Count - 1] as StackPanel;
+                var dayGrid = view.FindName("DayGrid") as UniformGrid;
+                if (stack == null || marks == null || dayGrid == null)
+                {
+                    throw new InvalidOperationException("the labelled cell stack / marks / day grid was not found");
+                }
+                double gridCellTop = cell.TransformToAncestor(dayGrid).Transform(new Point(0, 0)).Y
+                                     - cell.Margin.Top;
+                double stackTop = stack.TransformToAncestor(dayGrid).Transform(new Point(0, 0)).Y;
+                double marksBottom = marks.TransformToAncestor(dayGrid)
+                    .Transform(new Point(0, marks.ActualHeight)).Y;
+                if (stackTop < gridCellTop - 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the number+label+marks stack pokes above the 28 DIP cell: top " +
+                        stackTop.ToString("0.##") + " < " + gridCellTop.ToString("0.##"));
+                }
+                if (marksBottom > gridCellTop + 28.0 + 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the number+label+marks stack pokes below the 28 DIP cell: bottom " +
+                        marksBottom.ToString("0.##") + " > " + (gridCellTop + 28.0).ToString("0.##"));
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>
+        /// Task 2.5: the base-layer labels (and the region's 班 workday mark)
+        /// use the muted theme text, never the accent. 2026-10-10 is a
+        /// 国庆节 make-up workday (班), 2026-10-08 a 寒露 term day.
+        /// </summary>
+        private static void TodoBaseLayerLabelUsesMutedText()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                var workday = new TodoData { SelectedDate = new DateTime(2026, 10, 10) };
+                var workdayView = new TodoWidget(workday).CalendarView;
+                LayoutView(workdayView);
+                var workdayLabel = DayCellLabelBlock(DayCellFor(workdayView, 10));
+                if (workdayLabel == null || workdayLabel.Text != "班")
+                {
+                    throw new InvalidOperationException(
+                        "the 2026-10-10 label is '" +
+                        (workdayLabel == null ? "<missing>" : workdayLabel.Text) + "', wanted 班");
+                }
+                if (!ReferenceEquals(workdayLabel.Foreground, ThemeManager.MutedTextBrush))
+                {
+                    throw new InvalidOperationException("the 班 workday mark does not use the muted text brush");
+                }
+
+                var term = new TodoData { SelectedDate = new DateTime(2026, 10, 8) };
+                var termView = new TodoWidget(term).CalendarView;
+                LayoutView(termView);
+                var termLabel = DayCellLabelBlock(DayCellFor(termView, 8));
+                if (termLabel == null || !ReferenceEquals(termLabel.Foreground, ThemeManager.MutedTextBrush))
+                {
+                    throw new InvalidOperationException("the 寒露 base-layer label does not use the muted text brush");
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>Task 2.5: the en UI keeps pure numbers - no label element at all.</summary>
+        private static void TodoEnglishDayCellsCarryNoLabel()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("en");
+            try
+            {
+                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 1), HolidayRegion = "cn" };
+                var view = new TodoWidget(data).CalendarView;
+                LayoutView(view);
+
+                var grid = view.FindName("DayGrid") as UniformGrid;
+                if (grid == null || grid.Children.Count == 0)
+                    throw new InvalidOperationException("the day grid was not built");
+                foreach (var child in grid.Children)
+                {
+                    var cell = child as Border;
+                    if (cell == null) continue;
+                    if (DayCellLabelBlock(cell) != null)
+                    {
+                        throw new InvalidOperationException(
+                            "an en day cell still carries a second-line label");
+                    }
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>
+        /// Task 2.5: the todo widget menu carries the 5-region 假日地区 submenu
+        /// (中国/日本/美国/英国/关闭), checks the data's current region
+        /// (null normalizes to 中国) and writes a pick back into the widget data.
+        /// </summary>
+        private static void TodoHolidayRegionMenu()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("en");
+
+            var data = new TodoData();
+            var widget = new TodoWidget(data);
+            var kind = WidgetKindRegistry.Find("todo");
+
+            var menu = WidgetMenuBuilder.Build(widget, kind, null);
+            var regionMenu = FindMenuByHeader(menu, Localization.Get("Menu_HolidayRegion"));
+            if (regionMenu == null)
+                throw new InvalidOperationException("the 假日地区 submenu is missing from the todo menu");
+            if (regionMenu.Items.Count != 5)
+                throw new InvalidOperationException(
+                    "the 假日地区 submenu has " + regionMenu.Items.Count + " item(s), wanted 5");
+
+            string[] keys =
+            {
+                "Holiday_RegionCn", "Holiday_RegionJp", "Holiday_RegionUs",
+                "Holiday_RegionUk", "Holiday_RegionNone"
+            };
+            for (int i = 0; i < keys.Length; i++)
+            {
+                var item = regionMenu.Items[i] as MenuItem;
+                if (item == null || (item.Header as string) != Localization.Get(keys[i]))
+                {
+                    throw new InvalidOperationException(
+                        "region item " + i + " is '" +
+                        (item == null ? "<not a MenuItem>" : item.Header as string) +
+                        "', wanted '" + Localization.Get(keys[i]) + "'");
+                }
+                bool wanted = i == 0; // a null region normalizes to 中国 (cn)
+                if (item.IsChecked != wanted)
+                {
+                    throw new InvalidOperationException(
+                        "region item " + i + " check state is " + item.IsChecked +
+                        ", wanted " + wanted + " for the default region");
+                }
+            }
+
+            // Picking 日本 writes the region and repaints through the widget's
+            // usual change path (a standalone widget has no save subscriber).
+            var japan = regionMenu.Items[1] as MenuItem;
+            japan.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            if (data.HolidayRegion != "jp")
+            {
+                throw new InvalidOperationException(
+                    "clicking 日本 left HolidayRegion at '" + (data.HolidayRegion ?? "null") + "'");
+            }
+
+            var reopened = WidgetMenuBuilder.Build(widget, kind, null);
+            var reopenedMenu = FindMenuByHeader(reopened, Localization.Get("Menu_HolidayRegion"));
+            if (reopenedMenu == null ||
+                !((MenuItem)reopenedMenu.Items[1]).IsChecked ||
+                ((MenuItem)reopenedMenu.Items[0]).IsChecked)
+            {
+                throw new InvalidOperationException(
+                    "reopening the menu does not reflect the stored region jp");
+            }
+        }
+
+        /// <summary>The second-line label TextBlock of a day cell, or null.</summary>
+        private static TextBlock DayCellLabelBlock(Border cell)
+        {
+            var stack = FirstDescendant<StackPanel>(cell);
+            if (stack == null) return null;
+
+            int seen = 0;
+            foreach (var child in stack.Children)
+            {
+                var block = child as TextBlock;
+                if (block == null) continue;
+                if (++seen == 2) return block;
+            }
+            return null;
+        }
+
+        /// <summary>The top-level menu item with the given header, or null.</summary>
+        private static MenuItem FindMenuByHeader(ContextMenu menu, string header)
+        {
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && (item.Header as string) == header) return item;
+            }
+            return null;
         }
 
         /// <summary>Parent row text >= 14 DIP, child one step smaller at >= 13.</summary>
