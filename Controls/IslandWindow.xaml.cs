@@ -127,6 +127,7 @@ namespace Kobold.Controls
                 ToggleDesktopIcons();
             };
             UpdateDesktopTile();
+            ApplySystemTileIconStyle(WidgetManager.Instance.Config.IconStyle ?? "classic");
 
             UpdateWindowGeometry();
         }
@@ -142,6 +143,7 @@ namespace Kobold.Controls
         public void RefreshIconStyle()
         {
             RebuildTiles();
+            ApplySystemTileIconStyle(WidgetManager.Instance.Config.IconStyle ?? "classic");
         }
 
         private void OnThemeChanged()
@@ -579,10 +581,32 @@ namespace Kobold.Controls
         private void UpdateDesktopTile()
         {
             bool hidden = WidgetManager.Instance.Config.HideDesktopIcons;
-            DesktopSlash.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
+            Visibility slash = hidden ? Visibility.Visible : Visibility.Collapsed;
+            DesktopSlash.Visibility = slash;
+            DesktopSlashHandDrawn.Visibility = slash;
 
             string action = Localization.Get(hidden ? "Island_DesktopClickShow" : "Island_DesktopClickHide");
             DesktopTile.ToolTip = action + " · " + Localization.Get("Island_DesktopOpenHint");
+        }
+
+        /// <summary>
+        /// Shows the classic or hand-drawn glyphs on the three system tiles
+        /// (desktop, settings, add). Only the exact "handdrawn" id picks the
+        /// hand-drawn canvases; classic/unknown fall back to classic, matching
+        /// <see cref="IconRendererFactory"/>.
+        /// </summary>
+        private void ApplySystemTileIconStyle(string style)
+        {
+            bool handDrawn = style == "handdrawn";
+            Visibility classic = handDrawn ? Visibility.Collapsed : Visibility.Visible;
+            Visibility drawn = handDrawn ? Visibility.Visible : Visibility.Collapsed;
+
+            DesktopTileClassic.Visibility = classic;
+            DesktopTileHandDrawn.Visibility = drawn;
+            SettingsTileClassic.Visibility = classic;
+            SettingsTileHandDrawn.Visibility = drawn;
+            AddTileClassic.Visibility = classic;
+            AddTileHandDrawn.Visibility = drawn;
         }
 
         private Border CreateTile(WidgetData widget, string iconStyle)

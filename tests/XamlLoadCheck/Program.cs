@@ -225,6 +225,16 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("island: folder tile refreshes with the icon style", IslandFolderTileRefreshesWithStyle);
                 failures += TryCheck("island: todo tile refreshes with the icon style", IslandTodoTileRefreshesWithStyle);
 
+                // Task 3.6 pins: the three system entries (desktop, settings,
+                // add) carry classic + hand-drawn canvases; the persisted icon
+                // style switches them at startup and on RefreshIconStyle, and
+                // the desktop slash follows the hide state in both styles.
+                failures += TryCheck("island: system tiles follow the icon style", IslandSystemTilesFollowTheIconStyle);
+                failures += TryCheck("island: desktop slash follows the hidden state in both styles",
+                    IslandDesktopSlashFollowsHiddenState);
+                failures += TryCheck("island: hand-drawn system geometry differs from classic",
+                    IslandHandDrawnSystemGeometryDiffers);
+
                 // Task 3.5 pins: the pure Quick Access path matcher and the
                 // read-only state probe (never Pin/Unpin - invoking them here
                 // would change the user's real Quick Access), plus the
@@ -3338,6 +3348,140 @@ namespace Kobold.XamlLoadCheck
             {
                 WidgetManager.Instance.Config.IconStyle = original;
                 island.RefreshIconStyle();
+                island.Close();
+            }
+        }
+
+        private static void IslandSystemTilesFollowTheIconStyle()
+        {
+            ThemeManager.Initialize("dark");
+            string original = WidgetManager.Instance.Config.IconStyle;
+            // Startup path: the constructor itself applies the persisted style.
+            WidgetManager.Instance.Config.IconStyle = "classic";
+            var island = new IslandWindow();
+            try
+            {
+                AssertSystemTileStyle(island, classic: true);
+
+                WidgetManager.Instance.Config.IconStyle = "handdrawn";
+                island.RefreshIconStyle();
+                AssertSystemTileStyle(island, classic: false);
+
+                WidgetManager.Instance.Config.IconStyle = "classic";
+                island.RefreshIconStyle();
+                AssertSystemTileStyle(island, classic: true);
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.IconStyle = original;
+                island.RefreshIconStyle();
+                island.Close();
+            }
+        }
+
+        private static void AssertSystemTileStyle(IslandWindow island, bool classic)
+        {
+            foreach (string tile in new[] { "DesktopTile", "SettingsTile", "AddTile" })
+            {
+                AssertTileCanvasPair(island, tile, classic);
+            }
+        }
+
+        private static void AssertTileCanvasPair(IslandWindow island, string tileName, bool classic)
+        {
+            Visibility classicWanted = classic ? Visibility.Visible : Visibility.Collapsed;
+            Visibility handDrawnWanted = classic ? Visibility.Collapsed : Visibility.Visible;
+
+            var classicCanvas = island.FindName(tileName + "Classic") as Canvas;
+            if (classicCanvas == null)
+                throw new InvalidOperationException(tileName + "Classic was not found");
+            if (classicCanvas.Visibility != classicWanted)
+                throw new InvalidOperationException(tileName + "Classic is " + classicCanvas.Visibility +
+                    ", wanted " + classicWanted);
+
+            var handDrawnCanvas = island.FindName(tileName + "HandDrawn") as Canvas;
+            if (handDrawnCanvas == null)
+                throw new InvalidOperationException(tileName + "HandDrawn was not found");
+            if (handDrawnCanvas.Visibility != handDrawnWanted)
+                throw new InvalidOperationException(tileName + "HandDrawn is " + handDrawnCanvas.Visibility +
+                    ", wanted " + handDrawnWanted);
+        }
+
+        private static void IslandDesktopSlashFollowsHiddenState()
+        {
+            ThemeManager.Initialize("dark");
+            string originalStyle = WidgetManager.Instance.Config.IconStyle;
+            bool originalHidden = WidgetManager.Instance.Config.HideDesktopIcons;
+            var island = new IslandWindow();
+            try
+            {
+                var update = typeof(IslandWindow).GetMethod("UpdateDesktopTile",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (update == null)
+                    throw new InvalidOperationException("UpdateDesktopTile was not found");
+
+                // Each style carries its own slash; both follow the hide state
+                // while the style switch only moves whole canvases.
+                foreach (string style in new[] { "classic", "handdrawn" })
+                {
+                    WidgetManager.Instance.Config.IconStyle = style;
+                    island.RefreshIconStyle();
+
+                    WidgetManager.Instance.Config.HideDesktopIcons = true;
+                    update.Invoke(island, null);
+                    AssertSlashVisibility(island, "DesktopSlash", true, style);
+                    AssertSlashVisibility(island, "DesktopSlashHandDrawn", true, style);
+
+                    WidgetManager.Instance.Config.HideDesktopIcons = false;
+                    update.Invoke(island, null);
+                    AssertSlashVisibility(island, "DesktopSlash", false, style);
+                    AssertSlashVisibility(island, "DesktopSlashHandDrawn", false, style);
+                }
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.HideDesktopIcons = originalHidden;
+                WidgetManager.Instance.Config.IconStyle = originalStyle;
+                island.RefreshIconStyle();
+                island.Close();
+            }
+        }
+
+        private static void AssertSlashVisibility(IslandWindow island, string name, bool hidden, string style)
+        {
+            var slash = island.FindName(name) as Shape;
+            if (slash == null)
+                throw new InvalidOperationException(name + " was not found");
+            Visibility wanted = hidden ? Visibility.Visible : Visibility.Collapsed;
+            if (slash.Visibility != wanted)
+                throw new InvalidOperationException(style + ": " + name + " is " + slash.Visibility +
+                    " with HideDesktopIcons=" + hidden + ", wanted " + wanted);
+        }
+
+        private static void IslandHandDrawnSystemGeometryDiffers()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                foreach (string tile in new[] { "DesktopTile", "SettingsTile", "AddTile" })
+                {
+                    var classicCanvas = island.FindName(tile + "Classic") as Canvas;
+                    var handDrawnCanvas = island.FindName(tile + "HandDrawn") as Canvas;
+                    if (classicCanvas == null || handDrawnCanvas == null)
+                        throw new InvalidOperationException(tile + " is missing a style canvas");
+                    if (handDrawnCanvas.Children.Count == 0)
+                        throw new InvalidOperationException(tile + "HandDrawn draws nothing");
+
+                    string handFingerprint = IconFingerprint(handDrawnCanvas);
+                    if (handFingerprint.IndexOf("|d=", StringComparison.Ordinal) < 0)
+                        throw new InvalidOperationException(tile + "HandDrawn has no baked path geometry");
+                    if (IconFingerprint(classicCanvas) == handFingerprint)
+                        throw new InvalidOperationException(tile + "HandDrawn matches classic");
+                }
+            }
+            finally
+            {
                 island.Close();
             }
         }
