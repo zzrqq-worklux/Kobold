@@ -65,16 +65,25 @@ namespace Kobold.Controls.IconRenderers
     /// </summary>
     public static class IconRendererFactory
     {
+        /// <summary>Folder icon renderer for a style id; unknown/retired ids fall back to classic.</summary>
         public static IIconRenderer Create(string style)
         {
             switch (style)
             {
-                case "modern": return new ModernIconRenderer();
-                case "minimal": return new MinimalIconRenderer();
-                case "rounded": return new RoundedIconRenderer();
-                case "flat": return new FlatIconRenderer();
-                case "gradient": return new GradientIconRenderer();
+                case "classic": return new ClassicIconRenderer();
+                case "handdrawn": return new HandDrawnIconRenderer();
                 default: return new ClassicIconRenderer();
+            }
+        }
+
+        /// <summary>Todo icon renderer for a style id; unknown/retired ids fall back to classic.</summary>
+        public static IIconRenderer CreateTodo(string style)
+        {
+            switch (style)
+            {
+                case "classic": return new ClassicTodoIconRenderer();
+                case "handdrawn": return new HandDrawnTodoIconRenderer();
+                default: return new ClassicTodoIconRenderer();
             }
         }
     }

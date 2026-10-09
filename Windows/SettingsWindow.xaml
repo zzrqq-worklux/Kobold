@@ -189,11 +189,7 @@
                             <ComboBox x:Name="IconStyleCombo" Grid.Column="1" Width="120"
                                       SelectionChanged="IconStyleCombo_SelectionChanged">
                                 <ComboBoxItem Content="📂 Classic" Tag="classic"/>
-                                <ComboBoxItem Content="🗂️ Modern" Tag="modern"/>
-                                <ComboBoxItem Content="📁 Minimal" Tag="minimal"/>
-                                <ComboBoxItem Content="🟦 Rounded" Tag="rounded"/>
-                                <ComboBoxItem Content="▬ Flat" Tag="flat"/>
-                                <ComboBoxItem Content="🌈 Gradient" Tag="gradient"/>
+                                <ComboBoxItem Content="✍️ Hand-drawn" Tag="handdrawn"/>
                             </ComboBox>
                         </Grid>
                     </Border>

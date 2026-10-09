@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using Kobold.Controls;
+using Kobold.Controls.IconRenderers;
 using Kobold.Core;
 using Kobold.Helpers;
 using Kobold.Windows;
@@ -209,6 +210,20 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: rebuild keeps the click caret", TodoRebuildKeepsTheClickCaret);
                 failures += TryCheck("todo: rebuild does not close the surviving editor", TodoRebuildDoesNotCloseTheSurvivingEditor);
                 failures += TryCheck("todo: child adder still selects all on load", TodoChildAdderStillSelectsAllOnLoad);
+
+                // Task 3.3 pins: the icon style setting is classic + handdrawn
+                // for both widget kinds; the island rebuilds its tiles when the
+                // style changes, so the setting needs no restart.
+                failures += TryCheck("icon: folder factory dispatches classic and hand-drawn", FolderFactoryDispatchesStyles);
+                failures += TryCheck("icon: retired folder styles fall back to classic", FolderFactoryFallsBackToClassic);
+                failures += TryCheck("icon: hand-drawn folder uses the widget colour and themed ink", HandDrawnFolderUsesWidgetColourAndInk);
+                failures += TryCheck("icon: todo factory dispatches classic and hand-drawn", TodoFactoryDispatchesStyles);
+                failures += TryCheck("icon: retired todo styles fall back to classic", TodoFactoryFallsBackToClassic);
+                failures += TryCheck("icon: classic todo accents use the widget colour", ClassicTodoUsesWidgetColour);
+                failures += TryCheck("icon: hand-drawn todo accents use the widget colour", HandDrawnTodoUsesWidgetColour);
+                failures += TryCheck("icon: hand-drawn todo paper follows the theme", HandDrawnTodoPaperFollowsTheme);
+                failures += TryCheck("island: folder tile refreshes with the icon style", IslandFolderTileRefreshesWithStyle);
+                failures += TryCheck("island: todo tile refreshes with the icon style", IslandTodoTileRefreshesWithStyle);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -3091,6 +3106,268 @@ namespace Kobold.XamlLoadCheck
             if (field == null) throw new InvalidOperationException(name + " field not found");
             return (T)field.GetValue(target);
         }
+
+        #region Task 3.3 icon-style pins
+
+        private static Canvas RenderIcon(IIconRenderer renderer, string color)
+        {
+            var canvas = new Canvas { Width = 64, Height = 64 };
+            renderer.Render(canvas, color);
+            return canvas;
+        }
+
+        private static Shape FindShape(DependencyObject root, Func<Shape, bool> match)
+        {
+            var shape = root as Shape;
+            if (shape != null && match(shape)) return shape;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = FindShape(VisualTreeHelper.GetChild(root, i), match);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static void FolderFactoryDispatchesStyles()
+        {
+            if (!(IconRendererFactory.Create("classic") is ClassicIconRenderer))
+                throw new InvalidOperationException("Create(classic) is not a ClassicIconRenderer");
+            if (!(IconRendererFactory.Create("handdrawn") is HandDrawnIconRenderer))
+                throw new InvalidOperationException("Create(handdrawn) is not a HandDrawnIconRenderer");
+        }
+
+        private static void FolderFactoryFallsBackToClassic()
+        {
+            if (!(IconRendererFactory.Create("modern") is ClassicIconRenderer))
+                throw new InvalidOperationException("the retired modern style did not fall back to classic");
+            if (!(IconRendererFactory.Create("nonsense") is ClassicIconRenderer))
+                throw new InvalidOperationException("an unknown style did not fall back to classic");
+        }
+
+        private static void HandDrawnFolderUsesWidgetColourAndInk()
+        {
+            const string hex = "#EF4444";
+            Color wanted = Utils.HexToColor(hex);
+
+            ThemeManager.Initialize("light");
+            var light = RenderIcon(new HandDrawnIconRenderer(), hex);
+            Shape lightFront = FindShape(light,
+                s => s.Fill is SolidColorBrush fill && fill.Color == wanted);
+            if (lightFront == null)
+                throw new InvalidOperationException("no hand-drawn front panel carries the widget colour");
+            var lightStroke = lightFront.Stroke as SolidColorBrush;
+            if (lightStroke == null)
+                throw new InvalidOperationException("the hand-drawn front panel has no solid outline");
+
+            ThemeManager.Initialize("dark");
+            var dark = RenderIcon(new HandDrawnIconRenderer(), hex);
+            Shape darkFront = FindShape(dark,
+                s => s.Fill is SolidColorBrush fill && fill.Color == wanted);
+            var darkStroke = darkFront == null ? null : darkFront.Stroke as SolidColorBrush;
+            if (darkStroke == null)
+                throw new InvalidOperationException("the dark-theme front panel has no solid outline");
+            if (lightStroke.Color == darkStroke.Color)
+            {
+                throw new InvalidOperationException(
+                    "the outline is " + Describe(lightStroke.Color) + " under both themes");
+            }
+
+            Shape highlight = FindShape(light, s =>
+            {
+                var stroke = s.Stroke as SolidColorBrush;
+                return stroke != null && stroke.Color.R == 255 && stroke.Color.G == 255 &&
+                       stroke.Color.B == 255 && stroke.Color.A < 255;
+            });
+            if (highlight == null)
+                throw new InvalidOperationException("the hand-drawn folder has no translucent white highlight");
+        }
+
+        private static void TodoFactoryDispatchesStyles()
+        {
+            if (!(IconRendererFactory.CreateTodo("classic") is ClassicTodoIconRenderer))
+                throw new InvalidOperationException("CreateTodo(classic) is not a ClassicTodoIconRenderer");
+            if (!(IconRendererFactory.CreateTodo("handdrawn") is HandDrawnTodoIconRenderer))
+                throw new InvalidOperationException("CreateTodo(handdrawn) is not a HandDrawnTodoIconRenderer");
+        }
+
+        private static void TodoFactoryFallsBackToClassic()
+        {
+            if (!(IconRendererFactory.CreateTodo("rounded") is ClassicTodoIconRenderer))
+                throw new InvalidOperationException("the retired rounded todo style did not fall back to classic");
+            if (!(IconRendererFactory.CreateTodo("nonsense") is ClassicTodoIconRenderer))
+                throw new InvalidOperationException("an unknown todo style did not fall back to classic");
+        }
+
+        private static void ClassicTodoUsesWidgetColour()
+        {
+            ThemeManager.Initialize("dark");
+            const string hex = "#3B82F6";
+            Color wanted = Utils.HexToColor(hex);
+            var canvas = RenderIcon(new ClassicTodoIconRenderer(), hex);
+
+            var header = FindShape(canvas, s => s is Path && s.Fill is LinearGradientBrush) as Path;
+            var gradient = header == null ? null : header.Fill as LinearGradientBrush;
+            if (gradient == null || gradient.GradientStops.Count < 2)
+                throw new InvalidOperationException("the classic todo header carries no accent gradient");
+            if (gradient.GradientStops[0].Color != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the header top is " + Describe(gradient.GradientStops[0].Color) +
+                    ", wanted the widget colour " + Describe(wanted));
+            }
+            Color darker = Utils.DarkenColor(wanted, 0.2);
+            Color headerBottom = gradient.GradientStops[gradient.GradientStops.Count - 1].Color;
+            if (headerBottom != darker)
+            {
+                throw new InvalidOperationException(
+                    "the header bottom is " + Describe(headerBottom) + ", wanted " + Describe(darker));
+            }
+
+            Shape block = FindShape(canvas, s =>
+            {
+                var rect = s as Rectangle;
+                if (rect == null || rect.Width != 22 || rect.Height != 10) return false;
+                var fill = rect.Fill as SolidColorBrush;
+                return fill != null && fill.Color.R == wanted.R && fill.Color.G == wanted.G &&
+                       fill.Color.B == wanted.B && fill.Color.A == 0xCC;
+            });
+            if (block == null)
+                throw new InvalidOperationException("no classic todo date block carries the widget colour at 0.8 alpha");
+        }
+
+        private static void HandDrawnTodoUsesWidgetColour()
+        {
+            ThemeManager.Initialize("dark");
+            Color wanted = Utils.HexToColor("#8B5CF6");
+            var canvas = RenderIcon(new HandDrawnTodoIconRenderer(), "#8B5CF6");
+
+            Shape accent = FindShape(canvas, s =>
+            {
+                var stroke = s.Stroke as SolidColorBrush;
+                return stroke != null && stroke.Color == wanted;
+            });
+            if (accent == null)
+                throw new InvalidOperationException("no hand-drawn todo accent stroke carries the widget colour");
+        }
+
+        private static void HandDrawnTodoPaperFollowsTheme()
+        {
+            const string hex = "#EF4444";
+            ThemeManager.Initialize("light");
+            Color? light = HandDrawnTodoPaperColour(RenderIcon(new HandDrawnTodoIconRenderer(), hex));
+
+            ThemeManager.Initialize("dark");
+            Color? dark = HandDrawnTodoPaperColour(RenderIcon(new HandDrawnTodoIconRenderer(), hex));
+
+            if (light == null || dark == null)
+                throw new InvalidOperationException("the hand-drawn todo paper path was not found");
+            if (light.Value == dark.Value)
+            {
+                throw new InvalidOperationException(
+                    "the paper is " + Describe(light.Value) + " under both themes");
+            }
+        }
+
+        private static Color? HandDrawnTodoPaperColour(Canvas root)
+        {
+            Shape paper = FindShape(root, s => s is Path && s.Fill is SolidColorBrush && s.Stroke is SolidColorBrush);
+            return paper == null ? (Color?)null : ((SolidColorBrush)paper.Fill).Color;
+        }
+
+        private static void IslandFolderTileRefreshesWithStyle()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            string original = WidgetManager.Instance.Config.IconStyle;
+            try
+            {
+                island.SetWidgets(new WidgetData[] { new FolderData { Name = "style-check", Color = "#EF4444" } });
+                string before = IconFingerprint(TileIconCanvas(island));
+
+                WidgetManager.Instance.Config.IconStyle = "handdrawn";
+                island.RefreshIconStyle();
+                string after = IconFingerprint(TileIconCanvas(island));
+                if (before == after)
+                    throw new InvalidOperationException("the folder tile did not change with the icon style");
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.IconStyle = original;
+                island.RefreshIconStyle();
+                island.Close();
+            }
+        }
+
+        private static void IslandTodoTileRefreshesWithStyle()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            string original = WidgetManager.Instance.Config.IconStyle;
+            try
+            {
+                island.SetWidgets(new WidgetData[] { new TodoData { Name = "style-check", Color = "#EF4444" } });
+                string before = IconFingerprint(TileIconCanvas(island));
+
+                WidgetManager.Instance.Config.IconStyle = "handdrawn";
+                island.RefreshIconStyle();
+                string after = IconFingerprint(TileIconCanvas(island));
+                if (before == after)
+                    throw new InvalidOperationException("the todo tile did not change with the icon style");
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.IconStyle = original;
+                island.RefreshIconStyle();
+                island.Close();
+            }
+        }
+
+        private static Canvas TileIconCanvas(IslandWindow island)
+        {
+            var panel = island.FindName("TilePanel") as Panel;
+            if (panel == null || panel.Children.Count == 0)
+                throw new InvalidOperationException("the island has no tiles");
+            var tile = panel.Children[0] as Border;
+            var viewbox = tile == null ? null : tile.Child as Viewbox;
+            var icon = viewbox == null ? null : viewbox.Child as Canvas;
+            if (icon == null) throw new InvalidOperationException("the tile icon canvas was not found");
+            return icon;
+        }
+
+        private static string IconFingerprint(DependencyObject root)
+        {
+            var sb = new StringBuilder();
+            AppendIconFingerprint(root, sb);
+            return sb.ToString();
+        }
+
+        private static void AppendIconFingerprint(DependencyObject node, StringBuilder sb)
+        {
+            var shape = node as Shape;
+            if (shape != null)
+            {
+                sb.Append(shape.GetType().Name);
+                var fill = shape.Fill as SolidColorBrush;
+                if (fill != null) sb.Append("|f=").Append(Describe(fill.Color));
+                var gradient = shape.Fill as LinearGradientBrush;
+                if (gradient != null)
+                {
+                    foreach (var stop in gradient.GradientStops)
+                        sb.Append("|g=").Append(Describe(stop.Color));
+                }
+                var stroke = shape.Stroke as SolidColorBrush;
+                if (stroke != null) sb.Append("|s=").Append(Describe(stroke.Color));
+                var path = shape as Path;
+                if (path != null && path.Data != null) sb.Append("|d=").Append(path.Data.ToString());
+                sb.Append(';');
+            }
+            int count = VisualTreeHelper.GetChildrenCount(node);
+            for (int i = 0; i < count; i++)
+                AppendIconFingerprint(VisualTreeHelper.GetChild(node, i), sb);
+        }
+
+        #endregion
 
         private static int TryCheck(string name, Action check)
         {

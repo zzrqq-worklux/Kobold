@@ -119,13 +119,9 @@ namespace Kobold.Core
                 ["Settings_Dark"] = "Dark",
                 ["Settings_Light"] = "Light",
                 ["Settings_IconStyle"] = "Icon Style",
-                ["Settings_FolderIconStyle"] = "Folder Icon Style",
+                ["Settings_WidgetIconStyle"] = "Widget Icon Style",
                 ["Settings_Classic"] = "Classic",
-                ["Settings_Modern"] = "Modern",
-                ["Settings_Minimal"] = "Minimal",
-                ["Settings_Rounded"] = "Rounded",
-                ["Settings_Flat"] = "Flat",
-                ["Settings_Gradient"] = "Gradient",
+                ["Settings_HandDrawn"] = "Hand-drawn",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 Grid Size",
@@ -285,13 +281,9 @@ namespace Kobold.Core
                 ["Settings_Dark"] = "深色",
                 ["Settings_Light"] = "浅色",
                 ["Settings_IconStyle"] = "图标样式",
-                ["Settings_FolderIconStyle"] = "文件夹图标样式",
+                ["Settings_WidgetIconStyle"] = "组件图标样式",
                 ["Settings_Classic"] = "经典",
-                ["Settings_Modern"] = "现代",
-                ["Settings_Minimal"] = "极简",
-                ["Settings_Rounded"] = "圆角",
-                ["Settings_Flat"] = "扁平",
-                ["Settings_Gradient"] = "渐变",
+                ["Settings_HandDrawn"] = "手绘",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 网格大小",
@@ -451,13 +443,9 @@ namespace Kobold.Core
                 ["Settings_Dark"] = "ダーク",
                 ["Settings_Light"] = "ライト",
                 ["Settings_IconStyle"] = "アイコン スタイル",
-                ["Settings_FolderIconStyle"] = "フォルダー アイコン スタイル",
+                ["Settings_WidgetIconStyle"] = "ウィジェット アイコン スタイル",
                 ["Settings_Classic"] = "クラシック",
-                ["Settings_Modern"] = "モダン",
-                ["Settings_Minimal"] = "ミニマル",
-                ["Settings_Rounded"] = "ラウンド",
-                ["Settings_Flat"] = "フラット",
-                ["Settings_Gradient"] = "グラデーション",
+                ["Settings_HandDrawn"] = "手描き",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 グリッド サイズ",

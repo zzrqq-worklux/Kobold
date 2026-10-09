@@ -22,7 +22,7 @@ namespace Kobold.Core
         public bool HideDesktopIcons { get; set; } // Hide the desktop icons while the app runs
         public int? HideIconsOriginal { get; set; } // Original "HideIcons" value, to restore on exit (null = value absent)
         public int DefaultGridColumns { get; set; }
-        public string IconStyle { get; set; }  // classic, modern, minimal, rounded
+        public string IconStyle { get; set; }  // classic, handdrawn
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
         public List<WidgetData> Widgets { get; set; }
 

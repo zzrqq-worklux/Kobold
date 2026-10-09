@@ -104,6 +104,13 @@ namespace Kobold.Windows
                         break;
                     }
                 }
+
+                // A retired config value has no item: select classic. This is
+                // UI state only - the config value is not rewritten here.
+                if (IconStyleCombo.SelectedItem == null && IconStyleCombo.Items.Count > 0)
+                {
+                    IconStyleCombo.SelectedIndex = 0;
+                }
             }
         }
 
@@ -146,11 +153,11 @@ namespace Kobold.Windows
             if (IconStyleHeader != null)
                 IconStyleHeader.Text = "📁 " + Localization.Get("Settings_IconStyle");
             if (IconStyleLabel != null)
-                IconStyleLabel.Text = Localization.Get("Settings_FolderIconStyle");
+                IconStyleLabel.Text = Localization.Get("Settings_WidgetIconStyle");
 
             // Icon Style options (emoji prefix + localized name per style)
-            string[] styleEmojis = { "📂", "🗂️", "📁", "🟦", "▬", "🌈" };
-            string[] styleKeys = { "Settings_Classic", "Settings_Modern", "Settings_Minimal", "Settings_Rounded", "Settings_Flat", "Settings_Gradient" };
+            string[] styleEmojis = { "📂", "✍️" };
+            string[] styleKeys = { "Settings_Classic", "Settings_HandDrawn" };
             for (int i = 0; i < IconStyleCombo.Items.Count && i < styleKeys.Length; i++)
             {
                 if (IconStyleCombo.Items[i] is ComboBoxItem styleItem)
@@ -271,6 +278,7 @@ namespace Kobold.Windows
                 _config.IconStyle = (string)item.Tag;
                 // Preview immediately
                 WidgetManager.Instance.RefreshAllWidgets();
+                WidgetManager.Instance.ApplyIconStyle();
             }
         }
 
@@ -281,6 +289,7 @@ namespace Kobold.Windows
 
             _config.Save();
             WidgetManager.Instance.RefreshAllWidgets();
+            WidgetManager.Instance.ApplyIconStyle();
             RefreshWidgetTexts();
             Close();
         }
@@ -308,6 +317,7 @@ namespace Kobold.Windows
             Localization.SetLanguage(_originalLanguage);
             ThemeManager.SetTheme(_originalTheme);
             WidgetManager.Instance.RefreshAllWidgets();
+            WidgetManager.Instance.ApplyIconStyle();
             RefreshWidgetTexts();
         }
         

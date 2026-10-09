@@ -231,6 +231,12 @@ namespace Kobold.Core
             _island?.ApplySettings();
         }
 
+        /// <summary>Rebuilds the island tiles after the widget icon style changed.</summary>
+        public void ApplyIconStyle()
+        {
+            _island?.RefreshIconStyle();
+        }
+
         /// <summary>Applies the saved "hide desktop icons" preference at startup.</summary>
         public void ApplyDesktopIconsOnStartup()
         {

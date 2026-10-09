@@ -138,6 +138,12 @@ namespace Kobold.Controls
             UpdateWindowGeometry();
         }
 
+        /// <summary>Rebuilds the tiles so a changed IconStyle shows immediately.</summary>
+        public void RefreshIconStyle()
+        {
+            RebuildTiles();
+        }
+
         private void OnThemeChanged()
         {
             Dispatcher.Invoke(() =>
@@ -584,7 +590,7 @@ namespace Kobold.Controls
             var iconCanvas = new Canvas { Width = 64, Height = 64 };
             if (widget.Kind == "todo")
             {
-                RenderTodoGlyph(iconCanvas, widget.Color);
+                IconRendererFactory.CreateTodo(iconStyle).Render(iconCanvas, widget.Color);
             }
             else
             {
@@ -615,57 +621,6 @@ namespace Kobold.Controls
             };
 
             return tile;
-        }
-
-        /// <summary>
-        /// Calendar glyph for todo tiles, painted in the widget colour so the
-        /// island keeps reading as one family.
-        /// </summary>
-        private static void RenderTodoGlyph(Canvas canvas, string color)
-        {
-            Color baseColor = Utils.HexToColor(color);
-            var bodyBrush = new SolidColorBrush(baseColor);
-            var headerBrush = new SolidColorBrush(Utils.DarkenColor(baseColor, 0.3));
-            var ringBrush = new SolidColorBrush(Utils.DarkenColor(baseColor, 0.45));
-            var dotBrush = new SolidColorBrush(Utils.LightenColor(baseColor, 1.6));
-
-            // Rings first: the header covers their lower half.
-            for (int i = 0; i < 2; i++)
-            {
-                var ring = new Rectangle
-                {
-                    Width = 5,
-                    Height = 12,
-                    RadiusX = 2.5,
-                    RadiusY = 2.5,
-                    Fill = ringBrush
-                };
-                Canvas.SetLeft(ring, i == 0 ? 16 : 40);
-                Canvas.SetTop(ring, 2);
-                canvas.Children.Add(ring);
-            }
-
-            var header = new System.Windows.Shapes.Path
-            {
-                Data = Geometry.Parse("M9,8 H51 A7,7 0 0 1 58,15 V22 H2 V15 A7,7 0 0 1 9,8 Z"),
-                Fill = headerBrush
-            };
-            canvas.Children.Add(header);
-
-            var body = new System.Windows.Shapes.Path
-            {
-                Data = Geometry.Parse("M2,22 H58 V51 A7,7 0 0 1 51,58 H9 A7,7 0 0 1 2,51 Z"),
-                Fill = bodyBrush
-            };
-            canvas.Children.Add(body);
-
-            for (int i = 0; i < 3; i++)
-            {
-                var dot = new Ellipse { Width = 6, Height = 6, Fill = dotBrush };
-                Canvas.SetLeft(dot, 14 + i * 12);
-                Canvas.SetTop(dot, 34);
-                canvas.Children.Add(dot);
-            }
         }
 
         private void ActivateTile(string widgetId)
