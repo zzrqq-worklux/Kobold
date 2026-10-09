@@ -282,7 +282,23 @@ ForDay 只返回顶层且只含 DisplayDate 命中该日的条目、RemoveItem �
   加子项/勾选子项；勾选父项级联；删除父项连带子项；点未来日期加任务留未来；
   换月/跨年导航；「今天」按钮；重启后选中日与任务保留。
 
+  **冒烟中用户逐条拍板的设计调整（已实现、已复审）**：添加行=全宽圆角「＋」；列表按内容收缩、＋紧跟最后一条待办；空列表时点＋就地取代「这一天没有待办」；添加/编辑行行首渲染未勾选方框、无 placeholder；行右键菜单=添加子项/删除（编辑仍左键点文本、Enter 连续添加子项保留）；编辑中点别处自动保存；字号平衡（父 14/子 13、日历格 28）；面板底色跟随组件色；尺寸变化后自动收进显示器工作区。
+
+  **遗留（已修复，2026-10-08）**：编辑/添加行的白底已移除（r11，编辑行与面板同底色、仅光标提示；空列表 = 勾选行 + 全宽圆角＋，无文案）；后续冒烟轮次 r12-r17 还完成了：面板尺寸含壳边框（修 ＋ 下边框裁切）、空态无文案、＋ 与边框/图标跟随组件色（Material 衍生色：底色 ~12%、边框 ~30%）、日历选中日 = 用户手绘圆圈（颜色跟随组件色、圈径加大）、今天 = 实心圆底 + 手绘圈、文件夹选中样式跟随组件色、日切换高度强制重算（修 stale measure）、点击即编辑（I 形光标 + 光标落在点击处，不再全选）。全部经 scoped 复审；r17 构建已部署并实测。**剩余：用户冒烟确认 → 提交 Task 2.4。**
+
 - [ ] **Step 5: 提交（需用户许可）** → `feat(todo): render the calendar, day list and sub-todos`
+
+### Task 2.5: 日历假日标记 + 农历/节气/节日小字（方案确认于 2026-10-08）
+
+**用户确认的范围：** 放假标记优先（中国/日本/美国/英国；组件右键菜单单选地区，默认中国）；中文界面日期格第二行小字（假日 > 节气 > 农历日；农历用 .NET 自带 `ChineseLunisolarCalendar`，无新依赖）；中国的官方调休表**手写内置**（2025/2026 两年 72 行，来源=国务院公告并在文件头注明链接；**不做抓取、不做定时任务、运行时零网络**；2027 公布后手动补录，无数据年份只显示农历/节日基础层）；日本/美国/英国按法定规则计算；日头不加农历；选中日样式（手绘圈）已在 Task 2.4 落地。
+
+**Files:** Create `Core/LunarCalendar.cs`、`Core/PublicHolidays.cs`、`Core/CnHolidayData.cs`（手写数据表，2025/2026）、`tests/LunarCalendarCheck/`；Modify `Core/TodoData.cs`（`HolidayRegion`）、`Controls/TodoCalendarView.xaml.cs`（日期格第二行）、`Controls/TodoWidget.xaml.cs` + `Helpers/WidgetMenuBuilder.cs`（假日地区子菜单）、`Core/Localization.cs`（7 个 key ×3）、`tests/WidgetKindsCheck/Program.cs`、`tests/XamlLoadCheck/Program.cs`、`tools/Run-Checks.ps1`
+
+**执行入口：** `.superpowers/sdd/2026-09-28-widget-plugins/task-2.5-brief-v2.md`（含 72 行数据表全文、全部锚点与规则清单）。
+
+- [ ] **Step 1–4: TDD**（LunarCalendarCheck：农历/节气/节日、CN 表锚点、JP/US/UK 规则、region 解析）；实现；全量回归（矩阵 28 项 + installer = 29 行）。
+- [ ] **Step 5: 手动冒烟**（用户）：2026-10 格子（10/1 国庆、10/10 班、10/8 寒露、农历日）；切地区（日本 9/22 国民休日、美国 11/26 感恩节、英国 12/28 节礼日补休）；「关闭」只留农历层；en/ja 界面无小字；组件菜单勾选状态；重启后地区保留。
+- [ ] **Step 6: 提交（需用户许可）** → `feat(todo): mark lunar dates, solar terms and holidays in the calendar`
 
 ---
 
@@ -316,6 +332,58 @@ ForDay 只返回顶层且只含 DisplayDate 命中该日的条目、RemoveItem �
 - [ ] **Step 3: 全量自检 + 构建**。
 - [ ] **Step 4: 手动冒烟**（同 Task 3.1 Step 4 清单再跑一遍，重点：锁定/置顶、面板重启恢复、菜单项齐全）。
 - [ ] **Step 5: 提交（需用户许可）** → `refactor(widget): share the panel behaviours through the base window`
+
+### Task 3.3（用户新增，2026-10-09 确认）: 岛图标样式精简 + 手绘风 + 实时刷新（folder + todo）
+
+**决策（用户拍板）**：只留 `classic` + 手绘（`handdrawn`）两种，**folder 与 todo 两种组件的岛 tile 都适用**；modern/minimal/rounded/flat/gradient 五个渲染器与下拉项**直接删除**，不写旧值迁移/兜底代码（`IconRendererFactory` 的 default 分支天然回落 classic 即可）；手绘做 **B 方案**：把抖动离线烘焙进固定的 Path 几何数据（WPF 不支持 SVG `feTurbulence`/`feDisplacementMap`，渲染期零随机、零滤镜）；修复"改设置不刷新"：样式变更/保存/取消都必须立刻重建岛 tile。颜色适配：folder=组件色+浅/深派生；todo=纸张/墨线跟主题（浅/深/高对比），标题栏/日期块/圈注/勾选跟组件色（用户 2026-10-09 补充的两份 Todo SVG 见 `task-3.3-brief.md`；映射推荐方案待用户最终确认）。
+
+**Files:** Modify `Controls/IconRenderers/IconStyles.cs`（删 5 个渲染器）、`Controls/IconRenderers/IconRendererBase.cs`（工厂 2 分支 + default + `CreateTodo`）、Create `Controls/IconRenderers/HandDrawnIconRenderer.cs`、Create `Controls/IconRenderers/TodoIconStyles.cs`（Classic/HandDrawn Todo）、`Controls/IslandWindow.xaml.cs`（todo 分支走 CreateTodo、删 RenderTodoGlyph、`RefreshIconStyle()`）、`Windows/SettingsWindow.xaml(.cs)`（下拉 2 项、emoji/key 数组、三处调用新刷新）、`Core/Localization.cs`（三语：加 `Settings_HandDrawn`、删 5 个退休 key）、`Core/AppConfig.cs`（注释）、`Core/WidgetManager.cs`（新 `ApplyIconStyle()` → `RefreshIconStyle()`）、`tests/XamlLoadCheck/Program.cs`（工厂分派/颜色/主题适配/刷新链路 pins；不新增工程，矩阵保持 29）。
+
+**根因（已定位）**：`SettingsWindow.IconStyleCombo_SelectionChanged` → `WidgetManager.RefreshAllWidgets()`（WidgetManager.cs:384-390）只调 `widget.RefreshTheme()`；岛 tile 只在 `RefreshIsland()`/`SetWidgets()` 时经 `IslandWindow.RebuildTiles()`（读 `Config.IconStyle`，IslandWindow.xaml.cs:487）重建，所以样式重启才生效。
+
+- [ ] **Step 1: 失败自检**（工厂分派 classic/handdrawn、退休值→classic、手绘渲染色来自组件色、深色主题描边适配、改样式后岛 tile 重建被触发）。
+- [ ] **Step 2: 实现**（渲染器 + 设置链路；手绘路径数据离线生成后固化，临时生成脚本不入库）。
+- [ ] **Step 3: 自检转绿 + 全量回归** → `Run-Checks.ps1 -Group all` 29/29、`dotnet build` 0 警告。
+- [ ] **Step 4: 手动冒烟**（用户）：浅/深/高对比主题下 classic 与手绘的观感与可读性；下拉切换即时生效；取消回滚；保存后重启保留。
+- [ ] **Step 5: 提交（需用户许可）** → `feat(island): slim the widget icon styles to classic and hand-drawn`
+
+### Task 3.4（用户新增，2026-10-09 确认）: 组件取色板统一为 9 色
+
+**决策**：组件取色板（`UiTokens.FolderPalette`）由 12 色替换为与文件夹变色（`FolderIconPalette`）一致的 9 色：红橙黄绿(青柠)绿青蓝紫灰，同值同序；老组件已用颜色**不迁移**（取色板不再提供即可）；新组件默认取色循环改为 蓝→红→绿→紫→橙（保持现有观感）。
+
+**Files:** Modify `Core/UiTokens.cs`、`Core/WidgetManager.cs`（`CreateWidget` 默认取色循环）、`tests/MenuRenderCheck/Program.cs`（板一致性 pin）。
+
+- [ ] **Step 1: 失败自检**（`FolderPalette` 长度 9 且与 `FolderIconPalette` 逐元素相等）。
+- [ ] **Step 2: 实现**（数组替换 + 默认循环）。
+- [ ] **Step 3: 自检绿 + 全量回归 29/29 + build 0 警告**。
+- [ ] **Step 4: 冒烟**（用户）：组件菜单→颜色只有 9 色；新建组件默认色循环；老颜色组件显示正常。
+- [ ] **Step 5: 提交** → `refactor(widgets): align the widget colour palette with the folder palette`
+
+### Task 3.5（用户新增，2026-10-09 确认）: Kobold 存储固定到快速访问
+
+**决策**：设置窗口新增「Kobold 存储」行：显示 `%AppData%\Kobold\Storage` 路径 + 「打开文件夹」+ 「固定到快速访问 / 取消固定」开关（显式、可逆、无需管理员）；实现用 Shell COM 规范动词 `pintohome` / `unpinfromhome`；不做 Shell 命名空间扩展、不映射盘符（文件选择器左侧默认显示"快速访问"，固定即出现在那里）。COM 失败/组策略禁用时给出本地化提示。自动化测试只覆盖纯逻辑与只读状态查询，**绝不调用固定/取消动作**（人工冒烟执行）。
+
+**Files:** Create `Helpers/QuickAccess.cs`；Modify `Windows/SettingsWindow.xaml(.cs)`、`Core/Localization.cs`（三语 keys）、`tests/*`（纯逻辑/只读 pins，选最合适的既有工程）。
+
+- [ ] **Step 1: 失败自检**（路径匹配/状态解析纯函数；`TryIsPinned` 只读且不抛）。
+- [ ] **Step 2: 实现**（COM 封装 + 设置行 + 失败提示）。
+- [ ] **Step 3: 自检绿 + 全量回归 29/29 + build 0 警告**。
+- [ ] **Step 4: 冒烟**（用户）：设置里固定 → 资源管理器与网页上传的文件选择器左侧「快速访问」出现 Kobold 存储；取消固定后消失；重启后状态保留。
+- [ ] **Step 5: 提交** → `feat(settings): pin the Kobold storage to Quick Access`
+
+**修复轮 1（用户冒烟 2026-10-09）**：① 存储行按钮太小、文字撑满 → 放大按钮（MinHeight 34-36、Padding 16,0、MinWidth，zh/en/ja 三语不裁切）；② 固定默认开启 → `AppConfig.PinStorageToQuickAccess`（默认 true）+ 启动时尽力固定（只强制 pin、不自动 unpin）+ 设置开关写配置、取消恢复原状态。提交 `fix(settings): ...`。
+
+### Task 3.6（用户新增，2026-10-09 确认）: 系统 tile（隐藏桌面/设置/添加）手绘版
+
+**决策**：岛的系统入口 tile（隐藏/取消隐藏桌面、设置、添加）也随 `IconStyle` 提供手绘版（classic = 现状）；用户提供 4 个手绘 SVG（显示器、显示器+斜线、齿轮、加号）；颜色跟随主题（`Kobold.Brush.IslandForeground`，浅/深/高对比自动适配）；抖动烘焙（B 方案，无滤镜）；`RefreshIconStyle()` 一并切换；桌面 tile 的斜线在两种样式下都要随隐藏状态显隐。
+
+**Files:** Modify `Controls/IslandWindow.xaml(.cs)`（每 tile 双画布或等价切换 + 手绘几何常量）、`tests/XamlLoadCheck/Program.cs`（样式切换与斜线两态 pins）。
+
+- [ ] **Step 1: 失败自检**（classic→手绘的可见性切换；隐藏桌面时两种样式的斜线都显隐正确）。
+- [ ] **Step 2: 实现**（4 个手绘几何烘焙到 24 空间；颜色走主题资源）。
+- [ ] **Step 3: 全量回归 29/29 + build 0 警告**。
+- [ ] **Step 4: 冒烟**（用户）：两种样式下桌面/设置/添加 tile 观感；隐藏桌面切换斜线；主题切换颜色跟随。
+- [ ] **Step 5: 提交** → `feat(island): add hand-drawn system tile icons`
 
 ---
 
@@ -356,3 +424,78 @@ ForDay 只返回顶层且只含 DisplayDate 命中该日的条目、RemoveItem �
   `WidgetData.Kind` 取值 `folder`/`todo` 与 registry、转换器、岛图标分支一致。
 - **风险**：阶段 3 是唯一触碰现有 UX 的重构——Todo 先证抽象、单独提交、全量自检 + 手动清单，
   回退点是阶段 3 之前。
+
+---
+
+## 会话交接（2026-10-08，本次会话结束时写入）
+
+**仓库/工作区**
+- 主仓库 `C:\Users\31177347\Desktop\Coding\Kobold`
+- 隔离工作区：`.worktrees/widget-plugins`（分支 `widget-plugins`），HEAD = `3b25c69`
+- SDD ledger：`.worktrees/widget-plugins/.superpowers/sdd/2026-09-28-widget-plugins/progress.md`
+  （含全部 Ruling、minor 清单、每轮快照编号、2026-10-08 交接段；新会话先读它）
+- 审查快照工具：同目录 `snap.sh` / `pkg.sh`；本会话的审查包按 r11-r17 命名，
+  生成时排除计划文件（`:(exclude)docs/superpowers/plans/2026-09-28-widget-plugins.md`）
+
+**已完成（已提交）**
+- Task 1.1 `4cd97f7`、Task 1.2 `ee863cc`、Task 2.1 `fe392f4`、Task 2.2 `52b6cac`、Task 2.3 `3b25c69`
+
+**进行中（已暂存、未提交）**
+- Task 2.4 全部实现 + 冒烟轮次 r0-r17 的修复（暂存于 index，11 个文件；最近复审快照 `8ef4f82f`，
+  r17 构建已部署并实测）；**未提交**——等用户冒烟确认后由实现子代理提交。
+
+**遗留事项（按顺序执行）**
+1. 用户冒烟 r11-r17（高度收放、点击即编辑、＋/选中样式、功能清单）→ OK 后提交 Task 2.4：
+   `feat(todo): render the calendar, day list and sub-todos`（只提交 index 中的 11 个暂存文件，勿含计划文件）；
+2. Task 2.5 农历：用户已确认"选中样式=手绘圈"，**其余 3 个决策（显示范围/内容范围/日头是否加农历）
+   仍未回答**——先确认再实施；
+3. 阶段 3：Task 3.1 / 3.2 → **提交前先把 diff 给用户过目** → 冒烟；
+4. 阶段 4：Task 4.1（README/CHANGELOG）、Task 4.2（全量 Run-Checks + 执行记录；2.5 未落地时
+   矩阵=28 项 + installer=29 行）；
+5. 终审（整分支，含 ledger 的 minor/裁决清单）→ finishing-a-development-branch；
+6. 清理：用户配置里的探针组件 `sdd-layout-probe`。
+
+**流程约定（延续）**
+- subagent-driven-development：每任务 = 实现子代理（TDD）→ 暂存快照 → 审查 → 修复循环 → 复审 → 用户冒烟 → 提交；
+- 提交权限：自检绿 + 审查通过后由实现子代理提交；**阶段 3 的重构提交必须先给用户过目**；
+- 冒烟用 `tools\deploy.ps1`（装到 `%LocalAppData%\Programs\Kobold` 并重启）——预期行为；
+- 手动冒烟由用户操作；混合 DPI/多屏受单屏限制，如实声明；
+- 硬约束：net48/C# 7.3、不新增依赖；三语 key 同步（LangCheck 绿）；新自检登记进 `tools/Run-Checks.ps1`；
+  （例外记录：r15 经用户明确要求改了 FolderWidget 的选中样式，属用户设计调整，非计划外重构）
+- 用户的设计调整优先于计划草图；争议以用户为准；**新需求先与用户确认方案再实施**。
+
+---
+
+## 会话交接（2026-10-09，本次会话结束时写入）
+
+**仓库/工作区**
+- 主仓库 `C:\Users\31177347\Desktop\Coding\Kobold`；隔离工作区 `.worktrees/widget-plugins`（分支 `widget-plugins`），HEAD = `7f68856`
+- SDD ledger：`.worktrees/widget-plugins/.superpowers/sdd/2026-09-28-widget-plugins/progress.md`（含全部 Ruling、minor 清单、每轮快照编号；新会话先读）
+- 启动 prompt 副本：同目录 `handoff-prompt-2026-10-09.md`；审查快照工具 `snap.sh` / `pkg.sh`（通用版 `pkg18.sh`），审查包排除本计划文件
+
+**已完成（已提交）**
+- Task 1.1 `4cd97f7`、1.2 `ee863cc`、2.1 `fe392f4`、2.2 `52b6cac`、2.3 `3b25c69`
+- Task 2.4 `7e82193`（含 r0-r18 修复；r11-r18 冒烟通过）
+- Task 2.5 假日/农历标记 `f0272eb`（12 文件；CN 调休表手写 72 行、零抓取；JP/US/UK 规则计算；冒烟通过）
+- 点击编辑 r19 修复 `7f68856`（编辑 A 时点 B：全选闪烁 + 编辑器被关闭；根因=一次性光标点 + 重建销毁编辑器的过期延迟提交；冒烟通过）
+
+**进行中**
+- 无未提交代码；**计划文件本身的修订未暂存**（会话交接 + Task 2.5 新章节），留给 Task 4.2 的执行记录提交，勿并入其他提交。
+
+**遗留事项（按顺序）**
+1. 阶段 3：Task 3.1（FolderWidget 换 WidgetChrome）→ **提交前先把 diff 给用户过目**（硬性要求）→ 提交 → 冒烟；Task 3.2 同样"diff 先过目"。
+2. **方向 A 的 spec/plan**：用户 2026-10-09 批准方向 A（原生自由拖动缩放 + 通用自适应引擎）。要点：取代文件夹 列数/图标大小/最大行数 手动设置（旧字段做迁移输入）；Todo 第二行小字按尺寸显隐（日历密度问题随之解决）；复用现有布局代码（PanelRows/ItemScale/格高字号常量→纯函数适配器）。**阶段 3 完成后先起草 A 的 spec/plan 给用户审，不要直接实施；不做便宜的密度止血（用户明确不要）。A 不属于本计划。**
+3. 阶段 4：Task 4.1（README/CHANGELOG，英中同步）；Task 4.2（全量 `Run-Checks.ps1 -Group all` 29 行 + 执行记录，含把计划文件未暂存修订一并提交）。
+4. 终审（整分支审查，含 ledger 的 minor/裁决清单）→ `finishing-a-development-branch`。
+5. 清理：删除用户配置里的探针组件 `sdd-layout-probe`（`%APPDATA%\Kobold\config.json`）。
+
+**流程约定（延续）**
+- subagent-driven-development：每任务 = 实现子代理（TDD）→ 快照 → 审查/复审 → 用户冒烟 → 提交；
+- 提交权限：自检绿 + 审查通过后由实现子代理提交；**阶段 3 的重构提交必须先给用户过目**；
+- 冒烟用 `tools\deploy.ps1`（装到 `%LocalAppData%\Programs\Kobold` 并重启）——预期行为；
+- 硬约束：net48 / C# 7.3、不新增依赖；三语 key 同步（LangCheck 绿）；新自检登记进 `tools/Run-Checks.ps1`；混合 DPI/多屏受单屏限制，如实声明；
+- **不要驱动用户真实鼠标做复现**（r19 教训：脚本点击会卡住子代理并干扰用户；用离线 pin + 插桩日志复现）；
+- 用户的设计调整优先于计划草图；**新需求先与用户确认方案再实施**。
+
+**2026-10-09 会话中新增（已确认）**：Task 3.3 = 岛文件夹图标样式只留 classic + 手绘（删其余 5 个、无兜底）、手绘抖动离线烘焙（B 方案）、修复"改设置不重建岛"的刷新 bug；排在 Task 3.2 之后、Task 4.1 之前；细节见计划 Task 3.3 节与 `task-3.3-brief.md`。
+
