@@ -93,7 +93,7 @@ namespace Kobold.Controls
             }
 
             UpdateUI();
-            OnDataChanged?.Invoke();
+            NotifyDataChanged();
         }
 
         #endregion
@@ -681,7 +681,7 @@ namespace Kobold.Controls
                 // Clear and rebuild ItemsSource for clean refresh
                 ItemsContainer.ItemsSource = null;
                 UpdateUI();
-                OnDataChanged?.Invoke();
+                NotifyDataChanged();
             }, System.Windows.Threading.DispatcherPriority.Send);
         }
         
@@ -898,7 +898,7 @@ namespace Kobold.Controls
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     UpdateUI();
-                    OnDataChanged?.Invoke();
+                    NotifyDataChanged();
                 }));
             }
         }

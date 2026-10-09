@@ -71,7 +71,7 @@ namespace Kobold.Controls
                 item.OriginalPath = null;
 
                 UpdateUI();
-                OnDataChanged?.Invoke();
+                NotifyDataChanged();
             }
             catch (Exception ex)
             {
@@ -88,6 +88,15 @@ namespace Kobold.Controls
             {
                 EjectItem(item);
             }
+        }
+
+        /// <summary>
+        /// Deleting the widget must keep returning stored files: the base runs
+        /// this after the confirmation, before the widget is removed.
+        /// </summary>
+        protected override void OnDeleting()
+        {
+            EjectAllItems();
         }
 
         /// <summary>

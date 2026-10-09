@@ -161,6 +161,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: selected day uses the hand-drawn circle", TodoSelectedDayUsesTheHandDrawnCircle);
                 failures += TryCheck("todo: today marker is a filled circle", TodoTodayMarkerIsAFilledCircle);
                 failures += TryCheck("folder: item selection follows the widget colour", FolderSelectionFollowsTheWidgetColor);
+                failures += TryCheck("folder: panel size matches content + chrome", FolderPanelSizeMatchesContentPlusChrome);
+                failures += TryCheck("folder: grid menu updates the panel", FolderGridMenuUpdatesThePanel);
 
                 // Restyle pins: the add input aligns with a list row exactly,
                 // and inline editors are borderless with no background band
@@ -2558,6 +2560,157 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the app-level Kobold.Brush.SelectionFill default is not a LinearGradientBrush");
             }
+        }
+
+        /// <summary>
+        /// Task 3.2: after FolderWidget moved onto the shared base, its panel
+        /// size must still be the old folder maths, exactly. GetPanelSize()
+        /// composes GetContentSize() plus the chrome header and the shell's
+        /// border (the base contract); the composed value must equal the
+        /// legacy formula for an empty panel, a full grid and an overflowing
+        /// listing. RED before the convergence: GetContentSize did not exist.
+        /// </summary>
+        private static void FolderPanelSizeMatchesContentPlusChrome()
+        {
+            ThemeManager.Initialize("dark");
+
+            AssertFolderPanelSize(0, 3, PanelRows.DefaultMaxRows, "empty");
+            AssertFolderPanelSize(12, 4, PanelRows.DefaultMaxRows, "full grid");
+            AssertFolderPanelSize(30, 2, PanelRows.MinAllowedRows, "overflowing");
+        }
+
+        private static void AssertFolderPanelSize(int itemCount, int columns, int maxRows, string label)
+        {
+            var data = new FolderData { GridColumns = columns, MaxPanelRows = maxRows };
+            for (int i = 0; i < itemCount; i++)
+            {
+                data.Items.Add(new WidgetItem
+                {
+                    Name = "item" + i,
+                    Path = System.IO.Path.Combine(@"C:\kobold-size-probe", "item" + i + ".txt")
+                });
+            }
+
+            var widget = new FolderWidget(data);
+            widget.UpdateUI(); // publishes _lastItemCount for the size maths
+
+            var getContent = typeof(FolderWidget).GetMethod("GetContentSize",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (getContent == null)
+            {
+                throw new InvalidOperationException(
+                    label + ": FolderWidget.GetContentSize not found - the window is not on the shared base");
+            }
+
+            var content = ((double width, double height))getContent.Invoke(widget, null);
+            var (width, height) = widget.GetPanelSize();
+            var border = ((Border)widget.PanelShell).BorderThickness;
+            if (width != content.width + border.Left + border.Right ||
+                height != WidgetConstants.HEADER_HEIGHT + content.height + border.Top + border.Bottom)
+            {
+                throw new InvalidOperationException(
+                    label + ": the panel " + width + "x" + height + " is not content " +
+                    content.width + "x" + content.height + " + header height " +
+                    WidgetConstants.HEADER_HEIGHT + " + border " + border);
+            }
+
+            // The legacy CalculatePanelSize, recomputed independently: the
+            // item footprint rounds up under the scale, the row cap decides
+            // the height, a scrollbar widens the panel and the minimums apply
+            // last.
+            double scale = WidgetManager.Instance.Config.ItemScale;
+            int itemWidth = (int)Math.Ceiling((WidgetConstants.BASE_ITEM_WIDTH + WidgetConstants.ITEM_MARGIN) * scale);
+            int itemHeight = (int)Math.Ceiling((WidgetConstants.BASE_ITEM_HEIGHT + WidgetConstants.ITEM_MARGIN) * scale);
+            int count = Math.Max(1, itemCount);
+            int cols = Math.Max(1, columns);
+            int visibleRows = PanelRows.VisibleRows(count, cols, maxRows);
+            int naturalHeight = WidgetConstants.HEADER_HEIGHT + visibleRows * itemHeight + WidgetConstants.PADDING;
+            int maxHeight = Math.Max(120,
+                (int)(SystemParameters.WorkArea.Height * WidgetConstants.PANEL_MAX_HEIGHT_RATIO));
+            bool scrolls = PanelRows.NeedsScroll(count, cols, maxRows) || naturalHeight > maxHeight;
+
+            int legacyWidth = cols * itemWidth + WidgetConstants.PADDING + 2;
+            if (scrolls) legacyWidth += (int)SystemParameters.VerticalScrollBarWidth;
+            legacyWidth = Math.Max(legacyWidth, 180);
+            int legacyHeight = Math.Max(Math.Min(naturalHeight, maxHeight), 120);
+
+            if (width != legacyWidth || height != legacyHeight)
+            {
+                throw new InvalidOperationException(
+                    label + ": panel " + width + "x" + height +
+                    " != the legacy panel maths " + legacyWidth + "x" + legacyHeight);
+            }
+        }
+
+        /// <summary>
+        /// Task 3.2: the folder's widget menu now comes from WidgetMenuBuilder,
+        /// which writes FolderData.GridColumns directly. The panel's
+        /// BindableUniformGrid must still follow the pick immediately - the old
+        /// menu went through the FolderWidget property and its PropertyChanged,
+        /// so the builder path must keep the binding live.
+        /// </summary>
+        private static void FolderGridMenuUpdatesThePanel()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new FolderData { GridColumns = 3 };
+            var widget = new FolderWidget(data);
+
+            var root = (FrameworkElement)widget.Content;
+            root.Measure(new Size(400, 400));
+            root.Arrange(new Rect(0, 0, 400, 400));
+            root.UpdateLayout();
+
+            var grid = FindDescendant<BindableUniformGrid>(root);
+            if (grid == null) throw new InvalidOperationException("the items grid was not realized");
+            if (grid.Columns != 3)
+                throw new InvalidOperationException("initial columns " + grid.Columns + ", wanted 3");
+
+            var menu = WidgetMenuBuilder.Build(widget, WidgetKindRegistry.Find("folder"), null);
+            MenuItem gridMenu = null;
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && item.Header as string == Localization.Get("Menu_GridSize"))
+                {
+                    gridMenu = item;
+                    break;
+                }
+            }
+            if (gridMenu == null) throw new InvalidOperationException("the grid-size submenu is missing");
+
+            MenuItem pick = null;
+            foreach (var entry in gridMenu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && (item.Header as string) != null && ((string)item.Header).StartsWith("4 "))
+                {
+                    pick = item;
+                    break;
+                }
+            }
+            if (pick == null) throw new InvalidOperationException("the 4-column entry is missing");
+
+            pick.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            root.UpdateLayout();
+            if (grid.Columns != 4)
+            {
+                throw new InvalidOperationException(
+                    "columns after the menu pick: " + grid.Columns + ", wanted 4");
+            }
+        }
+
+        private static T FindDescendant<T>(DependencyObject parent) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T match) return match;
+                var nested = FindDescendant<T>(child);
+                if (nested != null) return nested;
+            }
+            return null;
         }
 
         private static void AssertSelectionResources(string label, FrameworkElement panel, string hex)

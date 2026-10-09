@@ -12,105 +12,10 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Dialogs (Rename, ColorPicker) and Shell Icon
+    /// FolderWidget - Shell icon loading
     /// </summary>
     public partial class FolderWidget
     {
-        #region Dialogs
-
-        private void ShowRenameDialog()
-        {
-            string newName = ShowInputModal(
-                Localization.Get("Dialog_Rename"),
-                Localization.Get("Dialog_EnterName"),
-                _data.Name,
-                null);
-
-            if (string.IsNullOrWhiteSpace(newName)) return;
-
-            _data.Name = newName.Trim();
-            UpdateUI();
-            OnDataChanged?.Invoke();
-        }
-
-        private void ShowColorPicker()
-        {
-            var dlg = new Window
-            {
-                Title = Localization.Get("Dialog_PickColor"),
-                Width = 340,
-                Height = 220,
-                WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = Brushes.Transparent,
-                ResizeMode = ResizeMode.NoResize,
-                Owner = this
-            };
-
-            var wrapPanel = new WrapPanel { Margin = new Thickness(UiTokens.Space4) };
-
-            foreach (var color in UiTokens.FolderPalette)
-            {
-                wrapPanel.Children.Add(CreateColorSwatch(color, dlg));
-            }
-
-            dlg.Content = new Border
-            {
-                Background = ThemeManager.DialogBackgroundBrush,
-                CornerRadius = new CornerRadius(UiTokens.RadiusWindow),
-                BorderBrush = ThemeManager.DialogBorderBrush,
-                BorderThickness = new Thickness(1),
-                Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    BlurRadius = 20,
-                    ShadowDepth = 0,
-                    Opacity = 0.5,
-                    Color = Colors.Black
-                },
-                Child = wrapPanel
-            };
-
-            dlg.ShowDialog();
-        }
-
-        private Border CreateColorSwatch(string color, Window dialog)
-        {
-            bool isCurrent = string.Equals(color, _data.Color, StringComparison.OrdinalIgnoreCase);
-            var swatch = new Border
-            {
-                Width = 48,
-                Height = 48,
-                Margin = new Thickness(6),
-                CornerRadius = new CornerRadius(UiTokens.RadiusControl),
-                Background = new SolidColorBrush(Utils.HexToColor(color)),
-                Cursor = Cursors.Hand,
-                BorderThickness = isCurrent ? new Thickness(3) : new Thickness(1),
-                BorderBrush = isCurrent ? ThemeManager.WhiteBrush : ThemeManager.IconStrokeBrush
-            };
-
-            swatch.Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
-                BlurRadius = 6,
-                ShadowDepth = 2,
-                Opacity = 0.3
-            };
-
-            swatch.MouseEnter += (s, e) => swatch.Opacity = 0.8;
-            swatch.MouseLeave += (s, e) => swatch.Opacity = 1.0;
-            swatch.MouseLeftButtonUp += (s, e) =>
-            {
-                _data.Color = color;
-                RefreshTheme();  // This updates panel colors AND item text colors
-                OnDataChanged?.Invoke();
-                dialog.Close();
-            };
-
-            return swatch;
-        }
-
-        #endregion
-
         #region Shell Icon
 
         // Cache icons by extension to avoid repeated Shell API calls

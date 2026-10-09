@@ -287,9 +287,18 @@ namespace Kobold.Controls
         {
             if (!ShowConfirmModal(Localization.Format("Dialog_DeleteWidget", _data.Name))) return;
 
+            // Last chance for a subclass to keep its own content alive (the
+            // folder ejects stored files back before the widget disappears).
+            OnDeleting();
             OnDeleted?.Invoke(this);
             Close();
         }
+
+        /// <summary>
+        /// Empty hook: runs after the delete confirmation and before the widget
+        /// is removed - a subclass may release its own content here.
+        /// </summary>
+        protected virtual void OnDeleting() { }
 
         /// <summary>
         /// Applies the configured opacity to an already-open panel (live
@@ -336,7 +345,7 @@ namespace Kobold.Controls
         #region Modal guard
 
         /// <summary>Shows a modal dialog while shielding the panel from focus-loss collapse.</summary>
-        private void RunModal(Action show)
+        protected void RunModal(Action show)
         {
             if (show == null) return;
 
@@ -355,14 +364,14 @@ namespace Kobold.Controls
             }
         }
 
-        private string ShowInputModal(string title, string prompt, string initialValue, Func<string, string> validate)
+        protected string ShowInputModal(string title, string prompt, string initialValue, Func<string, string> validate)
         {
             string result = null;
             RunModal(() => { result = DialogFactory.ShowInput(this, title, prompt, initialValue, validate); });
             return result;
         }
 
-        private bool ShowConfirmModal(string message)
+        protected bool ShowConfirmModal(string message)
         {
             var answer = MessageBoxResult.No;
             RunModal(() =>

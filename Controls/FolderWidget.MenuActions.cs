@@ -21,51 +21,6 @@ namespace Kobold.Controls
     /// </summary>
     public partial class FolderWidget
     {
-        // >0 while one of our own modal dialogs is up: Deactivated must not
-        // collapse the panel, or a New/Rename/Delete prompt would reset browse.
-        private int _modalDepth;
-
-        /// <summary>True while one of our modal dialogs is up (the idle trim must not run).</summary>
-        public bool IsModalOpen => _modalDepth > 0;
-
-        /// <summary>Shows a modal dialog while shielding the panel from focus-loss collapse.</summary>
-        private void RunModal(Action show)
-        {
-            if (show == null) return;
-
-            _modalDepth++;
-            try
-            {
-                show();
-            }
-            finally
-            {
-                _modalDepth--;
-                if (_modalDepth == 0 && _isExpanded && !_data.IsPanelPinned && !IsActive)
-                {
-                    HidePanel();
-                }
-            }
-        }
-
-        private string ShowInputModal(string title, string prompt, string initialValue, Func<string, string> validate)
-        {
-            string result = null;
-            RunModal(() => { result = DialogFactory.ShowInput(this, title, prompt, initialValue, validate); });
-            return result;
-        }
-
-        private bool ShowConfirmModal(string message)
-        {
-            var answer = MessageBoxResult.No;
-            RunModal(() =>
-            {
-                answer = MessageBox.Show(this, message, Localization.Get("Dialog_Confirm"),
-                    MessageBoxButton.YesNo, MessageBoxImage.Question);
-            });
-            return answer == MessageBoxResult.Yes;
-        }
-
         private void ShowMessage(string message)
         {
             RunModal(() => MessageBox.Show(this, message, "Kobold", MessageBoxButton.OK, MessageBoxImage.Warning));
@@ -357,7 +312,7 @@ namespace Kobold.Controls
                     EjectItem(itemToRemove);
                     _data.Items.Remove(itemToRemove);
                     UpdateUI();
-                    OnDataChanged?.Invoke();
+                    NotifyDataChanged();
                 }
             };
 

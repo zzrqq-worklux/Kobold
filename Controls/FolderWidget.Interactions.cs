@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,189 +11,26 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Panel toggle, keyboard, folder icon mouse events, item hover/click, context menu
+    /// FolderWidget - keyboard, item hover/click and the panel's context menus.
+    /// The panel show/hide cycle, placement, locking and the header drag are
+    /// shared with every widget and live in <see cref="WidgetWindowBase"/>.
     /// </summary>
     public partial class FolderWidget
     {
-        // Static brushes moved to ThemeManager for centralized cache
-        
-        #region Expand/Collapse
-        
-        /// <summary>
-        /// Shows the expanded panel, using this widget's remembered position when it has
-        /// one, otherwise the supplied default (below the island). Used by the island.
-        /// </summary>
-        public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true)
+        #region Panel deactivation
+
+        private void Window_Deactivated(object sender, EventArgs e)
         {
-            UpdateUI();
-
-            var (panelWidth, panelHeight) = CalculatePanelSize();
-            Chrome.Shell.Width = panelWidth;
-            Chrome.Shell.Height = panelHeight;
-            Chrome.Visibility = Visibility.Visible;
-            Width = panelWidth;
-            Height = panelHeight;
-
-            double x = _data.PanelX ?? defaultLeft;
-            double y = _data.PanelY ?? defaultTop;
-            (x, y) = ResolvePanelPosition(x, y, panelWidth, panelHeight);
-            Left = x;
-            Top = y;
-
-            _isExpanded = true;
-            UpdateBrowseWatch(); // the panel is open now: follow the folder on screen
-            PersistPanelState(true);
-            if (!IsVisible)
-            {
-                // Opening several panels together ("Show All") must not activate each
-                // one: activation would deactivate and hide the previous panel, which
-                // shows up as flicker. Only a single, user-triggered open activates.
-                if (!activate) ShowActivated = false;
-                Show();
-                ShowActivated = true;
-            }
-            if (activate) Activate();
-            AnimationHelper.PanelOpen(Chrome.Shell);
-        }
-
-        /// <summary>Fades the panel out and hides its window.</summary>
-        public void HidePanel()
-        {
-            if (!_isExpanded)
-            {
-                if (IsVisible) Hide();
-                return;
-            }
-
+            // Always clear the selection when the window loses focus - the
+            // base's own Deactivated handler takes care of the modal guard and
+            // hiding an unpinned panel (it runs on the same event).
             ClearAllSelections();
-            // Browsing is remembered: the panel reopens at the folder it was left in.
-            _isExpanded = false;
-            UpdateBrowseWatch(); // closing: stop following the folder
-            PersistPanelState(false);
-            AnimationHelper.PanelClose(Chrome.Shell, () =>
-            {
-                // Drop the listing once the fade is over: clearing it here keeps a
-                // long browse listing from staying resident, without blanking the
-                // panel while it fades out.
-                ItemsContainer.ItemsSource = null;
-                Chrome.Visibility = Visibility.Collapsed;
-                Hide();
-            });
-        }
-
-        /// <summary>
-        /// Remembers whether the panel was open, so the next launch can reopen it
-        /// (see StartupPanels). Saved directly rather than through OnDataChanged:
-        /// the island's tiles do not depend on this, so they need no rebuild.
-        /// </summary>
-        private void PersistPanelState(bool open)
-        {
-            if (_data.IsExpanded == open) return;
-
-            _data.IsExpanded = open;
-            WidgetManager.Instance.SaveConfig();
-        }
-
-        /// <summary>
-        /// Places a panel that has a remembered position: interprets it with the
-        /// DPI scale it was saved at, picks the monitor it belongs to, clamps it
-        /// into that monitor's work area and converts back to DIPs for the
-        /// destination monitor. Falls back to the virtual-screen clamp whenever
-        /// the monitor data is unavailable.
-        /// </summary>
-        private (double x, double y) ResolvePanelPosition(double x, double y, double width, double height)
-        {
-            try
-            {
-                double currentScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-                var device = PanelPlacement.ToDeviceRect(x, y, width, height, _data.PanelDpiScale ?? 0, currentScale);
-                var monitors = MonitorInterop.GetMonitors();
-                if (monitors.Count == 0) return ClampToVirtualScreen(x, y, width, height);
-
-                var clamped = PanelPlacement.ClampToMonitors(device, monitors);
-                var target = MonitorInterop.GetMonitorForDevicePoint(
-                    new Point(clamped.X + clamped.Width / 2, clamped.Y + clamped.Height / 2)) ?? monitors[0];
-                var dip = PanelPlacement.ToDipRect(clamped, target);
-                return (dip.X, dip.Y);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Kobold] panel placement fallback: {ex.Message}");
-                return ClampToVirtualScreen(x, y, width, height);
-            }
-        }
-
-        private static (double x, double y) ClampToVirtualScreen(double x, double y, double width, double height)
-        {
-            double minX = SystemParameters.VirtualScreenLeft;
-            double minY = SystemParameters.VirtualScreenTop;
-            double maxX = minX + SystemParameters.VirtualScreenWidth - width;
-            double maxY = minY + SystemParameters.VirtualScreenHeight - height;
-            return (Math.Max(minX, Math.Min(x, maxX)), Math.Max(minY, Math.Min(y, maxY)));
-        }
-
-        #region Panel Drag (chrome header events)
-
-        private void OnChromeHeaderDragStarted(Point cursor)
-        {
-            // Snapshot the anchor; a click without movement is not a drag. The
-            // chrome has already captured the header and handles the locked
-            // flash / No cursor itself, so the folder only moves the window.
-            _dragStartCursor = cursor;
-            _dragDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX; // physical px per WPF unit
-            _isDraggingWindow = false;
-        }
-
-        private void OnChromeHeaderDragMoved(Point cursor)
-        {
-            if (!_isDraggingWindow)
-            {
-                double dx = (cursor.X - _dragStartCursor.X) / _dragDpiScale;
-                double dy = (cursor.Y - _dragStartCursor.Y) / _dragDpiScale;
-                if (Math.Abs(dx) < DRAG_THRESHOLD && Math.Abs(dy) < DRAG_THRESHOLD) return;
-                _isDraggingWindow = true;
-                _dragLastCursor = _dragStartCursor;
-            }
-
-            // Move by per-step deltas with a fresh DPI reading, so the window
-            // keeps following the cursor across monitors with different scaling.
-            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
-            Left += (cursor.X - _dragLastCursor.X) / dpi;
-            Top += (cursor.Y - _dragLastCursor.Y) / dpi;
-            _dragLastCursor = cursor;
-        }
-
-        private void OnChromeHeaderDragEnded(Point cursor)
-        {
-            if (!_isDraggingWindow) return; // a click, not a drag
-            _isDraggingWindow = false;
-
-            // Remember where the user parked this panel, and the DPI scale
-            // its (DIP) coordinates are relative to.
-            _data.PanelX = Left;
-            _data.PanelY = Top;
-            _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-            OnDataChanged?.Invoke();
         }
 
         #endregion
 
-        private void Window_Deactivated(object sender, EventArgs e)
-        {
-            // Always clear selection when window loses focus
-            ClearAllSelections();
+        #region Keyboard
 
-            // Our own modal dialog is up: keep the panel alive underneath it
-            // (HidePanel would also reset the browse stack).
-            if (_modalDepth > 0) return;
-
-            // Don't close panel if pinned
-            if (_isExpanded && !_data.IsPanelPinned)
-            {
-                HidePanel();
-            }
-        }
-        
         /// <summary>
         /// Space previews the selected item through QuickLook. Handled in the
         /// tunnelling event because the ScrollViewer inside the panel also claims
@@ -233,7 +69,7 @@ namespace Kobold.Controls
                 return;
             }
 
-            if (e.Key == Key.Escape && _isExpanded)
+            if (e.Key == Key.Escape && IsPanelOpen)
             {
                 if (_data.IsPanelPinned)
                 {
@@ -248,14 +84,6 @@ namespace Kobold.Controls
                 e.Handled = true;
             }
         }
-        
-        private void PinButton_Click()
-        {
-            _data.IsPanelPinned = !_data.IsPanelPinned;
-            // The chrome paints the pin visuals (rotation, gold tint, tooltip).
-            Chrome.IsPinned = _data.IsPanelPinned;
-            OnDataChanged?.Invoke();
-        }
 
         private void HelpButton_Click(object sender, MouseButtonEventArgs e)
         {
@@ -264,13 +92,6 @@ namespace Kobold.Controls
             e.Handled = true;
         }
 
-        private void LockButton_Click()
-        {
-            _data.IsLocked = !_data.IsLocked;
-            UpdateUI();
-            OnDataChanged?.Invoke();
-        }
-        
         #endregion
 
         #region Item Hover Events
@@ -305,122 +126,17 @@ namespace Kobold.Controls
         #region Context Menu
 
         /// <summary>
-        /// Shows the widget menu (rename / colour / grid / size / delete) at the
-        /// cursor. Shared by the panel header and the island tiles; onClosed
-        /// fires once the menu is gone.
+        /// Shows the shared widget menu (show/hide / rename / colour / lock /
+        /// pin / grid / size / rows / delete) at the cursor. Shared by the
+        /// panel header and the island tiles; onClosed fires once the menu is
+        /// gone.
         /// </summary>
-        public void ShowWidgetMenu(Action onClosed = null)
+        public override void ShowWidgetMenu(Action onClosed = null)
         {
-            var menu = new MenuBuilder(_data.Color)
-                .AddItem("Menu_Rename", ShowRenameDialog)
-                .AddItem("Menu_ChangeColor", ShowColorPicker)
-                .AddMenuItem(CreateGridSizeMenu())
-                .AddMenuItem(CreateMaxRowsMenu())
-                .AddMenuItem(CreateItemSizeMenu())
-                .AddSeparator()
-                .AddMenuItem(CreateDeleteMenuItem())
-                .Build();
-
-            if (onClosed != null) menu.Closed += (s, e) => onClosed();
+            var menu = WidgetMenuBuilder.Build(this, WidgetKindRegistry.Find(_data.Kind), onClosed);
             menu.IsOpen = true;
         }
-        
-        private MenuItem CreateGridSizeMenu()
-        {
-            var gridItem = new MenuItem { Header = Localization.Get("Menu_GridSize") };
-            for (int cols = 2; cols <= 6; cols++)
-            {
-                int c = cols;
-                var colItem = new MenuItem { Header = $"{cols} " + Localization.Get("Menu_Columns"), IsChecked = GridColumns == cols };
-                colItem.Click += (s, a) => 
-                { 
-                    GridColumns = c;
-                    UpdateUI();
-                    OnDataChanged?.Invoke(); 
-                };
-                gridItem.Items.Add(colItem);
-            }
-            return gridItem;
-        }
-        
-        /// <summary>
-        /// Per-widget row cap: how many item rows this panel grows to before it
-        /// scrolls. One widget staying compact does not affect the others.
-        /// </summary>
-        private MenuItem CreateMaxRowsMenu()
-        {
-            var rowsItem = new MenuItem { Header = Localization.Get("Menu_MaxRows") };
-            for (int rows = PanelRows.MinAllowedRows; rows <= PanelRows.MaxAllowedRows; rows++)
-            {
-                int r = rows;
-                var rowItem = new MenuItem
-                {
-                    Header = rows + " " + Localization.Get("Menu_Rows"),
-                    IsChecked = _data.MaxPanelRows == rows
-                };
-                rowItem.Click += (s, a) =>
-                {
-                    _data.MaxPanelRows = r;
-                    UpdateUI();
-                    OnDataChanged?.Invoke();
-                };
-                rowsItem.Items.Add(rowItem);
-            }
-            return rowsItem;
-        }
 
-        private MenuItem CreateItemSizeMenu()
-        {
-            var sizeItem = new MenuItem { Header = Localization.Get("Menu_ItemSize") };
-            var sizes = new[] { 
-                ("Size_Small", 0.9), 
-                ("Size_Normal", 1.0),
-                ("Size_Default", 1.1),
-                ("Size_Medium", 1.2),
-                ("Size_Large", 1.3), 
-                ("Size_ExtraLarge", 1.5) 
-            };
-            double currentScale = WidgetManager.Instance.Config.ItemScale;
-            foreach (var (locKey, scale) in sizes)
-            {
-                double s = scale;
-                var scaleItem = new MenuItem 
-                { 
-                    Header = Localization.Get(locKey), 
-                    IsChecked = Math.Abs(currentScale - scale) < 0.05 
-                };
-                scaleItem.Click += (ss, aa) => ApplyItemScale(s);
-                sizeItem.Items.Add(scaleItem);
-            }
-            return sizeItem;
-        }
-        
-        private void ApplyItemScale(double scale)
-        {
-            WidgetManager.Instance.Config.ItemScale = scale;
-            WidgetManager.Instance.SaveConfig();
-            
-            foreach (var widget in WidgetManager.Instance.Widgets)
-            {
-                widget.UpdateUI();
-            }
-        }
-        
-        private MenuItem CreateDeleteMenuItem()
-        {
-            var item = new MenuItem { Header = Localization.Get("Menu_Delete") };
-            item.Click += (s, a) =>
-            {
-                if (ShowConfirmModal(Localization.Format("Dialog_DeleteWidget", _data.Name)))
-                {
-                    EjectAllItems();
-                    OnDeleted?.Invoke(this);
-                    Close();
-                }
-            };
-            return item;
-        }
-        
         /// <summary>
         /// Physically moves a referenced file/directory into Kobold storage and
         /// records its original path so eject can put it back later.
@@ -441,7 +157,7 @@ namespace Kobold.Controls
             witem.Path = dest;
             witem.IsReference = false;
             UpdateUI();
-            OnDataChanged?.Invoke();
+            NotifyDataChanged();
         }
 
         private void RenameItem(DisplayItem item)
@@ -480,7 +196,7 @@ namespace Kobold.Controls
                 }
                 
                 UpdateUI();
-                OnDataChanged?.Invoke();
+                NotifyDataChanged();
             }
             catch (Exception ex)
             {
@@ -549,7 +265,7 @@ namespace Kobold.Controls
                 // Add to widget
                 _data.Items.Add(new WidgetItem { Name = fileName, Path = filePath, IsReference = false });
                 UpdateUI();
-                OnDataChanged?.Invoke();
+                NotifyDataChanged();
             }
             catch (Exception ex)
             {
@@ -578,7 +294,7 @@ namespace Kobold.Controls
                 // Add to widget
                 _data.Items.Add(new WidgetItem { Name = folderName, Path = folderPath, IsReference = false });
                 UpdateUI();
-                OnDataChanged?.Invoke();
+                NotifyDataChanged();
             }
             catch (Exception ex)
             {
@@ -589,5 +305,3 @@ namespace Kobold.Controls
         #endregion
     }
 }
-
-

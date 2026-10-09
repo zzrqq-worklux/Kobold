@@ -1,4 +1,4 @@
-<Window x:Class="Kobold.Controls.FolderWidget"
+<local:WidgetWindowBase x:Class="Kobold.Controls.FolderWidget"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Kobold.Controls"
@@ -12,7 +12,7 @@
         PreviewKeyDown="Window_PreviewKeyDown"
         TextOptions.TextFormattingMode="Display">
 
-    <Window.Resources>
+    <local:WidgetWindowBase.Resources>
         <!-- Stored badge icon: folder cabinet (original SVG, 4 colored paths) -->
         <DrawingImage x:Key="StoredBadgeIcon">
             <DrawingImage.Drawing>
@@ -28,7 +28,7 @@
                 </DrawingGroup>
             </DrawingImage.Drawing>
         </DrawingImage>
-    </Window.Resources>
+    </local:WidgetWindowBase.Resources>
 
     <!-- Task 3.1: the hand-built shell (border/header/lock/pin) is gone; the
          shared WidgetChrome draws it and owns the lock/pin/drag/right-click
@@ -37,7 +37,7 @@
          declared in the SlotSource staging grid (same namescope, removed by
          the constructor) and moved into the chrome slots there. -->
     <Grid x:Name="RootGrid">
-        <local:WidgetChrome x:Name="Chrome" Visibility="Collapsed"/>
+        <local:WidgetChrome x:Name="FolderChrome"/>
 
         <Grid x:Name="SlotSource" Visibility="Collapsed">
 
@@ -230,4 +230,4 @@
                            MouseLeftButtonUp="MoreItemsText_MouseLeftButtonUp"/>
         </Grid>
     </Grid>
-</Window>
+</local:WidgetWindowBase>

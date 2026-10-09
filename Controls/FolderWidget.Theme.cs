@@ -17,7 +17,7 @@ namespace Kobold.Controls
         /// <summary>
         /// Refreshes entire widget theme - called when theme changes or on startup
         /// </summary>
-        public void RefreshTheme()
+        public override void RefreshTheme()
         {
             // Apply all theme colors synchronously
             ApplyThemeColors();
@@ -105,17 +105,6 @@ namespace Kobold.Controls
             return Math.Max(0.2, Math.Min(1.0, opacity));
         }
 
-        /// <summary>
-        /// Applies the configured panel opacity to an already-open panel by
-        /// repainting the background with the matching alpha (content stays
-        /// fully opaque). Used for live preview in the settings dialog.
-        /// </summary>
-        public void ApplyPanelOpacity()
-        {
-            if (!_isExpanded) return;
-            UpdatePanelColor();
-        }
-
         #region Helper Methods
         private UniformGrid FindUniformGrid(DependencyObject parent)
         {
@@ -161,9 +150,21 @@ namespace Kobold.Controls
             return (width, height);
         }
 
-        /// <summary>Panel size (DIP) for the current content - used to place the panel.</summary>
-        public (int width, int height) GetPanelSize() => CalculatePanelSize();
-        
+        /// <summary>
+        /// Content size handed to the base: the legacy panel maths minus the
+        /// chrome header and the shell's border, both of which
+        /// <see cref="WidgetWindowBase.GetPanelSize"/> adds back. Exact parity
+        /// with the old CalculatePanelSize for every input (pinned in
+        /// XamlLoadCheck).
+        /// </summary>
+        protected override (double width, double height) GetContentSize()
+        {
+            var (width, height) = CalculatePanelSize();
+            var border = Chrome == null ? new Thickness(0) : Chrome.Shell.BorderThickness;
+            return (width - border.Left - border.Right,
+                    height - HEADER_HEIGHT - border.Top - border.Bottom);
+        }
+
         #endregion
     }
 }

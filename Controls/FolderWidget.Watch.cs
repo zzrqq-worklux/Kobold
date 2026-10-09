@@ -26,11 +26,24 @@ namespace Kobold.Controls
         /// </summary>
         private void UpdateBrowseWatch()
         {
-            string path = _isExpanded && IsBrowsing ? CurrentBrowsePath : null;
+            string path = IsPanelOpen && IsBrowsing ? CurrentBrowsePath : null;
             if (path != null && !Directory.Exists(path)) path = null;
 
             if (path == null) _browseWatcher.Stop();
             else _browseWatcher.Start(path);
+        }
+
+        /// <summary>The panel opened: follow the folder that is on screen now.</summary>
+        protected override void OnPanelShown()
+        {
+            UpdateBrowseWatch();
+        }
+
+        /// <summary>The panel closed: drop the selection and stop following the folder.</summary>
+        protected override void OnPanelHidden()
+        {
+            ClearAllSelections();
+            UpdateBrowseWatch();
         }
 
         /// <summary>The watcher reports on a pool thread; the panel lives on the UI thread.</summary>
@@ -41,10 +54,10 @@ namespace Kobold.Controls
 
         private void RefreshBrowseIfChanged()
         {
-            if (!_isExpanded || !IsBrowsing) return;
+            if (!IsPanelOpen || !IsBrowsing) return;
 
             // Never re-render under an active gesture or dialog: retry shortly.
-            if (_isDraggingItem || _isLassoSelecting || _modalDepth > 0)
+            if (_isDraggingItem || _isLassoSelecting || IsModalOpen)
             {
                 RetryBrowseRefresh();
                 return;

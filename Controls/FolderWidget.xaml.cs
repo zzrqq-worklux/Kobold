@@ -14,9 +14,11 @@ namespace Kobold.Controls
     /// <summary>
     /// FolderWidget - Main class with core functionality
     /// Partial classes: Theme.cs, Dialogs.cs, Interactions.cs
-    /// Implements INotifyPropertyChanged for data binding
+    /// Implements INotifyPropertyChanged for data binding; the shared panel
+    /// behaviour (show/hide, placement, lock/pin/drag, modals) lives in
+    /// <see cref="WidgetWindowBase"/>.
     /// </summary>
-    public partial class FolderWidget : Window, INotifyPropertyChanged, IWidgetWindow
+    public partial class FolderWidget : WidgetWindowBase, INotifyPropertyChanged
     {
         #region INotifyPropertyChanged
         
@@ -32,11 +34,6 @@ namespace Kobold.Controls
         #region Fields
         
         private FolderData _data;
-        private bool _isExpanded = false;
-        private Point _dragStartCursor;      // Screen cursor position at mouse-down (click vs drag)
-        private Point _dragLastCursor;       // Screen cursor position of the last drag step
-        private double _dragDpiScale = 1.0;   // Physical pixels per WPF unit (cursor -> window)
-        private bool _isDraggingWindow = false;
         
         // Item drag-drop fields
         private bool _isDraggingItem = false;
@@ -75,13 +72,9 @@ namespace Kobold.Controls
         
         #endregion
 
-        #region Properties and Events
+        #region Properties
 
-        public event Action<FolderWidget> OnDeleted;
-        public event Action OnDataChanged;
-        public FolderData Data => _data;
         public string FolderId => _data.Id;
-        public bool IsPanelOpen => _isExpanded;
 
         /// <summary>
         /// The panel's shell element (the chrome's border): its backdrop,
@@ -90,31 +83,6 @@ namespace Kobold.Controls
         /// ExpandedPanel directly.
         /// </summary>
         public FrameworkElement PanelShell => Chrome.Shell;
-
-        #region IWidgetWindow (explicit - behaviour unchanged until phase 3)
-
-        string IWidgetWindow.WidgetId => _data.Id;
-        WidgetData IWidgetWindow.Data => _data;
-
-        event Action<IWidgetWindow> IWidgetWindow.OnDeleted
-        {
-            add { OnDeleted += value; }
-            remove { OnDeleted -= value; }
-        }
-
-        event Action IWidgetWindow.OnDataChanged
-        {
-            add { OnDataChanged += value; }
-            remove { OnDataChanged -= value; }
-        }
-
-        (double width, double height) IWidgetWindow.GetPanelSize()
-        {
-            var (width, height) = CalculatePanelSize();
-            return (width, height);
-        }
-
-        #endregion
 
         /// <summary>
         /// Grid columns for XAML binding - automatically updates UniformGrid
@@ -136,7 +104,7 @@ namespace Kobold.Controls
 
         #region Constructor
 
-        public FolderWidget(FolderData data)
+        public FolderWidget(FolderData data) : base(data)
         {
             InitializeComponent();
             _data = data;
@@ -145,54 +113,25 @@ namespace Kobold.Controls
 
             // Browsing is remembered across hiding the panel and restarting the
             // app; a folder that is gone falls back to the widget's own items.
+            // Must run before AttachChrome: its UpdateUI reads the browse stack.
             _browseStack.AddRange(BrowsePath.NormalizeStack(_data.BrowseStack, System.IO.Directory.Exists));
 
             // The shared chrome owns the shell, the lock/pin buttons and the
-            // header drag/right-click input; the folder keeps its own behaviour
-            // and subscribes to the chrome's events (see InstallChromeSlots and
-            // the drag handlers in FolderWidget.Interactions.cs).
+            // header drag/right-click input; AttachChrome wires all of it and
+            // calls UpdateUI. The folder keeps its own panel-background input.
             InstallChromeSlots();
-            Chrome.LockClicked += LockButton_Click;
-            Chrome.PinClicked += PinButton_Click;
-            Chrome.HeaderRightClicked += () => ShowWidgetMenu();
-            Chrome.HeaderDragStarted += OnChromeHeaderDragStarted;
-            Chrome.HeaderDragMoved += OnChromeHeaderDragMoved;
-            Chrome.HeaderDragEnded += OnChromeHeaderDragEnded;
+            AttachChrome(FolderChrome);
             Chrome.Shell.MouseLeftButtonDown += PanelShell_MouseLeftButtonDown;
             Chrome.Shell.MouseRightButtonDown += PanelShell_MouseRightButtonDown;
-
-            // Subscribe to theme changes for automatic updates
-            ThemeManager.ThemeChanged += OnThemeChanged;
 
             // Folder changes on disk refresh the browse view (see Watch.cs).
             _browseWatcher.Changed += OnBrowseFolderChanged;
 
             // The native shell menu (Task 5) needs the panel's HWND to forward
             // WM_DRAWITEM/WM_MEASUREITEM/WM_INITMENUPOPUP to IContextMenu2/3.
-            SourceInitialized += (s, e) =>
-            {
-                EnsureMenuHook();
-                WindowSwitcher.HideFromSwitcher(this); // panels stay out of Alt+Tab
-            };
-            
-            Loaded += (s, e) =>
-            {
-                // Apply theme colors (panel colors + item text) and pin state
-                RefreshTheme();
-            };
-            
-            Closing += (s, e) =>
-            {
-                // Unsubscribe from theme changes
-                ThemeManager.ThemeChanged -= OnThemeChanged;
-                _browseWatcher.Dispose();
-                WindowSwitcher.ReleaseOwner(this);
-            };
-        }
-        
-        private void OnThemeChanged()
-        {
-            Dispatcher.Invoke(() => RefreshTheme());
+            SourceInitialized += (s, e) => EnsureMenuHook();
+
+            Closing += (s, e) => _browseWatcher.Dispose();
         }
 
         /// <summary>
@@ -211,7 +150,7 @@ namespace Kobold.Controls
             SlotSource.Children.Remove(ContentPanel);
             SlotSource.Children.Remove(MoreItemsText);
 
-            Chrome.HeaderLeading.Content = BackButton;
+            FolderChrome.HeaderLeading.Content = BackButton;
 
             // Path + Help share the trailing slot (the old header had them in
             // separate columns; a horizontal stack keeps the same order/spacing
@@ -223,10 +162,10 @@ namespace Kobold.Controls
             };
             trailing.Children.Add(PathButton);
             trailing.Children.Add(HelpButton);
-            Chrome.HeaderTrailing.Content = trailing;
+            FolderChrome.HeaderTrailing.Content = trailing;
 
-            Chrome.ContentHost.Content = ContentPanel;
-            Chrome.FooterHost.Content = MoreItemsText;
+            FolderChrome.ContentHost.Content = ContentPanel;
+            FolderChrome.FooterHost.Content = MoreItemsText;
 
             // The staging grid has served its purpose; drop it from the window.
             RootGrid.Children.Remove(SlotSource);
@@ -236,8 +175,12 @@ namespace Kobold.Controls
 
         #region UI Updates
 
-        public void UpdateUI()
+        public override void UpdateUI()
         {
+            // Name / lock / pin / colour first; the browse title below wins
+            // over the base's widget name while a folder is on screen.
+            base.UpdateUI();
+
             Chrome.Title = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
             Chrome.TitleText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
             BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
@@ -248,11 +191,6 @@ namespace Kobold.Controls
             BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
             BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
 
-            // Lock/unlock + pin visuals (icons, tooltips, No cursor) are the
-            // chrome's: only the persisted state is pushed over.
-            Chrome.IsLocked = _data.IsLocked;
-            Chrome.IsPinned = _data.IsPanelPinned;
-
             // Apply item scale transform BEFORE setting items
             double scale = GetItemScale();
             ItemsContainer.LayoutTransform = new ScaleTransform(scale, scale);
@@ -262,22 +200,26 @@ namespace Kobold.Controls
 
             // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property
             ItemsContainer.ItemsSource = items;
+
+            // The shared widget menu writes FolderData.GridColumns directly, so
+            // the bound columns have to be re-published here; the old menu went
+            // through this property and its PropertyChanged (pinned in
+            // XamlLoadCheck: "grid menu updates the panel").
+            OnPropertyChanged(nameof(GridColumns));
+
             LoadItemIcons(items);
 
-            // Must run before sizing: CalculatePanelSize reads the footer's height
+            // Must run before sizing: the panel maths reads the footer's height
             UpdateEmptyState(items.Count);
             UpdateMoreItemsFooter(items.Count);
 
-            // Panel-only: keep the window sized to the panel while open
-            if (_isExpanded)
+            // Panel-only: keep the window sized to the panel while open. The
+            // shell stretches to the window, so only the window is sized.
+            if (IsPanelOpen)
             {
                 UpdateLayout();
 
-                var (panelWidth, panelHeight) = CalculatePanelSize();
-
-                Chrome.Shell.Width = panelWidth;
-                Chrome.Shell.Height = panelHeight;
-
+                var (panelWidth, panelHeight) = GetPanelSize();
                 Width = panelWidth;
                 Height = panelHeight;
             }
