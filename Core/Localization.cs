@@ -122,6 +122,12 @@ namespace Kobold.Core
                 ["Settings_WidgetIconStyle"] = "Widget Icon Style",
                 ["Settings_Classic"] = "Classic",
                 ["Settings_HandDrawn"] = "Hand-drawn",
+                ["Settings_StorageHeader"] = "Kobold Storage",
+                ["Settings_StorageOpen"] = "Open folder",
+                ["Settings_StoragePin"] = "Pin to Quick Access",
+                ["Settings_StorageUnpin"] = "Unpin from Quick Access",
+                ["Settings_StoragePinFailed"] = "Could not pin to Quick Access.",
+                ["Settings_StorageUnpinFailed"] = "Could not unpin from Quick Access.",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 Grid Size",
@@ -284,6 +290,12 @@ namespace Kobold.Core
                 ["Settings_WidgetIconStyle"] = "组件图标样式",
                 ["Settings_Classic"] = "经典",
                 ["Settings_HandDrawn"] = "手绘",
+                ["Settings_StorageHeader"] = "Kobold 存储",
+                ["Settings_StorageOpen"] = "打开文件夹",
+                ["Settings_StoragePin"] = "固定到快速访问",
+                ["Settings_StorageUnpin"] = "取消固定",
+                ["Settings_StoragePinFailed"] = "固定到快速访问失败。",
+                ["Settings_StorageUnpinFailed"] = "取消固定失败。",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 网格大小",
@@ -446,6 +458,12 @@ namespace Kobold.Core
                 ["Settings_WidgetIconStyle"] = "ウィジェット アイコン スタイル",
                 ["Settings_Classic"] = "クラシック",
                 ["Settings_HandDrawn"] = "手描き",
+                ["Settings_StorageHeader"] = "Kobold ストレージ",
+                ["Settings_StorageOpen"] = "フォルダーを開く",
+                ["Settings_StoragePin"] = "クイック アクセスにピン留め",
+                ["Settings_StorageUnpin"] = "ピン留めを解除",
+                ["Settings_StoragePinFailed"] = "クイック アクセスへのピン留めに失敗しました。",
+                ["Settings_StorageUnpinFailed"] = "クイック アクセスからのピン留め解除に失敗しました。",
 
                 // Grid
                 ["Menu_GridSize"] = "📊 グリッド サイズ",

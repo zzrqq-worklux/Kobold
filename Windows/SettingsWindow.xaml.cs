@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
 using Kobold.Core;
 using Kobold.Controls;
+using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Windows
@@ -22,6 +24,10 @@ namespace Kobold.Windows
         private string _originalIconStyle;
         private double _originalPanelOpacity;
         private double _originalIslandDelay;
+
+        // Storage row: the real Quick Access state (probe is read-only; the
+        // pin/unpin actions only ever run from the button click).
+        private bool? _storagePinned;
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
@@ -112,6 +118,10 @@ namespace Kobold.Windows
                     IconStyleCombo.SelectedIndex = 0;
                 }
             }
+
+            // Storage: GetStoragePath() creates the folder when missing, and
+            // the probe only enumerates Quick Access (it never pins).
+            _storagePinned = QuickAccess.TryIsPinned(Utils.GetStoragePath());
         }
 
         private void UpdateLocalizedText()
@@ -165,6 +175,12 @@ namespace Kobold.Windows
                     styleItem.Content = styleEmojis[i] + " " + Localization.Get(styleKeys[i]);
                 }
             }
+
+            // Kobold Storage
+            StorageHeader.Text = "📦 " + Localization.Get("Settings_StorageHeader");
+            StoragePathText.Text = Utils.GetStoragePath();
+            StorageOpenButton.Content = Localization.Get("Settings_StorageOpen");
+            UpdateStoragePinButtonText();
 
             // About section
             AboutHeaderText.Text = "ℹ️ " + Localization.Get("Settings_About");
@@ -280,6 +296,60 @@ namespace Kobold.Windows
                 WidgetManager.Instance.RefreshAllWidgets();
                 WidgetManager.Instance.ApplyIconStyle();
             }
+        }
+
+        private void StorageOpenButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start("explorer.exe", "\"" + Utils.GetStoragePath() + "\"");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] Open storage failed: {ex.Message}");
+            }
+        }
+
+        private void StoragePinButton_Click(object sender, RoutedEventArgs e)
+        {
+            string path = Utils.GetStoragePath();
+            bool isPinned = _storagePinned == true;
+
+            bool changed = isPinned ? QuickAccess.Unpin(path) : QuickAccess.Pin(path);
+            if (!changed)
+            {
+                MessageBox.Show(this,
+                    Localization.Get(isPinned ? "Settings_StorageUnpinFailed" : "Settings_StoragePinFailed"),
+                    "Kobold", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Re-read the real state (read-only) so the toggle never lies.
+            _storagePinned = WaitForPinState(path, !isPinned);
+            UpdateStoragePinButtonText();
+        }
+
+        /// <summary>
+        /// Explorer applies pintohome/unpinfromhome asynchronously, so the
+        /// probe can still report the old state right after a successful
+        /// action; poll it briefly before trusting the result.
+        /// </summary>
+        private static bool? WaitForPinState(string path, bool wanted)
+        {
+            bool? state = null;
+            for (int i = 0; i < 10; i++)
+            {
+                state = QuickAccess.TryIsPinned(path);
+                if (state == wanted) return state;
+                System.Threading.Thread.Sleep(100);
+            }
+            return state;
+        }
+
+        private void UpdateStoragePinButtonText()
+        {
+            StoragePinButton.Content = Localization.Get(
+                _storagePinned == true ? "Settings_StorageUnpin" : "Settings_StoragePin");
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)

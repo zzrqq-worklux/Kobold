@@ -225,6 +225,17 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("island: folder tile refreshes with the icon style", IslandFolderTileRefreshesWithStyle);
                 failures += TryCheck("island: todo tile refreshes with the icon style", IslandTodoTileRefreshesWithStyle);
 
+                // Task 3.5 pins: the pure Quick Access path matcher and the
+                // read-only state probe (never Pin/Unpin - invoking them here
+                // would change the user's real Quick Access), plus the
+                // Settings window's storage row.
+                failures += TryCheck("quick access: matching ignores case", QuickAccessMatchIgnoresCase);
+                failures += TryCheck("quick access: matching ignores a trailing separator", QuickAccessMatchIgnoresTrailingSeparator);
+                failures += TryCheck("quick access: matching rejects different paths", QuickAccessMatchRejectsDifferentPaths);
+                failures += TryCheck("quick access: matching rejects empty paths", QuickAccessMatchRejectsEmptyPaths);
+                failures += TryCheck("quick access: the state probe is read-only", QuickAccessProbeIsReadOnly);
+                failures += TryCheck("settings: the storage row is present", SettingsStorageRowIsPresent);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -3371,6 +3382,130 @@ namespace Kobold.XamlLoadCheck
             int count = VisualTreeHelper.GetChildrenCount(node);
             for (int i = 0; i < count; i++)
                 AppendIconFingerprint(VisualTreeHelper.GetChild(node, i), sb);
+        }
+
+        #endregion
+
+        #region Task 3.5 Quick Access pins
+
+        private static void QuickAccessMatchIgnoresCase()
+        {
+            if (!QuickAccess.MatchesPinnedEntry(
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage",
+                    @"c:\users\test\appdata\roaming\kobold\storage"))
+            {
+                throw new InvalidOperationException(
+                    "the same path in a different case did not match");
+            }
+        }
+
+        private static void QuickAccessMatchIgnoresTrailingSeparator()
+        {
+            if (!QuickAccess.MatchesPinnedEntry(
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage\",
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage"))
+            {
+                throw new InvalidOperationException("a trailing backslash broke the match");
+            }
+            if (!QuickAccess.MatchesPinnedEntry(
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage/",
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage"))
+            {
+                throw new InvalidOperationException("a trailing forward slash broke the match");
+            }
+        }
+
+        private static void QuickAccessMatchRejectsDifferentPaths()
+        {
+            if (QuickAccess.MatchesPinnedEntry(
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage2",
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage"))
+            {
+                throw new InvalidOperationException("a sibling path matched the storage path");
+            }
+            if (QuickAccess.MatchesPinnedEntry(
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage\Sub",
+                    @"C:\Users\Test\AppData\Roaming\Kobold\Storage"))
+            {
+                throw new InvalidOperationException("a child path matched the storage path");
+            }
+        }
+
+        private static void QuickAccessMatchRejectsEmptyPaths()
+        {
+            if (QuickAccess.MatchesPinnedEntry(null, @"C:\Kobold") ||
+                QuickAccess.MatchesPinnedEntry(@"C:\Kobold", null) ||
+                QuickAccess.MatchesPinnedEntry("", @"C:\Kobold") ||
+                QuickAccess.MatchesPinnedEntry("   ", @"C:\Kobold") ||
+                QuickAccess.MatchesPinnedEntry(@"C:\Kobold", "   "))
+            {
+                throw new InvalidOperationException("an empty path matched");
+            }
+        }
+
+        /// <summary>
+        /// Read-only by contract: TryIsPinned enumerates the Quick Access
+        /// namespace and compares paths, so it is safe to exercise here; the
+        /// pin/unpin actions stay smoke-only.
+        /// </summary>
+        private static void QuickAccessProbeIsReadOnly()
+        {
+            string storage = Utils.GetStoragePath();
+            bool? state = QuickAccess.TryIsPinned(storage);
+            if (state.HasValue)
+            {
+                bool? again = QuickAccess.TryIsPinned(storage);
+                if (again != state)
+                {
+                    throw new InvalidOperationException(
+                        "the read-only state probe changed between calls: " + state + " -> " + again);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The Settings window carries the storage row (header, path, open and
+        /// pin buttons). The pin button label must be one of the two localized
+        /// toggles whatever the machine's real Quick Access state is.
+        /// </summary>
+        private static void SettingsStorageRowIsPresent()
+        {
+            ThemeManager.Initialize("dark");
+            var window = new SettingsWindow();
+
+            var header = window.FindName("StorageHeader") as TextBlock;
+            var pathText = window.FindName("StoragePathText") as TextBlock;
+            var openButton = window.FindName("StorageOpenButton") as Button;
+            var pinButton = window.FindName("StoragePinButton") as Button;
+            if (header == null || pathText == null || openButton == null || pinButton == null)
+            {
+                throw new InvalidOperationException("the storage row parts are missing");
+            }
+
+            string storage = Utils.GetStoragePath();
+            if (pathText.Text != storage)
+            {
+                throw new InvalidOperationException(
+                    "the storage row shows '" + pathText.Text + "', wanted '" + storage + "'");
+            }
+            if (header.Text != "📦 " + Localization.Get("Settings_StorageHeader"))
+            {
+                throw new InvalidOperationException(
+                    "the storage header shows '" + header.Text + "'");
+            }
+            if (openButton.Content as string != Localization.Get("Settings_StorageOpen"))
+            {
+                throw new InvalidOperationException(
+                    "the open button shows '" + openButton.Content + "'");
+            }
+
+            string label = pinButton.Content as string;
+            if (label != Localization.Get("Settings_StoragePin") &&
+                label != Localization.Get("Settings_StorageUnpin"))
+            {
+                throw new InvalidOperationException(
+                    "the pin button shows '" + label + "', wanted one of the localized Pin/Unpin labels");
+            }
         }
 
         #endregion
