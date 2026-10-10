@@ -288,5 +288,8 @@ Setup/
 # Isolated git worktrees (never commit their contents)
 .worktrees/
 
+# SDD work area (task briefs and reports - implementation lands under docs/)
+.superpowers/
+
 # Installer self-test sandbox (used when %TEMP% is blocked by security software)
 tools/tests/.sandbox/

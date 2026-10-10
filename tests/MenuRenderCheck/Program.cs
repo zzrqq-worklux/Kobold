@@ -28,6 +28,17 @@ namespace Kobold.MenuRenderCheck
         private static int Main()
         {
             Console.OutputEncoding = Encoding.UTF8;
+
+            // Redirect the singleton's config to a throwaway sandbox before
+            // anything can construct it - the check must never touch the
+            // user's real config.
+            string configSandbox = Path.Combine(Path.GetTempPath(), "kobold-check-menurender");
+            if (Directory.Exists(configSandbox)) Directory.Delete(configSandbox, true);
+            Directory.CreateDirectory(configSandbox);
+            WidgetManager.OverrideConfigPathsForChecks(
+                Path.Combine(configSandbox, "config.json"),
+                Path.Combine(configSandbox, "config.json.backup"));
+
             string tempFolder = Path.Combine(Path.GetTempPath(),
                 "kobold-menurender-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempFolder);

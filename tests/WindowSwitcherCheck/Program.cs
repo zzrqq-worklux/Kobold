@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Interop;
@@ -33,6 +34,16 @@ namespace Kobold.WindowSwitcherCheck
         private static int Main()
         {
             Console.OutputEncoding = Encoding.UTF8;
+
+            // Redirect the singleton's config to a throwaway sandbox before
+            // anything can construct it - the check must never touch the
+            // user's real config.
+            string configSandbox = Path.Combine(Path.GetTempPath(), "kobold-check-windowswitcher");
+            if (Directory.Exists(configSandbox)) Directory.Delete(configSandbox, true);
+            Directory.CreateDirectory(configSandbox);
+            WidgetManager.OverrideConfigPathsForChecks(
+                Path.Combine(configSandbox, "config.json"),
+                Path.Combine(configSandbox, "config.json.backup"));
 
             try
             {

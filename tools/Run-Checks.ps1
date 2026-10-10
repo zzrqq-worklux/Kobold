@@ -15,6 +15,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# SHA256 of a file, or '<absent>' when it does not exist - the config pin
+# compares these before and after the checks.
+function Get-FilePinHash([string]$Path) {
+    if (Test-Path -LiteralPath $Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash }
+    return '<absent>'
+}
+
 # Explicit matrix. Name = tests\<Name>\<Name>.csproj. Ci marks the checks that
 # run on GitHub runners; the window/desktop-dependent ones stay local for now
 # (they need a real interactive desktop session).
@@ -65,6 +72,20 @@ if ($List) {
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw 'dotnet SDK not found.' }
 
 $results = @()
+
+# Config pin: the WPF checks redirect their config to throwaway sandboxes, so
+# the user's real config files must be byte-identical before and after the
+# matrix. Only the groups that actually run checks need the pin.
+$configPinPaths = @()
+$configPinBefore = @()
+if ($Group -in @('checks', 'all')) {
+    $configPinPaths = @(
+        (Join-Path $env:APPDATA 'Kobold\config.json'),
+        (Join-Path $env:APPDATA 'Kobold\config.json.backup')
+    )
+    $configPinBefore = @($configPinPaths | ForEach-Object { Get-FilePinHash $_ })
+}
+
 Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
     foreach ($check in $selected) {
@@ -105,6 +126,21 @@ try {
     }
 }
 finally { Pop-Location }
+
+if ($configPinPaths.Count -gt 0) {
+    $configPinAfter = @($configPinPaths | ForEach-Object { Get-FilePinHash $_ })
+    $configPinOk = $true
+    for ($i = 0; $i -lt $configPinPaths.Count; $i++) {
+        if ($configPinAfter[$i] -ne $configPinBefore[$i]) {
+            $configPinOk = $false
+            Write-Host "FAIL config-pin: $($configPinPaths[$i]) changed: $($configPinBefore[$i]) -> $($configPinAfter[$i])"
+        }
+    }
+    if (-not $configPinOk) {
+        Write-Host 'If the Kobold app was in use during the checks this may be a concurrent write - rerun to confirm; otherwise a check regressed.'
+    }
+    $results += [pscustomobject]@{ Check = 'config-pin'; Passed = $configPinOk; Seconds = 0 }
+}
 
 $results | Format-Table -AutoSize | Out-Host
 $failed = @($results | Where-Object { -not $_.Passed }).Count

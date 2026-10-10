@@ -16,6 +16,13 @@ namespace Kobold.Core
     {
         private static WidgetManager _instance;
         private static readonly object _lock = new object();
+
+        // Set by OverrideConfigPathsForChecks before the first Instance access:
+        // the desktop self-checks point the singleton at a throwaway sandbox
+        // so their saves can never rewrite the user's real config. Null in
+        // production, where the shared %AppData% paths are used.
+        private static string _configPathOverride;
+        private static string _backupPathOverride;
         
         private AppConfig _config;
         private List<IWidgetWindow> _widgets = new List<IWidgetWindow>();
@@ -47,9 +54,31 @@ namespace Kobold.Core
         public AppConfig Config => _config;
         public IReadOnlyList<IWidgetWindow> Widgets => _widgets.AsReadOnly();
 
+        /// <summary>
+        /// Redirects the singleton's config/backup paths before it is first
+        /// created. Desktop self-checks use this to keep their saves (debounced
+        /// ones included) out of the user's real config; production code must
+        /// never call it.
+        /// </summary>
+        public static void OverrideConfigPathsForChecks(string configPath, string backupPath)
+        {
+            lock (_lock)
+            {
+                if (_instance != null)
+                {
+                    throw new InvalidOperationException(
+                        "OverrideConfigPathsForChecks must run before the first WidgetManager.Instance access");
+                }
+                _configPathOverride = configPath;
+                _backupPathOverride = backupPath;
+            }
+        }
+
         private WidgetManager()
         {
-            _config = AppConfig.Load();
+            _config = _configPathOverride != null
+                ? AppConfig.Load(_configPathOverride, _backupPathOverride)
+                : AppConfig.Load();
             Localization.CurrentLanguage = _config.Language;
             
             // Initialize theme system with current theme

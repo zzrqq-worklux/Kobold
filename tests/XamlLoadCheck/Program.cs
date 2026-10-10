@@ -1,7 +1,9 @@
 using System;
 using System.Globalization;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
+using IO = System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -32,10 +34,38 @@ namespace Kobold.XamlLoadCheck
         /// </summary>
         private const double ADD_GAP = 6;
 
+        // The pin's hash for a file that does not exist (start state = absent,
+        // end state must be absent too).
+        private const string AbsentHash = "absent";
+
+        // The singleton's config sandbox and the real config's startup byte
+        // state, so the tail pin can prove the checks left the real files
+        // untouched (the day-switch test used to rewrite them via the debounce).
+        private static string _checkSandbox;
+        private static string _realConfigPath;
+        private static string _realBackupPath;
+        private static string _realConfigHashBefore;
+        private static string _realBackupHashBefore;
+
         [STAThread]
         private static int Main()
         {
             Console.OutputEncoding = Encoding.UTF8;
+
+            // Redirect the WidgetManager singleton to a throwaway sandbox
+            // before anything can touch it, and snapshot the real config's
+            // bytes first so the tail pin can compare against them. The
+            // sandbox starts empty, so the checks always run on defaults.
+            _checkSandbox = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-check-xamlload");
+            if (IO.Directory.Exists(_checkSandbox)) IO.Directory.Delete(_checkSandbox, true);
+            IO.Directory.CreateDirectory(_checkSandbox);
+            _realConfigPath = Utils.GetConfigPath();
+            _realBackupPath = _realConfigPath + ".backup";
+            _realConfigHashBefore = HashOrAbsent(_realConfigPath);
+            _realBackupHashBefore = HashOrAbsent(_realBackupPath);
+            WidgetManager.OverrideConfigPathsForChecks(
+                IO.Path.Combine(_checkSandbox, "config.json"),
+                IO.Path.Combine(_checkSandbox, "config.json.backup"));
 
             try
             {
@@ -247,6 +277,16 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("settings: the storage row is present", SettingsStorageRowIsPresent);
                 failures += TryCheck("settings: storage buttons are comfortable and fit all languages",
                     SettingsStorageButtonsFitAllLanguages);
+
+                // Config redirect pins (stage-0 hygiene): the compare logic
+                // proves itself, the forced save proves the sandbox is the
+                // write target, the real files must be byte-identical to the
+                // startup snapshot (absent stays absent), and a late redirect
+                // attempt must be rejected without touching the recorded paths.
+                failures += TryCheck("config pin: the compare logic detects only real changes", ConfigPinCompareSelfTest);
+                failures += TryCheck("config pin: a forced save lands in the sandbox", ForcedSaveLandsInTheSandbox);
+                failures += TryCheck("config pin: the real config files are untouched", RealConfigFilesAreUnchanged);
+                failures += TryCheck("config pin: a late override is rejected and leaves the paths alone", LateOverrideIsRejected);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -3748,6 +3788,177 @@ namespace Kobold.XamlLoadCheck
             finally
             {
                 Localization.SetLanguage(original);
+            }
+        }
+
+        #endregion
+
+        #region Config redirect pins (stage 0)
+
+        /// <summary>
+        /// SHA256 of a file as lowercase hex, or <see cref="AbsentHash"/> when
+        /// the file is not there. Hashes are the pin's comparison basis:
+        /// bytes cannot lie about a rewrite the way timestamps can.
+        /// </summary>
+        private static string HashOrAbsent(string path)
+        {
+            if (!IO.File.Exists(path)) return AbsentHash;
+
+            using (var sha = SHA256.Create())
+            using (var stream = IO.File.OpenRead(path))
+            {
+                byte[] hash = sha.ComputeHash(stream);
+                var text = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash) text.Append(b.ToString("x2"));
+                return text.ToString();
+            }
+        }
+
+        /// <summary>True while the file's bytes still hash to the snapshot.</summary>
+        private static bool FileMatchesSnapshot(string path, string snapshotHash)
+        {
+            return HashOrAbsent(path) == snapshotHash;
+        }
+
+        /// <summary>
+        /// Proves the pin's comparison logic on throwaway files before it
+        /// guards the real config: identical bytes compare equal, a changed
+        /// file is detected, and absent compares as absent.
+        /// </summary>
+        private static void ConfigPinCompareSelfTest()
+        {
+            string dir = IO.Path.Combine(IO.Path.GetTempPath(),
+                "kobold-check-xamlload-pin-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(dir);
+            try
+            {
+                string file = IO.Path.Combine(dir, "sample.bin");
+                IO.File.WriteAllText(file, "one");
+                string snapshot = HashOrAbsent(file);
+                if (snapshot == AbsentHash)
+                {
+                    throw new InvalidOperationException("an existing file hashed as absent");
+                }
+
+                IO.File.WriteAllText(file, "one");
+                if (!FileMatchesSnapshot(file, snapshot))
+                {
+                    throw new InvalidOperationException("identical bytes compared as changed");
+                }
+
+                IO.File.WriteAllText(file, "two");
+                if (FileMatchesSnapshot(file, snapshot))
+                {
+                    throw new InvalidOperationException("a changed file compared as unchanged");
+                }
+
+                string missing = IO.Path.Combine(dir, "missing.bin");
+                if (HashOrAbsent(missing) != AbsentHash || !FileMatchesSnapshot(missing, AbsentHash))
+                {
+                    throw new InvalidOperationException("a missing file did not read as absent");
+                }
+            }
+            finally
+            {
+                try { IO.Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Saves synchronously (not through the debounce) after removing the
+        /// sandbox file the defaulted load writes, so the file we assert on
+        /// can only come from this save - proving the singleton's write path
+        /// is the sandbox, not the real config.
+        /// </summary>
+        private static void ForcedSaveLandsInTheSandbox()
+        {
+            string sandboxConfig = IO.Path.Combine(_checkSandbox, "config.json");
+            if (IO.File.Exists(sandboxConfig)) IO.File.Delete(sandboxConfig);
+
+            WidgetManager.Instance.Config.Save();
+
+            if (!IO.File.Exists(sandboxConfig))
+            {
+                throw new InvalidOperationException(
+                    "the forced save did not write the sandbox config " + sandboxConfig);
+            }
+            if (!IO.File.ReadAllText(sandboxConfig).Contains("\"Language\""))
+            {
+                throw new InvalidOperationException(
+                    "the sandbox config " + sandboxConfig + " is not a serialized config");
+            }
+        }
+
+        /// <summary>
+        /// The real config and backup must be byte-identical to the startup
+        /// snapshot - including "absent at start" staying absent at the end.
+        /// </summary>
+        private static void RealConfigFilesAreUnchanged()
+        {
+            string configNow = HashOrAbsent(_realConfigPath);
+            string backupNow = HashOrAbsent(_realBackupPath);
+            if (configNow != _realConfigHashBefore || backupNow != _realBackupHashBefore)
+            {
+                throw new InvalidOperationException(
+                    "the real config changed: " + _realConfigPath + " " + _realConfigHashBefore +
+                    " -> " + configNow + " ; " + _realBackupPath + " " + _realBackupHashBefore +
+                    " -> " + backupNow);
+            }
+        }
+
+        /// <summary>The private static override path recorded by the seam.</summary>
+        private static string StaticOverrideField(string name)
+        {
+            var field = typeof(WidgetManager).GetField(name, BindingFlags.Static | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("WidgetManager." + name + " field not found");
+            return (string)field.GetValue(null);
+        }
+
+        /// <summary>
+        /// The seam's guard: once the singleton exists a second redirect must
+        /// throw InvalidOperationException and leave the recorded paths alone -
+        /// a future edit dropping the throw must fail here, not silently
+        /// repoint a live manager.
+        /// </summary>
+        private static void LateOverrideIsRejected()
+        {
+            string pathBefore = StaticOverrideField("_configPathOverride");
+            string backupBefore = StaticOverrideField("_backupPathOverride");
+            if (pathBefore == null || backupBefore == null)
+            {
+                throw new InvalidOperationException(
+                    "the startup redirect did not record both paths (" + pathBefore + "/" + backupBefore + ")");
+            }
+
+            bool rejected = false;
+            try
+            {
+                WidgetManager.OverrideConfigPathsForChecks("x", "y");
+            }
+            catch (InvalidOperationException)
+            {
+                rejected = true;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "the late override threw " + ex.GetType().Name +
+                    " instead of InvalidOperationException: " + ex.Message);
+            }
+
+            if (!rejected)
+            {
+                throw new InvalidOperationException(
+                    "the late override was accepted after WidgetManager.Instance existed");
+            }
+
+            string pathAfter = StaticOverrideField("_configPathOverride");
+            string backupAfter = StaticOverrideField("_backupPathOverride");
+            if (pathAfter != pathBefore || backupAfter != backupBefore)
+            {
+                throw new InvalidOperationException(
+                    "the rejected late override changed the recorded paths: " + pathBefore + "/" + backupBefore +
+                    " -> " + pathAfter + "/" + backupAfter);
             }
         }
 
