@@ -150,13 +150,16 @@
 
 **Files:**
 - Modify: `Controls/FolderWidget.Theme.cs`/`FolderWidget.xaml.cs`（`CalculatePanelSize` 退出；
-  `GetContentSize` 用持久化尺寸；`BindableUniformGrid.Columns` 与 `LayoutTransform` 尺度由引擎给）、
+  尺度/列数由引擎给、随尺寸实时重排；`GetContentSize` 退回引擎默认尺寸；去自动收放）、
+  `Controls/WidgetWindowBase.cs`（新增 `OnPanelSizeChanged()` 钩子并在缩放移动中调用）、
   `Helpers/WidgetMenuBuilder.cs`（移除 列数/大小/行数 区）、`Core/WidgetKindRegistry.cs`
   （`SupportsGridColumns/SupportsItemScale/SupportsMaxRows` 退休）、`Core/Localization.cs`（死键删除，三语）
-- Modify: `tests/WidgetKindsCheck`、`tests/MenuRenderCheck`、`tests/XamlLoadCheck`（断言跟进）
+- Modify: `tests/WidgetKindsCheck`、`tests/XamlLoadCheck`（断言跟进；`tests/MenuRenderCheck` 预期无改动，验证即可）
 
 - [ ] **Step 1: 失败自检**：菜单不再含三个布局入口；能力标志退休后的断言更新；引擎接入后
-  不同面板尺寸 → 列数/尺度/行数按公式（对照 A1.1）。
+  不同面板尺寸 → 列数/尺度/行数按公式（对照 A1.1）；**无水平裁切 pin（用户冒烟反馈）**：
+  最小尺寸 180×137 → 2 列 × 69 完整落在内容宽 164 内；用户实际尺寸 433 宽 → 4 列（总宽 ≤ 内容宽），
+  渲染网格消费引擎输出（`BindableUniformGrid.Columns` 与尺度不再来自旧字段）。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
 - [ ] **Step 3: 实现**（渲染路径单一来源；旧字段不再消费）。
 - [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟**：文件夹全清单（开合/浏览/拖拽/收纳/颜色/锁定/置顶/
@@ -176,7 +179,8 @@
 
 - [ ] **Step 1: 写失败自检**：格高 28（迁移默认）→ 无第二行小字；格高 ≥32 → 有；清单行数随高度；
   换日/增删条目不再改变面板尺寸（尺寸稳定 pin）；`DesiredHeight` 与引擎公式（固定块 133 等）一致性 pin；
-  无宽度兜底分支。
+  无宽度兜底分支；**添加按钮恒可见 pin（用户冒烟反馈）**：最小尺寸（342×335）下两种状态——
+  6 周月 + 多行清单（视口收缩/滚动）与空日展开输入——添加行完整落在内容区内（底边 ≤ 内容高 295）。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
 - [ ] **Step 3: 实现**（引擎输出接入；渲染侧消费引擎常量——格高/行高/固定块分解；zh 判定与数据可用性沿用；
   语义行为不动）。
