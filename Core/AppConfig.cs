@@ -185,9 +185,13 @@ namespace Kobold.Core
         private static void EnsureStructurallySound(AppConfig config, string json)
         {
             // An explicit "Folders": null never reaches the property: its
-            // NullValueHandling.Ignore keeps the constructor's list. Check the
-            // raw token so such a file is still rejected below.
-            if (JObject.Parse(json)["Folders"]?.Type == JTokenType.Null)
+            // NullValueHandling.Ignore keeps the constructor's list. A file
+            // with no Widgets array at all is a legacy-shaped config whose
+            // list is null and stays rejected; our own output pairs the null
+            // with a Widgets array (Save writes it on purpose), which is fine.
+            var root = JObject.Parse(json);
+            if (root["Folders"]?.Type == JTokenType.Null
+                && root["Widgets"]?.Type != JTokenType.Array)
                 throw new InvalidDataException("config Folders is null");
 
             if (config.Folders == null) throw new InvalidDataException("config Folders is null");
@@ -329,6 +333,16 @@ namespace Kobold.Core
                     }
 
                     string json = JsonConvert.SerializeObject(this, Formatting.Indented);
+
+                    // Releases ≤1.3.0 read the legacy Folders list. An absent
+                    // key silently yields an empty widget list there, while an
+                    // explicit null drives them to keep the file as
+                    // '*.failed-*' evidence and fall back to defaults - the
+                    // downgrade promise the docs make.
+                    var root = JObject.Parse(json);
+                    root["Folders"] = JValue.CreateNull();
+                    json = root.ToString(Formatting.Indented);
+
                     AtomicFile.WriteAllText(configPath, json);
                     _skipBackupRefreshOnce = false;
                     StopSaveTimers();

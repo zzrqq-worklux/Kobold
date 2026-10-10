@@ -205,6 +205,24 @@ namespace Kobold.ConfigSafetyCheck
             System.Threading.Thread.Sleep(300);
             Check(!File.ReadAllText(main8).Contains("\"en\""),
                 "no new debounced writes start after BeginClosing");
+
+            // --- Saved configs carry an explicit "Folders": null: it sends
+            // ≤1.3.0 down their evidence + default path, and our own reader
+            // accepts it when the Widgets array is present.
+
+            string dir9 = NewCase("case9");
+            string main9 = Path.Combine(dir9, "config.json");
+            string backup9 = main9 + ".backup";
+            var cfg9 = AppConfig.Load(main9, backup9);
+            Check(File.ReadAllText(main9).Contains("\"Folders\": null"),
+                "a saved config carries the explicit Folders null");
+
+            File.Delete(backup9);
+            var cfg9b = AppConfig.Load(main9, backup9);
+            Check(cfg9b.Widgets.Count == 1 && cfg9b.Widgets[0] is FolderData,
+                "the saved config reloads from the main file alone");
+            Check(Directory.GetFiles(dir9, "*.failed-*").Length == 0,
+                "our own Folders null raises no evidence copies");
         }
     }
 }

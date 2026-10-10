@@ -99,8 +99,8 @@ namespace Kobold.WidgetKindsCheck
 
             cfg.Save();
             string savedText = File.ReadAllText(main);
-            Check(savedText.Contains("\"Widgets\"") && !savedText.Contains("\"Folders\""),
-                "saving writes Widgets and no Folders");
+            Check(savedText.Contains("\"Widgets\"") && savedText.Contains("\"Folders\": null"),
+                "saving writes Widgets and an explicit Folders null");
             Check(savedText.Contains("\"Kind\": \"folder\""), "saved folders carry their Kind");
 
             var reloaded = AppConfig.Load(main, backup);
@@ -326,8 +326,8 @@ namespace Kobold.WidgetKindsCheck
             Check(File.Exists(main), "a fresh config is written");
 
             string savedText = File.ReadAllText(main);
-            Check(savedText.Contains("\"Widgets\"") && !savedText.Contains("\"Folders\""),
-                "a fresh save writes Widgets and no Folders");
+            Check(savedText.Contains("\"Widgets\"") && savedText.Contains("\"Folders\": null"),
+                "a fresh save writes Widgets and an explicit Folders null");
         }
 
         private static void CorruptWidgetListsAreUnreadable()
@@ -374,9 +374,10 @@ namespace Kobold.WidgetKindsCheck
 
                 cfg.Save();
                 string savedText = File.ReadAllText(main);
-                Check(savedText.Contains("\"Widgets\"") && !savedText.Contains("\"Folders\""),
-                    label + ": Folders never survives into a save");
-                Check(File.ReadAllText(backup).Contains("\"Folders\""),
+                Check(savedText.Contains("\"Widgets\"") && savedText.Contains("\"Folders\": null"),
+                    label + ": the save writes the explicit Folders null");
+                string backupText = File.ReadAllText(backup);
+                Check(backupText.Contains("\"Folders\": [") && backupText.Contains("\"fromBackup\""),
                     label + ": the recovery source is not clobbered by the first save");
                 Check(HasNoNullItems(AppConfig.Load(main, backup)),
                     label + ": the saved config reloads without null lists");
