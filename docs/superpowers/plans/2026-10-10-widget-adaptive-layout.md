@@ -82,15 +82,17 @@
 - Modify: `tools/Run-Checks.ps1`（登记新项）
 
 - [ ] **Step 1: 写失败自检**（关键用例；常量已定：MAX_CELL_W=112、scale clamp 0.9..1.45、
-  cellW=ceil(76×scale)、cellH=ceil(89×scale)、todo 格高 22..36、小字阈值 32）：
-  - folder：narrow 面板 → `columns==2`、`scale==0.9`（clamp）；宽 340 → 列/尺度符合公式；
-    宽度 224/225 临界 → `columns` 2→3 且尺度按公式回落；`visibleRows` 边界（1 行 / 多行 / 高度不足）；
+  cellW=ceil(76×scale)、cellH=ceil(89×scale)、todo 格高 22..36、小字阈值 32、todo 固定块 133）：
+  - folder：narrow（usableW < 137）→ `columns==2`、`scale==0.9`（clamp）；宽 340 → `columns==3` 且尺度按公式；
+    usableW 224/225 临界 → 2→3 列且尺度回落（1.45 → ≈0.99）；`visibleRows` 边界（1 行 / 多行 / 高度不足）；
     `scrolls` 与 `PanelRows` 语义一致；宽度增大 → `columns` 单调不减；列数下限恒 ≥2；
-  - todo：`cellH` clamp（22/36）；`ShowDayLabels`（31.9 隐藏 / 32 显示；与内容宽无关——无宽度兜底）；
-    `ListRows` clamp（1..6）；清单优先（自然行不满时月历获得余量）；
-  - 迁移：`MigrateFolderSize(3,3,5,1.1)` / `(4,1,30,1.3)`（含截断页脚）公式核对；`DefaultTodoSize`。
+  - todo：`cellH` clamp（22/36）；`ShowDayLabels`（31.9 隐藏 / 32 显示；与宽度无关——无宽度兜底）；
+    `ListRows` clamp（0..6）；清单优先（自然行不满时月历获得余量）与月历 22 下限保护（清单收缩）；
+    `DefaultTodoSize`（5 周/1 行 = 343、5 周/0 行 = 313）；
+  - 迁移：`MigrateFolderSize(3,3,5,1.1)` → 270×252 / `(4,1,30,1.3)` → 414×192（含截断页脚 +20）。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
-- [ ] **Step 3: 实现**（§spec 4.2/4.3/4.4 的公式；`PanelRows` 复用原样）。
+- [ ] **Step 3: 实现**（§spec 4.2/4.3/4.4 的公式；布局常量收敛进引擎——含 todo 固定块 133 的分解常量；
+  `PanelRows` 复用原样）。
 - [ ] **Step 4: 自检转绿 + 全量回归**（`Run-Checks.ps1 -Group all` 全绿、build 0 警告）。
 - [ ] **Step 5: 提交** → `feat(layout): add the pure adaptive layout engine`
 
@@ -127,7 +129,7 @@
 - [ ] **Step 2: 运行确认失败**（编译失败）。
 - [ ] **Step 3: 实现**（协议与 Header 拖动一致，遵守 r19 顺序不变量：capture → active → Started；
   尺寸上下限实现定值并 pin：folder 最小 180×137（2 列×1 行 @0.9，含截断页脚时留页脚高）、
-  todo 最小容纳 6 周×22 + 1 行清单；最大 = 工作区）。
+  todo 最小 = 40+133+6×22+30 = 335（宽 342）；最大 = 工作区）。
 - [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟**（用户）：拖动观感、最小/最大、锁定、重启恢复、
   主题/透明度、folder 与 todo 全交互回归。
 - [ ] **Step 5: 提交** → `feat(layout): add native panel resizing with size persistence`
@@ -165,9 +167,11 @@
 - Modify: `tests/XamlLoadCheck/Program.cs`（小字显隐随尺寸、清单行数、面板尺寸稳定 pins）
 
 - [ ] **Step 1: 写失败自检**：格高 28（迁移默认）→ 无第二行小字；格高 ≥32 → 有；清单行数随高度；
-  换日/增删条目不再改变面板尺寸（尺寸稳定 pin）；无宽度兜底分支。
+  换日/增删条目不再改变面板尺寸（尺寸稳定 pin）；`DesiredHeight` 与引擎公式（固定块 133 等）一致性 pin；
+  无宽度兜底分支。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
-- [ ] **Step 3: 实现**（引擎输出接入；zh 判定与数据可用性沿用；语义行为不动）。
+- [ ] **Step 3: 实现**（引擎输出接入；渲染侧消费引擎常量——格高/行高/固定块分解；zh 判定与数据可用性沿用；
+  语义行为不动）。
 - [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟**：Todo 全清单（顺延/完成/子待办/编辑/右键盘菜单/
   换月/今天/持久化）+ 缩放观感（小字显隐、密度）。
 - [ ] **Step 5: 提交** → `feat(todo): adapt the todo panel and day labels to free resizing`

@@ -53,8 +53,8 @@
 - **最小**（保证内容可读；最终值实现时定，自检 pin）：
   - folder：至少 2 列 × 1 行可见（§4.2 的 `max(2, …)` 决定列数下限；2 列 × 0.9 倍 = 156 < 180，
     最小宽 180 成立）≈ 180 × 137~157；含截断页脚时相应加高；
-  - todo：日历格宽 ≥ ~36 DIP（内容宽 ≥ ~300）；高度须容纳 6 周月历（格高下限 22，见 §4.3）+
-    1 行清单 ≈ 320（实现定值并 pin）。
+  - todo：日历格宽 ≥ ~36 DIP（内容宽 ≥ ~300）；最小高度 = 40（头部）+ 133（固定块）+ 6×22 + 1×30
+    = 335（见 §4.3；实现定值并 pin）。
 - **最大**：面板所在屏的工作区尺寸（拖动过程即 clamp；松手 `FitPanelToWorkArea` 复核）。
 
 ### 3.3 尺寸持久化与迁移
@@ -87,14 +87,17 @@
 public static class PanelLayoutAdapter
 {
     public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount);
-    public static TodoLayout AdaptTodo(double contentWidth, double contentHeight, int weekCount, bool labelsAvailable);
+    public static TodoLayout AdaptTodo(double contentHeight, int weekCount, int naturalListRows, bool labelsAvailable);
     public static (double w, double h) MigrateFolderSize(int gridColumns, int maxPanelRows, int itemCount, double itemScale);
-    public static (double w, double h) DefaultTodoSize(int weekCount);
+    public static (double w, double h) DefaultTodoSize(int weekCount, int naturalListRows);
 }
 
 public struct FolderLayout { public int Columns; public double Scale; public int VisibleRows; public bool Scrolls; public double CellWidth; public double CellHeight; }
 public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; public int ListRows; public bool ListScrolls; }
 ```
+
+- 接口说明（2026-10-10 实施裁决，见 ledger）：`naturalListRows` = 当日清单自然行数（0 = 空日，>6 按 6），
+  由调用方给出（渲染侧从当日条目计算）；`AdaptTodo` 不需要宽度（决策 5 取消了宽度相关分支）。
 
 - **复用映射**：`PanelRows.VisibleRows/NeedsScroll` 原样保留调用；`WidgetConstants` 常量直接消费；
   FolderWidget 的 `GetScaledItemWidth/Height` 公式迁入引擎（UI 侧删除复制，单一来源）；
@@ -103,11 +106,12 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 
 ### 4.2 Folder 策略（已定：P1——图标随宽放大到上限，再加列）
 
-- `columns = max(2, ceil(contentWidth / MAX_CELL_W))`，`MAX_CELL_W = 112`（定值；基准格 76 的 ~1.47 倍）；
-- `scale = clamp(contentWidth / columns / 76, 0.9, 1.45)`（contentWidth = 引擎入参，即去掉边框/内边距后的
-  内容宽，与 FolderWidget 的 GetContentSize 同口径）；
+- 入参口径：`contentWidth/contentHeight` = 内容区尺寸，与 `FolderWidget.GetContentSize` 同口径
+  （不含头部/边框，含 16 内边距）；引擎内部先扣 `PADDING` 得 `usableW/usableH`；
+- `columns = max(2, ceil(usableW / MAX_CELL_W))`，`MAX_CELL_W = 112`（定值；基准格 76 的 ~1.47 倍）；
+- `scale = clamp(usableW / columns / 76, 0.9, 1.45)`；
 - `cellW = ceil(76 × scale)`、`cellH = ceil(89 × scale)`；
-- `visibleRows = max(1, floor((contentHeight − padding) / cellH))`；
+- `visibleRows = max(1, floor(usableH / cellH))`；
 - `scrolls = itemCount > columns × visibleRows`（沿用 `PanelRows` 语义）。
 - 效果：拉宽 → 图标连续变大，到临界后多出一列、图标回落（2→3 列临界回落最大，≈1.45→0.99；越宽越缓）；
   拉高 → 行数增多；缩小 → 列/行减少、滚动。
@@ -117,8 +121,14 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 ### 4.3 Todo 策略（已定）
 
 - **宽度**：日历 7 格均分内容宽、清单同宽；文字/数字保持居中。
-- **高度分配（已定）**：清单优先满足到自然行数（`clamp(自然行, 1, 6) × 30`），剩余高度给月历格高：
-  `cellH = clamp(可用日历高 ÷ weekCount, 22, 36)`。最小面板高度须容纳 6 周 × 22 + 1 行清单
+- **高度分配（已定）**：`naturalListRows` 由调用方给出（0 = 空日，>6 按 6）。先满足清单
+  `listRows = clamp(naturalListRows, 0, 6)`（行高 30），余量给月历
+  `cellH = clamp((contentHeight − 固定块 − listRows×30) ÷ weekCount, 22, 36)`；
+  若余量 < 22×weekCount，则月历取 22、清单收缩到
+  `listRows = clamp(floor((contentHeight − 固定块 − 22×weekCount) ÷ 30), 0, 6)`。
+  固定块 = 根边距 18（8+10）+ 月导航 28 + 星期行 18 + 分隔 9（1+4+4）+ 日头 24 + 添加行 36（30+6）
+  = **133**（取自 TodoCalendarView.xaml 当前结构；常量由引擎持有，A4.1 起渲染侧消费）。
+  `ListScrolls = naturalListRows > listRows`。最小面板高度须容纳 6 周 × 22 + 固定块 + 1 行清单
   （任何月份都不溢出，日历不滚动）。
 - **第二行小字（已定）**：`ShowDayLabels = cellH ≥ 32`（zh 且数据可用时；< 32 隐藏）。
   **不加宽度兜底**（最小尺寸下内容宽 ≈300、格宽 ≈43，宽度条件不可达，避免死分支）。
@@ -133,7 +143,8 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
   - `w = GridColumns × ceil(76 × ItemScale) + 16 + 2`；
   - `h = 40 + VisibleRows(itemCount, GridColumns, MaxPanelRows) × ceil(89 × ItemScale) + 16`
     （+ 20 截断页脚，按 `NeedsScroll` 估算）。
-- todo：`w = 342`；`h = 40 + 自然内容高`（月历按 28 格高、清单按 `clamp(条目行, 1, 6)`）。
+- todo：`w = 342`；`h = 40 + 133 + weekCount × 28 + clamp(条目行, 0, 6) × 30`
+  （旧观感复刻：固定块 133、月历 28 格高；`weekCount` = 当月周数，条目行 = 选中日顶层+子行数，空日 = 0）。
 - 迁移为纯函数（§4.1 签名），自检覆盖典型用例（3 列/1.1 倍、4 列/1.3 倍、截断/不截断）。
 
 ## 5. 数据模型（汇总）
