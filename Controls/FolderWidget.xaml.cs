@@ -41,29 +41,15 @@ namespace Kobold.Controls
         private DisplayItem _draggedItem = null;
 
         private int _lastItemCount;
-        private bool _lastFooterVisible;
-        
+
+        // The adaptive layout's current column count (bound by the items grid).
+        private int _adaptiveColumns = WidgetConstants.DEFAULT_GRID_COLUMNS;
+
         // Constants from WidgetConstants for local access
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
-        private const int BASE_ITEM_WIDTH = WidgetConstants.BASE_ITEM_WIDTH;
-        private const int BASE_ITEM_HEIGHT = WidgetConstants.BASE_ITEM_HEIGHT;
-        private const int ITEM_MARGIN = WidgetConstants.ITEM_MARGIN;
-        private const int HEADER_HEIGHT = WidgetConstants.HEADER_HEIGHT;
-        private const int PADDING = WidgetConstants.PADDING;
 
-        // The panel's own border (1 DIP per side) sits outside the scroll viewport,
-        // so it has to be budgeted on top of PADDING or the last column overflows.
-        private const int PANEL_BORDER = 2;
-        
-        // Get scaled item dimensions. The items sit under a LayoutTransform, so the
-        // margin scales with the content: the real footprint is (base + margin) x
-        // scale, rounded UP. Rounding down leaves the panel a fraction of a pixel
-        // short of a whole number of rows - the ScrollViewer then shows a scrollbar
-        // that steals width, which makes every cell narrower than its item and clips
-        // the item border on the right.
-        private int GetScaledItemWidth() => (int)Math.Ceiling((BASE_ITEM_WIDTH + ITEM_MARGIN) * GetItemScale());
-        private int GetScaledItemHeight() => (int)Math.Ceiling((BASE_ITEM_HEIGHT + ITEM_MARGIN) * GetItemScale());
-        
+        // Legacy item scale from config; only the engine's fallback size path
+        // reads it now (the live layout scales its own cells).
         private double GetItemScale()
         {
             try { return WidgetManager.Instance.Config.ItemScale; }
@@ -85,20 +71,10 @@ namespace Kobold.Controls
         public FrameworkElement PanelShell => Chrome.Shell;
 
         /// <summary>
-        /// Grid columns for XAML binding - automatically updates UniformGrid
+        /// Grid columns for XAML binding - derived from the panel size by the
+        /// layout adapter. Read-only: the retired menu was the only writer.
         /// </summary>
-        public int GridColumns
-        {
-            get => _data?.GridColumns ?? 3;
-            set
-            {
-                if (_data != null && _data.GridColumns != value)
-                {
-                    _data.GridColumns = value;
-                    OnPropertyChanged(nameof(GridColumns));
-                }
-            }
-        }
+        public int GridColumns => _adaptiveColumns;
         
         #endregion
 
@@ -191,38 +167,21 @@ namespace Kobold.Controls
             BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
             BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
 
-            // Apply item scale transform BEFORE setting items
-            double scale = GetItemScale();
-            ItemsContainer.LayoutTransform = new ScaleTransform(scale, scale);
-
             var items = IsBrowsing ? BuildBrowseItems() : BuildRootItems();
             _lastItemCount = items.Count;
 
             // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property
             ItemsContainer.ItemsSource = items;
 
-            // The shared widget menu writes FolderData.GridColumns directly, so
-            // the bound columns have to be re-published here; the old menu went
-            // through this property and its PropertyChanged (pinned in
-            // XamlLoadCheck: "grid menu updates the panel").
-            OnPropertyChanged(nameof(GridColumns));
-
-            LoadItemIcons(items);
-
-            // Must run before sizing: the panel maths reads the footer's height
+            // Footer visibility first: the engine's content height depends on it.
             UpdateEmptyState(items.Count);
             UpdateMoreItemsFooter(items.Count);
 
-            // Panel-only: keep the window sized to the panel while open. The
-            // shell stretches to the window, so only the window is sized.
-            if (IsPanelOpen)
-            {
-                UpdateLayout();
+            // The single re-arrange entry: columns and scale both come from the
+            // engine for the panel's current (live or persisted) size.
+            ApplyAdaptiveLayout();
 
-                var (panelWidth, panelHeight) = GetPanelSize();
-                Width = panelWidth;
-                Height = panelHeight;
-            }
+            LoadItemIcons(items);
 
             // Update panel colors
             UpdatePanelColor();
@@ -235,6 +194,31 @@ namespace Kobold.Controls
             // watcher following the folder that is on screen now.
             UpdateBrowseWatch();
         }
+
+        /// <summary>
+        /// The single re-arrange entry: fits the grid into the panel's content
+        /// area through the pure engine and publishes the column count and the
+        /// icon scale the renderer consumes.
+        /// </summary>
+        private void ApplyAdaptiveLayout()
+        {
+            double panelW, panelH;
+            if (IsPanelOpen) { panelW = Width; panelH = Height; }     // during a drag: the live window size
+            else { (panelW, panelH) = GetPanelSize(); }               // before opening: the persisted size
+            var border = Chrome.Shell.BorderThickness;
+            double contentW = panelW - border.Left - border.Right;
+            double contentH = panelH - WidgetConstants.HEADER_HEIGHT - border.Top - border.Bottom;
+            if (MoreItemsText.Visibility == Visibility.Visible) contentH -= WidgetConstants.FOOTER_HEIGHT;
+            var layout = PanelLayoutAdapter.AdaptFolder(contentW, contentH, _lastItemCount);
+            ItemsContainer.LayoutTransform = new ScaleTransform(layout.Scale, layout.Scale);
+            if (_adaptiveColumns != layout.Columns)
+            {
+                _adaptiveColumns = layout.Columns;
+                OnPropertyChanged(nameof(GridColumns));
+            }
+        }
+
+        protected override void OnPanelSizeChanged() => ApplyAdaptiveLayout();
 
         private void LoadItemIcons(List<DisplayItem> items)
         {
@@ -308,7 +292,6 @@ namespace Kobold.Controls
         {
             bool show = IsBrowsing && _browseListing != null && _browseListing.Truncated;
 
-            _lastFooterVisible = show;
             MoreItemsText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
             if (show)

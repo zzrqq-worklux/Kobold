@@ -217,8 +217,10 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: selected day uses the hand-drawn circle", TodoSelectedDayUsesTheHandDrawnCircle);
                 failures += TryCheck("todo: today marker is a filled circle", TodoTodayMarkerIsAFilledCircle);
                 failures += TryCheck("folder: item selection follows the widget colour", FolderSelectionFollowsTheWidgetColor);
-                failures += TryCheck("folder: panel size matches content + chrome", FolderPanelSizeMatchesContentPlusChrome);
-                failures += TryCheck("folder: grid menu updates the panel", FolderGridMenuUpdatesThePanel);
+                failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
+                failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
+                failures += TryCheck("folder: the widget menu no longer offers layout entries", FolderMenuHasNoLayoutSubmenus);
+                failures += TryCheck("resize: folder re-adapts columns during the drag", FolderReadaptsDuringResize);
 
                 // Restyle pins: the add input aligns with a list row exactly,
                 // and inline editors are borderless with no background band
@@ -3117,23 +3119,25 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task 3.2: after FolderWidget moved onto the shared base, its panel
-        /// size must still be the old folder maths, exactly. GetPanelSize()
-        /// composes GetContentSize() plus the chrome header and the shell's
-        /// border (the base contract); the composed value must equal the
-        /// legacy formula for an empty panel, a full grid and an overflowing
-        /// listing. RED before the convergence: GetContentSize did not exist.
+        /// Task A3.1: without persisted sizes the panel falls back to the
+        /// engine's one-shot migration of the old per-widget settings (the
+        /// sandbox config carries the default ItemScale 1.1). The old auto
+        /// size formula is gone, so the composed size must equal the engine's
+        /// migrate maths exactly for an empty panel, a full grid and an
+        /// overflowing listing (which the engine gives a footer row instead
+        /// of a scrollbar column).
         /// </summary>
-        private static void FolderPanelSizeMatchesContentPlusChrome()
+        private static void FolderPanelSizeFallbackMatchesTheEngine()
         {
             ThemeManager.Initialize("dark");
 
-            AssertFolderPanelSize(0, 3, PanelRows.DefaultMaxRows, "empty");
-            AssertFolderPanelSize(12, 4, PanelRows.DefaultMaxRows, "full grid");
-            AssertFolderPanelSize(30, 2, PanelRows.MinAllowedRows, "overflowing");
+            AssertFolderFallbackSize(0, 3, PanelRows.DefaultMaxRows, 270, 154, "empty");
+            AssertFolderFallbackSize(12, 4, PanelRows.DefaultMaxRows, 354, 350, "full grid");
+            AssertFolderFallbackSize(30, 2, PanelRows.MinAllowedRows, 186, 174, "overflowing");
         }
 
-        private static void AssertFolderPanelSize(int itemCount, int columns, int maxRows, string label)
+        private static void AssertFolderFallbackSize(int itemCount, int columns, int maxRows,
+            double wantWidth, double wantHeight, string label)
         {
             var data = new FolderData { GridColumns = columns, MaxPanelRows = maxRows };
             for (int i = 0; i < itemCount; i++)
@@ -3146,112 +3150,152 @@ namespace Kobold.XamlLoadCheck
             }
 
             var widget = new FolderWidget(data);
-            widget.UpdateUI(); // publishes _lastItemCount for the size maths
+            widget.UpdateUI(); // publishes _lastItemCount for the fallback size
 
-            var getContent = typeof(FolderWidget).GetMethod("GetContentSize",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (getContent == null)
-            {
-                throw new InvalidOperationException(
-                    label + ": FolderWidget.GetContentSize not found - the window is not on the shared base");
-            }
-
-            var content = ((double width, double height))getContent.Invoke(widget, null);
             var (width, height) = widget.GetPanelSize();
-            var border = ((Border)widget.PanelShell).BorderThickness;
-            if (width != content.width + border.Left + border.Right ||
-                height != WidgetConstants.HEADER_HEIGHT + content.height + border.Top + border.Bottom)
+            if (width != wantWidth || height != wantHeight)
             {
                 throw new InvalidOperationException(
-                    label + ": the panel " + width + "x" + height + " is not content " +
-                    content.width + "x" + content.height + " + header height " +
-                    WidgetConstants.HEADER_HEIGHT + " + border " + border);
-            }
-
-            // The legacy CalculatePanelSize, recomputed independently: the
-            // item footprint rounds up under the scale, the row cap decides
-            // the height, a scrollbar widens the panel and the minimums apply
-            // last.
-            double scale = WidgetManager.Instance.Config.ItemScale;
-            int itemWidth = (int)Math.Ceiling((WidgetConstants.BASE_ITEM_WIDTH + WidgetConstants.ITEM_MARGIN) * scale);
-            int itemHeight = (int)Math.Ceiling((WidgetConstants.BASE_ITEM_HEIGHT + WidgetConstants.ITEM_MARGIN) * scale);
-            int count = Math.Max(1, itemCount);
-            int cols = Math.Max(1, columns);
-            int visibleRows = PanelRows.VisibleRows(count, cols, maxRows);
-            int naturalHeight = WidgetConstants.HEADER_HEIGHT + visibleRows * itemHeight + WidgetConstants.PADDING;
-            int maxHeight = Math.Max(120,
-                (int)(SystemParameters.WorkArea.Height * WidgetConstants.PANEL_MAX_HEIGHT_RATIO));
-            bool scrolls = PanelRows.NeedsScroll(count, cols, maxRows) || naturalHeight > maxHeight;
-
-            int legacyWidth = cols * itemWidth + WidgetConstants.PADDING + 2;
-            if (scrolls) legacyWidth += (int)SystemParameters.VerticalScrollBarWidth;
-            legacyWidth = Math.Max(legacyWidth, 180);
-            int legacyHeight = Math.Max(Math.Min(naturalHeight, maxHeight), 120);
-
-            if (width != legacyWidth || height != legacyHeight)
-            {
-                throw new InvalidOperationException(
-                    label + ": panel " + width + "x" + height +
-                    " != the legacy panel maths " + legacyWidth + "x" + legacyHeight);
+                    label + ": the fallback panel " + width + "x" + height +
+                    " != the engine's " + wantWidth + "x" + wantHeight);
             }
         }
 
         /// <summary>
-        /// Task 3.2: the folder's widget menu now comes from WidgetMenuBuilder,
-        /// which writes FolderData.GridColumns directly. The panel's
-        /// BindableUniformGrid must still follow the pick immediately - the old
-        /// menu went through the FolderWidget property and its PropertyChanged,
-        /// so the builder path must keep the binding live.
+        /// Task A3.1 (user smoke): the grid consumes the engine's column and
+        /// scale output for the panel's persisted size - 433 wide holds four
+        /// columns at 415/4/76, the minimum 180 holds two at 162/2/76 - and
+        /// the rendered row never exceeds the usable width (no horizontal
+        /// clipping at any size at or above the minimum).
         /// </summary>
-        private static void FolderGridMenuUpdatesThePanel()
+        private static void FolderAdaptsColumnsAndScaleToItsSize()
         {
             ThemeManager.Initialize("dark");
-            var data = new FolderData { GridColumns = 3 };
+
+            AssertFolderAdapts(433, 285, 4, 415.0 / 4 / 76, 431 - WidgetConstants.PADDING, "the 433-wide panel");
+            AssertFolderAdapts(180, 137, 2, 162.0 / 2 / 76, 178 - WidgetConstants.PADDING, "the minimum panel");
+        }
+
+        private static void AssertFolderAdapts(double panelWidth, double panelHeight, int wantColumns,
+            double wantScale, double usableWidth, string label)
+        {
+            var data = new FolderData { PanelWidth = panelWidth, PanelHeight = panelHeight };
+            for (int i = 0; i < 6; i++)
+            {
+                data.Items.Add(new WidgetItem
+                {
+                    Name = "item" + i,
+                    Path = System.IO.Path.Combine(@"C:\kobold-adapt-probe", "item" + i + ".txt")
+                });
+            }
+
             var widget = new FolderWidget(data);
+            widget.UpdateUI();
 
             var root = (FrameworkElement)widget.Content;
-            root.Measure(new Size(400, 400));
-            root.Arrange(new Rect(0, 0, 400, 400));
+            root.Measure(new Size(panelWidth, panelHeight));
+            root.Arrange(new Rect(0, 0, panelWidth, panelHeight));
             root.UpdateLayout();
 
             var grid = FindDescendant<BindableUniformGrid>(root);
-            if (grid == null) throw new InvalidOperationException("the items grid was not realized");
-            if (grid.Columns != 3)
-                throw new InvalidOperationException("initial columns " + grid.Columns + ", wanted 3");
+            if (grid == null) throw new InvalidOperationException(label + ": the items grid was not realized");
+            if (grid.Columns != wantColumns)
+            {
+                throw new InvalidOperationException(
+                    label + ": " + grid.Columns + " column(s), wanted " + wantColumns);
+            }
 
+            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var transform = container.LayoutTransform as ScaleTransform;
+            if (transform == null)
+            {
+                throw new InvalidOperationException(label + ": the item scale transform is missing");
+            }
+            if (Math.Abs(transform.ScaleX - wantScale) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    label + ": scale " + transform.ScaleX + ", wanted " + wantScale);
+            }
+
+            double rendered = grid.Columns * 76 * transform.ScaleX;
+            if (rendered > usableWidth + 0.01)
+            {
+                throw new InvalidOperationException(
+                    label + ": the grid renders " + rendered.ToString("0.###") +
+                    " wide, more than the usable " + usableWidth.ToString("0.###"));
+            }
+        }
+
+        /// <summary>
+        /// Task A3.1: the folder menu is the shared builder without the
+        /// retired layout appendices - no entry of the folder menu nests a
+        /// submenu (the todo menu keeps its holiday-region submenu, pinned by
+        /// TodoHolidayRegionMenu).
+        /// </summary>
+        private static void FolderMenuHasNoLayoutSubmenus()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("en");
+
+            var widget = new FolderWidget(new FolderData());
             var menu = WidgetMenuBuilder.Build(widget, WidgetKindRegistry.Find("folder"), null);
-            MenuItem gridMenu = null;
+
             foreach (var entry in menu.Items)
             {
                 var item = entry as MenuItem;
-                if (item != null && item.Header as string == Localization.Get("Menu_GridSize"))
+                if (item != null && item.HasItems)
                 {
-                    gridMenu = item;
-                    break;
+                    throw new InvalidOperationException(
+                        "the folder menu still offers a submenu: '" + item.Header + "'");
                 }
             }
-            if (gridMenu == null) throw new InvalidOperationException("the grid-size submenu is missing");
+        }
 
-            MenuItem pick = null;
-            foreach (var entry in gridMenu.Items)
-            {
-                var item = entry as MenuItem;
-                if (item != null && (item.Header as string) != null && ((string)item.Header).StartsWith("4 "))
-                {
-                    pick = item;
-                    break;
-                }
-            }
-            if (pick == null) throw new InvalidOperationException("the 4-column entry is missing");
-
-            pick.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-
-            root.UpdateLayout();
-            if (grid.Columns != 4)
+        /// <summary>
+        /// Task A3.1: during a resize drag the panel re-arranges against the
+        /// live window size - 180 wide holds two columns; a 300 DIP wider
+        /// drag (480 DIP, content 478, usable 462) re-adapts to five. The
+        /// open flag is set reflectively, so no window is ever shown.
+        /// </summary>
+        private static void FolderReadaptsDuringResize()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new FolderData { PanelWidth = 180, PanelHeight = 137 };
+            var widget = new FolderWidget(data);
+            EnsureRealDpi(widget);
+            if (widget.GridColumns != 2)
             {
                 throw new InvalidOperationException(
-                    "columns after the menu pick: " + grid.Columns + ", wanted 4");
+                    "the closed minimum panel holds " + widget.GridColumns + " columns, wanted 2");
             }
+
+            // Offscreen stand-in for the open state (ShowPanel sets the same
+            // flag after sizing the window): the live path reads Width/Height.
+            widget.Width = 180;
+            widget.Height = 137;
+            widget.Left = 100;
+            widget.Top = 100;
+            SetPrivateBaseField(widget, "_isExpanded", true);
+
+            double scale = VisualTreeHelper.GetDpi(widget).DpiScaleX;
+            InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                new object[] { new Point(100 + 300 * scale, 100) });
+
+            if (Math.Abs(widget.Width - 480) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the drag made the panel " + widget.Width + " wide, wanted 480");
+            }
+            if (widget.GridColumns != 5)
+            {
+                throw new InvalidOperationException(
+                    "the widened panel holds " + widget.GridColumns +
+                    " columns, wanted 5 (content 478 -> usable 462)");
+            }
+
+            PrivateBaseMethod("OnResizeEnded").Invoke(widget,
+                new object[] { new Point(100 + 300 * scale, 100) });
         }
 
         private static T FindDescendant<T>(DependencyObject parent) where T : DependencyObject
@@ -3644,6 +3688,13 @@ namespace Kobold.XamlLoadCheck
             var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             if (field == null) throw new InvalidOperationException(name + " field not found");
             return (T)field.GetValue(target);
+        }
+
+        private static void SetPrivateBaseField<T>(object target, string name, T value)
+        {
+            var field = typeof(WidgetWindowBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException(name + " field not found on WidgetWindowBase");
+            field.SetValue(target, value);
         }
 
         #region Task 3.3 icon-style pins

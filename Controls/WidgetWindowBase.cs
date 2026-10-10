@@ -663,7 +663,15 @@ namespace Kobold.Controls
                     Height = ClampPanelSize(_resizeStartHeight + dy, minHeight, maxHeight);
                     break;
             }
+
+            OnPanelSizeChanged();
         }
+
+        /// <summary>
+        /// Empty hook: called after a resize move applied the new size, so a
+        /// subclass can re-arrange its content for the live panel size.
+        /// </summary>
+        protected virtual void OnPanelSizeChanged() { }
 
         private void OnResizeEnded(Point cursor)
         {

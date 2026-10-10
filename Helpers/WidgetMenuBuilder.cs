@@ -9,10 +9,11 @@ namespace Kobold.Helpers
 {
     /// <summary>
     /// Builds the common widget menu (show/hide, rename, colour, lock, pin,
-    /// delete) plus the kind-specific appendices the registry enables (folder:
-    /// columns / max rows / item size). Hosts are widget windows, so the shared
-    /// window operations are reached through <see cref="WidgetWindowBase"/>.
-    /// FolderWidget keeps its own menu until it moves onto the base (phase 3).
+    /// delete) plus the kind-specific appendices (todo: the holiday region).
+    /// The folder layout entries (columns / max rows / item size) are retired:
+    /// the panel adapts its grid to its own size. Hosts are widget windows, so
+    /// the shared window operations are reached through
+    /// <see cref="WidgetWindowBase"/>.
     /// </summary>
     public static class WidgetMenuBuilder
     {
@@ -32,9 +33,6 @@ namespace Kobold.Helpers
                 .AddItem(host.Data.IsPanelPinned ? "Menu_UnpinWidget" : "Menu_PinWidget",
                     () => TogglePin(host));
 
-            if (kind != null && kind.SupportsGridColumns) menu.AddMenuItem(CreateGridSizeMenu(host));
-            if (kind != null && kind.SupportsMaxRows) menu.AddMenuItem(CreateMaxRowsMenu(host));
-            if (kind != null && kind.SupportsItemScale) menu.AddMenuItem(CreateItemSizeMenu());
             if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
 
             var built = menu.AddSeparator()
@@ -126,97 +124,6 @@ namespace Kobold.Helpers
             WidgetManager.Instance.SaveConfig();
             WidgetManager.Instance.RefreshIsland();
         }
-
-        #region Kind-specific appendices (folder)
-
-        private static MenuItem CreateGridSizeMenu(IWidgetWindow host)
-        {
-            var gridItem = new MenuItem { Header = Localization.Get("Menu_GridSize") };
-            int current = host.Data is FolderData folder ? folder.GridColumns : WidgetConstants.DEFAULT_GRID_COLUMNS;
-
-            for (int cols = 2; cols <= 6; cols++)
-            {
-                int c = cols;
-                var colItem = new MenuItem
-                {
-                    Header = $"{cols} " + Localization.Get("Menu_Columns"),
-                    IsChecked = current == cols
-                };
-                colItem.Click += (s, a) =>
-                {
-                    if (host.Data is FolderData data) data.GridColumns = c;
-                    DataChanged(host);
-                };
-                gridItem.Items.Add(colItem);
-            }
-            return gridItem;
-        }
-
-        /// <summary>
-        /// Per-widget row cap: how many item rows this panel grows to before it
-        /// scrolls. One widget staying compact does not affect the others.
-        /// </summary>
-        private static MenuItem CreateMaxRowsMenu(IWidgetWindow host)
-        {
-            var rowsItem = new MenuItem { Header = Localization.Get("Menu_MaxRows") };
-            int current = host.Data is FolderData folder ? folder.MaxPanelRows : PanelRows.DefaultMaxRows;
-
-            for (int rows = PanelRows.MinAllowedRows; rows <= PanelRows.MaxAllowedRows; rows++)
-            {
-                int r = rows;
-                var rowItem = new MenuItem
-                {
-                    Header = rows + " " + Localization.Get("Menu_Rows"),
-                    IsChecked = current == rows
-                };
-                rowItem.Click += (s, a) =>
-                {
-                    if (host.Data is FolderData data) data.MaxPanelRows = r;
-                    DataChanged(host);
-                };
-                rowsItem.Items.Add(rowItem);
-            }
-            return rowsItem;
-        }
-
-        private static MenuItem CreateItemSizeMenu()
-        {
-            var sizeItem = new MenuItem { Header = Localization.Get("Menu_ItemSize") };
-            var sizes = new[] {
-                ("Size_Small", 0.9),
-                ("Size_Normal", 1.0),
-                ("Size_Default", 1.1),
-                ("Size_Medium", 1.2),
-                ("Size_Large", 1.3),
-                ("Size_ExtraLarge", 1.5)
-            };
-            double currentScale = WidgetManager.Instance.Config.ItemScale;
-            foreach (var (locKey, scale) in sizes)
-            {
-                double s = scale;
-                var scaleItem = new MenuItem
-                {
-                    Header = Localization.Get(locKey),
-                    IsChecked = Math.Abs(currentScale - scale) < 0.05
-                };
-                scaleItem.Click += (ss, aa) => ApplyItemScale(s);
-                sizeItem.Items.Add(scaleItem);
-            }
-            return sizeItem;
-        }
-
-        private static void ApplyItemScale(double scale)
-        {
-            WidgetManager.Instance.Config.ItemScale = scale;
-            WidgetManager.Instance.SaveConfig();
-
-            foreach (var widget in WidgetManager.Instance.Widgets)
-            {
-                widget.UpdateUI();
-            }
-        }
-
-        #endregion
 
         #region Kind-specific appendices (todo)
 

@@ -475,10 +475,10 @@ namespace Kobold.WidgetKindsCheck
                   && todo.IconKey == "todo", "the todo kind carries its id, name key and icon key");
             Check(WidgetKindRegistry.Find("weather") == null, "an unknown kind id is not found");
 
-            Check(folder != null && folder.SupportsGridColumns && folder.SupportsItemScale
-                  && folder.SupportsMaxRows, "folder supports grid columns, item scale and max rows");
-            Check(todo != null && !todo.SupportsGridColumns && !todo.SupportsItemScale
-                  && !todo.SupportsMaxRows, "todo supports no folder layout options");
+            Check(typeof(WidgetKind).GetField("SupportsGridColumns") == null
+                  && typeof(WidgetKind).GetField("SupportsItemScale") == null
+                  && typeof(WidgetKind).GetField("SupportsMaxRows") == null,
+                "the retired layout flags are gone from WidgetKind");
 
             var defaultFolder = folder?.CreateDefault() as FolderData;
             Check(defaultFolder != null && defaultFolder.Name == Localization.Get("UI_DefaultFolderName")

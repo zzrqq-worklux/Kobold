@@ -4,17 +4,14 @@ using System.Collections.Generic;
 namespace Kobold.Core
 {
     /// <summary>
-    /// One widget kind: identity, localization/icon keys and the layout
-    /// abilities the menus offer for it. Pure data, no UI.
+    /// One widget kind: identity, localization/icon keys and the factory that
+    /// builds its default data. Pure data, no UI.
     /// </summary>
     public sealed class WidgetKind
     {
         public string Id;
         public string NameKey;
         public string IconKey;
-        public bool SupportsGridColumns;
-        public bool SupportsItemScale;
-        public bool SupportsMaxRows;
         public Func<WidgetData> CreateDefault;
     }
 
@@ -30,9 +27,6 @@ namespace Kobold.Core
                 Id = "folder",
                 NameKey = "UI_DefaultFolderName",
                 IconKey = "folder",
-                SupportsGridColumns = true,
-                SupportsItemScale = true,
-                SupportsMaxRows = true,
                 CreateDefault = () => FolderData.Create(
                     Localization.Get("UI_DefaultFolderName"), UiTokens.DefaultFolderColor)
             },
@@ -41,9 +35,6 @@ namespace Kobold.Core
                 Id = "todo",
                 NameKey = "UI_DefaultTodoName",
                 IconKey = "todo",
-                SupportsGridColumns = false,
-                SupportsItemScale = false,
-                SupportsMaxRows = false,
                 CreateDefault = () => new TodoData()
             }
         }.AsReadOnly();

@@ -118,51 +118,19 @@ namespace Kobold.Controls
             return null;
         }
 
-        private (int width, int height) CalculatePanelSize()
-        {
-            int cols = Math.Max(1, _data.GridColumns);
-            int itemCount = Math.Max(1, _lastItemCount); // At least 1 for empty state
-
-            // This widget's own row cap decides how tall the panel grows; any
-            // extra rows scroll. The work-area ratio stays as an outer bound
-            // for tiny screens combined with the largest icon size.
-            int visibleRows = PanelRows.VisibleRows(itemCount, cols, _data.MaxPanelRows);
-
-            int naturalHeight = HEADER_HEIGHT + visibleRows * GetScaledItemHeight() + PADDING;
-            if (_lastFooterVisible) naturalHeight += WidgetConstants.FOOTER_HEIGHT;
-
-            int maxHeight = Math.Max(120,
-                (int)(SystemParameters.WorkArea.Height * WidgetConstants.PANEL_MAX_HEIGHT_RATIO));
-
-            // The in-flow scrollbar needs its width added so items are not clipped.
-            bool scrolls = PanelRows.NeedsScroll(itemCount, cols, _data.MaxPanelRows)
-                || naturalHeight > maxHeight;
-
-            int width = cols * GetScaledItemWidth() + PADDING + PANEL_BORDER;
-            if (scrolls) width += (int)SystemParameters.VerticalScrollBarWidth;
-
-            int height = Math.Min(naturalHeight, maxHeight);
-
-            // Minimum dimensions
-            width = Math.Max(width, 180);
-            height = Math.Max(height, 120);
-
-            return (width, height);
-        }
-
         /// <summary>
-        /// Content size handed to the base: the legacy panel maths minus the
-        /// chrome header and the shell's border, both of which
-        /// <see cref="WidgetWindowBase.GetPanelSize"/> adds back. Exact parity
-        /// with the old CalculatePanelSize for every input (pinned in
-        /// XamlLoadCheck).
+        /// Content size handed to the base when the widget has no persisted
+        /// pair: the engine's one-shot migration of the old per-widget
+        /// settings. Only the legacy fallback path reaches it; every running
+        /// panel uses its persisted size.
         /// </summary>
         protected override (double width, double height) GetContentSize()
         {
-            var (width, height) = CalculatePanelSize();
+            var (w, h) = PanelLayoutAdapter.MigrateFolderSize(
+                Math.Max(1, _data.GridColumns), _data.MaxPanelRows, Math.Max(1, _lastItemCount), GetItemScale());
             var border = Chrome == null ? new Thickness(0) : Chrome.Shell.BorderThickness;
-            return (width - border.Left - border.Right,
-                    height - HEADER_HEIGHT - border.Top - border.Bottom);
+            return (w - border.Left - border.Right,
+                    h - WidgetConstants.HEADER_HEIGHT - border.Top - border.Bottom);
         }
 
         #endregion
