@@ -247,6 +247,10 @@ namespace Kobold.Core
 
             if (data is FolderData folder) folder.GridColumns = _config.DefaultGridColumns;
 
+            // The one-time default size lands before the first save, so a new
+            // widget opens at its migrated size and keeps it afterwards.
+            PanelSizeMigration.FillMissingSizes(data, _config.ItemScale, _config.Language, DateTime.Today);
+
             _config.AddWidget(data);
             var widget = CreateWidgetInternal(data);
             RefreshIsland();

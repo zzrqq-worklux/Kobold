@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Kobold.Core
 {
@@ -50,7 +51,6 @@ namespace Kobold.Core
             DayOfWeek firstDayOfWeek)
         {
             DateTime first = new DateTime(year, month, 1);
-            int daysInMonth = DateTime.DaysInMonth(year, month);
             DateTime dayToday = today.Date;
             DateTime? selected = selectedDate?.Date;
 
@@ -67,8 +67,8 @@ namespace Kobold.Core
                 }
             }
 
-            int lead = ((int)first.DayOfWeek - (int)firstDayOfWeek + 7) % 7;
-            int cellCount = ((lead + daysInMonth + 6) / 7) * 7;
+            int lead = LeadDays(year, month, firstDayOfWeek);
+            int cellCount = WeekCount(year, month, firstDayOfWeek) * 7;
             DateTime start = first.AddDays(-lead);
 
             var cells = new List<TodoDayCell>(cellCount);
@@ -87,6 +87,33 @@ namespace Kobold.Core
                 });
             }
             return cells;
+        }
+
+        /// <summary>
+        /// The calendar culture for a UI language (month names, first day of
+        /// week): zh maps to zh-CN, ja to ja-JP, anything else to en-US.
+        /// </summary>
+        public static CultureInfo CultureForLanguage(string language)
+        {
+            switch (language)
+            {
+                case "zh": return CultureInfo.GetCultureInfo("zh-CN");
+                case "ja": return CultureInfo.GetCultureInfo("ja-JP");
+                default: return CultureInfo.GetCultureInfo("en-US");
+            }
+        }
+
+        /// <summary>The month as whole weeks (4-6 rows) with weeks starting on the given day.</summary>
+        public static int WeekCount(int year, int month, DayOfWeek firstDayOfWeek)
+        {
+            return (LeadDays(year, month, firstDayOfWeek) + DateTime.DaysInMonth(year, month) + 6) / 7;
+        }
+
+        /// <summary>Days from the week's first day to the 1st of the month.</summary>
+        private static int LeadDays(int year, int month, DayOfWeek firstDayOfWeek)
+        {
+            var first = new DateTime(year, month, 1);
+            return ((int)first.DayOfWeek - (int)firstDayOfWeek + 7) % 7;
         }
     }
 }

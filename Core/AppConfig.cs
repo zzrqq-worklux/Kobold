@@ -118,6 +118,15 @@ namespace Kobold.Core
             // or writes it back. New-format configs are already migrated.
             loaded.MigrateLegacyWidgets();
 
+            // Configs written before the size fields existed (and the migrated
+            // legacy folders) get their panel size filled once in memory; the
+            // existing values of newer configs are never touched. No save is
+            // forced - a defaulted load writes the sizes with its usual save.
+            foreach (var widget in loaded.Widgets)
+            {
+                PanelSizeMigration.FillMissingSizes(widget, loaded.ItemScale, loaded.Language, DateTime.Today);
+            }
+
             loaded._configPath = configPath;
             loaded._backupPath = backupPath;
             loaded._skipBackupRefreshOnce =

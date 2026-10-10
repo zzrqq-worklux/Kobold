@@ -52,6 +52,33 @@ namespace Kobold.TodoCalendarCheck
             ListRemoves();
             DayFilter();
             DisplayOrder();
+            WeekCounts();
+            CultureLookups();
+        }
+
+        private static void WeekCounts()
+        {
+            Check(TodoCalendar.WeekCount(2026, 2, DayOfWeek.Sunday) == 4,
+                "February 2026 (Sunday first) is four weeks");
+            Check(TodoCalendar.WeekCount(2026, 2, DayOfWeek.Monday) == 5,
+                "February 2026 (Monday first) is five weeks");
+            Check(TodoCalendar.WeekCount(2026, 10, DayOfWeek.Sunday) == 5,
+                "October 2026 (Sunday first) is five weeks");
+            Check(TodoCalendar.WeekCount(2026, 8, DayOfWeek.Sunday) == 6,
+                "August 2026 (Sunday first) is six weeks");
+
+            var cells = TodoCalendar.BuildMonth(2026, 8, new List<TodoItem>(), null, Today, DayOfWeek.Sunday);
+            Check(cells.Count == TodoCalendar.WeekCount(2026, 8, DayOfWeek.Sunday) * 7,
+                "BuildMonth derives its cell count from WeekCount (single source)");
+        }
+
+        private static void CultureLookups()
+        {
+            Check(TodoCalendar.CultureForLanguage("zh").Name == "zh-CN", "zh picks zh-CN");
+            Check(TodoCalendar.CultureForLanguage("ja").Name == "ja-JP", "ja picks ja-JP");
+            Check(TodoCalendar.CultureForLanguage("en").Name == "en-US", "en picks en-US");
+            Check(TodoCalendar.CultureForLanguage(null).Name == "en-US", "a null language picks en-US");
+            Check(TodoCalendar.CultureForLanguage("xx").Name == "en-US", "an unknown language picks en-US");
         }
 
         private static void CalendarGrid()

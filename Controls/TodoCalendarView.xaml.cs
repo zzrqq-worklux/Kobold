@@ -120,7 +120,7 @@ namespace Kobold.Controls
         {
             if (_data == null) return;
 
-            _culture = CultureForLanguage(Localization.CurrentLanguage);
+            _culture = TodoCalendar.CultureForLanguage(Localization.CurrentLanguage);
             _accentBrush = new SolidColorBrush(Utils.HexToColor(_data.Color));
             _accentBrush.Freeze();
 
@@ -1200,19 +1200,5 @@ namespace Kobold.Controls
         }
 
         #endregion
-
-        /// <summary>
-        /// The localization language picks the calendar culture: month/weekday
-        /// names and the first day of week come from its DateTimeFormat (§5.2).
-        /// </summary>
-        private static CultureInfo CultureForLanguage(string language)
-        {
-            switch (language)
-            {
-                case "zh": return CultureInfo.GetCultureInfo("zh-CN");
-                case "ja": return CultureInfo.GetCultureInfo("ja-JP");
-                default: return CultureInfo.GetCultureInfo("en-US");
-            }
-        }
     }
 }

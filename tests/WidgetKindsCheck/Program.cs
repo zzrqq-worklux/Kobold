@@ -70,6 +70,183 @@ namespace Kobold.WidgetKindsCheck
             WidgetKindRegistryChecks();
             FreshConfigGetsOneFolder();
             CorruptWidgetListsAreUnreadable();
+            PanelSizeMigrationChecks();
+        }
+
+        private static void PanelSizeMigrationChecks()
+        {
+            LegacyFolderSizeMigrates();
+            ExistingSizePairIsKept();
+            MixedWidgetsEachMigrate();
+            PartialSizeFillsTheMissingField();
+            UnknownKindGetsNoSizes();
+            DefaultConfigGetsSizes();
+            LoadDoesNotForceASave();
+            FactoryDefaults();
+        }
+
+        private static void LegacyFolderSizeMigrates()
+        {
+            string dir = NewCase("size-legacy");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Folders"": [ { ""Id"": ""f1"", ""GridColumns"": 3, ""Items"": [ " +
+                @"{ ""Name"": ""a"", ""Path"": ""C:\\a"" }, " +
+                @"{ ""Name"": ""b"", ""Path"": ""C:\\b"" }, " +
+                @"{ ""Name"": ""c"", ""Path"": ""C:\\c"" }, " +
+                @"{ ""Name"": ""d"", ""Path"": ""C:\\d"" }, " +
+                @"{ ""Name"": ""e"", ""Path"": ""C:\\e"" } ] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var f1 = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as FolderData : null;
+            Check(f1 != null && f1.PanelWidth == 270 && f1.PanelHeight == 252,
+                "A: a legacy folder config migrates to (270, 252)");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var rf1 = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as FolderData : null;
+            Check(rf1 != null && rf1.PanelWidth == 270 && rf1.PanelHeight == 252,
+                "A: the migrated sizes survive a save and reload");
+        }
+
+        private static void ExistingSizePairIsKept()
+        {
+            string dir = NewCase("size-existing");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Widgets"": [ { ""Kind"": ""folder"", ""Id"": ""f1"", " +
+                @"""GridColumns"": 3, ""PanelWidth"": 999, ""PanelHeight"": 888, ""Items"": [] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var f1 = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as FolderData : null;
+            Check(f1 != null && f1.PanelWidth == 999 && f1.PanelHeight == 888,
+                "B: an existing size pair is not overwritten");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var rf1 = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as FolderData : null;
+            Check(rf1 != null && rf1.PanelWidth == 999 && rf1.PanelHeight == 888,
+                "B: the kept size pair survives a save and reload");
+        }
+
+        private static void MixedWidgetsEachMigrate()
+        {
+            string dir = NewCase("size-mixed");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Widgets"": [ " +
+                @"{ ""Kind"": ""folder"", ""Id"": ""f1"", ""GridColumns"": 3, ""Items"": [] }, " +
+                @"{ ""Kind"": ""todo"", ""Id"": ""t1"", ""SelectedDate"": ""2026-10-10"", ""Items"": [ " +
+                @"{ ""Id"": ""i1"", ""Text"": ""done"", ""Date"": ""2026-10-10"", ""Done"": true, " +
+                @"""CompletedDate"": ""2026-10-10"", " +
+                @"""Children"": [ { ""Id"": ""c1"", ""Text"": ""sub"" } ] } ] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var f1 = cfg.Widgets.Count == 2 ? cfg.Widgets[0] as FolderData : null;
+            var t1 = cfg.Widgets.Count == 2 ? cfg.Widgets[1] as TodoData : null;
+            Check(f1 != null && f1.PanelWidth == 270 && f1.PanelHeight == 154,
+                "C: the empty 3-column folder gets (270, 154)");
+            Check(t1 != null && t1.PanelWidth == 342 && t1.PanelHeight == 373,
+                "C: the one-item October todo gets (342, 373)");
+        }
+
+        private static void PartialSizeFillsTheMissingField()
+        {
+            string dir = NewCase("size-partial");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Widgets"": [ { ""Kind"": ""folder"", ""Id"": ""f1"", " +
+                @"""GridColumns"": 3, ""PanelWidth"": 500, ""Items"": [] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var f1 = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as FolderData : null;
+            Check(f1 != null && f1.PanelWidth == 500, "D: an existing width is preserved");
+            Check(f1 != null && f1.PanelHeight == 154, "D: only the missing height is filled");
+        }
+
+        private static void UnknownKindGetsNoSizes()
+        {
+            string dir = NewCase("size-unknown");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""weather"", ""Id"": ""wx"", ""City"": ""Berlin"" } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var unknown = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as UnknownData : null;
+            Check(unknown != null && unknown.PanelWidth == null && unknown.PanelHeight == null,
+                "E: an unknown kind is given no size fields");
+
+            cfg.Save();
+            string savedText = File.ReadAllText(main);
+            Check(!savedText.Contains("\"PanelWidth\""),
+                "E: the unknown payload is written back without size fields");
+
+            var reloaded = AppConfig.Load(main, backup);
+            var raw = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as UnknownData : null;
+            Check(raw != null && (string)raw.Raw["City"] == "Berlin"
+                  && raw.PanelWidth == null && raw.PanelHeight == null,
+                "E: the unknown payload round-trips raw and sizeless");
+        }
+
+        private static void DefaultConfigGetsSizes()
+        {
+            string dir = NewCase("size-default");
+            string main = Path.Combine(dir, "config.json");
+
+            var cfg = AppConfig.Load(main, main + ".backup");
+            var f1 = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as FolderData : null;
+            Check(f1 != null && f1.PanelWidth == 270 && f1.PanelHeight == 154,
+                "F: the default folder gets (270, 154)");
+
+            var root = JObject.Parse(File.ReadAllText(main));
+            var widgets = root["Widgets"] as JArray;
+            double? savedW = widgets != null && widgets.Count == 1
+                ? widgets[0].Value<double?>("PanelWidth") : null;
+            double? savedH = widgets != null && widgets.Count == 1
+                ? widgets[0].Value<double?>("PanelHeight") : null;
+            Check(savedW == 270 && savedH == 154,
+                "F: the defaulted write persists the migrated sizes");
+        }
+
+        private static void LoadDoesNotForceASave()
+        {
+            string dir = NewCase("size-no-save");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Folders"": [ { ""Id"": ""f1"", ""GridColumns"": 3, " +
+                @"""Items"": [ { ""Name"": ""x"", ""Path"": ""C:\\x"" } ] } ] }");
+            byte[] before = File.ReadAllBytes(main);
+
+            var cfg = AppConfig.Load(main, backup);
+            byte[] after = File.ReadAllBytes(main);
+            Check(before.SequenceEqual(after),
+                "G: loading an old config does not force a write");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var f1 = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as FolderData : null;
+            Check(f1 != null && f1.PanelWidth == 270 && f1.PanelHeight == 154,
+                "G: after an explicit save the filled sizes survive a reload");
+        }
+
+        private static void FactoryDefaults()
+        {
+            var folder = new FolderData();
+            PanelSizeMigration.FillMissingSizes(folder, 1.1, "en", new DateTime(2026, 10, 10));
+            Check(folder.PanelWidth == 270 && folder.PanelHeight == 154,
+                "H: a fresh folder defaults to (270, 154)");
+
+            var todo = new TodoData { SelectedDate = new DateTime(2026, 10, 10) };
+            PanelSizeMigration.FillMissingSizes(todo, 1.1, "en", new DateTime(2026, 10, 10));
+            Check(todo.PanelWidth == 342 && todo.PanelHeight == 313,
+                "H: a fresh todo defaults to (342, 313)");
         }
 
         private static void LegacyFoldersMigrate()

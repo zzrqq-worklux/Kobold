@@ -22,6 +22,8 @@ namespace Kobold.Core
         public double? PanelX { get; set; }
         public double? PanelY { get; set; }
         public double? PanelDpiScale { get; set; }
+        public double? PanelWidth { get; set; }
+        public double? PanelHeight { get; set; }
         public string Kind { get; set; }
     }
 
