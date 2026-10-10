@@ -211,10 +211,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 - Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).
   A config file that could not be read is first kept aside as
   `config.json.failed-<timestamp>` before defaults are used.
-- Widgets are stored in the new `Widgets` format, which releases ≤1.3.0 cannot
-  read: falling back to an older release resets you to default settings and
-  keeps the original file aside as `config.json.failed-<timestamp>` instead of
-  losing it silently.
+- Widgets are stored in the new `Widgets` format, which older releases cannot
+  read: falling back to v1.3.0 or v1.3.1 resets you to default settings but
+  keeps the original file aside as `config.json.failed-<timestamp>`. Releases
+  older than v1.3.0 do not have that safety net.
 - Stored files: `%AppData%\Kobold\Storage`
 
 Source layout: `Core/` (models, config, localization, design tokens,
@@ -380,9 +380,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 
 - 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。
   读不出的配置文件会先保留为 `config.json.failed-<时间戳>`，再退回默认设置。
-- 组件以新的 `Widgets` 格式保存，≤1.3.0 的旧版本读不出该格式：回退到旧版会
-  以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`，
-  不会静默丢数据。
+- 组件以新的 `Widgets` 格式保存，旧版本读不出该格式：回退到 v1.3.0 / v1.3.1
+  会以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`；更早的
+  版本没有这一保护。
 - 收纳文件：`%AppData%\Kobold\Storage`
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
