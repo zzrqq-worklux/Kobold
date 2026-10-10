@@ -29,6 +29,16 @@ development base.
   configurable grid columns, item size and a row cap (1–6), lock, pin and
   rename. The panels that were open when the app closed come back on the next
   launch, on the monitor and scale they were saved on, without stealing focus.
+- **Widget kinds** — a new widget is either a **folder** or a **todo**, picked
+  when you create it; both kinds behave the same on the island, in panels, in
+  the context menus and when panels come back after a restart.
+- **Todo widget** — a month calendar (‹ › change the month, **Today** when
+  you are on another month) over the day's list: completed entries are struck
+  through and sink to the bottom. An open entry whose date is in the past
+  shows up on today with a `↷ original date` badge (display only — the stored
+  date never changes). Sub-todos nest one level: indented, without dates of
+  their own; ticking a parent ticks all of its children, while unticking the
+  parent leaves the children as they are.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in
@@ -129,6 +139,10 @@ the new version. Settings and stored files are kept.
 |---|---|
 | Open/close a widget panel | Hover the island, click a widget tile |
 | Add a widget | Island `+` entry (or tray menu) |
+| Add a todo widget | Island `+` entry (or tray menu) → choose **Todo** |
+| Select a day | Click a day in the calendar (a grey day from another month switches the month first) |
+| Add a sub-todo | Right-click a todo entry → **Add sub-todo** (Enter keeps the adder open for the next one) |
+| Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
 | Open settings | Island gear entry (or tray menu) |
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
@@ -197,6 +211,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 - Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).
   A config file that could not be read is first kept aside as
   `config.json.failed-<timestamp>` before defaults are used.
+- Widgets are stored in the new `Widgets` format, which releases ≤1.3.0 cannot
+  read: falling back to an older release resets you to default settings and
+  keeps the original file aside as `config.json.failed-<timestamp>` instead of
+  losing it silently.
 - Stored files: `%AppData%\Kobold\Storage`
 
 Source layout: `Core/` (models, config, localization, design tokens,
@@ -231,6 +249,12 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
   网格列数、条目大小与行数上限（1–6），支持锁定、置顶与重命名。退出时开着的
   面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
+- **组件类型** — 新建组件时可选「文件夹」或「待办」两种类型；两类组件在岛、
+  面板、右键菜单与开机恢复中的行为完全一致。
+- **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
+  完成的条目划线置底。未完成且日期已过的条目会显示在今天，并带
+  「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
+  独立日期；勾选父项会同时勾选全部子项，取消父项不影响子项。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
@@ -291,6 +315,10 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 |---|---|
 | 打开/收起组件面板 | 悬停岛，单击组件 tile |
 | 新建组件 | 岛的 `+` 入口（或托盘菜单） |
+| 新建待办 | 岛的 `+` 入口（或托盘菜单）→ 选择「待办」 |
+| 选中日期 | 点击月历中的日期（非本月的格子会先切月） |
+| 添加子待办 | 右键待办条目 →「添加子项」（Enter 可连续录入） |
+| 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
 | 打开设置 | 岛的齿轮入口（或托盘菜单） |
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
@@ -352,6 +380,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 
 - 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。
   读不出的配置文件会先保留为 `config.json.failed-<时间戳>`，再退回默认设置。
+- 组件以新的 `Widgets` 格式保存，≤1.3.0 的旧版本读不出该格式：回退到旧版会
+  以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`，
+  不会静默丢数据。
 - 收纳文件：`%AppData%\Kobold\Storage`
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
