@@ -103,15 +103,23 @@
 ### Task A2.1: 尺寸字段 + 迁移接线
 
 **Files:**
-- Modify: `Core/WidgetData.cs`（`double? PanelWidth/PanelHeight`）、`Core/AppConfig.cs`（迁移调用）、
-  `Core/FolderData.cs`/`Core/TodoData.cs`（新组件默认尺寸，如放工厂）
-- Modify: `tests/WidgetKindsCheck/Program.cs`（迁移 pin：旧字段 → 尺寸、只算一次、写回）
+- Create: `Core/PanelSizeMigration.cs`（单一来源：按 kind 填充缺失的 `PanelWidth/PanelHeight`——
+  folder 用 `MigrateFolderSize`、todo 用 `DefaultTodoSize`（周数 = 选中月，culture = 语言映射；
+  行数 = 当日顶层 + 子行数））
+- Modify: `Core/WidgetData.cs`（`double? PanelWidth/PanelHeight`）、`Core/AppConfig.cs`（Load 末尾逐 widget 填充；
+  非 defaulted 不强制写盘）、`Core/WidgetManager.cs`（`CreateWidget` 对新组件调用同一填充）、
+  `Core/TodoCalendar.cs`（新增 `CultureForLanguage` 与 `WeekCount`，`BuildMonth` 复用 `WeekCount`）、
+  `Controls/TodoCalendarView.xaml.cs`（改用 `TodoCalendar.CultureForLanguage`，删除私有副本）
+- Modify: `tests/WidgetKindsCheck/Program.cs`（迁移 pin）、`tests/TodoCalendarCheck/Program.cs`
+  （`WeekCount`/`CultureForLanguage` pins）
 
-- [ ] **Step 1: 写失败自检**：无尺寸的老配置加载后 folder/todo 均获得迁移尺寸并写回；
-  已有 `PanelWidth/PanelHeight` 的配置不被覆盖；仅 folder 有旧字段的混合配置各自迁移。
+- [ ] **Step 1: 写失败自检**：无尺寸的老配置加载后 folder/todo 各自获得迁移尺寸（逐字段：缺失才补、
+  已存在保留）；已有成对尺寸不被覆盖；混合配置各自迁移；未知 kind 不填充；默认配置的 folder 获得默认尺寸；
+  非 defaulted 的 Load 不写盘、显式 Save 后尺寸写回；`WeekCount`（4/5/6 周与 culture 对照）与
+  `CultureForLanguage`（zh/ja/en/未知）pins。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
-- [ ] **Step 3: 实现**（`Load` 内一次性填充；`CreateDefault` 给新组件默认尺寸——folder = 3 列 × ≤3 行 ×
-  1.1 倍换算、todo = 342 × 自然高度；旧字段保留写出）。
+- [ ] **Step 3: 实现**（`Load` 内一次性填充（内存，靠既有保存路径写回）；`CreateWidget` 对新组件填充
+  ——folder = 3 列 × ≤3 行 × ItemScale 换算、todo = 342 × 选中月自然高度；旧字段保留写出）。
 - [ ] **Step 4: 自检绿 + 全量回归**。
 - [ ] **Step 5: 提交** → `feat(layout): persist per-widget panel sizes with legacy migration`
 
