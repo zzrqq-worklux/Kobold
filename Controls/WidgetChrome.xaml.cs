@@ -10,14 +10,24 @@ using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
+    /// <summary>Which edge (or corner) of the panel a resize press grabbed.</summary>
+    public enum WidgetResizeEdge
+    {
+        Left,
+        Right,
+        Top,
+        Bottom,
+        BottomRight
+    }
+
     /// <summary>
     /// WidgetChrome - the shared, content-agnostic panel shell: rounded border
     /// + shadow, a 40px header (title / lock / pin / drag / right-click) and
     /// the HeaderLeading / HeaderTrailing / ContentHost / FooterHost slots.
     ///
-    /// The chrome owns no widget data and moves no window: header drags are
-    /// forwarded as events carrying the screen cursor, and the hosting window
-    /// performs the actual move.
+    /// The chrome owns no widget data and moves no window: header drags and
+    /// resize presses are forwarded as events carrying the screen cursor, and
+    /// the hosting window performs the actual move/resize.
     /// </summary>
     public partial class WidgetChrome : UserControl
     {
@@ -27,6 +37,7 @@ namespace Kobold.Controls
         private bool _isLocked;
         private bool _isPinned;
         private bool _isDragActive;
+        private bool _isResizeActive;
         private double _panelOpacity = MAX_PANEL_OPACITY;
         private string _panelColor;
 
@@ -48,12 +59,29 @@ namespace Kobold.Controls
         /// <summary>Header right-click; the host shows the widget menu.</summary>
         public event Action HeaderRightClicked;
 
+        /// <summary>Resize press grabbed an edge/corner; cursor is in screen pixels.</summary>
+        public event Action<WidgetResizeEdge, Point> ResizeStarted;
+
+        /// <summary>Resize mouse-move while the button is held; cursor is in screen pixels.</summary>
+        public event Action<Point> ResizeMoved;
+
+        /// <summary>Resize mouse-up; cursor is in screen pixels.</summary>
+        public event Action<Point> ResizeEnded;
+
         public WidgetChrome()
         {
             InitializeComponent();
 
             // Never leave the grabbing cursor stuck if capture is lost mid-drag.
             Header.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
+
+            // A lost capture ends a resize mid-flight: later moves must not be
+            // forwarded to a host that still thinks the gesture is live.
+            ResizeLeft.LostMouseCapture += (s, e) => _isResizeActive = false;
+            ResizeRight.LostMouseCapture += (s, e) => _isResizeActive = false;
+            ResizeTop.LostMouseCapture += (s, e) => _isResizeActive = false;
+            ResizeBottom.LostMouseCapture += (s, e) => _isResizeActive = false;
+            ResizeGrip.LostMouseCapture += (s, e) => _isResizeActive = false;
 
             ApplyTheme();
         }
@@ -186,6 +214,11 @@ namespace Kobold.Controls
 
             // Locked panels cannot be dragged - show a forbidden cursor over the header.
             Header.Cursor = _isLocked ? Cursors.No : CursorHelper.OpenHand;
+
+            // Locked panels cannot be resized either: the bands and grip
+            // disappear and the whole layer stops hit-testing (no cursors).
+            ResizeLayer.IsHitTestVisible = !_isLocked;
+            ResizeGrip.Visibility = _isLocked ? Visibility.Collapsed : Visibility.Visible;
         }
 
         private void UpdatePinVisual()
@@ -282,6 +315,55 @@ namespace Kobold.Controls
         {
             HeaderRightClicked?.Invoke();
             e.Handled = true;
+        }
+
+        private void ResizeBand_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || _isLocked) return;
+
+            var element = sender as FrameworkElement;
+            WidgetResizeEdge edge;
+            if (element == null || !Enum.TryParse(element.Tag as string, out edge)) return;
+
+            // Capture first: Mouse.Capture re-enters WPF input dispatch and can
+            // synchronously pump a pending MouseMove into ResizeBand_MouseMove,
+            // so nothing may forward a resize before the host holds its anchor.
+            // _isResizeActive flips to true only after ResizeStarted: a move
+            // pumped during the capture sees false and is dropped. Same
+            // ordering as the header drag.
+            Mouse.Capture(element);
+            ResizeStarted?.Invoke(edge, ScreenCursor());
+            _isResizeActive = true;
+            e.Handled = true;
+        }
+
+        private void ResizeBand_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isResizeActive || e.LeftButton != MouseButtonState.Pressed) return;
+            if (!ReferenceEquals(Mouse.Captured, sender)) return;
+
+            ResizeMoved?.Invoke(ScreenCursor());
+            e.Handled = true;
+        }
+
+        private void ResizeBand_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left || !_isResizeActive) return;
+
+            _isResizeActive = false;
+            Mouse.Capture(null);
+            ResizeEnded?.Invoke(ScreenCursor());
+            e.Handled = true;
+        }
+
+        private void ResizeGrip_MouseEnter(object sender, MouseEventArgs e)
+        {
+            ResizeGripGlyph.Opacity = 0.7;
+        }
+
+        private void ResizeGrip_MouseLeave(object sender, MouseEventArgs e)
+        {
+            ResizeGripGlyph.Opacity = 0.35;
         }
 
         private static Point ScreenCursor()

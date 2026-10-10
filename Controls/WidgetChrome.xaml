@@ -85,5 +85,39 @@
                 <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="2"/>
             </Grid>
         </Border>
+
+        <!-- Native resize affordances on top of the shell: four 5 DIP
+             invisible bands along the edges plus a 16x16 bottom-right grip.
+             The layer Grid carries no Background, so it never blocks the
+             content; only the bands themselves hit-test. The grip comes last
+             so the bottom-right corner is its hit target. -->
+        <Grid x:Name="ResizeLayer" x:FieldModifier="public">
+            <Border x:Name="ResizeLeft" x:FieldModifier="public" Width="5" HorizontalAlignment="Left" Background="Transparent"
+                    Cursor="SizeWE" Tag="Left" MouseLeftButtonDown="ResizeBand_MouseLeftButtonDown"
+                    MouseMove="ResizeBand_MouseMove" MouseLeftButtonUp="ResizeBand_MouseLeftButtonUp"/>
+            <Border x:Name="ResizeRight" x:FieldModifier="public" Width="5" HorizontalAlignment="Right" Background="Transparent"
+                    Cursor="SizeWE" Tag="Right" MouseLeftButtonDown="ResizeBand_MouseLeftButtonDown"
+                    MouseMove="ResizeBand_MouseMove" MouseLeftButtonUp="ResizeBand_MouseLeftButtonUp"/>
+            <Border x:Name="ResizeTop" x:FieldModifier="public" Height="5" VerticalAlignment="Top" Background="Transparent"
+                    Cursor="SizeNS" Tag="Top" MouseLeftButtonDown="ResizeBand_MouseLeftButtonDown"
+                    MouseMove="ResizeBand_MouseMove" MouseLeftButtonUp="ResizeBand_MouseLeftButtonUp"/>
+            <Border x:Name="ResizeBottom" x:FieldModifier="public" Height="5" VerticalAlignment="Bottom" Background="Transparent"
+                    Cursor="SizeNS" Tag="Bottom" MouseLeftButtonDown="ResizeBand_MouseLeftButtonDown"
+                    MouseMove="ResizeBand_MouseMove" MouseLeftButtonUp="ResizeBand_MouseLeftButtonUp"/>
+            <Border x:Name="ResizeGrip" x:FieldModifier="public" Width="16" Height="16"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="Transparent"
+                    Cursor="SizeNWSE" Tag="BottomRight"
+                    MouseLeftButtonDown="ResizeBand_MouseLeftButtonDown"
+                    MouseMove="ResizeBand_MouseMove" MouseLeftButtonUp="ResizeBand_MouseLeftButtonUp"
+                    MouseEnter="ResizeGrip_MouseEnter" MouseLeave="ResizeGrip_MouseLeave">
+                <!-- Three low-contrast diagonal lines in the theme's muted ink;
+                     the hover handlers brighten them. -->
+                <Canvas x:Name="ResizeGripGlyph" Width="16" Height="16" Opacity="0.35" IsHitTestVisible="False">
+                    <Line X1="9" Y1="15" X2="15" Y2="9" Stroke="{DynamicResource Kobold.Brush.TextMuted}" StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                    <Line X1="5" Y1="15" X2="15" Y2="5" Stroke="{DynamicResource Kobold.Brush.TextMuted}" StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                    <Line X1="1" Y1="15" X2="15" Y2="1" Stroke="{DynamicResource Kobold.Brush.TextMuted}" StrokeThickness="1.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                </Canvas>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

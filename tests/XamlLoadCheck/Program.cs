@@ -106,6 +106,31 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("drag: start then move moves by the DPI-scaled delta", DragStartThenMoveMoves);
                 failures += TryCheck("chrome: start event precedes the drag flag", ChromeRaisesStartBeforeDragActive);
 
+                // Task A2.2 pins: the persisted panel size wins over the legacy
+                // content maths (with the kind minimum applied); the resize
+                // protocol mirrors the drag anchor rule (capture -> event ->
+                // active, a move without a start is ignored) with per-edge
+                // maths clamped to [kind minimum, work area]; a finished
+                // resize persists size and position without an island rebuild,
+                // while a click without movement writes nothing; the chrome's
+                // resize bands/grip disappear when the panel is locked.
+                failures += TryCheck("panel: persisted size wins", PanelPersistedSizeWins);
+                failures += TryCheck("panel: persisted size below the minimum is clamped", PanelPersistedBelowMinimumIsClamped);
+                failures += TryCheck("panel: missing sizes fall back to the legacy content size", PanelMissingSizesFallBackToTheLegacyContentSize);
+                failures += TryCheck("resize: move without start is ignored", ResizeMoveWithoutStartIsIgnored);
+                failures += TryCheck("resize: bottom-right start then move resizes by the DPI-scaled delta", ResizeBottomRightStartThenMoveScalesByDpi);
+                failures += TryCheck("resize: left edge keeps the right edge fixed", ResizeLeftEdgeKeepsTheRightEdgeFixed);
+                failures += TryCheck("resize: top edge keeps the bottom edge fixed", ResizeTopEdgeKeepsTheBottomEdgeFixed);
+                failures += TryCheck("resize: shrinking clamps at the kind minimum", ResizeShrinkingClampsAtTheKindMinimum);
+                failures += TryCheck("resize: growing clamps at the work area", ResizeGrowingClampsAtTheWorkArea);
+                failures += TryCheck("resize: during-drag writes nothing", ResizeDuringDragWritesNothing);
+                failures += TryCheck("resize: end persists size and position", ResizeEndPersistsSizeAndPosition);
+                failures += TryCheck("resize: a band click without movement does not persist", ResizeBandClickWithoutMovementDoesNotPersist);
+                failures += TryCheck("chrome: resize start event precedes the resize flag", ChromeResizeStartPrecedesTheResizeFlag);
+                failures += TryCheck("chrome: locked panels expose no resize handles", ChromeLockedPanelsExposeNoResizeHandles);
+                failures += TryCheck("chrome: resize cursors map to the edges", ChromeResizeCursorsMapToTheEdges);
+                failures += TryCheck("resize: locked band press is ignored", ResizeLockedBandPressIsIgnored);
+
                 // Fix round 1 pins: the shell backdrop follows the widget color
                 // (and returns to the neutral surface), and a resize re-fits the
                 // panel into the work area.
@@ -487,6 +512,457 @@ namespace Kobold.XamlLoadCheck
                     (dragActiveAtStart.HasValue ? dragActiveAtStart.Value.ToString() : "never raised"));
             }
         }
+
+        #region Task A2.2 resize pins
+
+        /// <summary>
+        /// Task A2.2: a widget whose data carries both persisted sizes opens at
+        /// exactly that size, even though the legacy content maths would
+        /// measure differently (500x600 here).
+        /// </summary>
+        private static void PanelPersistedSizeWins()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new TodoWidget(new TodoData { PanelWidth = 500, PanelHeight = 600 });
+
+            var (width, height) = widget.GetPanelSize();
+            if (width != 500 || height != 600)
+            {
+                throw new InvalidOperationException(
+                    "the persisted 500x600 panel measured " + width + "x" + height);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: persisted sizes are clamped up to the kind minimum on
+        /// read - todo 342x335, folder 180x137 (spec 3.2) - so a hand-edited
+        /// or legacy tiny value cannot open an unusable panel.
+        /// </summary>
+        private static void PanelPersistedBelowMinimumIsClamped()
+        {
+            ThemeManager.Initialize("dark");
+
+            var todo = new TodoWidget(new TodoData { PanelWidth = 50, PanelHeight = 100 });
+            var (todoWidth, todoHeight) = todo.GetPanelSize();
+            if (todoWidth != 342 || todoHeight != 335)
+            {
+                throw new InvalidOperationException(
+                    "the tiny todo panel measured " + todoWidth + "x" + todoHeight + ", wanted 342x335");
+            }
+
+            var folder = new FolderWidget(new FolderData { PanelWidth = 50, PanelHeight = 100 });
+            var (folderWidth, folderHeight) = folder.GetPanelSize();
+            if (folderWidth != 180 || folderHeight != 137)
+            {
+                throw new InvalidOperationException(
+                    "the tiny folder panel measured " + folderWidth + "x" + folderHeight + ", wanted 180x137");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: without persisted sizes GetPanelSize() keeps the legacy
+        /// path (content 340 + the 2 DIP shell border for the todo width).
+        /// </summary>
+        private static void PanelMissingSizesFallBackToTheLegacyContentSize()
+        {
+            ThemeManager.Initialize("dark");
+            var (width, _) = new TodoWidget(new TodoData()).GetPanelSize();
+
+            if (width != 342)
+            {
+                throw new InvalidOperationException(
+                    "the legacy todo panel width is " + width + ", wanted 342 (340 content + 2 border)");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: a forwarded resize move without a start event must leave
+        /// the window alone - the chrome can pump a pending move while
+        /// capturing the band, exactly like the drag anchor rule.
+        /// </summary>
+        private static void ResizeMoveWithoutStartIsIgnored()
+        {
+            var window = NewTodoForResize(342, 335, 0, 0);
+
+            // No start: even a far-away cursor must not resize the window.
+            PrivateBaseMethod("OnResizeMoved").Invoke(window, new object[] { new Point(5000, 4000) });
+
+            if (window.Width != 342 || window.Height != 335 || window.Left != 0 || window.Top != 0)
+            {
+                throw new InvalidOperationException(
+                    "a move without a start changed the panel to " + window.Width + "x" + window.Height +
+                    " at " + window.Left + "," + window.Top);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: after a bottom-right start the move grows width and
+        /// height by the screen-pixel delta divided by the DPI scale
+        /// (+40/+20 DIP here).
+        /// </summary>
+        private static void ResizeBottomRightStartThenMoveScalesByDpi()
+        {
+            var window = NewTodoForResize(342, 335, 0, 0);
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                new object[] { new Point(100 + 40 * scale, 100 + 20 * scale) });
+
+            if (Math.Abs(window.Width - 382) > 0.5 || Math.Abs(window.Height - 355) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the bottom-right drag made the panel " + window.Width + "x" + window.Height +
+                    ", wanted 382x355 at scale " + scale);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: the left edge moves the left side only - the window's
+        /// right edge (start Left + start Width) stays fixed.
+        /// </summary>
+        private static void ResizeLeftEdgeKeepsTheRightEdgeFixed()
+        {
+            var window = NewTodoForResize(400, 335, 200, 0);
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.Left, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                new object[] { new Point(100 + 30 * scale, 100) });
+
+            if (Math.Abs(window.Width - 370) > 0.5 || Math.Abs(window.Left - 230) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the left-edge drag made the panel " + window.Width + " wide at " + window.Left +
+                    ", wanted 370 wide at 230 (right edge fixed at 600)");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: the top edge moves the top side only - the window's
+        /// bottom edge (start Top + start Height) stays fixed.
+        /// </summary>
+        private static void ResizeTopEdgeKeepsTheBottomEdgeFixed()
+        {
+            var window = NewTodoForResize(342, 400, 0, 300);
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.Top, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                new object[] { new Point(100, 100 + 30 * scale) });
+
+            if (Math.Abs(window.Height - 370) > 0.5 || Math.Abs(window.Top - 330) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the top-edge drag made the panel " + window.Height + " tall at " + window.Top +
+                    ", wanted 370 tall at 330 (bottom edge fixed at 700)");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: shrinking stops at the kind minimum - todo 342x335,
+        /// folder 180x137 (spec 3.2) - and a corner drag never moves the
+        /// panel's left/top.
+        /// </summary>
+        private static void ResizeShrinkingClampsAtTheKindMinimum()
+        {
+            var todo = NewTodoForResize(400, 400, 50, 60);
+            double todoScale = VisualTreeHelper.GetDpi(todo).DpiScaleX;
+            InvokeResizeStarted(todo, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(todo,
+                new object[] { new Point(100 - 500 * todoScale, 100 - 500 * todoScale) });
+
+            if (Math.Abs(todo.Width - 342) > 0.5 || Math.Abs(todo.Height - 335) > 0.5 ||
+                todo.Left != 50 || todo.Top != 60)
+            {
+                throw new InvalidOperationException(
+                    "the shrinking todo drag made the panel " + todo.Width + "x" + todo.Height +
+                    " at " + todo.Left + "," + todo.Top + ", wanted 342x335 at 50,60");
+            }
+
+            var folder = new FolderWidget(new FolderData());
+            EnsureRealDpi(folder);
+            folder.Width = 400;
+            folder.Height = 400;
+            folder.Left = 50;
+            folder.Top = 60;
+            double folderScale = VisualTreeHelper.GetDpi(folder).DpiScaleX;
+            InvokeResizeStarted(folder, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(folder,
+                new object[] { new Point(100 - 500 * folderScale, 100 - 500 * folderScale) });
+
+            if (Math.Abs(folder.Width - 180) > 0.5 || Math.Abs(folder.Height - 137) > 0.5 ||
+                folder.Left != 50 || folder.Top != 60)
+            {
+                throw new InvalidOperationException(
+                    "the shrinking folder drag made the panel " + folder.Width + "x" + folder.Height +
+                    " at " + folder.Left + "," + folder.Top + ", wanted 180x137 at 50,60");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: growing stops at the monitor work area (DIP), so a
+        /// corner drag can never push the panel off the screen.
+        /// </summary>
+        private static void ResizeGrowingClampsAtTheWorkArea()
+        {
+            var window = NewTodoForResize(342, 335, 0, 0);
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(0, 0));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                new object[] { new Point(10000 * scale, 10000 * scale) });
+
+            Rect work = MonitorInterop.WorkAreaDipForWindow(window);
+            if (Math.Abs(window.Width - work.Width) > 0.5 || Math.Abs(window.Height - work.Height) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the growing drag made the panel " + window.Width + "x" + window.Height +
+                    ", wanted the work area " + work.Width + "x" + work.Height);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: a drag in progress must not write the panel geometry to
+        /// the config - only the release persists.
+        /// </summary>
+        private static void ResizeDuringDragWritesNothing()
+        {
+            var data = new TodoData();
+            var window = new TodoWidget(data);
+            EnsureRealDpi(window);
+            window.Width = 342;
+            window.Height = 335;
+            window.Left = 0;
+            window.Top = 0;
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                new object[] { new Point(100 + 40 * scale, 100 + 20 * scale) });
+
+            if (data.PanelWidth != null || data.PanelHeight != null ||
+                data.PanelX != null || data.PanelY != null)
+            {
+                throw new InvalidOperationException(
+                    "a drag wrote to the data: " + data.PanelWidth + "x" + data.PanelHeight +
+                    " at " + data.PanelX + "," + data.PanelY);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: releasing after a real drag persists the size and the
+        /// fitted position (inside the virtual screen) for the next launch.
+        /// </summary>
+        private static void ResizeEndPersistsSizeAndPosition()
+        {
+            var data = new TodoData();
+            var window = new TodoWidget(data);
+            EnsureRealDpi(window);
+            window.Width = 342;
+            window.Height = 335;
+            window.Left = 0;
+            window.Top = 0;
+            double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+            var cursor = new Point(100 + 40 * scale, 100 + 20 * scale);
+
+            InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(window, new object[] { cursor });
+            PrivateBaseMethod("OnResizeEnded").Invoke(window, new object[] { cursor });
+
+            if (data.PanelWidth != window.Width || data.PanelHeight != window.Height ||
+                data.PanelX != window.Left || data.PanelY != window.Top)
+            {
+                throw new InvalidOperationException(
+                    "the finished resize persisted " + data.PanelWidth + "x" + data.PanelHeight +
+                    " at " + data.PanelX + "," + data.PanelY + ", but the window is " +
+                    window.Width + "x" + window.Height + " at " + window.Left + "," + window.Top);
+            }
+
+            double minX = SystemParameters.VirtualScreenLeft;
+            double minY = SystemParameters.VirtualScreenTop;
+            double maxX = minX + SystemParameters.VirtualScreenWidth;
+            double maxY = minY + SystemParameters.VirtualScreenHeight;
+            if (window.Left < minX - 1 || window.Top < minY - 1 ||
+                window.Left + window.Width > maxX + 1 || window.Top + window.Height > maxY + 1)
+            {
+                throw new InvalidOperationException(
+                    "the resized panel at " + window.Left + "," + window.Top + " " +
+                    window.Width + "x" + window.Height + " is outside the virtual screen");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: pressing a band and releasing without moving is a click,
+        /// not a resize - nothing may be written.
+        /// </summary>
+        private static void ResizeBandClickWithoutMovementDoesNotPersist()
+        {
+            var data = new TodoData();
+            var window = new TodoWidget(data);
+            EnsureRealDpi(window);
+            window.Width = 342;
+            window.Height = 335;
+            window.Left = 0;
+            window.Top = 0;
+
+            InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeEnded").Invoke(window, new object[] { new Point(100, 100) });
+
+            if (data.PanelWidth != null || data.PanelHeight != null)
+            {
+                throw new InvalidOperationException(
+                    "a click without movement persisted " + data.PanelWidth + "x" + data.PanelHeight);
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: pins the chrome's handler order for the resize bands -
+        /// when ResizeStarted is raised the internal resize flag must still be
+        /// false (it may only be set after Mouse.Capture returned), and the
+        /// grip must parse its Tag to the BottomRight edge.
+        /// </summary>
+        private static void ChromeResizeStartPrecedesTheResizeFlag()
+        {
+            var chrome = new WidgetChrome();
+            bool? resizeActiveAtStart = null;
+            WidgetResizeEdge? edgeAtStart = null;
+            chrome.ResizeStarted += (edge, cursor) =>
+            {
+                resizeActiveAtStart = PrivateField<bool>(chrome, "_isResizeActive");
+                edgeAtStart = edge;
+            };
+
+            var down = typeof(WidgetChrome).GetMethod("ResizeBand_MouseLeftButtonDown",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (down == null) throw new InvalidOperationException("ResizeBand_MouseLeftButtonDown not found");
+
+            try
+            {
+                var downArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                };
+                down.Invoke(chrome, new object[] { chrome.ResizeGrip, downArgs });
+            }
+            finally
+            {
+                // The handler may have taken the (test-local) capture.
+                Mouse.Capture(null);
+            }
+
+            if (resizeActiveAtStart != false)
+            {
+                throw new InvalidOperationException(
+                    "ResizeStarted saw _isResizeActive=" +
+                    (resizeActiveAtStart.HasValue ? resizeActiveAtStart.Value.ToString() : "never raised"));
+            }
+            if (edgeAtStart != WidgetResizeEdge.BottomRight)
+            {
+                throw new InvalidOperationException(
+                    "the grip raised edge " + edgeAtStart + ", wanted BottomRight");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: a locked panel exposes no resize affordances at all -
+        /// the grip collapses and the whole layer stops hit-testing.
+        /// </summary>
+        private static void ChromeLockedPanelsExposeNoResizeHandles()
+        {
+            var chrome = new WidgetChrome { IsLocked = true };
+            if (chrome.ResizeGrip.Visibility != Visibility.Collapsed || chrome.ResizeLayer.IsHitTestVisible)
+            {
+                throw new InvalidOperationException(
+                    "a locked panel still exposes its resize handles (grip " + chrome.ResizeGrip.Visibility +
+                    ", layer hit-testable " + chrome.ResizeLayer.IsHitTestVisible + ")");
+            }
+
+            chrome.IsLocked = false;
+            if (chrome.ResizeGrip.Visibility != Visibility.Visible || !chrome.ResizeLayer.IsHitTestVisible)
+            {
+                throw new InvalidOperationException(
+                    "an unlocked panel hides its resize handles (grip " + chrome.ResizeGrip.Visibility +
+                    ", layer hit-testable " + chrome.ResizeLayer.IsHitTestVisible + ")");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: each band carries the cursor for its edge - SizeWE left/
+        /// right, SizeNS top/bottom, SizeNWSE on the corner grip.
+        /// </summary>
+        private static void ChromeResizeCursorsMapToTheEdges()
+        {
+            var chrome = new WidgetChrome();
+            if (chrome.ResizeLeft.Cursor != Cursors.SizeWE || chrome.ResizeRight.Cursor != Cursors.SizeWE)
+            {
+                throw new InvalidOperationException("the vertical edges do not show the SizeWE cursor");
+            }
+            if (chrome.ResizeTop.Cursor != Cursors.SizeNS || chrome.ResizeBottom.Cursor != Cursors.SizeNS)
+            {
+                throw new InvalidOperationException("the horizontal edges do not show the SizeNS cursor");
+            }
+            if (chrome.ResizeGrip.Cursor != Cursors.SizeNWSE)
+            {
+                throw new InvalidOperationException("the grip does not show the SizeNWSE cursor");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: even a synthetic press on a band of a locked chrome is
+        /// ignored - the lock is enforced in the handler, not only by the
+        /// hit-test visual.
+        /// </summary>
+        private static void ResizeLockedBandPressIsIgnored()
+        {
+            var chrome = new WidgetChrome { IsLocked = true };
+            bool started = false;
+            chrome.ResizeStarted += (edge, cursor) => started = true;
+
+            var down = typeof(WidgetChrome).GetMethod("ResizeBand_MouseLeftButtonDown",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (down == null) throw new InvalidOperationException("ResizeBand_MouseLeftButtonDown not found");
+
+            try
+            {
+                var downArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                };
+                down.Invoke(chrome, new object[] { chrome.ResizeGrip, downArgs });
+            }
+            finally
+            {
+                Mouse.Capture(null);
+            }
+
+            if (started)
+            {
+                throw new InvalidOperationException("a locked panel raised ResizeStarted");
+            }
+        }
+
+        /// <summary>
+        /// Task A2.2: a resize probe window with a real (handle-backed) DPI
+        /// and the given off-screen geometry; never shown.
+        /// </summary>
+        private static TodoWidget NewTodoForResize(double width, double height, double left, double top)
+        {
+            var window = new TodoWidget(new TodoData());
+            EnsureRealDpi(window);
+            window.Width = width;
+            window.Height = height;
+            window.Left = left;
+            window.Top = top;
+            return window;
+        }
+
+        private static void InvokeResizeStarted(Window window, WidgetResizeEdge edge, Point cursor)
+        {
+            PrivateBaseMethod("OnResizeStarted").Invoke(window, new object[] { edge, cursor });
+        }
+
+        #endregion
 
         /// <summary>
         /// The shell backdrop must be tinted from the widget's own colour with

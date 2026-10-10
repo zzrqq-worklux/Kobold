@@ -23,6 +23,13 @@ namespace Kobold.Controls
     {
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
 
+        // Kind minimum panel sizes (spec 3.2): a folder panel stays usable at
+        // 180x137, a todo panel at 342x335 (its fixed content column).
+        private const double FOLDER_MIN_WIDTH = 180;
+        private const double FOLDER_MIN_HEIGHT = 137;
+        private const double TODO_MIN_WIDTH = 342;
+        private const double TODO_MIN_HEIGHT = 335;
+
         private readonly WidgetData _data;
 
         // Panel drag state: screen cursor positions and the click-vs-drag flag.
@@ -34,6 +41,19 @@ namespace Kobold.Controls
         // True only between HeaderDragStarted and HeaderDragEnded: a move is
         // never applied without its anchor, whatever order the chrome uses.
         private bool _dragStarted;
+
+        // Panel resize state: the grabbed edge and the geometry snapshot taken
+        // when the press started. Mirrors the drag anchor rule - a move is
+        // never applied without its start.
+        private WidgetResizeEdge _resizeEdge;
+        private Point _resizeStartCursor;
+        private double _resizeStartWidth;
+        private double _resizeStartHeight;
+        private double _resizeStartLeft;
+        private double _resizeStartTop;
+        private double _resizeDpiScale = 1.0;
+        private bool _isResizingWindow;
+        private bool _resizeStarted;
 
         private bool _isExpanded;
 
@@ -85,6 +105,9 @@ namespace Kobold.Controls
             chrome.HeaderDragStarted += OnHeaderDragStarted;
             chrome.HeaderDragMoved += OnHeaderDragMoved;
             chrome.HeaderDragEnded += OnHeaderDragEnded;
+            chrome.ResizeStarted += OnResizeStarted;
+            chrome.ResizeMoved += OnResizeMoved;
+            chrome.ResizeEnded += OnResizeEnded;
             chrome.HeaderRightClicked += () => ShowWidgetMenu();
             chrome.ApplyOpacity(GetPanelOpacity());
             UpdateUI();
@@ -105,14 +128,23 @@ namespace Kobold.Controls
         protected abstract (double width, double height) GetContentSize();
 
         /// <summary>
-        /// Full panel size used for placement and the window itself: the
-        /// content size plus the chrome header and the chrome shell's border.
-        /// The shell border lives inside the window, so leaving it out would
-        /// arrange the content 2 DIP short in each dimension and WPF's layout
-        /// clip would cut the view's edge.
+        /// Full panel size used for placement and the window itself. A widget
+        /// with both persisted sizes uses them (clamped up to its kind
+        /// minimum); otherwise the legacy path composes the content size plus
+        /// the chrome header and the chrome shell's border. The shell border
+        /// lives inside the window, so leaving it out would arrange the
+        /// content 2 DIP short in each dimension and WPF's layout clip would
+        /// cut the view's edge.
         /// </summary>
         public (double width, double height) GetPanelSize()
         {
+            if (_data.PanelWidth.HasValue && _data.PanelHeight.HasValue)
+            {
+                var (minWidth, minHeight) = GetMinPanelSize();
+                return (Math.Max(minWidth, _data.PanelWidth.Value),
+                        Math.Max(minHeight, _data.PanelHeight.Value));
+            }
+
             var (contentWidth, contentHeight) = GetContentSize();
             var border = Chrome == null ? new Thickness(0) : Chrome.Shell.BorderThickness;
             return (contentWidth + border.Left + border.Right,
@@ -553,6 +585,110 @@ namespace Kobold.Controls
             _data.PanelY = Top;
             _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
             OnDataChanged?.Invoke();
+        }
+
+        #endregion
+
+        #region Resize (chrome forwards screen cursor points)
+
+        private (double width, double height) GetMinPanelSize()
+        {
+            return _data is TodoData
+                ? (TODO_MIN_WIDTH, TODO_MIN_HEIGHT)
+                : (FOLDER_MIN_WIDTH, FOLDER_MIN_HEIGHT);
+        }
+
+        private void OnResizeStarted(WidgetResizeEdge edge, Point cursor)
+        {
+            // Snapshot the anchor; a click without movement is not a resize.
+            _resizeStarted = true;
+            _resizeEdge = edge;
+            _resizeStartCursor = cursor;
+            _resizeStartWidth = Width;
+            _resizeStartHeight = Height;
+            _resizeStartLeft = Left;
+            _resizeStartTop = Top;
+            _resizeDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            _isResizingWindow = false;
+        }
+
+        private void OnResizeMoved(Point cursor)
+        {
+            // No anchor yet (a move pumped before the start event): ignore it,
+            // or the window would jump by the absolute cursor delta.
+            if (!_resizeStarted) return;
+
+            _isResizingWindow = true;
+
+            // Fresh DPI reading each step, so the panel keeps following the
+            // cursor across monitors with different scaling; the start
+            // snapshot only backs it up before the window has a live tree.
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            if (double.IsNaN(dpi) || dpi <= 0) dpi = _resizeDpiScale;
+
+            double dx = (cursor.X - _resizeStartCursor.X) / dpi;
+            double dy = (cursor.Y - _resizeStartCursor.Y) / dpi;
+
+            var (minWidth, minHeight) = GetMinPanelSize();
+            Rect work = MonitorInterop.WorkAreaDipForWindow(this);
+            double maxWidth = work.Width;
+            double maxHeight = work.Height;
+
+            switch (_resizeEdge)
+            {
+                case WidgetResizeEdge.Right:
+                    Width = ClampPanelSize(_resizeStartWidth + dx, minWidth, maxWidth);
+                    break;
+                case WidgetResizeEdge.Bottom:
+                    Height = ClampPanelSize(_resizeStartHeight + dy, minHeight, maxHeight);
+                    break;
+                case WidgetResizeEdge.Left:
+                {
+                    // The right edge stays fixed: the left side absorbs the delta.
+                    double newWidth = ClampPanelSize(_resizeStartWidth - dx, minWidth, maxWidth);
+                    Left = _resizeStartLeft + (_resizeStartWidth - newWidth);
+                    Width = newWidth;
+                    break;
+                }
+                case WidgetResizeEdge.Top:
+                {
+                    // The bottom edge stays fixed: the top side absorbs the delta.
+                    double newHeight = ClampPanelSize(_resizeStartHeight - dy, minHeight, maxHeight);
+                    Top = _resizeStartTop + (_resizeStartHeight - newHeight);
+                    Height = newHeight;
+                    break;
+                }
+                case WidgetResizeEdge.BottomRight:
+                    Width = ClampPanelSize(_resizeStartWidth + dx, minWidth, maxWidth);
+                    Height = ClampPanelSize(_resizeStartHeight + dy, minHeight, maxHeight);
+                    break;
+            }
+        }
+
+        private void OnResizeEnded(Point cursor)
+        {
+            // The gesture is over even when it was a click: reset the anchor
+            // flag before the early return so the next press starts clean.
+            _resizeStarted = false;
+            if (!_isResizingWindow) return; // a click, not a resize
+
+            _isResizingWindow = false;
+            FitPanelToWorkArea();
+
+            // Remember the chosen size and the fitted position. Saved directly
+            // rather than through OnDataChanged: the island's tiles do not
+            // depend on the panel geometry, so no rebuild is needed.
+            _data.PanelWidth = Width;
+            _data.PanelHeight = Height;
+            _data.PanelX = Left;
+            _data.PanelY = Top;
+            _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            WidgetManager.Instance.SaveConfig();
+        }
+
+        private static double ClampPanelSize(double value, double min, double max)
+        {
+            return Math.Max(min, Math.Min(value, max));
         }
 
         #endregion
