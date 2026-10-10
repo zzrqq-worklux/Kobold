@@ -246,11 +246,13 @@ namespace Kobold.Core
         /// <summary>
         /// 元旦/耶稣受难日/复活节翌日/五月假/春假/夏假/圣诞/节礼日. A fixed
         /// bank holiday on Sat/Sun moves to the following Monday, keeping the
-        /// original name (2026: 节礼日 12/26 Sat -> 12/28). Adjacent
-        /// substitutions of Christmas and Boxing Day are computed
-        /// independently (the rare same-Monday collision resolves to
-        /// Christmas); Easter uses the anonymous Gregorian computus, shared
-        /// with no other caller.
+        /// original name (2026: 节礼日 12/26 Sat -> 12/28). Christmas and
+        /// Boxing Day are placed as a pair: each weekday holiday keeps its
+        /// date, each weekend one moves to the earliest free weekday after
+        /// its date, Christmas first when both move (2022: 节礼日 keeps
+        /// 12/26, 圣诞 -> 12/27; 2027: 圣诞 -> 12/27, 节礼日 -> 12/28).
+        /// Easter uses the anonymous Gregorian computus, shared with no
+        /// other caller.
         /// </summary>
         private static string UnitedKingdomLabel(DateTime date)
         {
@@ -267,8 +269,10 @@ namespace Kobold.Core
             for (int y = first; y <= last; y++)
             {
                 if (date == ObservedUk(y, 1, 1)) return "元旦";
-                if (date == ObservedUk(y, 12, 25)) return "圣诞";
-                if (date == ObservedUk(y, 12, 26)) return "节礼日";
+                DateTime christmas, boxing;
+                ChristmasBoxingUk(y, out christmas, out boxing);
+                if (date == christmas) return "圣诞";
+                if (date == boxing) return "节礼日";
             }
             return null;
         }
@@ -279,6 +283,40 @@ namespace Kobold.Core
             if (actual.DayOfWeek == DayOfWeek.Saturday) return actual.AddDays(2);
             if (actual.DayOfWeek == DayOfWeek.Sunday) return actual.AddDays(1);
             return actual;
+        }
+
+        /// <summary>
+        /// Christmas and Boxing Day placed together: a holiday on a weekday
+        /// keeps its date; a weekend one moves to the earliest weekday after
+        /// its date that the other holiday (real or moved) has not taken.
+        /// Christmas is placed first when both move. 2022: 节礼日 keeps Mon
+        /// 12/26, 圣诞 -> Tue 12/27. 2027: 圣诞 -> Mon 12/27, 节礼日 -> Tue
+        /// 12/28. 2026: 圣诞 keeps Fri 12/25, 节礼日 -> Mon 12/28.
+        /// </summary>
+        private static void ChristmasBoxingUk(int year, out DateTime christmas, out DateTime boxing)
+        {
+            var christmasActual = new DateTime(year, 12, 25);
+            var boxingActual = new DateTime(year, 12, 26);
+
+            christmas = IsWeekend(christmasActual) ? DateTime.MinValue : christmasActual;
+            boxing = IsWeekend(boxingActual) ? DateTime.MinValue : boxingActual;
+            if (christmas == DateTime.MinValue) christmas = NextFreeWeekday(christmasActual, boxing);
+            if (boxing == DateTime.MinValue) boxing = NextFreeWeekday(boxingActual, christmas);
+        }
+
+        private static bool IsWeekend(DateTime date)
+        {
+            return date.DayOfWeek == DayOfWeek.Saturday || date.DayOfWeek == DayOfWeek.Sunday;
+        }
+
+        private static DateTime NextFreeWeekday(DateTime actual, DateTime taken)
+        {
+            var candidate = actual.AddDays(1);
+            while (IsWeekend(candidate) || candidate == taken)
+            {
+                candidate = candidate.AddDays(1);
+            }
+            return candidate;
         }
 
         /// <summary>Anonymous Gregorian algorithm for Easter Sunday.</summary>

@@ -310,6 +310,19 @@ namespace Kobold.LunarCalendarCheck
             CheckLabel("uk", "2026-12-26", null,
                 "uk 2026-12-26 (Saturday) moved to the substitute Monday");
             CheckLabel("uk", "2026-04-05", null, "uk Easter Sunday itself is not a bank holiday");
+
+            CheckLabel("uk", "2022-12-26", "节礼日",
+                "uk 2022-12-26 (Monday) keeps Boxing Day");
+            CheckLabel("uk", "2022-12-27", "圣诞",
+                "uk 2022-12-27 is the Christmas substitute");
+            CheckLabel("uk", "2022-12-28", null,
+                "uk 2022-12-28 needs no substitute");
+            CheckLabel("uk", "2027-12-27", "圣诞",
+                "uk 2027-12-27 is the Christmas substitute");
+            CheckLabel("uk", "2027-12-28", "节礼日",
+                "uk 2027-12-28 is the Boxing Day substitute");
+            CheckLabel("uk", "2027-12-26", null,
+                "uk 2027-12-26 (Sunday) moved to the substitute Tuesday");
         }
 
         private static void EdgeRobustness()
