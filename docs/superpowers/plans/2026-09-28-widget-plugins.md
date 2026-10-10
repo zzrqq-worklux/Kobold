@@ -427,6 +427,31 @@ ForDay 只返回顶层且只含 DisplayDate 命中该日的条目、RemoveItem �
 
 ---
 
+## 执行记录（2026-10-10）
+
+**全量矩阵（Task 4.2 Step 1）**
+- 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all`；执行日期 2026-10-10，HEAD `1d65d90`。
+- 结果：29/29 全绿，末行 `All 29 check(s) passed.`（28 个控制台自检 + installer；相对 2026-09-28 计划写就时的预期，新增 WidgetKindsCheck / TodoRolloverCheck / TodoCalendarCheck / LunarCalendarCheck 四项）。
+- 完整输出存档：`.superpowers/sdd/2026-09-28-widget-plugins/task-4.2-runchecks-all.txt`。
+
+**手动冒烟（用户操作，均已通过）**
+- Task 2.x（Todo 组件）：r0–r18 多轮冒烟修复后通过——r9 确认间距"顺眼"；r17 确认点击即编辑 a/b/c；r18 后完整清单视为通过。
+- Task 2.4 r19（编辑 A 时点 B）：用户复现确认，修复后确认"已经修复了"。
+- Task 2.5（假日/农历标记）：用户"2.5没问题了"。
+- 阶段 3（迁移）：Task 3.1"冒烟清单测试没有任何问题"；3.2"冒烟测试通过"；3.3"3.3的冒烟通过了"；3.4/3.5/3.6 合并冒烟"没问题了"。
+- Task 4.1（文档 + 降级 poison）：审查通过（代码修复 `571d895`、文档 `bed088e`）；降级行为在隔离环境用真实 v1.3.1 构建实测——旧版对显式 `"Folders": null` 走 failed-* 证据 + 回默认；**未做真实降级冒烟**。
+
+**r19 拖动不变量（用户明确要求保留记录）**
+- Board/Chrome 拖动必须遵守 `capture → Started → active` 顺序（先 `Mouse.Capture`、再置 active 标志、后发 Started）；否则队列中的 MouseMove 会在 Started 之前触发（锚点未置 → 首帧跳变）。该缺陷在本项目早期开发中也出现过。
+- XamlLoadCheck 的不变量 pins 必须保留，回归不得删除/弱化：`chrome: start event precedes the drag flag`、`drag: start then move moves by the DPI-scaled delta`、`drag: move without start is ignored`。
+
+**未验证项（如实声明）**
+- 混合 DPI / 多屏的真机验收受本机单屏限制（沿用项目既有声明）；
+- ≤1.3.0 降级路径为隔离实测，非真机降级冒烟；
+- 方向 A（面板自由缩放 + 自适应）仅为草案、未实施：`docs/superpowers/specs/2026-10-10-widget-adaptive-layout-design.md`、`docs/superpowers/plans/2026-10-10-widget-adaptive-layout.md`（提交 `1d65d90`）。
+
+---
+
 ## 会话交接（2026-10-08，本次会话结束时写入）
 
 **仓库/工作区**
@@ -498,4 +523,13 @@ ForDay 只返回顶层且只含 DisplayDate 命中该日的条目、RemoveItem �
 - 用户的设计调整优先于计划草图；**新需求先与用户确认方案再实施**。
 
 **2026-10-09 会话中新增（已确认）**：Task 3.3 = 岛文件夹图标样式只留 classic + 手绘（删其余 5 个、无兜底）、手绘抖动离线烘焙（B 方案）、修复"改设置不重建岛"的刷新 bug；排在 Task 3.2 之后、Task 4.1 之前；细节见计划 Task 3.3 节与 `task-3.3-brief.md`。
+
+---
+
+## 会话交接（2026-10-10，本次会话结束时写入）
+
+- HEAD `24202bf`（分支 `widget-plugins`，已推送 `origin/widget-plugins`，相对 main 领先 16 个提交）；工作树干净（本节新增除外）。
+- 已完成并冒烟：3.1 `f0b926c`、3.2 `cadb5e3`、3.3 `85e8878`（folder+todo 图标样式 + 实时刷新）、3.4 `fe14a59`（取色板 9 色）、3.5 `8554529`+`1f7384a`（快速访问固定 + 按钮/默认开启修复）、3.6 `e5f3590`（系统 tile 手绘版）；文档检查点 `24202bf`。
+- 遗留（按序）：① **方向 A 的 spec/plan 起草给用户审**（只起草、不实施；不做便宜密度止血；取代文件夹 列数/图标大小/最大行数，Todo 小字按尺寸显隐，复用 PanelRows/ItemScale 等现有布局代码）；② Task 4.1 README/CHANGELOG（英中）；③ Task 4.2 全量 `Run-Checks.ps1 -Group all` 29 行 + 执行记录（含 r19 拖动不变量记录；计划文件剩余修订 = 该记录）；④ 终审（整分支，含 ledger 全部 minor/裁决清单）；⑤ `finishing-a-development-branch`；⑥ 删探针组件 `sdd-layout-probe`。
+- 细节以 ledger 为准：`.worktrees/widget-plugins/.superpowers/sdd/2026-09-28-widget-plugins/progress.md`（含全部 `Ruling:`、minor 清单、每轮快照编号；新会话先读）。
 
