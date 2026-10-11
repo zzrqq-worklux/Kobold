@@ -16,8 +16,8 @@
 1. 每个组件面板（folder / todo）**原生自由拖动缩放**（拖边缘/角），尺寸属于该组件、随组件持久化。
 2. **通用自适应引擎**：面板内容尺寸 → 布局参数（列数、单元格/图标尺度、可见行数、Todo 日历格高与
    第二行小字显隐）；纯函数、进控制台自检。
-3. **取代文件夹的三个手动设置**（列数 / 图标大小（全局 ItemScale） / 最大行数）：菜单入口移除；
-   旧字段只作一次性迁移输入。
+3. **取代文件夹的列数 / 最大行数手动设置**（菜单入口移除；旧字段只作一次性迁移输入）；
+   **图标大小保留为用户可设置**（P3，2026-10-10 冒烟后定）：面板只重排列数与间距，不改变图标大小。
 4. **Todo 日历密度**由自适应解决：第二行小字（农历/节假日，zh）在空间足够时显示、不足时隐藏；
    日历与清单随面板尺寸伸缩。
 5. **复用现有布局代码**：`PanelRows`、`WidgetConstants`（72/85/4/40/16/0.6/20）、FolderWidget 的
@@ -51,8 +51,8 @@
 ### 3.2 尺寸边界
 
 - **最小**（保证内容可读；最终值实现时定，自检 pin）：
-  - folder：至少 2 列 × 1 行可见（§4.2 的 `max(2, …)` 决定列数下限；2 列 × 0.9 倍 = 156 < 180，
-    最小宽 180 成立）≈ 180 × 137~157；含截断页脚时相应加高；
+  - folder（P3 动态）：`(2 × ceil(76×scale) + 18, 40 + ceil(89×scale) + 16)`，scale = clamp(ItemScale, 0.9, 1.5)
+    （0.9 倍 = 156×137；默认 1.1 倍 = 186×154；1.5 倍 = 246×190）——至少 2 列 × 1 行可见；
   - todo：日历格宽 ≥ ~36 DIP（内容宽 ≥ ~300）；最小高度 = 40（头部）+ 133（固定块）+ 6×22 + 1×30
     = 335（见 §4.3；实现定值并 pin）。
 - **最大**：面板所在屏的工作区尺寸（拖动过程即 clamp；松手 `FitPanelToWorkArea` 复核）。
@@ -65,8 +65,9 @@
   随后写回。迁移只发生一次。
 - 新组件默认尺寸沿用今日观感：folder = 3 列 × 最多 3 行 × ItemScale 1.1 的换算尺寸；
   todo = 342 × 当前自然高度。
-- **旧字段处置**：`FolderData.GridColumns` / `FolderData.MaxPanelRows`、`AppConfig.ItemScale` 保留为
-  只读迁移输入；菜单入口移除；写入时保留原值（不主动清除，最小风险）；引擎不再消费。
+- **旧字段处置**：`FolderData.GridColumns` / `FolderData.MaxPanelRows` 保留为只读迁移输入（菜单入口移除、
+  引擎不再消费）；`AppConfig.ItemScale` 保留原值且恢复为「图标大小」菜单的设置目标（P3，folder 渲染
+  消费）。写入时保留原值（不主动清除，最小风险）。
 
 ### 3.4 与现有机制的交互
 
@@ -86,7 +87,8 @@
 ```csharp
 public static class PanelLayoutAdapter
 {
-    public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount);
+    public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount, double itemScale);
+    public static (double w, double h) MinFolderSize(double itemScale);
     public static TodoLayout AdaptTodo(double contentHeight, int weekCount, int naturalListRows, bool labelsAvailable);
     public static (double w, double h) MigrateFolderSize(int gridColumns, int maxPanelRows, int itemCount, double itemScale);
     public static (double w, double h) DefaultTodoSize(int weekCount, int naturalListRows);
@@ -98,27 +100,34 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 
 - 接口说明（2026-10-10 实施裁决，见 ledger）：`naturalListRows` = 当日清单自然行数（0 = 空日，>6 按 6），
   由调用方给出（渲染侧从当日条目计算）；`AdaptTodo` 不需要宽度（决策 5 取消了宽度相关分支）。
+- `itemScale`（2026-10-10 P3 修订）：用户设置的全局图标档位；`AdaptFolder` 输出恒定
+  `clamp(itemScale, 0.9, 1.5)`；`MinFolderSize` 给 folder 的动态最小面板尺寸（`GetMinPanelSize` override
+  与自检共用）。
 
 - **复用映射**：`PanelRows.VisibleRows/NeedsScroll` 原样保留调用；`WidgetConstants` 常量直接消费；
   FolderWidget 的 `GetScaledItemWidth/Height` 公式迁入引擎（UI 侧删除复制，单一来源）；
   TodoCalendarView 的 `CELL_HEIGHT=28 / ROW_HEIGHT=30 / PARENT_FONT=14 / CHILD_FONT=13 /
   MIN_LIST_ROWS=1 / MAX_LIST_ROWS=6` 成为引擎输出与渲染输入。
 
-### 4.2 Folder 策略（已定：P1——图标随宽放大到上限，再加列）
+### 4.2 Folder 策略（已定：P3——图标大小用户可设置，变宽只增间距）
 
 - 入参口径：`contentWidth/contentHeight` = 内容区尺寸，与 `FolderWidget.GetContentSize` 同口径
   （不含头部/边框，含 16 内边距）；引擎内部先扣 `PADDING` 得 `usableW/usableH`；
-- `columns = max(2, ceil(usableW / MAX_CELL_W))`，`MAX_CELL_W = 112`（定值；基准格 76 的 ~1.47 倍）；
-- `scale = clamp(usableW / columns / 76, 0.9, 1.45)`；
+- `scale = clamp(itemScale, 0.9, 1.5)`（**恒定**，跟随「图标大小」菜单六档：0.9/1.0/1.1/1.2/1.3/1.5）；
 - `cellW = ceil(76 × scale)`、`cellH = ceil(89 × scale)`；
+- `columns = max(2, floor(usableW / cellW))`；
 - `visibleRows = max(1, floor(usableH / cellH))`；
 - `scrolls = itemCount > columns × visibleRows`（沿用 `PanelRows` 语义）。
-- 效果：拉宽 → 图标连续变大，到临界后多出一列、图标回落（2→3 列临界回落最大，≈1.45→0.99；越宽越缓）；
+- 效果：拉宽 → 图标尺寸不变，多出的宽度成为图标间距（`UniformGrid` 均分单元格天然实现，item 模板
+  固定 72×85，零渲染改动）；跨过 `columns+1` 的临界（如 1.1 倍：可用宽 419→4 列 / 420→5 列）自动加列；
   拉高 → 行数增多；缩小 → 列/行减少、滚动。
-- **决策（2026-10-10 用户确认）**：采用 P1；列数下限 2（§3.2 相应措辞）。临界回落属设计内档位，
-  冒烟定观感；如不佳，仅调 `MAX_CELL_W`/加滞回，不改接口。
+- **动态最小尺寸**：`MinFolderSize(scale)` = `(2 × cellW + 18, 40 + cellH + 16)`（18 = 内边距 16 + 边框 2；
+  1.5 倍 ≈ 246×190）。调档后**已开面板**小于新下限时放大到下限——唯一自动改尺寸例外；
+  关闭面板由 `GetPanelSize()` 的既有 min-clamp 在打开时兜底。
+- **决策沿革（2026-10-10）**：P1（图标随宽放大到 `MAX_CELL_W=112` 再加列）经用户冒烟否决；改定 P3。
+  列数仍全自动、最大行数仍移除；只有图标大小保留为可设置项。
 - **可用性要求（2026-10-10 用户冒烟反馈）**：任意 ≥ 最小尺寸下面板**无水平裁切**——列数与格宽由引擎
-  给出（如 180 宽 = 2 列 × 69；433 宽 = 4 列 × 104），渲染侧必须消费引擎输出（A3.1 必测 pin）。
+  给出，渲染侧必须消费引擎输出（A3.1/A3.2 必测 pin）。
 
 ### 4.3 Todo 策略（已定）
 
@@ -157,16 +166,19 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 |---|---|---|---|---|
 | `PanelWidth` / `PanelHeight` | WidgetData | 缺失 → 迁移计算 | 缩放松手写回 | DIP；与 PanelX/Y 同族 |
 | `GridColumns` / `MaxPanelRows` | FolderData | 迁移输入 | 保留原值 | 引擎不再消费；菜单移除 |
-| `ItemScale` | AppConfig | 迁移输入 | 保留原值 | 全局；菜单移除 |
+| `ItemScale` | AppConfig | 迁移输入 + folder 渲染（P3） | 「图标大小」菜单写入 | 全局；六档 0.9..1.5 |
 
 ## 6. 测试与验证
 
 - 新纯逻辑工程 `tests/AdaptiveLayoutCheck`（登记 `tools/Run-Checks.ps1`，CI 子集）：引擎边界
-  （列/尺度/行数/滚动、单调性）、迁移公式（典型例）、Todo 高度分配与小字阈值、尺寸 clamp。
+  （列/尺度/行数/滚动、单调性、`MinFolderSize` 与临界加列）、迁移公式（典型例）、Todo 高度分配与小字阈值、
+  尺寸 clamp。
 - `XamlLoadCheck` 扩展：手柄存在与光标映射、锁定禁用、拖动更新尺寸并重排、松手持久化、
-  迁移默认值、Todo 小字随尺寸显隐（离屏 pin，不驱动真实鼠标）。
-- `WidgetKindsCheck` / `MenuRenderCheck` 跟进：能力标志与菜单项移除后的断言更新；本地化死键清理
-  （`Menu_GridSize/Menu_Columns/Menu_MaxRows/Menu_Rows/Menu_ItemSize/Size_*`），三语同步（LangCheck 绿）。
+  迁移默认值、Todo 小字随尺寸显隐、folder 动态最小尺寸/图标档位恒定/变宽增间距/调档放大与
+  「图标大小」菜单回归（A3.2；离屏 pin，不驱动真实鼠标）。
+- `WidgetKindsCheck` / `MenuRenderCheck` 跟进：能力标志退休与菜单项的断言更新；本地化死键清理仅限
+  列数/最大行数一组（`Menu_GridSize/Menu_Columns/Menu_MaxRows/Menu_Rows`）——`Menu_ItemSize/Size_*`
+  保留（P3 菜单回归），三语同步（LangCheck 绿）。
 - 手动冒烟（用户）：拖动观感（含临界档位切换）、锁定、重启恢复、最小/最大、主题/透明度、
   folder 与 todo 全交互回归、Todo 小字显隐（zh）。混合 DPI/多屏受单屏限制，如实声明。
 - 回归：`Run-Checks.ps1 -Group all` 全绿（矩阵增量 = AdaptiveLayoutCheck）。
@@ -174,7 +186,8 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 ## 7. 风险与未验证项
 
 - **行为变化**（面板不再自动收放）可能让老用户觉得"面板不贴内容"——README/CHANGELOG 说明 + 冒烟。
-- **P1 档位切换**（加列时图标回落）可能被认为跳动——已定 P1；滞回/临界值微调留待冒烟（不改接口）。
+- **P3 间距观感**（变宽时图标不动、间距增大；临界加列）为 2026-10-10 用户冒烟后改定；档位/最小尺寸
+  公式可按冒烟微调（不改接口）。
 - 迁移初值与旧观感存在一次性偏差（之后完全由用户拖拽决定）；叠加 §4.3：zh 小字在迁移首见尺寸
   （28 格高 < 32 阈值）下默认隐藏，拖高即现（已接受）。
 - 缩放命中测试（边缘带）在小面板/高 DPI 下的可用性；尺寸以 DIP 持久化，跨 DPI 恢复依赖既有机制。
@@ -188,7 +201,7 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 | 0 | 测试卫生：自检矩阵不再写真实配置（单例路径重定向 + 进程内/矩阵双层字节 pin） | XamlLoadCheck pins + 矩阵 wrapper pin |
 | 1 | 纯自适应引擎 + 迁移函数 + `tests/AdaptiveLayoutCheck`（登记矩阵） | 新工程全绿 + 全量回归 |
 | 2 | 缩放交互与尺寸持久化（Chrome 手柄、基类协议、WidgetData 字段、迁移接线） | XamlLoadCheck pins + 手动冒烟 |
-| 3 | Folder 接入引擎（菜单项移除、列数/尺度由引擎驱动） | 全量回归 + 手动冒烟 |
+| 3 | Folder 接入引擎（列数由引擎驱动；列数/最大行数菜单移除；图标大小菜单保留，P3） | 全量回归 + 手动冒烟 |
 | 4 | Todo 接入引擎（格高/小字显隐/清单行数、去自动改尺寸） | 全量回归 + 手动冒烟 |
 | 5 | README/CHANGELOG + 全量矩阵 + 终审 + finishing | 文档审阅 + 全绿 |
 
@@ -199,13 +212,16 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 
 1. **手柄布局**：四边 5 DIP 隐形边缘带 + 右下角 16×16 常显 grip（未锁定期间）；光标映射
    SizeNWSE/SizeWE/SizeNS；**锁定即禁缩放**——无手柄（grip 一并隐藏）、无光标、不可缩放。
-2. **面板尺寸完全固定**：内容变化不再自动收放，滚动条承担；迁移首见尺寸 = 旧观感（一次性）。
-3. **Folder 档位**：P1（图标先放大到 `MAX_CELL_W = 112`，再加列）；列数下限 2；
-   加列时图标回落为设计内档位，冒烟定观感。
+2. **面板尺寸完全固定**：内容变化不再自动收放，滚动条承担；迁移首见尺寸 = 旧观感（一次性）；
+   唯一例外见第 3 条（调大图标档位后已开面板放大到新下限）。
+3. **Folder 档位（2026-10-10 冒烟后由 P1 改为 P3）**：图标大小保留为用户可设置（恢复「图标大小」菜单，
+   六档 0.9/1.0/1.1/1.2/1.3/1.5）；面板变宽时图标尺寸不变、多出的宽度成为图标间距；能多容纳一列时
+   自动加列（`max(2, floor(usableW / ceil(76×scale)))`）；列数仍全自动；最大行数仍移除；
+   最小尺寸随档位动态（§3.2）；调档后已开面板小于新下限则放大到下限（唯一自动改尺寸例外）。
 4. **Todo 高度分配**：清单先到自然行数（1..6 × 30），余量给月历 `clamp(22, 36)`；最小高度覆盖 6 周。
 5. **小字阈值**：格高 ≥ 32 显示；**不加** < 260 宽度兜底；迁移 28 格高下默认隐藏（拖高即现）。
-6. **旧字段写出**：`GridColumns` / `MaxPanelRows` / `ItemScale` 保留原值继续写出，仅作迁移输入；
-   菜单入口移除，引擎不再消费。
+6. **旧字段写出**：`GridColumns` / `MaxPanelRows` 保留原值继续写出、仅作迁移输入、菜单入口移除、
+   引擎不再消费；`ItemScale` 保留原值且**恢复为其菜单的设置目标**（P3：folder 渲染的 scale 输入）。
 7. **迁移观感一次性差异**：接受（尺寸近似旧观感后固定不再收放；叠加第 5 条的默认隐藏）；
    README/CHANGELOG 明示。
 

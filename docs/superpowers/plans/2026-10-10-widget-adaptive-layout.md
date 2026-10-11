@@ -166,6 +166,44 @@
   透明度/DPI 恢复/菜单其余项）+ 缩放后观感（P1 档位回落）。
 - [ ] **Step 5: 提交** → `feat(folder): adapt the folder panel to free resizing`
 
+### Task A3.2: 图标大小回归与动态最小尺寸（P3；2026-10-10 用户冒烟后追加）
+
+用户冒烟否决 P1（图标随宽放大）：图标大小保留为用户可设置、面板变宽只增图标间距、能容一列时自动加列
+（列数仍全自动、最大行数仍移除）。spec §9-3/§4.2/§3.2 已改写；本节取代 A3.1 的 P1 尺度语义。
+
+**Files:**
+- Modify: `Core/PanelLayoutAdapter.cs`（`AdaptFolder` 增 `itemScale` 入参 → `scale = clamp(itemScale, 0.9, 1.5)`
+  恒定；`columns = max(2, floor(usableW / ceil(76×scale)))`；新增 `MinFolderSize(itemScale)`；
+  删除 `MAX_CELL_W`；`MIN_SCALE/MAX_SCALE` → `MIN_ITEM_SCALE/MAX_ITEM_SCALE`；`MIGRATION_BORDER_W` →
+  `CHROME_BORDER_W`）
+- Modify: `Controls/WidgetWindowBase.cs`（`GetMinPanelSize` → `protected virtual`）、
+  `Controls/FolderWidget.xaml.cs`（`ApplyAdaptiveLayout` 传 `GetItemScale()`；override `GetMinPanelSize` →
+  `MinFolderSize`；新增 `public void ApplyItemScaleChange()`——`IsPanelOpen` 且小于新下限 → 放大到下限 +
+  `FitPanelToWorkArea`，随后 `UpdateUI()`）
+- Modify: `Helpers/WidgetMenuBuilder.cs`（恢复「图标大小」菜单：`host.Data is FolderData` 挂
+  `CreateItemSizeMenu()`；`ApplyItemScale` 对 folder 面板调 `ApplyItemScaleChange()`）
+- Modify: `Core/Localization.cs`（从 A3.1 前提交恢复 `Menu_ItemSize` + `Size_*` 7 键 × 三语；
+  `Menu_GridSize/Menu_Columns/Menu_MaxRows/Menu_Rows` 保持删除）
+- Modify: `tests/AdaptiveLayoutCheck/Program.cs`（A1.1 folder pins 按 P3 重写、不得弱化其它断言；
+  新增 `MinFolderSize`/临界加列/恒定 scale pins）、`tests/XamlLoadCheck/Program.cs`（folder pins：
+  动态最小尺寸、菜单回归、调档放大、变宽增间距、readapt 数值）
+
+- [ ] **Step 1: 写失败自检**（编译红 = 新签名/`MinFolderSize` 未存在；运行时红 = 菜单、动态下限、调档放大）：
+  - 引擎：clamp 0.5→0.9、2.0→1.5；恒定 scale 跨宽；@1.1 临界加列（可用宽 419→4 列 / 420→5 列；
+    @1.5：342→3 列）；`MinFolderSize`：1.1→186×154、0.9→156×137、1.5→246×190；
+    无 cap：`AdaptFolder(150, 616, 14, 0.9)` → 7 可见行（>6）不滚动；最小尺寸处 2 列且无水平裁切；
+  - XamlLoadCheck（沙盒 ItemScale 1.1）：433 宽 → 4 列、ScaleX==1.1、334.4 ≤ 415；186×154 → 2 列、
+    ScaleX==1.1、167.2 ≤ 168；433/435 同 4 列且首图标 72 宽不变、网格更宽；持久值/拖动下限 →
+    186×154；菜单唯一「图标大小」子菜单 6 项、勾选默认、点 1.5 写配置；开面板 186×154 + 档位 1.5 →
+    246×190 + ScaleX 1.5 + 2 列；关闭面板不被直接改尺寸（`GetPanelSize()` 读时钳到 246×190）。
+- [ ] **Step 2: 运行确认失败**（编译失败）。
+- [ ] **Step 3: 实现**（spec §4.2 P3 公式；`ApplyItemScaleChange` = 唯一自动改尺寸例外；三语同步）。
+- [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟（用户）**：档位切换、变宽只增间距、临界加列、最小尺寸
+      随档位、菜单勾选、调档放大已开面板。
+- [ ] **Step 5: 提交（两笔，先审查后提交）** →
+      `docs: pin the folder P3 layout and the restored item-size menu`（spec/plan，控制者已修订暂存）→
+      `feat(folder): render the grid at the user-set icon size`
+
 ---
 
 ## 阶段 4：TodoWidget 接入引擎
@@ -194,9 +232,9 @@
 
 ### Task A5.1: README + CHANGELOG
 
-- README（英中同步）：面板自由缩放与自适应；旧设置（列数/图标大小/最大行数）移除说明；
-  数据兼容（新字段、旧字段保留）；行为变化：面板不再随内容自动收放；zh 第二行小字在面板
-  足够高（格高 ≥32）时显示、迁移后默认隐藏（拖高即现）。
+- README（英中同步）：面板自由缩放与自适应；旧设置（列数/最大行数）移除、**图标大小保留可设置**
+  （P3：面板变宽只增间距、可设置项恢复）说明；数据兼容（新字段、旧字段保留）；行为变化：面板不再随
+  内容自动收放；zh 第二行小字在面板足够高（格高 ≥32）时显示、迁移后默认隐藏（拖高即现）。
 - CHANGELOG「Unreleased」：自由缩放、自适应、Todo 小字按尺寸显隐；行为变化一句（面板不再自动收放）。
 - 提交 → `docs: document the adaptive panel resizing`
 
@@ -209,10 +247,11 @@
 
 ## Self-Review
 
-- **Spec 覆盖**：spec §3 交互=A2.2；§3.3 持久化/迁移=A2.1；§4 引擎=A1.1；§4.2/4.3 接线=A3.1/A4.1；
-  §4.4 迁移公式=A1.1+A2.1；§6 测试=各任务；§8 阶段=本计划六阶段（0-5，阶段 0 为测试卫生）。
-- **占位符扫描**：无 TBD；关键数值已定（MAX_CELL_W=112、scale 0.9..1.45、小字阈值 32、格高 22..36），
-  最小尺寸为"实现定值 + pin"，观感微调留待用户冒烟。
+- **Spec 覆盖**：spec §3 交互=A2.2；§3.3 持久化/迁移=A2.1；§4 引擎=A1.1（folder 侧 A3.2 按 P3 修订）；
+  §4.2 接线=A3.2/A4.1；§4.3=A4.1；§4.4 迁移公式=A1.1+A2.1；§6 测试=各任务；§8 阶段=本计划六阶段
+  （0-5，阶段 0 为测试卫生；阶段 3 追加 A3.2）。
+- **占位符扫描**：无 TBD；关键数值已定（folder：scale clamp 0.9..1.5、临界加列按格宽；todo：小字阈值 32、
+  格高 22..36），最小尺寸为"实现定值 + pin"，观感微调留待用户冒烟。
 - **类型一致性**：`PanelLayoutAdapter` 的输出结构在 A1.1 定义，A3.1/A4.1 消费；
   `PanelWidth/PanelHeight` 在 A2.1 定义，A2.2 写、A3.1/A4.1 读。
 - **风险**：阶段 3 触碰现有文件夹布局（菜单项移除是用户可感知变化）——单独提交 + 冒烟 + README；
