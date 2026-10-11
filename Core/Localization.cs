@@ -129,6 +129,15 @@ namespace Kobold.Core
                 ["Settings_StoragePinFailed"] = "Could not pin to Quick Access.",
                 ["Settings_StorageUnpinFailed"] = "Could not unpin from Quick Access.",
 
+                // Folder item size
+                ["Menu_ItemSize"] = "📐 Item Size",
+                ["Size_Small"] = "Small",
+                ["Size_Normal"] = "Normal",
+                ["Size_Default"] = "Default",
+                ["Size_Medium"] = "Medium",
+                ["Size_Large"] = "Large",
+                ["Size_ExtraLarge"] = "Extra Large",
+
                 // Copy Path
                 ["UI_BrowseBack"] = "Back to the widget",
                 ["UI_FolderEmpty"] = "This folder is empty",
@@ -284,6 +293,15 @@ namespace Kobold.Core
                 ["Settings_StoragePinFailed"] = "固定到快速访问失败。",
                 ["Settings_StorageUnpinFailed"] = "取消固定失败。",
 
+                // Folder item size
+                ["Menu_ItemSize"] = "📐 图标大小",
+                ["Size_Small"] = "小",
+                ["Size_Normal"] = "普通",
+                ["Size_Default"] = "默认",
+                ["Size_Medium"] = "中",
+                ["Size_Large"] = "大",
+                ["Size_ExtraLarge"] = "特大",
+
                 // Copy Path
                 ["UI_BrowseBack"] = "返回组件",
                 ["UI_FolderEmpty"] = "此文件夹为空",
@@ -438,6 +456,15 @@ namespace Kobold.Core
                 ["Settings_StorageUnpin"] = "ピン留めを解除",
                 ["Settings_StoragePinFailed"] = "クイック アクセスへのピン留めに失敗しました。",
                 ["Settings_StorageUnpinFailed"] = "クイック アクセスからのピン留め解除に失敗しました。",
+
+                // Folder item size
+                ["Menu_ItemSize"] = "📐 アイテム サイズ",
+                ["Size_Small"] = "小",
+                ["Size_Normal"] = "標準",
+                ["Size_Default"] = "既定",
+                ["Size_Medium"] = "中",
+                ["Size_Large"] = "大",
+                ["Size_ExtraLarge"] = "特大",
 
                 // Copy Path
                 ["UI_BrowseBack"] = "ウィジェットに戻る",

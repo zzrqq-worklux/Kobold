@@ -219,7 +219,9 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: item selection follows the widget colour", FolderSelectionFollowsTheWidgetColor);
                 failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
-                failures += TryCheck("folder: the widget menu no longer offers layout entries", FolderMenuHasNoLayoutSubmenus);
+                failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
+                failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
+                failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
                 failures += TryCheck("resize: folder re-adapts columns during the drag", FolderReadaptsDuringResize);
 
                 // Restyle pins: the add input aligns with a list row exactly,
@@ -537,8 +539,9 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Task A2.2: persisted sizes are clamped up to the kind minimum on
-        /// read - todo 342x335, folder 180x137 (spec 3.2) - so a hand-edited
-        /// or legacy tiny value cannot open an unusable panel.
+        /// read - todo 342x335, folder 186x154 (the dynamic MinFolderSize at
+        /// the sandbox's 1.1 icon scale) - so a hand-edited or legacy tiny
+        /// value cannot open an unusable panel.
         /// </summary>
         private static void PanelPersistedBelowMinimumIsClamped()
         {
@@ -554,10 +557,10 @@ namespace Kobold.XamlLoadCheck
 
             var folder = new FolderWidget(new FolderData { PanelWidth = 50, PanelHeight = 100 });
             var (folderWidth, folderHeight) = folder.GetPanelSize();
-            if (folderWidth != 180 || folderHeight != 137)
+            if (folderWidth != 186 || folderHeight != 154)
             {
                 throw new InvalidOperationException(
-                    "the tiny folder panel measured " + folderWidth + "x" + folderHeight + ", wanted 180x137");
+                    "the tiny folder panel measured " + folderWidth + "x" + folderHeight + ", wanted 186x154");
             }
         }
 
@@ -663,8 +666,8 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Task A2.2: shrinking stops at the kind minimum - todo 342x335,
-        /// folder 180x137 (spec 3.2) - and a corner drag never moves the
-        /// panel's left/top.
+        /// folder 186x154 (the dynamic MinFolderSize at the sandbox's 1.1
+        /// icon scale) - and a corner drag never moves the panel's left/top.
         /// </summary>
         private static void ResizeShrinkingClampsAtTheKindMinimum()
         {
@@ -693,12 +696,12 @@ namespace Kobold.XamlLoadCheck
             PrivateBaseMethod("OnResizeMoved").Invoke(folder,
                 new object[] { new Point(100 - 500 * folderScale, 100 - 500 * folderScale) });
 
-            if (Math.Abs(folder.Width - 180) > 0.5 || Math.Abs(folder.Height - 137) > 0.5 ||
+            if (Math.Abs(folder.Width - 186) > 0.5 || Math.Abs(folder.Height - 154) > 0.5 ||
                 folder.Left != 50 || folder.Top != 60)
             {
                 throw new InvalidOperationException(
                     "the shrinking folder drag made the panel " + folder.Width + "x" + folder.Height +
-                    " at " + folder.Left + "," + folder.Top + ", wanted 180x137 at 50,60");
+                    " at " + folder.Left + "," + folder.Top + ", wanted 186x154 at 50,60");
             }
         }
 
@@ -3162,18 +3165,19 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task A3.1 (user smoke): the grid consumes the engine's column and
-        /// scale output for the panel's persisted size - 433 wide holds four
-        /// columns at 415/4/76, the minimum 180 holds two at 162/2/76 - and
-        /// the rendered row never exceeds the usable width (no horizontal
-        /// clipping at any size at or above the minimum).
+        /// Task A3.2 (P3): the grid consumes the engine's column and icon-
+        /// scale output for the panel's persisted size at the configured 1.1 -
+        /// 433 wide holds four columns, the dynamic minimum 186 holds two -
+        /// and the rendered row never exceeds the usable width (no horizontal
+        /// clipping: 4 x 76 x 1.1 = 334.4 &lt;= 415, 2 x 76 x 1.1 = 167.2
+        /// &lt;= 168).
         /// </summary>
         private static void FolderAdaptsColumnsAndScaleToItsSize()
         {
             ThemeManager.Initialize("dark");
 
-            AssertFolderAdapts(433, 285, 4, 415.0 / 4 / 76, 431 - WidgetConstants.PADDING, "the 433-wide panel");
-            AssertFolderAdapts(180, 137, 2, 162.0 / 2 / 76, 178 - WidgetConstants.PADDING, "the minimum panel");
+            AssertFolderAdapts(433, 285, 4, 1.1, 431 - WidgetConstants.PADDING, "the 433-wide panel");
+            AssertFolderAdapts(186, 154, 2, 1.1, 184 - WidgetConstants.PADDING, "the minimum panel");
         }
 
         private static void AssertFolderAdapts(double panelWidth, double panelHeight, int wantColumns,
@@ -3227,40 +3231,257 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task A3.1: the folder menu is the shared builder without the
-        /// retired layout appendices - no entry of the folder menu nests a
-        /// submenu (the todo menu keeps its holiday-region submenu, pinned by
-        /// TodoHolidayRegionMenu).
+        /// Task A3.2: the folder menu carries exactly one submenu - the item-
+        /// size picker (Menu_ItemSize) with the six Size_* entries - and the
+        /// sandbox's 1.1 scale checks the Default entry. Clicking Extra Large
+        /// writes 1.5 into the config; the finally block restores the sandbox
+        /// default 1.1 (in memory only).
         /// </summary>
-        private static void FolderMenuHasNoLayoutSubmenus()
+        private static void FolderMenuOffersTheItemSizeSubmenu()
         {
             ThemeManager.Initialize("dark");
             Localization.SetLanguage("en");
 
-            var widget = new FolderWidget(new FolderData());
-            var menu = WidgetMenuBuilder.Build(widget, WidgetKindRegistry.Find("folder"), null);
-
-            foreach (var entry in menu.Items)
+            try
             {
-                var item = entry as MenuItem;
-                if (item != null && item.HasItems)
+                var widget = new FolderWidget(new FolderData());
+                var menu = WidgetMenuBuilder.Build(widget, WidgetKindRegistry.Find("folder"), null);
+
+                MenuItem submenu = null;
+                int submenuCount = 0;
+                foreach (var entry in menu.Items)
+                {
+                    var item = entry as MenuItem;
+                    if (item == null || !item.HasItems) continue;
+                    submenuCount++;
+                    if (submenu == null) submenu = item;
+                }
+                if (submenuCount != 1)
                 {
                     throw new InvalidOperationException(
-                        "the folder menu still offers a submenu: '" + item.Header + "'");
+                        "the folder menu has " + submenuCount + " submenu(s), wanted only the item-size one");
                 }
+                if ((submenu.Header as string) != Localization.Get("Menu_ItemSize"))
+                {
+                    throw new InvalidOperationException(
+                        "the folder submenu header is '" + submenu.Header + "', wanted '" +
+                        Localization.Get("Menu_ItemSize") + "'");
+                }
+                if (submenu.Items.Count != 6)
+                {
+                    throw new InvalidOperationException(
+                        "the item-size submenu has " + submenu.Items.Count + " item(s), wanted 6");
+                }
+
+                string[] keys =
+                {
+                    "Size_Small", "Size_Normal", "Size_Default", "Size_Medium", "Size_Large", "Size_ExtraLarge"
+                };
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    var item = submenu.Items[i] as MenuItem;
+                    if (item == null || (item.Header as string) != Localization.Get(keys[i]))
+                    {
+                        throw new InvalidOperationException(
+                            "item-size entry " + i + " is '" +
+                            (item == null ? "<not a MenuItem>" : item.Header as string) +
+                            "', wanted '" + Localization.Get(keys[i]) + "'");
+                    }
+                    bool wanted = keys[i] == "Size_Default"; // the sandbox runs at 1.1
+                    if (item.IsChecked != wanted)
+                    {
+                        throw new InvalidOperationException(
+                            "item-size entry " + i + " check state is " + item.IsChecked +
+                            ", wanted " + wanted + " for the sandbox's 1.1");
+                    }
+                }
+
+                ((MenuItem)submenu.Items[5]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                if (WidgetManager.Instance.Config.ItemScale != 1.5)
+                {
+                    throw new InvalidOperationException(
+                        "clicking Extra Large left ItemScale at " +
+                        WidgetManager.Instance.Config.ItemScale + ", wanted 1.5");
+                }
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.ItemScale = 1.1;
             }
         }
 
         /// <summary>
-        /// Task A3.1: during a resize drag the panel re-arranges against the
-        /// live window size - 180 wide holds two columns; a 300 DIP wider
-        /// drag (480 DIP, content 478, usable 462) re-adapts to five. The
-        /// open flag is set reflectively, so no window is ever shown.
+        /// Task A3.2: raising the item size with an open panel below the new
+        /// minimum grows it to the minimum (the one allowed automatic resize)
+        /// and re-renders at the new scale; lowering it again never shrinks an
+        /// open panel. A closed panel keeps its stored size - only
+        /// GetPanelSize clamps it up on read.
+        /// </summary>
+        private static void FolderItemSizeChangeGrowsAnOpenPanel()
+        {
+            ThemeManager.Initialize("dark");
+
+            try
+            {
+                var open = new FolderWidget(new FolderData { PanelWidth = 186, PanelHeight = 154 });
+                EnsureRealDpi(open);
+                open.Width = 186;
+                open.Height = 154;
+                open.Left = 100;
+                open.Top = 100;
+                SetPrivateBaseField(open, "_isExpanded", true);
+
+                WidgetManager.Instance.Config.ItemScale = 1.5;
+                open.ApplyItemScaleChange();
+
+                if (Math.Abs(open.Width - 246) > 0.5 || Math.Abs(open.Height - 190) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "raising the scale left the open panel " + open.Width + "x" + open.Height +
+                        ", wanted 246x190 at scale 1.5");
+                }
+
+                var container = PrivateField<ItemsControl>(open, "ItemsContainer");
+                var transform = container.LayoutTransform as ScaleTransform;
+                if (transform == null || Math.Abs(transform.ScaleX - 1.5) > 1e-6)
+                {
+                    throw new InvalidOperationException(
+                        "the open panel renders at scale " +
+                        (transform == null ? "<no transform>" : transform.ScaleX.ToString()) + ", wanted 1.5");
+                }
+                if (open.GridColumns != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the 246-wide panel holds " + open.GridColumns + " columns, wanted 2");
+                }
+
+                // Lowering the scale again only re-arranges - an open panel is
+                // never shrunk automatically.
+                WidgetManager.Instance.Config.ItemScale = 1.1;
+                open.ApplyItemScaleChange();
+                if (Math.Abs(open.Width - 246) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "lowering the scale shrank the open panel to " + open.Width + ", wanted 246");
+                }
+
+                // A closed panel keeps its stored size; only the read clamps.
+                var closed = new FolderWidget(new FolderData { PanelWidth = 186, PanelHeight = 154 });
+                closed.Width = 186;
+                closed.Height = 154;
+                WidgetManager.Instance.Config.ItemScale = 1.5;
+                closed.ApplyItemScaleChange();
+                if (Math.Abs(closed.Width - 186) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the closed panel resized to " + closed.Width + ", wanted to stay 186");
+                }
+                var (closedWidth, closedHeight) = closed.GetPanelSize();
+                if (Math.Abs(closedWidth - 246) > 0.5 || Math.Abs(closedHeight - 190) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the closed panel read back " + closedWidth + "x" + closedHeight + ", wanted 246x190");
+                }
+            }
+            finally
+            {
+                WidgetManager.Instance.Config.ItemScale = 1.1;
+            }
+        }
+
+        /// <summary>
+        /// Task A3.2 (P3): widening a folder panel never grows the icons -
+        /// 433 and 435 wide both render at the configured 1.1 with the same
+        /// 72 DIP item width - the extra width becomes spacing, measured as
+        /// the items grid widening by more than a DIP.
+        /// </summary>
+        private static void FolderWideningKeepsTheIconSizeAndAddsSpacing()
+        {
+            ThemeManager.Initialize("dark");
+
+            double narrowItemWidth = MeasureWidenedFolder(433, 300, out double narrowGridWidth);
+            double wideItemWidth = MeasureWidenedFolder(435, 300, out double wideGridWidth);
+
+            if (Math.Abs(narrowItemWidth - 72) > 0.5 || Math.Abs(wideItemWidth - 72) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the item width follows the panel width: " + narrowItemWidth.ToString("0.##") +
+                    " and " + wideItemWidth.ToString("0.##") + ", wanted 72 for both");
+            }
+            if (wideGridWidth <= narrowGridWidth + 1.0)
+            {
+                throw new InvalidOperationException(
+                    "widening 433 -> 435 did not add spacing: the grid widths are " +
+                    narrowGridWidth.ToString("0.##") + " and " + wideGridWidth.ToString("0.##"));
+            }
+        }
+
+        /// <summary>
+        /// Offscreen half of the widening pin: lays a six-item folder out at
+        /// the persisted size, returns the first item's width and the items
+        /// grid's width.
+        /// </summary>
+        private static double MeasureWidenedFolder(double panelWidth, double panelHeight, out double gridWidth)
+        {
+            var data = new FolderData { PanelWidth = panelWidth, PanelHeight = panelHeight };
+            for (int i = 0; i < 6; i++)
+            {
+                data.Items.Add(new WidgetItem
+                {
+                    Name = "item" + i,
+                    Path = System.IO.Path.Combine(@"C:\kobold-widen-probe", "item" + i + ".txt")
+                });
+            }
+
+            var widget = new FolderWidget(data);
+            widget.UpdateUI();
+
+            var root = (FrameworkElement)widget.Content;
+            root.Measure(new Size(panelWidth, panelHeight));
+            root.Arrange(new Rect(0, 0, panelWidth, panelHeight));
+            root.UpdateLayout();
+
+            var grid = FindDescendant<BindableUniformGrid>(root);
+            if (grid == null) throw new InvalidOperationException("the items grid was not realized");
+            if (grid.Columns != 4)
+            {
+                throw new InvalidOperationException(
+                    "the " + panelWidth + "-wide panel holds " + grid.Columns + " columns, wanted 4");
+            }
+
+            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var transform = container.LayoutTransform as ScaleTransform;
+            if (transform == null || Math.Abs(transform.ScaleX - 1.1) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    "the " + panelWidth + "-wide panel renders at scale " +
+                    (transform == null ? "<no transform>" : transform.ScaleX.ToString()) + ", wanted 1.1");
+            }
+
+            var presenter = grid.Children[0] as ContentPresenter;
+            var itemRoot = presenter == null || VisualTreeHelper.GetChildrenCount(presenter) == 0
+                ? null
+                : VisualTreeHelper.GetChild(presenter, 0) as FrameworkElement;
+            if (itemRoot == null)
+            {
+                throw new InvalidOperationException("the first item container was not realized");
+            }
+
+            gridWidth = grid.ActualWidth;
+            return itemRoot.ActualWidth;
+        }
+
+        /// <summary>
+        /// Task A3.2: during a resize drag the panel re-arranges against the
+        /// live window size - the minimum 186 wide holds two columns; a
+        /// 300 DIP wider drag (486 DIP, content 484, usable 468) re-adapts to
+        /// five (468/84 = 5.57). The open flag is set reflectively, so no
+        /// window is ever shown.
         /// </summary>
         private static void FolderReadaptsDuringResize()
         {
             ThemeManager.Initialize("dark");
-            var data = new FolderData { PanelWidth = 180, PanelHeight = 137 };
+            var data = new FolderData { PanelWidth = 186, PanelHeight = 154 };
             var widget = new FolderWidget(data);
             EnsureRealDpi(widget);
             if (widget.GridColumns != 2)
@@ -3271,8 +3492,8 @@ namespace Kobold.XamlLoadCheck
 
             // Offscreen stand-in for the open state (ShowPanel sets the same
             // flag after sizing the window): the live path reads Width/Height.
-            widget.Width = 180;
-            widget.Height = 137;
+            widget.Width = 186;
+            widget.Height = 154;
             widget.Left = 100;
             widget.Top = 100;
             SetPrivateBaseField(widget, "_isExpanded", true);
@@ -3282,16 +3503,16 @@ namespace Kobold.XamlLoadCheck
             PrivateBaseMethod("OnResizeMoved").Invoke(widget,
                 new object[] { new Point(100 + 300 * scale, 100) });
 
-            if (Math.Abs(widget.Width - 480) > 0.5)
+            if (Math.Abs(widget.Width - 486) > 0.5)
             {
                 throw new InvalidOperationException(
-                    "the drag made the panel " + widget.Width + " wide, wanted 480");
+                    "the drag made the panel " + widget.Width + " wide, wanted 486");
             }
             if (widget.GridColumns != 5)
             {
                 throw new InvalidOperationException(
                     "the widened panel holds " + widget.GridColumns +
-                    " columns, wanted 5 (content 478 -> usable 462)");
+                    " columns, wanted 5 (content 484 -> usable 468)");
             }
 
             PrivateBaseMethod("OnResizeEnded").Invoke(widget,

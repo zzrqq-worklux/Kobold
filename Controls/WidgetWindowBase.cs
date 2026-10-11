@@ -23,8 +23,10 @@ namespace Kobold.Controls
     {
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
 
-        // Kind minimum panel sizes (spec 3.2): a folder panel stays usable at
-        // 180x137, a todo panel at 342x335 (its fixed content column).
+        // Kind minimum panel sizes (spec 3.2): the folder's 180x137 fallback
+        // is overridden by FolderWidget with the engine's dynamic minimum for
+        // the current icon scale; a todo panel stays at 342x335 (its fixed
+        // content column).
         private const double FOLDER_MIN_WIDTH = 180;
         private const double FOLDER_MIN_HEIGHT = 137;
         private const double TODO_MIN_WIDTH = 342;
@@ -591,7 +593,7 @@ namespace Kobold.Controls
 
         #region Resize (chrome forwards screen cursor points)
 
-        private (double width, double height) GetMinPanelSize()
+        protected virtual (double width, double height) GetMinPanelSize()
         {
             return _data is TodoData
                 ? (TODO_MIN_WIDTH, TODO_MIN_HEIGHT)

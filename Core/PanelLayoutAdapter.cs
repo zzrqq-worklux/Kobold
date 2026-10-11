@@ -12,7 +12,7 @@ namespace Kobold.Core
         /// <summary>Columns the grid holds (at least two).</summary>
         public int Columns;
 
-        /// <summary>Icon scale applied to the base cell (MIN_SCALE..MAX_SCALE).</summary>
+        /// <summary>User-set icon scale (MIN_ITEM_SCALE..MAX_ITEM_SCALE, constant while resizing).</summary>
         public double Scale;
 
         /// <summary>Rows the panel fits at the current cell height (at least one).</summary>
@@ -49,25 +49,28 @@ namespace Kobold.Core
 
     /// <summary>
     /// Pure layout maths behind the freely resizable panels: how the folder
-    /// grid fits a given content area, how the todo panel splits its height
-    /// between the calendar and the day list, and how the old per-widget size
-    /// settings migrate to the new fixed sizes. The constants here are the
-    /// single source the renderers consume, so no window is needed to test
-    /// the rules and none of them can drift apart.
+    /// grid fits a given content area at the user-set icon scale (the width
+    /// adds columns and spacing, never bigger icons), how the todo panel
+    /// splits its height between the calendar and the day list, and how the
+    /// old per-widget size settings migrate to the new fixed sizes. The
+    /// constants here are the single source the renderers consume, so no
+    /// window is needed to test the rules and none of them can drift apart.
     /// </summary>
     public static class PanelLayoutAdapter
     {
-        // Folder grid: cells never grow past MAX_CELL_W; while narrower, the
-        // icon scale travels between MIN_SCALE and MAX_SCALE. The base cell is
-        // one folder tile plus its margin (BASE_ITEM_WIDTH/HEIGHT + ITEM_MARGIN).
-        /// <summary>Widest folder cell before the grid adds a column.</summary>
-        public const double MAX_CELL_W = 112;
+        // Folder grid: every cell renders at the user-set icon scale (clamped
+        // to MIN_ITEM_SCALE..MAX_ITEM_SCALE); the panel width only decides how
+        // many columns fit, and extra width becomes the spacing the stretched
+        // UniformGrid adds. The base cell is one folder tile plus its margin
+        // (BASE_ITEM_WIDTH/HEIGHT + ITEM_MARGIN).
+        /// <summary>Smallest icon scale the user can pick for the folder grid.</summary>
+        public const double MIN_ITEM_SCALE = 0.9;
 
-        /// <summary>Smallest icon scale the folder grid renders.</summary>
-        public const double MIN_SCALE = 0.9;
+        /// <summary>Largest icon scale the user can pick for the folder grid.</summary>
+        public const double MAX_ITEM_SCALE = 1.5;
 
-        /// <summary>Largest icon scale the folder grid renders.</summary>
-        public const double MAX_SCALE = 1.45;
+        /// <summary>Fewest columns the folder grid keeps at any width.</summary>
+        public const int MIN_COLUMNS = 2;
 
         /// <summary>Base cell width at scale 1 (folder tile + margin) = 76.</summary>
         public const double BASE_CELL_W = WidgetConstants.BASE_ITEM_WIDTH + WidgetConstants.ITEM_MARGIN;
@@ -75,8 +78,9 @@ namespace Kobold.Core
         /// <summary>Base cell height at scale 1 (folder tile + margin) = 89.</summary>
         public const double BASE_CELL_H = WidgetConstants.BASE_ITEM_HEIGHT + WidgetConstants.ITEM_MARGIN;
 
-        // The +2 in the migrated width is the old panel's border chrome.
-        private const double MIGRATION_BORDER_W = 2;
+        // The panel shell's border, 2 DIP across both sides; shared by the
+        // old-size migration and the dynamic folder minimum.
+        private const double CHROME_BORDER_W = 2;
 
         // Todo height split: the list starts at LIST_ROW_H per natural row
         // (capped at LIST_MAX_ROWS); the calendar takes the rest per week,
@@ -126,31 +130,49 @@ namespace Kobold.Core
         public const double DEFAULT_WIDTH = 342;
 
         /// <summary>
-        /// Fits the folder grid into the content area: the padding comes off
-        /// first, then the grid takes as many columns as fit up to MAX_CELL_W
-        /// (never fewer than two), the icons scale to the leftover width and
-        /// the visible rows follow from the fitted cell height. Scrolling is
-        /// the natural row count against the visible rows - the folder panel
-        /// has no per-widget row cap.
+        /// Fits the folder grid into the content area at the user's icon
+        /// scale: the padding comes off first, the scale is clamped to
+        /// MIN_ITEM_SCALE..MAX_ITEM_SCALE, the cell size follows from it, the
+        /// grid takes as many columns as fit (never fewer than MIN_COLUMNS)
+        /// and the visible rows follow from the fitted cell height. Widening
+        /// the panel never grows the icons: it adds columns, or spacing
+        /// through the grid's stretch. Scrolling is the natural row count
+        /// against the visible rows - the folder panel has no per-widget row
+        /// cap.
         /// </summary>
-        public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount)
+        public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount, double itemScale)
         {
             double usableW = contentWidth - WidgetConstants.PADDING;
             double usableH = contentHeight - WidgetConstants.PADDING;
 
-            int columns = Math.Max(2, (int)Math.Ceiling(usableW / MAX_CELL_W));
-            double scale = Clamp(usableW / columns / BASE_CELL_W, MIN_SCALE, MAX_SCALE);
+            double scale = Clamp(itemScale, MIN_ITEM_SCALE, MAX_ITEM_SCALE);
+            double cellW = Math.Ceiling(BASE_CELL_W * scale);
+            double cellH = Math.Ceiling(BASE_CELL_H * scale);
 
             var layout = new FolderLayout
             {
-                Columns = columns,
+                Columns = Math.Max(MIN_COLUMNS, (int)Math.Floor(usableW / cellW)),
                 Scale = scale,
-                CellWidth = Math.Ceiling(BASE_CELL_W * scale),
-                CellHeight = Math.Ceiling(BASE_CELL_H * scale)
+                CellWidth = cellW,
+                CellHeight = cellH
             };
             layout.VisibleRows = Math.Max(1, (int)Math.Floor(usableH / layout.CellHeight));
-            layout.Scrolls = PanelRows.RowsFor(itemCount, columns) > layout.VisibleRows;
+            layout.Scrolls = PanelRows.RowsFor(itemCount, layout.Columns) > layout.VisibleRows;
             return layout;
+        }
+
+        /// <summary>
+        /// The smallest panel a folder keeps at this icon scale: two columns
+        /// wide (padding and the chrome border included) and one cell high
+        /// plus the header.
+        /// </summary>
+        public static (double w, double h) MinFolderSize(double itemScale)
+        {
+            double scale = Clamp(itemScale, MIN_ITEM_SCALE, MAX_ITEM_SCALE);
+            double cellW = Math.Ceiling(BASE_CELL_W * scale);
+            double cellH = Math.Ceiling(BASE_CELL_H * scale);
+            return (MIN_COLUMNS * cellW + WidgetConstants.PADDING + CHROME_BORDER_W,
+                    WidgetConstants.HEADER_HEIGHT + cellH + WidgetConstants.PADDING);
         }
 
         /// <summary>
@@ -197,7 +219,7 @@ namespace Kobold.Core
             double itemH = Math.Ceiling(BASE_CELL_H * itemScale);
             int rows = PanelRows.VisibleRows(itemCount, gridColumns, maxPanelRows);
 
-            double w = gridColumns * itemW + WidgetConstants.PADDING + MIGRATION_BORDER_W;
+            double w = gridColumns * itemW + WidgetConstants.PADDING + CHROME_BORDER_W;
             double h = WidgetConstants.HEADER_HEIGHT + rows * itemH + WidgetConstants.PADDING
                        + (PanelRows.NeedsScroll(itemCount, gridColumns, maxPanelRows)
                            ? WidgetConstants.FOOTER_HEIGHT

@@ -48,13 +48,18 @@ namespace Kobold.Controls
         // Constants from WidgetConstants for local access
         private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
 
-        // Legacy item scale from config; only the engine's fallback size path
-        // reads it now (the live layout scales its own cells).
+        // The user-set icon scale (the menu's six sizes; default 1.1). The
+        // live layout reads it on every re-arrange, the engine fallback size
+        // and this widget's dynamic panel minimum read it too.
         private double GetItemScale()
         {
             try { return WidgetManager.Instance.Config.ItemScale; }
             catch { return 1.3; } // Default if manager not ready
         }
+
+        // The dynamic kind minimum: two columns at the current icon scale.
+        protected override (double width, double height) GetMinPanelSize()
+            => PanelLayoutAdapter.MinFolderSize(GetItemScale());
         
         #endregion
 
@@ -209,7 +214,7 @@ namespace Kobold.Controls
             double contentW = panelW - border.Left - border.Right;
             double contentH = panelH - WidgetConstants.HEADER_HEIGHT - border.Top - border.Bottom;
             if (MoreItemsText.Visibility == Visibility.Visible) contentH -= WidgetConstants.FOOTER_HEIGHT;
-            var layout = PanelLayoutAdapter.AdaptFolder(contentW, contentH, _lastItemCount);
+            var layout = PanelLayoutAdapter.AdaptFolder(contentW, contentH, _lastItemCount, GetItemScale());
             ItemsContainer.LayoutTransform = new ScaleTransform(layout.Scale, layout.Scale);
             if (_adaptiveColumns != layout.Columns)
             {
@@ -219,6 +224,27 @@ namespace Kobold.Controls
         }
 
         protected override void OnPanelSizeChanged() => ApplyAdaptiveLayout();
+
+        /// <summary>
+        /// Icon-scale change: an open panel below the new minimum grows to it
+        /// (the one allowed automatic resize); every other panel only
+        /// re-arranges. Closed panels keep their stored size - GetPanelSize
+        /// clamps on open.
+        /// </summary>
+        public void ApplyItemScaleChange()
+        {
+            if (IsPanelOpen)
+            {
+                var (minWidth, minHeight) = GetMinPanelSize();
+                if (Width < minWidth || Height < minHeight)
+                {
+                    Width = Math.Max(Width, minWidth);
+                    Height = Math.Max(Height, minHeight);
+                    FitPanelToWorkArea();
+                }
+            }
+            UpdateUI();
+        }
 
         private void LoadItemIcons(List<DisplayItem> items)
         {

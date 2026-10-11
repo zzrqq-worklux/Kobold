@@ -6,11 +6,13 @@ namespace Kobold.AdaptiveLayoutCheck
 {
     /// <summary>
     /// Behaviour checks for PanelLayoutAdapter - the pure layout maths behind
-    /// the freely resizable folder and todo panels: the folder grid (columns,
-    /// scale, visible rows, scrolling), the todo height split between the
-    /// calendar and the day list (cell 22..36, 0..6 list rows, the 32 day-label
-    /// threshold) and the one-shot size migration from the old per-widget
-    /// settings. Expected values are pinned by the approved spec.
+    /// the freely resizable folder and todo panels: the folder grid at the
+    /// user-set icon scale (constant cells, columns that grow with the width,
+    /// visible rows, scrolling, the dynamic minimum panel), the todo height
+    /// split between the calendar and the day list (cell 22..36, 0..6 list
+    /// rows, the 32 day-label threshold) and the one-shot size migration from
+    /// the old per-widget settings. Expected values are pinned by the
+    /// approved spec.
     /// Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/AdaptiveLayoutCheck
     /// </summary>
@@ -47,57 +49,75 @@ namespace Kobold.AdaptiveLayoutCheck
 
         private static void RunAll()
         {
-            FolderNarrowAndWide();
-            FolderColumnSteps();
+            FolderFixedScale();
+            FolderColumnBoundaries();
             FolderVisibleRows();
             FolderColumnMonotonicity();
             FolderScrollSemantics();
+            FolderMinimumSize();
             TodoHeightAllocation();
             TodoLabelThreshold();
             MigrationSizes();
         }
 
-        // The folder grid follows usable = content - PADDING, columns =
-        // max(2, ceil(usableW / 112)) and scale = clamp(usableW / columns / 76).
-        private static void FolderNarrowAndWide()
+        // The folder grid follows usable = content - PADDING; the icon scale
+        // is the user's configured item scale clamped to 0.9..1.5, the cell
+        // size follows from it and the columns grow with the usable width
+        // (never fewer than two). Widening the panel adds columns/spacing, it
+        // never changes the icons.
+        private static void FolderFixedScale()
         {
-            var narrow = PanelLayoutAdapter.AdaptFolder(150, 300, 5);
-            Check(narrow.Columns == 2, "narrow folder: two columns");
-            Check(Near(narrow.Scale, 0.9), "narrow folder: scale clamps to the 0.9 floor");
-            Check(narrow.CellWidth == 69, "narrow folder: cell width 69");
-            Check(narrow.CellHeight == 81, "narrow folder: cell height 81");
-            Check(narrow.VisibleRows == 3, "narrow folder: three rows fit");
-            Check(!narrow.Scrolls, "narrow folder: five items in two columns do not scroll");
+            var atDefault = PanelLayoutAdapter.AdaptFolder(435, 300, 5, 1.1);
+            Check(atDefault.Columns == 4, "435-wide folder at 1.1: four columns (419/84)");
+            Check(Near(atDefault.Scale, 1.1), "435-wide folder at 1.1: scale stays the set 1.1");
+            Check(atDefault.CellWidth == 84, "435-wide folder at 1.1: cell width 84");
+            Check(atDefault.CellHeight == 98, "435-wide folder at 1.1: cell height 98");
+            Check(atDefault.VisibleRows == 2, "435-wide folder at 1.1: two rows fit (284/98)");
+            Check(!atDefault.Scrolls, "five items in four columns over two rows do not scroll");
 
-            var wide = PanelLayoutAdapter.AdaptFolder(240, 300, 5);
-            Check(wide.Columns == 2, "wide folder: still two columns");
-            Check(Near(wide.Scale, 1.45), "wide folder: scale clamps to the 1.45 ceiling");
-            Check(wide.CellWidth == 111, "wide folder: cell width 111");
-            Check(wide.CellHeight == 130, "wide folder: cell height 130");
-            Check(wide.VisibleRows == 2, "wide folder: two rows fit");
-            Check(wide.Scrolls, "wide folder: the third content row scrolls");
+            var floored = PanelLayoutAdapter.AdaptFolder(150, 300, 5, 0.5);
+            Check(Near(floored.Scale, 0.9), "a 0.5 request clamps to the 0.9 floor");
+            Check(floored.CellWidth == 69, "a 0.5 request: cell width 69 at the floor");
+            Check(floored.CellHeight == 81, "a 0.5 request: cell height 81 at the floor");
+            Check(floored.Columns == 2, "a 0.5 request on a 150-wide panel floors at two columns");
+            Check(floored.VisibleRows == 3, "a 0.5 request: three rows fit (284/81)");
+            Check(!floored.Scrolls, "five items in two columns over three rows do not scroll");
+
+            var ceiling = PanelLayoutAdapter.AdaptFolder(500, 300, 5, 2.0);
+            Check(Near(ceiling.Scale, 1.5), "a 2.0 request clamps to the 1.5 ceiling");
+            Check(ceiling.CellWidth == 114, "a 2.0 request: cell width 114 at the ceiling");
+            Check(ceiling.CellHeight == 134, "a 2.0 request: cell height 134 at the ceiling");
+            Check(ceiling.Columns == 4, "a 2.0 request on a 500-wide panel: four columns (484/114)");
+            Check(ceiling.VisibleRows == 2, "a 2.0 request: two rows fit (284/134)");
+            Check(!ceiling.Scrolls, "five items in four columns over two rows do not scroll");
+
+            var narrow = PanelLayoutAdapter.AdaptFolder(435, 300, 5, 1.1);
+            var wide = PanelLayoutAdapter.AdaptFolder(478, 300, 5, 1.1);
+            Check(Near(narrow.Scale, wide.Scale) && Near(wide.Scale, 1.1),
+                "widening the panel keeps the icon scale at 1.1");
+            Check(narrow.Columns == 4 && wide.Columns == 5,
+                "widening 435 -> 478 adds the fifth column (462/84)");
         }
 
-        // The 224/225 usable-width boundary is where the third column appears
-        // and the icon scale steps back down (1.45 -> 75/76).
-        private static void FolderColumnSteps()
+        // At 1.1 the fifth column starts at a panel width of 436 (usable 420
+        // = 5 x 84); at 1.5 the third column starts at 358 (usable 342
+        // = 3 x 114).
+        private static void FolderColumnBoundaries()
         {
-            var atBoundary = PanelLayoutAdapter.AdaptFolder(241, 300, 5);
-            Check(atBoundary.Columns == 3, "usable width 225 starts the third column");
-            Check(Near(atBoundary.Scale, 225.0 / 228.0), "at the boundary the scale is 225/228");
-            Check(atBoundary.CellWidth == 75, "at the boundary the cell width is 75");
-            Check(atBoundary.CellHeight == 88, "at the boundary the cell height is 88");
+            Check(PanelLayoutAdapter.AdaptFolder(435, 300, 5, 1.1).Columns == 4,
+                "at 1.1 a 435-wide panel holds four columns (usable 419)");
+            Check(PanelLayoutAdapter.AdaptFolder(436, 300, 5, 1.1).Columns == 5,
+                "at 1.1 a 436-wide panel starts the fifth column (usable 420)");
 
-            var midColumn = PanelLayoutAdapter.AdaptFolder(340, 300, 5);
-            Check(midColumn.Columns == 3, "a 340-wide folder keeps three columns");
-            Check(Near(midColumn.Scale, 324.0 / 228.0), "340-wide folder: scale is 324/228");
-            Check(midColumn.CellWidth == 108, "340-wide folder: cell width 108");
-            Check(midColumn.CellHeight == 127, "340-wide folder: cell height 127");
+            Check(PanelLayoutAdapter.AdaptFolder(357, 300, 5, 1.5).Columns == 2,
+                "at 1.5 a 357-wide panel holds two columns (usable 341)");
+            Check(PanelLayoutAdapter.AdaptFolder(358, 300, 5, 1.5).Columns == 3,
+                "at 1.5 a 358-wide panel starts the third column (usable 342)");
         }
 
         private static void FolderVisibleRows()
         {
-            var shortPanel = PanelLayoutAdapter.AdaptFolder(150, 90, 1);
+            var shortPanel = PanelLayoutAdapter.AdaptFolder(150, 90, 1, 1.1);
             Check(shortPanel.VisibleRows == 1, "a panel too short for a row still shows one row");
         }
 
@@ -108,7 +128,7 @@ namespace Kobold.AdaptiveLayoutCheck
             bool atLeastTwo = true;
             for (int width = 100; width <= 500; width++)
             {
-                var layout = PanelLayoutAdapter.AdaptFolder(width, 300, 5);
+                var layout = PanelLayoutAdapter.AdaptFolder(width, 300, 5, 1.1);
                 if (layout.Columns < previous) nonDecreasing = false;
                 if (layout.Columns < 2) atLeastTwo = false;
                 previous = layout.Columns;
@@ -118,24 +138,56 @@ namespace Kobold.AdaptiveLayoutCheck
         }
 
         // Scrolling compares the natural content rows against the visible ones;
-        // the folder's 1..6 per-widget cap does not apply here.
+        // the folder's retired 1..6 per-widget cap does not apply here (the
+        // 14-item fixture proves the engine keeps seven visible rows).
         private static void FolderScrollSemantics()
         {
-            var scrolling = PanelLayoutAdapter.AdaptFolder(150, 200, 10);
-            Check(scrolling.Columns == 2 && scrolling.VisibleRows == 2,
-                "the scrolling fixture lands on two columns and two visible rows");
-            Check(scrolling.Scrolls, "ten items over two columns and two visible rows scroll");
-            Check(scrolling.Scrolls == PanelRows.RowsFor(10, scrolling.Columns) > scrolling.VisibleRows,
+            var scrolling = PanelLayoutAdapter.AdaptFolder(186, 154, 5, 1.1);
+            Check(scrolling.Columns == 2 && scrolling.VisibleRows == 1,
+                "the scrolling fixture lands on two columns and one visible row");
+            Check(scrolling.Scrolls, "five items over two columns and one visible row scroll");
+            Check(scrolling.Scrolls == PanelRows.RowsFor(5, 2) > 1,
                 "scrolling follows the PanelRows row count");
 
-            var fitting = PanelLayoutAdapter.AdaptFolder(150, 200, 4);
-            Check(!fitting.Scrolls, "four items over two columns and two visible rows do not scroll");
-            Check(fitting.Scrolls == PanelRows.RowsFor(4, fitting.Columns) > fitting.VisibleRows,
-                "not scrolling follows the PanelRows row count");
+            var tall = PanelLayoutAdapter.AdaptFolder(150, 616, 14, 0.9);
+            Check(tall.Columns == 2 && tall.VisibleRows == 7,
+                "the tall fixture lands on two columns and seven visible rows (600/81)");
+            Check(!tall.Scrolls, "14 items over two columns and seven visible rows do not scroll");
+            Check(tall.Scrolls == PanelRows.RowsFor(14, 2) > tall.VisibleRows,
+                "not scrolling follows the PanelRows row count without the 1..6 cap");
+        }
 
-            var tall = PanelLayoutAdapter.AdaptFolder(150, 450, 10);
-            Check(tall.VisibleRows == 5 && !tall.Scrolls,
-                "ten items fit in five visible rows without the PanelRows 1..6 cap");
+        // MinFolderSize = two cell widths + padding + the 2 DIP chrome border
+        // wide, one cell high + header + padding: 156x137 at 0.9 up to
+        // 246x190 at 1.5. Every scale's minimum fits two columns and a row and
+        // never overflows the width.
+        private static void FolderMinimumSize()
+        {
+            var (w09, h09) = PanelLayoutAdapter.MinFolderSize(0.9);
+            Check(Near(w09, 156) && Near(h09, 137), "MinFolderSize(0.9) is 156x137");
+            var (w11, h11) = PanelLayoutAdapter.MinFolderSize(1.1);
+            Check(Near(w11, 186) && Near(h11, 154), "MinFolderSize(1.1) is 186x154");
+            var (w15, h15) = PanelLayoutAdapter.MinFolderSize(1.5);
+            Check(Near(w15, 246) && Near(h15, 190), "MinFolderSize(1.5) is 246x190");
+
+            var (wLow, hLow) = PanelLayoutAdapter.MinFolderSize(0.5);
+            Check(Near(wLow, 156) && Near(hLow, 137),
+                "MinFolderSize clamps a 0.5 request down to the 0.9 floor");
+            var (wHigh, hHigh) = PanelLayoutAdapter.MinFolderSize(2.0);
+            Check(Near(wHigh, 246) && Near(hHigh, 190),
+                "MinFolderSize clamps a 2.0 request up to the 1.5 ceiling");
+
+            double[] scales = { 0.9, 1.0, 1.1, 1.2, 1.3, 1.5 };
+            foreach (double s in scales)
+            {
+                var (w, h) = PanelLayoutAdapter.MinFolderSize(s);
+                var layout = PanelLayoutAdapter.AdaptFolder(w, h, 5, s);
+                Check(layout.Columns >= 2 && layout.VisibleRows >= 1,
+                    "at scale " + s + " the minimum panel holds two columns and a row");
+                double rendered = layout.Columns * 76 * layout.Scale;
+                Check(rendered <= w - 18 + 0.01,
+                    "at scale " + s + " the minimum panel does not clip horizontally");
+            }
         }
 
         // The todo panel gives the day list its natural rows first (capped at

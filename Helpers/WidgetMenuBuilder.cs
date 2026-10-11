@@ -9,9 +9,11 @@ namespace Kobold.Helpers
 {
     /// <summary>
     /// Builds the common widget menu (show/hide, rename, colour, lock, pin,
-    /// delete) plus the kind-specific appendices (todo: the holiday region).
-    /// The folder layout entries (columns / max rows / item size) are retired:
-    /// the panel adapts its grid to its own size. Hosts are widget windows, so
+    /// delete) plus the kind-specific appendices (folder: the item-size
+    /// picker; todo: the holiday region). The folder layout entries (columns /
+    /// max rows) are retired: the panel adapts its own column count and
+    /// spacing. The icon size stays a user choice - a folder-only appendix
+    /// whose scale feeds the folder rendering. Hosts are widget windows, so
     /// the shared window operations are reached through
     /// <see cref="WidgetWindowBase"/>.
     /// </summary>
@@ -33,6 +35,7 @@ namespace Kobold.Helpers
                 .AddItem(host.Data.IsPanelPinned ? "Menu_UnpinWidget" : "Menu_PinWidget",
                     () => TogglePin(host));
 
+            if (host.Data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
             if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
 
             var built = menu.AddSeparator()
@@ -124,6 +127,58 @@ namespace Kobold.Helpers
             WidgetManager.Instance.SaveConfig();
             WidgetManager.Instance.RefreshIsland();
         }
+
+        #region Kind-specific appendices (folder)
+
+        /// <summary>
+        /// The folder's six-step icon-size picker (0.9/1.0/1.1/1.2/1.3/1.5).
+        /// The checked entry follows Config.ItemScale; a pick writes the config
+        /// and re-renders every widget (folders through ApplyItemScaleChange,
+        /// so an open panel below the new minimum grows to it).
+        /// </summary>
+        private static MenuItem CreateItemSizeMenu()
+        {
+            var sizeItem = new MenuItem { Header = Localization.Get("Menu_ItemSize") };
+            var sizes = new[] {
+                ("Size_Small", 0.9),
+                ("Size_Normal", 1.0),
+                ("Size_Default", 1.1),
+                ("Size_Medium", 1.2),
+                ("Size_Large", 1.3),
+                ("Size_ExtraLarge", 1.5)
+            };
+            double currentScale = WidgetManager.Instance.Config.ItemScale;
+            foreach (var (locKey, scale) in sizes)
+            {
+                double s = scale;
+                var scaleItem = new MenuItem
+                {
+                    Header = Localization.Get(locKey),
+                    IsChecked = Math.Abs(currentScale - scale) < 0.05
+                };
+                scaleItem.Click += (ss, aa) => ApplyItemScale(s);
+                sizeItem.Items.Add(scaleItem);
+            }
+            return sizeItem;
+        }
+
+        private static void ApplyItemScale(double scale)
+        {
+            WidgetManager.Instance.Config.ItemScale = scale;
+            WidgetManager.Instance.SaveConfig();
+
+            foreach (var widget in WidgetManager.Instance.Widgets)
+            {
+                if (widget is FolderWidget folder)
+                {
+                    folder.ApplyItemScaleChange();
+                    continue;
+                }
+                widget.UpdateUI();
+            }
+        }
+
+        #endregion
 
         #region Kind-specific appendices (todo)
 
