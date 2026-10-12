@@ -24,9 +24,10 @@ todo 布局 metrics 单次计算、列表行高常量复用、菜单未用参数
 ## Global Constraints
 
 - C# 7.3 / net48，不引入新依赖；构建 0 警告。
-- **零行为变化**：所有现有 pin 的断言语义不动（Task R1 仅因签名删除机械更新 3 处调用点）；
+- **零行为变化**：所有现有 pin 的断言语义不动（Task R1 仅因签名删除机械更新 5 处调用点 = 2 生产 + 3 自检）；
   不改任何常量值、不改任何公式。
-- TDD：R1 的红 = 自检先改两参调用 → 编译失败（CS1501）；R2 的红 = 反射 pin 先调用尚不存在的
+- TDD：R1 的红 = 自检先改两参调用 → 编译失败（实测 CS7036；均为真实编译失败，本文档已勘误）；
+  R2 的红 = 反射 pin 先调用尚不存在的
   `ComputeMetrics` → 运行时失败。红必须在实现前真实跑出并留档。
 - 不新增自检工程、不新增文件（除本计划）；`tools/Run-Checks.ps1` 无需改动。
 - 不驱动用户真实鼠标；离屏 pin + 反射即可复现。
@@ -64,7 +65,8 @@ todo 布局 metrics 单次计算、列表行高常量复用、菜单未用参数
   - :4263 → `var menu = WidgetMenuBuilder.Build(widget, null);`
 
   运行：`dotnet build tests\XamlLoadCheck\XamlLoadCheck.csproj -c Debug --nologo`
-  预期：**编译失败 CS1501**（`Build` 无两参重载）。把完整错误输出交给控制者留档。
+  预期：**编译失败**（`Build` 无两参重载；实测 CS7036——丢实参的规范错误码，原计划预测的 CS1501 已勘误）。
+  把完整错误输出交给控制者留档。
 
 - [ ] **Step 2（实现）：** 精确改动：
   (1) `Helpers/WidgetMenuBuilder.cs:26`
@@ -299,3 +301,47 @@ todo 布局 metrics 单次计算、列表行高常量复用、菜单未用参数
   `docs: record the refactor cleanup execution`。
 - [ ] `tools\deploy.ps1` 部署 → **用户手动冒烟**（folder 图标/尺寸菜单、todo 面板/分隔线、右键菜单各走一遍）。
 - [ ] 用户确认后：合并 main + 推送（需用户拍板）；worktree/SDD 工作区按收尾规范清理。
+
+---
+
+## 执行记录（2026-10-12）
+
+**任务审查（每任务先审后交）**
+
+- R1：实现子代理 TDD（红 = 改两参调用点后编译失败 CS7036；绿 = Kobold 构建 0 警告 +
+  AdaptiveLayoutCheck/XamlLoadCheck/MenuRenderCheck 全绿，pins 156x137/186x154/246x190、
+  270x252/414x192 原值原样）→ 快照 12c646a 审查：Spec ✅ / quality Approved →
+  提交 `f595798`（CellSize）、`408be5d`（LIST_ROW_H）、`5dafd49`（菜单 kind 参数删除）。
+- R2：实现子代理 TDD（红 = 反射 `ComputeMetrics` 运行时 "not found"；绿 = XamlLoadCheck 含新 pin
+  `todo: the layout metrics compute in one pass`、AdaptiveLayoutCheck、构建 0 警告）→
+  快照 5b57ac7 审查：Spec ✅ / quality Approved → 提交 `5c3b12d`。
+- 两任务快照树与提交树逐字节一致（`git diff <snapshot> HEAD` 为空）。
+
+**整支终审**
+
+- 审查范围 420d583..5c3b12d（计划记录 + 5 提交）；结论：**Ready to merge = Yes**，
+  无 Critical/Important；零行为变化四重取证（常量等值 LIST_ROW_H=30、既有 pin 全部原样、
+  5/5 调用点覆盖且无残留、抽取保序且新调用 helper 全为纯函数）。
+- 终审 minor 处置（全部"可留"）：被删解释性注释未迁移（化妆级）；分隔线每步双算 metrics
+  （计划内单工厂设计的固有代价，UI 尺度可忽略）；pin 名 "compute in one pass" 措辞偏强；
+  `WidgetMenuBuilder` 文档 "kind-aware" 仍准确（kind 感知改由 `host.Data` 分支承担）。
+- 勘误（本记录随附修正）：Global Constraints 原写"3 处调用点"，实为 5（2 生产 + 3 自检）；
+  R1 红预期原写 CS1501，实测 CS7036（丢实参的规范错误码，同为真实编译失败）。
+
+**全量矩阵**
+
+- 命令：`powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all`；
+  HEAD `5c3b12d`；结果 **31/31 全绿**（29 控制台自检 + installer + config-pin），
+  末行 `All 31 check(s) passed.`；一次通过，无 config-pin 并发误报。
+- 构建：`dotnet build Kobold.csproj -c Debug` 0 警告 / 0 错误（两任务 Step 3 各复跑一次）。
+
+**手动冒烟（用户操作）**
+
+- 部署 `tools\deploy.ps1`（Release）后由用户冒烟：folder 图标/尺寸菜单、todo 面板/分隔线、
+  右键菜单；结果待用户确认后补记（未确认前不视为通过）。
+
+**未验证项（如实声明）**
+
+- 本计划零用户可见变化；混合 DPI/多屏验收沿用项目既有单屏限制声明。
+- SDD 工作区 ledger（`.superpowers/sdd/2026-10-12-layout-refactor-cleanup/progress.md`）含
+  全部 Ruling 与 deferred minors，供终审 triage；工作区在收尾后按规范清理。
