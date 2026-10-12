@@ -68,6 +68,28 @@ development base.
   delete (to the Recycle Bin) in place, open a terminal at the current
   folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
   properties…) via **Show more options**.
+- **File clipboard while browsing** — press Ctrl+C to copy the selected
+  entries, Ctrl+X to cut them, Ctrl+V to paste them into the folder on
+  screen. It is Explorer's own file clipboard, so it works both ways: copy
+  out of a panel and paste into an Explorer window or the desktop, or copy
+  in Explorer and paste into a panel (a cut pastes as a move). A copy-paste
+  never overwrites — when the name is taken, both copies are kept; a
+  cut-paste collision keeps the shell's own replace prompt. Locked panels
+  refuse every clipboard action.
+- **File clipboard on a panel** — with items selected at a panel's root,
+  Ctrl+C publishes them to the system clipboard so Explorer or another panel
+  can paste them; Ctrl+V adds the clipboard's files to the panel as
+  **references** — the same rule as dropping files in: the original stays
+  where it is. The root panel does not respond to Ctrl+X.
+- **New File dialog** — the panel's empty-area **New File** entry and the
+  browse menu's entry share one dialog: a name box and an editable extension
+  selector with the ten common suffixes (.txt, .md, .json, .csv, .log,
+  .html, .xml, .ini, .bat, .ps1; a custom single-segment extension can be
+  typed) plus a live **Will create** preview of the final name. A name that
+  already ends with the suffix is not doubled; the dialog follows the
+  widget's colour; the file is created empty under exactly the previewed name
+  (no Windows templates). The browse menu's old **New Text Document** entry
+  is now this **New File**.
 - **Folder colors** — right-click a folder in a panel and give it one of nine
   colors: the icon changes everywhere (Explorer included), and **Default
   color** puts the system icon back.
@@ -78,6 +100,10 @@ development base.
   and progress are the shell's own.
 - **Move files between panels** — browse a folder in two panels and drag
   entries from one into the other: the files move into the folder on screen.
+- **Drop into a folder** — while browsing, drop entries onto any folder
+  entry to move them inside, or hold Ctrl to copy them; dropping them on the
+  **Back** button moves them up to the parent folder. Locked panels refuse
+  the drop.
 - **Readable badges** — a coloured cabinet badge means the file lives in
   Kobold storage; a grey `!` means the source was deleted or moved.
 - **Safe by design** — ejecting or unstoring moves files back to their
@@ -163,11 +189,15 @@ the new version. Settings and stored files are kept.
 | Open the Desktop folder | Double-click the island's desktop entry |
 | Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
 | File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
+| Create a file | Right-click the empty area or the browse background → **New File** (name + extension picker + a **Will create** preview) |
 | Color a folder | Right-click a folder entry → **Folder color** (nine colours, or **Default color** to undo) |
 | The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
+| File clipboard while browsing | Select entries, then Ctrl+C / Ctrl+X / Ctrl+V into the folder on screen (the clipboard is shared with Explorer; copies keep both on a name clash) |
+| File clipboard on a panel | Ctrl+C publishes the selection to the system clipboard; Ctrl+V adds the clipboard's files as references (the root panel ignores Ctrl+X) |
+| Move entries into a subfolder | While browsing, drag them onto a folder entry (hold Ctrl to copy), or onto the Back button to move them up one level |
 | Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
 | Resize a panel | Drag any edge, or the bottom-right grip (locked panels cannot be resized) |
 | Move the calendar / list split | Drag the divider between the calendar and the day list (locked panels cannot) |
@@ -293,6 +323,20 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
   一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
   （Git Bash、7-Zip、属性等）。
+- **浏览时的文件剪贴板** — 浏览目录时按 Ctrl+C 复制选中条目、Ctrl+X 剪切、
+  Ctrl+V 粘贴到当前文件夹。剪贴板就是资源管理器自己的文件剪贴板：从面板复制可
+  粘到资源管理器窗口或桌面，从资源管理器复制也可粘进面板（剪切粘贴即移动）。
+  复制的粘贴永不覆盖：重名时两份都保留；剪切的粘贴重名时沿用资源管理器的
+  替换提示。锁定面板一律拒绝这些操作。
+- **主面板文件剪贴板** — 选中条目后按 Ctrl+C 把它们发布到系统剪贴板，资源管理器
+  或其他面板可直接粘贴；Ctrl+V 把剪贴板里的文件**加为引用**到面板——与拖入
+  相同，源文件原地不动。主面板不响应 Ctrl+X。
+- **新建文件对话框** — 面板空区的「新建文件」与浏览菜单里的「新建文件」共用同一个
+  对话框：名称框 + 可编辑的后缀选择器（常用 .txt、.md、.json、.csv、.log、.html、
+  .xml、.ini、.bat、.ps1，也可输入自定义的单个后缀），下方是实时的「将创建」预览；
+  名称已带相同后缀不会重复追加；对话框跟随组件颜色；文件按预览的名称创建为
+  **空文件**（不套用 Windows 模板）。浏览菜单原来的「新建文本文档」更名为
+  「新建文件」。
 - **文件夹颜色** — 右键面板里的文件夹，可给它换 9 种颜色中的一种：图标会在所有
   地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
@@ -300,6 +344,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   都是系统原生的。
 - **面板之间移动文件** — 两个面板各浏览一个文件夹，把一个面板里的条目拖进另一个，
   文件就会移动进对方正在显示的文件夹。
+- **拖入文件夹** — 浏览时把条目拖到任意文件夹条目上即可移入该文件夹，按住 Ctrl
+  为复制；拖到「返回」按钮则移回上级目录。锁定面板拒绝该操作。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
   源文件已被删除或移动。
 - **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
@@ -353,11 +399,15 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 打开桌面文件夹 | 双击岛的桌面入口 |
 | 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
 | 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
+| 新建文件 | 右键空白处或浏览背景 →「新建文件」（名称 + 后缀选择器 +「将创建」预览） |
 | 给文件夹上色 | 右键文件夹条目 →「文件夹颜色」（9 种颜色；「恢复默认颜色」可还原） |
 | 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
+| 浏览时的文件剪贴板 | 选中条目后 Ctrl+C 复制、Ctrl+X 剪切、Ctrl+V 粘贴到当前文件夹（与资源管理器互通；复制重名保留两份） |
+| 主面板文件剪贴板 | Ctrl+C 发布选中项到系统剪贴板；Ctrl+V 把剪贴板中的文件加为引用（主面板不响应 Ctrl+X） |
+| 把条目移入子文件夹 | 浏览时拖到文件夹条目上（按住 Ctrl 为复制）；拖到「返回」按钮则移回上级目录 |
 | 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
 | 调整面板大小 | 拖动任意边缘或右下角手柄（锁定的面板不可缩放） |
 | 调整月历 / 清单占比 | 拖动月历与清单之间的分隔线（锁定不可拖） |
