@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Kobold.Core;
 using Kobold.Services;
 
 namespace Kobold.ShellOpsCheck
@@ -28,6 +29,8 @@ namespace Kobold.ShellOpsCheck
             NameValidationRejectsBadInput();
             NameValidationChecksCollisions();
             NameValidationAllowsCaseOnlyRename();
+            NewFileNameNormalizesExtensions();
+            NewFileNameComposesNames();
             RecyclePrecheckAcceptsFixedDriveOnly();
             DeleteFlagsKeepTheRecycleBinSafe();
             MoveFlagsKeepCollisionsWithTheShell();
@@ -153,6 +156,50 @@ namespace Kobold.ShellOpsCheck
                 "names: case-only rename of the same item stays Ok");
             Check(ShellFileOperations.ValidateName("other.txt", @"C:\d", p => true, self) == NameCheck.Exists,
                 "names: selfPath must not excuse collisions with a different target");
+        }
+
+        // ---------- new file names ----------
+
+        private static void NewFileNameNormalizesExtensions()
+        {
+            Check(NewFileName.NormalizeExtension(null) == "",
+                "new-name: a null extension becomes empty");
+            Check(NewFileName.NormalizeExtension("") == "",
+                "new-name: an empty extension stays empty");
+            Check(NewFileName.NormalizeExtension("   ") == "",
+                "new-name: a blank extension becomes empty");
+            Check(NewFileName.NormalizeExtension("...") == "",
+                "new-name: a dots-only extension becomes empty");
+            Check(NewFileName.NormalizeExtension("md") == ".md",
+                "new-name: a bare body gains one leading dot");
+            Check(NewFileName.NormalizeExtension(".MD") == ".md",
+                "new-name: the extension is lower-cased");
+            Check(NewFileName.NormalizeExtension(" .tx-t ") == ".tx-t",
+                "new-name: trimming keeps internal dashes");
+            Check(NewFileName.NormalizeExtension("..json") == ".json",
+                "new-name: extra leading dots collapse to one");
+            Check(NewFileName.NormalizeExtension("a b") == null,
+                "new-name: a space is rejected");
+            Check(NewFileName.NormalizeExtension("a/b") == null,
+                "new-name: a slash is rejected");
+            Check(NewFileName.NormalizeExtension("a*b") == null,
+                "new-name: a star is rejected");
+        }
+
+        private static void NewFileNameComposesNames()
+        {
+            Check(NewFileName.Compose("报告", ".md") == "报告.md",
+                "new-name: compose appends a missing extension");
+            Check(NewFileName.Compose("报告.md", ".md") == "报告.md",
+                "new-name: an identical extension is not doubled");
+            Check(NewFileName.Compose("报告.MD", ".md") == "报告.MD",
+                "new-name: the dedupe compares case-insensitively and keeps the tail");
+            Check(NewFileName.Compose("报告.md", ".txt") == "报告.md.txt",
+                "new-name: a different extension is appended");
+            Check(NewFileName.Compose("报告", "") == "报告",
+                "new-name: an empty extension appends nothing");
+            Check(NewFileName.Compose("报告", null) == "报告",
+                "new-name: a null extension appends nothing");
         }
 
         // ---------- recycle ----------

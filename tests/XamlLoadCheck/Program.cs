@@ -116,6 +116,12 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("files: the clipboard payload round-trips and Resolve follows the truth table",
                     FileClipboardPayloadAndResolve);
 
+                // Task F4 pin: the shared ComboBox template grows an editable
+                // text host - an editable combo shows PART_EditableTextBox,
+                // while a plain combo keeps it collapsed and still renders
+                // the selection presenter.
+                failures += TryCheck("combo: the editable template hosts a text box", EditableComboBoxSupportsTextEntry);
+
                 // Task A2.2 pins: the persisted panel size wins over the legacy
                 // content maths (with the kind minimum applied); the resize
                 // protocol mirrors the drag anchor rule (capture -> event ->
@@ -686,6 +692,72 @@ namespace Kobold.XamlLoadCheck
             if (FileClipboard.Resolve(true, false, false, true, false, Key.A) != ClipboardAction.None)
             {
                 throw new InvalidOperationException("Ctrl+A was resolved as a clipboard action");
+            }
+        }
+
+        /// <summary>
+        /// Task F4: the shared ComboBox template carries the editable text
+        /// host. An editable combo shows PART_EditableTextBox (and hides the
+        /// selection presenter), while a plain combo keeps the text host
+        /// collapsed and keeps rendering the selection presenter - the
+        /// non-editable path renders exactly as before.
+        /// </summary>
+        private static void EditableComboBoxSupportsTextEntry()
+        {
+            var editable = new ComboBox { IsEditable = true };
+            var editableHost = new Grid();
+            editableHost.Children.Add(editable);
+            editableHost.Measure(new Size(200, 40));
+            editableHost.Arrange(new Rect(0, 0, 200, 40));
+            editable.UpdateLayout();
+            editable.ApplyTemplate();
+
+            var box = editable.Template.FindName("PART_EditableTextBox", editable) as TextBox;
+            if (box == null)
+            {
+                throw new InvalidOperationException("the editable combo has no PART_EditableTextBox");
+            }
+            if (box.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the editable text host is " + box.Visibility);
+            }
+
+            var presenter = editable.Template.FindName("SelectionPresenter", editable) as ContentPresenter;
+            if (presenter == null)
+            {
+                throw new InvalidOperationException("the editable combo has no SelectionPresenter");
+            }
+            if (presenter.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("the editable selection presenter is " + presenter.Visibility);
+            }
+
+            var plain = new ComboBox();
+            var plainHost = new Grid();
+            plainHost.Children.Add(plain);
+            plainHost.Measure(new Size(200, 40));
+            plainHost.Arrange(new Rect(0, 0, 200, 40));
+            plain.UpdateLayout();
+            plain.ApplyTemplate();
+
+            var plainBox = plain.Template.FindName("PART_EditableTextBox", plain) as TextBox;
+            if (plainBox == null)
+            {
+                throw new InvalidOperationException("the plain combo has no PART_EditableTextBox");
+            }
+            if (plainBox.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("the plain text host is " + plainBox.Visibility);
+            }
+
+            var plainPresenter = plain.Template.FindName("SelectionPresenter", plain) as ContentPresenter;
+            if (plainPresenter == null)
+            {
+                throw new InvalidOperationException("the plain combo has no SelectionPresenter");
+            }
+            if (plainPresenter.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the plain selection presenter is " + plainPresenter.Visibility);
             }
         }
 

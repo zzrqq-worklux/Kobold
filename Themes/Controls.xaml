@@ -58,11 +58,18 @@
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}">
                             <Grid>
-                                <ContentPresenter Margin="{TemplateBinding Padding}"
+                                <ContentPresenter x:Name="SelectionPresenter" Margin="{TemplateBinding Padding}"
                                                   Content="{TemplateBinding SelectionBoxItem}"
                                                   ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                                   ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
                                                   VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                <TextBox x:Name="PART_EditableTextBox" Margin="0,0,24,0"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="{TemplateBinding Foreground}"
+                                         CaretBrush="{DynamicResource Kobold.Brush.Accent}"
+                                         VerticalContentAlignment="Center"
+                                         Visibility="Collapsed"
+                                         Text="{Binding Path=Text, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
                                 <Path x:Name="Arrow" HorizontalAlignment="Right" VerticalAlignment="Center"
                                       Margin="0,0,10,0" Data="M0,0 L8,0 L4,5 Z"
                                       Fill="{DynamicResource Kobold.Brush.TextMuted}"/>
@@ -97,6 +104,13 @@
                         </Trigger>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Kobold.Brush.Accent}"/>
+                        </Trigger>
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="SelectionPresenter" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="IsEditable" Value="False">
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Collapsed"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
