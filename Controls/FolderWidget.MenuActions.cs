@@ -185,6 +185,12 @@ namespace Kobold.Controls
 
         // ---------- menus ----------
 
+        // The native shell menu must start only after the WPF menu has closed:
+        // its modal loop would otherwise freeze the close animation behind it.
+        // The builders stash the pending action; the Show* methods wire Closed.
+        private Action _pendingNativeMenu;
+        private bool _nativeMenuKeyboardAnchored;
+
         private void ShowBrowseItemMenu(DisplayItem item, FrameworkElement anchor = null)
         {
             if (item == null) return;
@@ -196,38 +202,41 @@ namespace Kobold.Controls
                 item.IsSelected = true;
             }
 
-            var selected = GetSelectedItems();
-            bool single = selected.Count == 1;
-            bool keyboardAnchored = anchor != null;
+            _nativeMenuKeyboardAnchored = anchor != null;
+            var menu = BuildBrowseItemMenu(item, GetSelectedItems());
+            menu.Closed += (s, e) =>
+            {
+                Action run = _pendingNativeMenu;
+                _pendingNativeMenu = null;
+                if (run != null) run();
+            };
 
-            Action pendingNativeMenu = null;
+            ShowMenu(menu, anchor);
+        }
+
+        private ContextMenu BuildBrowseItemMenu(DisplayItem item, List<DisplayItem> selected)
+        {
+            bool single = selected.Count == 1;
+
+            _pendingNativeMenu = null;
             var builder = new MenuBuilder(_data.Color)
                 .AddItem("Menu_Open", () => OpenItem(item), single)
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(item.Path, item.IsDirectory), single)
                 .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(item.Path, item.IsDirectory), single)
-                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected));
+                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected))
+                .AddItem("Menu_Copy", () => CopySelection(selected, false), !_data.IsLocked)
+                .AddItem("Menu_Cut", () => CopySelection(selected, true), !_data.IsLocked);
 
             if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorMenu(item));
 
-            var menu = builder
+            return builder
                 .AddSeparator()
                 .AddItem("Menu_RenameItem", () => RenameBrowseItem(item), single)
                 .AddItem("Menu_DeleteItem", () => DeleteToRecycleBin(selected))
                 .AddSeparator()
                 .AddItem("Menu_ShowMoreOptions",
-                    () => { pendingNativeMenu = () => ShowNativeItemMenu(item, keyboardAnchored); }, single)
+                    () => { _pendingNativeMenu = () => ShowNativeItemMenu(item, _nativeMenuKeyboardAnchored); }, single)
                 .Build();
-
-            // The native menu must start only after this menu has closed: its
-            // modal loop would otherwise freeze the close animation behind it.
-            menu.Closed += (s, e) =>
-            {
-                Action run = pendingNativeMenu;
-                pendingNativeMenu = null;
-                if (run != null) run();
-            };
-
-            ShowMenu(menu, anchor);
         }
 
         private void ShowBrowseBackgroundMenu(FrameworkElement anchor = null, bool atTopLeft = false)
@@ -235,12 +244,25 @@ namespace Kobold.Controls
             string directory = CurrentBrowsePath;
             if (directory == null) return;
 
-            bool keyboardAnchored = anchor != null;
+            _nativeMenuKeyboardAnchored = anchor != null;
+            var menu = BuildBrowseBackgroundMenu(directory, ClipboardHasFiles());
+            menu.Closed += (s, e) =>
+            {
+                Action run = _pendingNativeMenu;
+                _pendingNativeMenu = null;
+                if (run != null) run();
+            };
 
-            Action pendingNativeMenu = null;
-            var menu = new MenuBuilder(_data.Color)
+            ShowMenu(menu, anchor, atTopLeft);
+        }
+
+        private ContextMenu BuildBrowseBackgroundMenu(string directory, bool canPaste)
+        {
+            _pendingNativeMenu = null;
+            return new MenuBuilder(_data.Color)
                 .AddItem("Menu_NewFolder", () => CreateBrowseFolder(directory))
                 .AddItem("Menu_NewTextFile", () => CreateBrowseTextFile(directory))
+                .AddItem("Menu_Paste", PasteHere, !_data.IsLocked && canPaste)
                 .AddSeparator()
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true))
                 .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(directory, true))
@@ -248,21 +270,27 @@ namespace Kobold.Controls
                 .AddItem("Menu_Refresh", RefreshPanel)
                 .AddSeparator()
                 .AddItem("Menu_ShowMoreOptions",
-                    () => { pendingNativeMenu = () => ShowNativeBackgroundMenu(directory, keyboardAnchored); })
+                    () => { _pendingNativeMenu = () => ShowNativeBackgroundMenu(directory, _nativeMenuKeyboardAnchored); })
                 .Build();
+        }
 
-            menu.Closed += (s, e) =>
-            {
-                Action run = pendingNativeMenu;
-                pendingNativeMenu = null;
-                if (run != null) run();
-            };
+        /// <summary>Root panel menu: new entries plus the reference paste.</summary>
+        private ContextMenu BuildPanelContextMenu(bool canPaste)
+        {
+            return new MenuBuilder(_data.Color)
+                .AddItem("Menu_NewFile", CreateNewFile)
+                .AddItem("Menu_NewFolder", CreateNewFolder)
+                .AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked && canPaste)
+                .Build();
+        }
 
-            ShowMenu(menu, anchor, atTopLeft);
+        private void ShowRootItemMenu(DisplayItem item, FrameworkElement anchor = null)
+        {
+            ShowMenu(BuildRootItemMenu(item), anchor);
         }
 
         /// <summary>Root (widget items) menu: the previous behaviour plus Open in Terminal.</summary>
-        private void ShowRootItemMenu(DisplayItem item, FrameworkElement anchor = null)
+        private ContextMenu BuildRootItemMenu(DisplayItem item)
         {
             var menu = new ContextMenu();
 
@@ -319,6 +347,13 @@ namespace Kobold.Controls
             var copyPathItem = new MenuItem { Header = Localization.Get("Menu_CopyPath") };
             copyPathItem.Click += (s, a) => CopyPathToClipboard(item.Path);
 
+            var copyItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_Copy"),
+                IsEnabled = !_data.IsLocked // locked widgets refuse every clipboard action
+            };
+            copyItem.Click += (s, a) => CopySelection(item.IsSelected ? GetSelectedItems() : new List<DisplayItem> { item }, false);
+
             var renameItem = new MenuItem { Header = Localization.Get("Menu_RenameItem") };
             renameItem.Click += (s, a) => RenameItem(item);
 
@@ -327,11 +362,12 @@ namespace Kobold.Controls
             menu.Items.Add(terminalItem);
             menu.Items.Add(renameItem);
             menu.Items.Add(copyPathItem);
+            menu.Items.Add(copyItem);
             if (IsColorable(item)) menu.Items.Add(CreateFolderColorMenu(item));
             menu.Items.Add(new Separator());
             menu.Items.Add(remItem);
             MenuBuilder.Prepare(menu, _data.Color);
-            ShowMenu(menu, anchor);
+            return menu;
         }
 
         // ---------- folder color ----------

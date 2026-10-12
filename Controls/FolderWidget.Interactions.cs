@@ -56,6 +56,13 @@ namespace Kobold.Controls
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
         {
+            var mods = Keyboard.Modifiers;
+            var action = FileClipboard.Resolve((mods & ModifierKeys.Control) != 0,
+                (mods & ModifierKeys.Shift) != 0, (mods & ModifierKeys.Alt) != 0, IsBrowsing, _data.IsLocked, e.Key);
+            if (action == ClipboardAction.Copy) { CopySelection(GetSelectedItems(), cut: false); e.Handled = true; return; }
+            if (action == ClipboardAction.Cut) { CopySelection(GetSelectedItems(), cut: true); e.Handled = true; return; }
+            if (action == ClipboardAction.Paste) { if (IsBrowsing) PasteHere(); else PasteIntoWidget(); e.Handled = true; return; }
+
             if (HandleMenuActionKey(e))
             {
                 e.Handled = true;
@@ -238,10 +245,7 @@ namespace Kobold.Controls
         
         private void ShowPanelContextMenu()
         {
-            new MenuBuilder(_data.Color)
-                .AddItem("Menu_NewFile", CreateNewFile)
-                .AddItem("Menu_NewFolder", CreateNewFolder)
-                .Show();
+            ShowMenu(BuildPanelContextMenu(ClipboardHasFiles()), null);
         }
         
         private void CreateNewFile()

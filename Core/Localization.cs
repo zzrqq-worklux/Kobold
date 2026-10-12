@@ -174,7 +174,10 @@ namespace Kobold.Core
                 ["Color_Blue"] = "Blue",
                 ["Color_Purple"] = "Purple",
                 ["Color_Gray"] = "Gray",
-                ["Menu_CopyPath"] = "📋 Copy Path"
+                ["Menu_CopyPath"] = "📋 Copy Path",
+                ["Menu_Copy"] = "📄 Copy",
+                ["Menu_Cut"] = "✂ Cut",
+                ["Menu_Paste"] = "📋 Paste"
             },
 
             ["zh"] = new Dictionary<string, string>
@@ -338,7 +341,10 @@ namespace Kobold.Core
                 ["Color_Blue"] = "蓝色",
                 ["Color_Purple"] = "紫色",
                 ["Color_Gray"] = "灰色",
-                ["Menu_CopyPath"] = "📋 复制路径"
+                ["Menu_CopyPath"] = "📋 复制路径",
+                ["Menu_Copy"] = "📄 复制",
+                ["Menu_Cut"] = "✂ 剪切",
+                ["Menu_Paste"] = "📋 粘贴"
             },
 
             ["ja"] = new Dictionary<string, string>
@@ -502,7 +508,10 @@ namespace Kobold.Core
                 ["Color_Blue"] = "青",
                 ["Color_Purple"] = "紫",
                 ["Color_Gray"] = "グレー",
-                ["Menu_CopyPath"] = "📋 パスのコピー"
+                ["Menu_CopyPath"] = "📋 パスのコピー",
+                ["Menu_Copy"] = "📄 コピー",
+                ["Menu_Cut"] = "✂ 切り取り",
+                ["Menu_Paste"] = "📋 貼り付け"
             }
         };
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Reflection;
@@ -230,6 +231,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
                 failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
+                failures += TryCheck("folder: clipboard entries follow the lock and paste gates", FolderClipboardMenuEntries);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
                 failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
@@ -2544,6 +2546,37 @@ namespace Kobold.XamlLoadCheck
             return method;
         }
 
+        private static MethodInfo FolderPrivateMethod(string name)
+        {
+            var method = typeof(FolderWidget).GetMethod(name,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException(name + " not found on FolderWidget");
+            return method;
+        }
+
+        /// <summary>
+        /// Asserts the first menu entry with the given header exists and
+        /// carries the wanted enabled state - menu structures only, nothing
+        /// is opened.
+        /// </summary>
+        private static void AssertMenuItem(ContextMenu menu, string header, bool enabled, string label)
+        {
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item == null || !Equals(item.Header, header)) continue;
+                if (item.IsEnabled != enabled)
+                {
+                    throw new InvalidOperationException(
+                        label + ": '" + header + "' is enabled=" + item.IsEnabled +
+                        ", wanted " + enabled);
+                }
+                return;
+            }
+            throw new InvalidOperationException(label + ": no entry with header '" + header + "'");
+        }
+
         private static void ArrangeChrome(WidgetChrome chrome, double width, double height)
         {
             chrome.Measure(new Size(width, height));
@@ -4513,6 +4546,55 @@ namespace Kobold.XamlLoadCheck
             {
                 WidgetManager.Instance.Config.ItemScale = 1.1;
             }
+        }
+
+        /// <summary>
+        /// Task F2: the four clipboard-aware menu builders hold the right
+        /// entries with the right enabled state - browse item Copy/Cut
+        /// (disabled while the widget is locked), browse background Paste
+        /// (gated by canPaste), the panel Paste and the root item Copy -
+        /// inspected offline; no menu is opened and the system clipboard is
+        /// never touched.
+        /// </summary>
+        private static void FolderClipboardMenuEntries()
+        {
+            ThemeManager.Initialize("dark");
+
+            string dir = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-f2-clipboard-pin");
+            if (IO.Directory.Exists(dir)) IO.Directory.Delete(dir, true);
+            IO.Directory.CreateDirectory(dir);
+            string filePath = IO.Path.Combine(dir, "a.txt");
+            IO.File.WriteAllText(filePath, "x");
+
+            var item = new DisplayItem { Name = "a.txt", Path = filePath, IsDirectory = false };
+            var data = new FolderData();
+            var widget = new FolderWidget(data);
+            var selected = new List<DisplayItem> { item };
+
+            var buildItemMenu = FolderPrivateMethod("BuildBrowseItemMenu");
+            var itemMenu = (ContextMenu)buildItemMenu.Invoke(widget, new object[] { item, selected });
+            AssertMenuItem(itemMenu, Localization.Get("Menu_Copy"), true, "the browse item menu");
+            AssertMenuItem(itemMenu, Localization.Get("Menu_Cut"), true, "the browse item menu");
+
+            data.IsLocked = true;
+            var lockedMenu = (ContextMenu)buildItemMenu.Invoke(widget, new object[] { item, selected });
+            AssertMenuItem(lockedMenu, Localization.Get("Menu_Copy"), false, "the locked browse item menu");
+            AssertMenuItem(lockedMenu, Localization.Get("Menu_Cut"), false, "the locked browse item menu");
+            data.IsLocked = false;
+
+            var buildBackgroundMenu = FolderPrivateMethod("BuildBrowseBackgroundMenu");
+            var pasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, true });
+            AssertMenuItem(pasteMenu, Localization.Get("Menu_Paste"), true, "the browse background menu");
+            var noPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, false });
+            AssertMenuItem(noPasteMenu, Localization.Get("Menu_Paste"), false, "the paste-less background menu");
+
+            var panelMenu = (ContextMenu)FolderPrivateMethod("BuildPanelContextMenu")
+                .Invoke(widget, new object[] { true });
+            AssertMenuItem(panelMenu, Localization.Get("Menu_Paste"), true, "the panel menu");
+
+            var rootMenu = (ContextMenu)FolderPrivateMethod("BuildRootItemMenu")
+                .Invoke(widget, new object[] { item });
+            AssertMenuItem(rootMenu, Localization.Get("Menu_Copy"), true, "the root item menu");
         }
 
         /// <summary>
