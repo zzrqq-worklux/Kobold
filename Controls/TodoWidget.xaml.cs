@@ -46,17 +46,14 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Re-fits an already-open panel after the view's month or row count
-        /// changed; a closed panel picks the size up from GetContentSize.
-        /// The work-area fit keeps a grown panel's bottom row on-screen.
+        /// A resize move changed the panel size: re-adapt the view's layout
+        /// (calendar cells, day labels, list rows) to the live height. The
+        /// view never resizes the panel back - the user's size is fixed
+        /// (Task A4.1).
         /// </summary>
-        public void RequestContentResize()
+        protected override void OnPanelSizeChanged()
         {
-            if (!IsPanelOpen) return;
-            var (width, height) = GetPanelSize();
-            Width = width;
-            Height = height;
-            FitPanelToWorkArea();
+            _view?.Refresh();
         }
 
         /// <summary>

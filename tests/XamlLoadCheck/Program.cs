@@ -153,7 +153,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: non-empty reveal replaces the pill", TodoNonEmptyRevealReplacesThePill);
                 failures += TryCheck("todo: empty-day reveal keeps the pill", TodoEmptyRevealedInputKeepsThePill);
                 failures += TryCheck("todo: day list uses the larger type scale", TodoListTextIsLarger);
-                failures += TryCheck("todo: calendar cells are compact", TodoCalendarCellsAreCompact);
+                failures += TryCheck("todo: the calendar cell height follows the panel", TodoCalendarCellHeightTracksThePanel);
 
                 // Fix round 4 pins: an open inline editor auto-commits when it
                 // loses focus. The routed event is raised directly and the
@@ -259,6 +259,18 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: zh base-layer labels use muted text", TodoBaseLayerLabelUsesMutedText);
                 failures += TryCheck("todo: en day cells carry no label", TodoEnglishDayCellsCarryNoLabel);
                 failures += TryCheck("todo: holiday region menu has five checked regions", TodoHolidayRegionMenu);
+
+                // Task A4.1 pins: the calendar/list split comes from the pure
+                // engine for any panel height, the day labels need the 32-high
+                // cell, the panel size no longer follows the content, a resize
+                // drag re-adapts the layout, the natural height matches the
+                // engine's migration sizes and the add row stays visible at
+                // the minimum size.
+                failures += TryCheck("todo: the day labels need a 32-high cell", TodoDayLabelsAppearOnlyAtTheLabelThreshold);
+                failures += TryCheck("todo: the panel size no longer follows the content", TodoPanelSizeNoLongerFollowsTheContent);
+                failures += TryCheck("resize: todo re-adapts the cell height during the drag", ResizeReadaptsTodoCellHeightDuringTheDrag);
+                failures += TryCheck("todo: the natural height matches the engine's migration sizes", TodoNaturalHeightMatchesTheEngine);
+                failures += TryCheck("todo: the add row stays visible at the minimum size", TodoAddRowStaysVisibleAtTheMinimum);
 
                 // Fix round 19: the click-to-edit interleaving the human smoke
                 // reported - while one todo is edited, clicking another opens
@@ -540,7 +552,7 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Task A2.2: persisted sizes are clamped up to the kind minimum on
-        /// read - todo 342x335, folder 186x154 (the dynamic MinFolderSize at
+        /// read - todo 342x337, folder 186x154 (the dynamic MinFolderSize at
         /// the sandbox's 1.1 icon scale) - so a hand-edited or legacy tiny
         /// value cannot open an unusable panel.
         /// </summary>
@@ -550,10 +562,10 @@ namespace Kobold.XamlLoadCheck
 
             var todo = new TodoWidget(new TodoData { PanelWidth = 50, PanelHeight = 100 });
             var (todoWidth, todoHeight) = todo.GetPanelSize();
-            if (todoWidth != 342 || todoHeight != 335)
+            if (todoWidth != 342 || todoHeight != 337)
             {
                 throw new InvalidOperationException(
-                    "the tiny todo panel measured " + todoWidth + "x" + todoHeight + ", wanted 342x335");
+                    "the tiny todo panel measured " + todoWidth + "x" + todoHeight + ", wanted 342x337");
             }
 
             var folder = new FolderWidget(new FolderData { PanelWidth = 50, PanelHeight = 100 });
@@ -666,7 +678,7 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task A2.2: shrinking stops at the kind minimum - todo 342x335,
+        /// Task A2.2: shrinking stops at the kind minimum - todo 342x337,
         /// folder 186x154 (the dynamic MinFolderSize at the sandbox's 1.1
         /// icon scale) - and a corner drag never moves the panel's left/top.
         /// </summary>
@@ -678,12 +690,12 @@ namespace Kobold.XamlLoadCheck
             PrivateBaseMethod("OnResizeMoved").Invoke(todo,
                 new object[] { new Point(100 - 500 * todoScale, 100 - 500 * todoScale) });
 
-            if (Math.Abs(todo.Width - 342) > 0.5 || Math.Abs(todo.Height - 335) > 0.5 ||
+            if (Math.Abs(todo.Width - 342) > 0.5 || Math.Abs(todo.Height - 337) > 0.5 ||
                 todo.Left != 50 || todo.Top != 60)
             {
                 throw new InvalidOperationException(
                     "the shrinking todo drag made the panel " + todo.Width + "x" + todo.Height +
-                    " at " + todo.Left + "," + todo.Top + ", wanted 342x335 at 50,60");
+                    " at " + todo.Left + "," + todo.Top + ", wanted 342x337 at 50,60");
             }
 
             var folder = new FolderWidget(new FolderData());
@@ -1235,7 +1247,9 @@ namespace Kobold.XamlLoadCheck
         /// <summary>
         /// Task 2.5: in the zh UI the 2026-10-01 cell (region cn) shows the
         /// 国庆节 region holiday as the second line, below the day number and
-        /// in the widget's readable accent (an off day, not 班).
+        /// in the widget's readable accent (an off day, not 班). Task A4.1:
+        /// the 342x355 fixture (content 313 -> cell 36) keeps the label
+        /// available under the engine's 32-high threshold.
         /// </summary>
         private static void TodoHolidayLabelShowsInZh()
         {
@@ -1243,7 +1257,13 @@ namespace Kobold.XamlLoadCheck
             Localization.SetLanguage("zh");
             try
             {
-                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 1), HolidayRegion = "cn" };
+                var data = new TodoData
+                {
+                    SelectedDate = new DateTime(2026, 10, 1),
+                    HolidayRegion = "cn",
+                    PanelWidth = 342,
+                    PanelHeight = 355
+                };
                 var view = new TodoWidget(data).CalendarView;
                 LayoutView(view);
 
@@ -1288,7 +1308,9 @@ namespace Kobold.XamlLoadCheck
         /// <summary>
         /// Task 2.5: the label's geometry stays inside its day cell (zh,
         /// 2026-10-08 carries the 寒露 solar term as the base-layer label), so
-        /// the stack number -> label -> marks fits the 28 DIP cell.
+        /// the stack number -> label -> marks fits the cell. Task A4.1: the
+        /// 342x355 fixture (content 313 -> cell 36) first pins the engine's
+        /// grown cell height.
         /// </summary>
         private static void TodoHolidayLabelFitsTheCell()
         {
@@ -1296,9 +1318,23 @@ namespace Kobold.XamlLoadCheck
             Localization.SetLanguage("zh");
             try
             {
-                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 8) };
+                var data = new TodoData
+                {
+                    SelectedDate = new DateTime(2026, 10, 8),
+                    PanelWidth = 342,
+                    PanelHeight = 355
+                };
                 var view = new TodoWidget(data).CalendarView;
                 LayoutView(view);
+
+                var grid = view.FindName("DayGrid") as UniformGrid;
+                if (grid == null || Math.Abs(grid.Height / 5.0 - 36) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the 355-high panel's cell height is " +
+                        (grid == null ? "<no grid>" : (grid.Height / 5.0).ToString("0.##")) +
+                        ", wanted 36");
+                }
 
                 var cell = DayCellFor(view, 8);
                 var label = DayCellLabelBlock(cell);
@@ -1309,10 +1345,10 @@ namespace Kobold.XamlLoadCheck
                         "', wanted the base-layer 寒露");
                 }
 
-                if (cell.ActualHeight <= 0 || cell.ActualHeight > 28.01)
+                if (cell.ActualHeight <= 0 || cell.ActualHeight > 36.01)
                 {
                     throw new InvalidOperationException(
-                        "the day cell height is " + cell.ActualHeight.ToString("0.##") + ", wanted <= 28");
+                        "the day cell height is " + cell.ActualHeight.ToString("0.##") + ", wanted <= 36");
                 }
                 double top = label.TransformToAncestor(cell).Transform(new Point(0, 0)).Y;
                 double bottom = label.TransformToAncestor(cell)
@@ -1330,7 +1366,7 @@ namespace Kobold.XamlLoadCheck
                 }
 
                 // The whole number -> label -> marks stack must stay inside
-                // the 28 DIP grid cell (the border adds the 1 DIP margin).
+                // the 36 DIP grid cell (the border adds the 1 DIP margin).
                 var stack = FirstDescendant<StackPanel>(cell);
                 var marks = stack == null
                     ? null
@@ -1348,14 +1384,14 @@ namespace Kobold.XamlLoadCheck
                 if (stackTop < gridCellTop - 0.5)
                 {
                     throw new InvalidOperationException(
-                        "the number+label+marks stack pokes above the 28 DIP cell: top " +
+                        "the number+label+marks stack pokes above the 36 DIP cell: top " +
                         stackTop.ToString("0.##") + " < " + gridCellTop.ToString("0.##"));
                 }
-                if (marksBottom > gridCellTop + 28.0 + 0.5)
+                if (marksBottom > gridCellTop + 36.0 + 0.5)
                 {
                     throw new InvalidOperationException(
-                        "the number+label+marks stack pokes below the 28 DIP cell: bottom " +
-                        marksBottom.ToString("0.##") + " > " + (gridCellTop + 28.0).ToString("0.##"));
+                        "the number+label+marks stack pokes below the 36 DIP cell: bottom " +
+                        marksBottom.ToString("0.##") + " > " + (gridCellTop + 36.0).ToString("0.##"));
                 }
             }
             finally
@@ -1375,7 +1411,12 @@ namespace Kobold.XamlLoadCheck
             Localization.SetLanguage("zh");
             try
             {
-                var workday = new TodoData { SelectedDate = new DateTime(2026, 10, 10) };
+                var workday = new TodoData
+                {
+                    SelectedDate = new DateTime(2026, 10, 10),
+                    PanelWidth = 342,
+                    PanelHeight = 355
+                };
                 var workdayView = new TodoWidget(workday).CalendarView;
                 LayoutView(workdayView);
                 var workdayLabel = DayCellLabelBlock(DayCellFor(workdayView, 10));
@@ -1390,7 +1431,12 @@ namespace Kobold.XamlLoadCheck
                     throw new InvalidOperationException("the 班 workday mark does not use the muted text brush");
                 }
 
-                var term = new TodoData { SelectedDate = new DateTime(2026, 10, 8) };
+                var term = new TodoData
+                {
+                    SelectedDate = new DateTime(2026, 10, 8),
+                    PanelWidth = 342,
+                    PanelHeight = 355
+                };
                 var termView = new TodoWidget(term).CalendarView;
                 LayoutView(termView);
                 var termLabel = DayCellLabelBlock(DayCellFor(termView, 8));
@@ -1405,14 +1451,24 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        /// <summary>Task 2.5: the en UI keeps pure numbers - no label element at all.</summary>
+        /// <summary>
+        /// Task 2.5: the en UI keeps pure numbers - no label element at all.
+        /// Task A4.1: the 342x365 fixture gives the cell the full 36 DIP, so
+        /// the absence is the language, never a hidden label.
+        /// </summary>
         private static void TodoEnglishDayCellsCarryNoLabel()
         {
             ThemeManager.Initialize("dark");
             Localization.SetLanguage("en");
             try
             {
-                var data = new TodoData { SelectedDate = new DateTime(2026, 10, 1), HolidayRegion = "cn" };
+                var data = new TodoData
+                {
+                    SelectedDate = new DateTime(2026, 10, 1),
+                    HolidayRegion = "cn",
+                    PanelWidth = 342,
+                    PanelHeight = 365
+                };
                 var view = new TodoWidget(data).CalendarView;
                 LayoutView(view);
 
@@ -1503,6 +1559,423 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        #region Task A4.1 layout pins
+
+        /// <summary>
+        /// Task A4.1: the day labels' second line only exists when the engine
+        /// allows it - the zh cell needs a 32-high cell, the width never
+        /// matters, and the en UI stays pure numbers even with a tall cell.
+        /// </summary>
+        private static void TodoDayLabelsAppearOnlyAtTheLabelThreshold()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                // 342x364: content 322 -> (322 - 133 - 30) / 5 = 31.8.
+                var below = NewTodoLabelData(342, 364);
+                var belowView = new TodoWidget(below).CalendarView;
+                LayoutView(belowView);
+                if (DayCellLabelBlock(DayCellFor(belowView, 12)) != null)
+                {
+                    throw new InvalidOperationException(
+                        "the 31.8-high zh cell still shows the second line");
+                }
+
+                // 342x365: content 323 -> (323 - 133 - 30) / 5 = 32.
+                var at = NewTodoLabelData(342, 365);
+                var atView = new TodoWidget(at).CalendarView;
+                LayoutView(atView);
+                if (DayCellLabelBlock(DayCellFor(atView, 12)) == null)
+                {
+                    throw new InvalidOperationException("the 32-high zh cell lost its second line");
+                }
+
+                // The same height at 500 wide still shows it (no width fallback).
+                var wide = NewTodoLabelData(500, 365);
+                var wideView = new TodoWidget(wide).CalendarView;
+                LayoutView(wideView);
+                if (DayCellLabelBlock(DayCellFor(wideView, 12)) == null)
+                {
+                    throw new InvalidOperationException(
+                        "the 500-wide 365-high zh cell lost its second line");
+                }
+
+                // en keeps pure numbers even when the cell is tall.
+                Localization.SetLanguage("en");
+                var en = NewTodoLabelData(342, 365);
+                var enView = new TodoWidget(en).CalendarView;
+                LayoutView(enView);
+                if (DayCellLabelBlock(DayCellFor(enView, 12)) != null)
+                {
+                    throw new InvalidOperationException("the en cell shows a second line at 32");
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>One item on 2026-10-12 (a five-week month) at a panel size.</summary>
+        private static TodoData NewTodoLabelData(double width, double height)
+        {
+            var data = new TodoData
+            {
+                SelectedDate = new DateTime(2026, 10, 12),
+                PanelWidth = width,
+                PanelHeight = height
+            };
+            TodoListOps.AddItem(data, "item", new DateTime(2026, 10, 12));
+            return data;
+        }
+
+        /// <summary>
+        /// The 342x337 minimum panel with seven displayed rows on the
+        /// six-week 2026-08-12: the entries are completed on 8/12 so they
+        /// display there (open past-dated entries carry to today).
+        /// </summary>
+        private static TodoData NewSevenRowAugustDay()
+        {
+            DateTime day = new DateTime(2026, 8, 12);
+            var data = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = day };
+            for (int i = 0; i < 7; i++)
+            {
+                var item = TodoListOps.AddItem(data, "item " + i, day);
+                TodoRollover.Toggle(item, true, day);
+            }
+            return data;
+        }
+
+        /// <summary>
+        /// Task A4.1: the panel size is the user's resize result alone - a day
+        /// switch and an item edit never resize an open panel, neither with
+        /// persisted sizes (400x500) nor with the legacy fallback, which used
+        /// to shrink an open 342x400 panel to the empty day's auto size (315).
+        /// </summary>
+        private static void TodoPanelSizeNoLongerFollowsTheContent()
+        {
+            ThemeManager.Initialize("dark");
+            DateTime today = DateTime.Today;
+
+            // (a) Persisted 400x500 with one item.
+            var data = new TodoData { PanelWidth = 400, PanelHeight = 500, SelectedDate = today };
+            TodoListOps.AddItem(data, "item", today);
+            var widget = new TodoWidget(data);
+            EnsureRealDpi(widget);
+            widget.Width = 400;
+            widget.Height = 500;
+            widget.Left = 100;
+            widget.Top = 100;
+            SetPrivateBaseField(widget, "_isExpanded", true);
+
+            InvokeViewSelectDay(widget.CalendarView, today.AddDays(1)); // an empty day
+            AssertPanelSizeUnchanged(widget, 400, 500, "after the day switch");
+
+            TodoListOps.AddItem(data, "another", today.AddDays(1));
+            InvokeViewAction(widget.CalendarView, "AfterItemEdit");
+            AssertPanelSizeUnchanged(widget, 400, 500, "after the item edit");
+
+            // (b) No persisted size: the open panel's live height must survive
+            // the day switch too (pre-fix: 42 + 273 = 315).
+            var liveData = new TodoData { SelectedDate = today };
+            TodoListOps.AddItem(liveData, "one", today);
+            TodoListOps.AddItem(liveData, "two", today);
+            var live = new TodoWidget(liveData);
+            EnsureRealDpi(live);
+            live.Width = 342;
+            live.Height = 400;
+            live.Left = 100;
+            live.Top = 100;
+            SetPrivateBaseField(live, "_isExpanded", true);
+
+            InvokeViewSelectDay(live.CalendarView, today.AddDays(1));
+            if (live.Height != 400)
+            {
+                throw new InvalidOperationException(
+                    "selecting an empty day resized the open panel to " + live.Height + ", wanted 400");
+            }
+        }
+
+        private static void AssertPanelSizeUnchanged(TodoWidget widget, double width, double height, string label)
+        {
+            if (widget.Width != width || widget.Height != height)
+            {
+                throw new InvalidOperationException(
+                    label + ": the window is " + widget.Width + "x" + widget.Height +
+                    ", wanted " + width + "x" + height);
+            }
+            var size = widget.GetPanelSize();
+            if (size.width != width || size.height != height)
+            {
+                throw new InvalidOperationException(
+                    label + ": GetPanelSize reports " + size.width + "x" + size.height +
+                    ", wanted " + width + "x" + height);
+            }
+        }
+
+        private static void InvokeViewAction(TodoCalendarView view, string method)
+        {
+            var action = typeof(TodoCalendarView).GetMethod(method,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (action == null) throw new InvalidOperationException(method + " not found on TodoCalendarView");
+            action.Invoke(view, null);
+        }
+
+        /// <summary>
+        /// Task A4.1: a resize drag re-adapts the todo layout against the live
+        /// window height (the base's OnPanelSizeChanged refreshes the view):
+        /// 337 (cell 26.4) -> +200 -> 537 (cell 36 clamp) -> -300 -> 337 again.
+        /// The open flag is set reflectively, so no window is ever shown.
+        /// </summary>
+        private static void ResizeReadaptsTodoCellHeightDuringTheDrag()
+        {
+            ThemeManager.Initialize("dark");
+            DateTime selected = new DateTime(2026, 10, 12);
+            var data = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = selected };
+            TodoListOps.AddItem(data, "item", selected);
+            var widget = new TodoWidget(data);
+            EnsureRealDpi(widget);
+            widget.Width = 342;
+            widget.Height = 337;
+            widget.Left = 100;
+            widget.Top = 100;
+
+            // Closed: the persisted size already drives the layout
+            // (295 - 133 - 30 = 132 -> 26.4 per cell, 132 total for five weeks).
+            if (Math.Abs(DayGridHeight(widget.CalendarView) - 132) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the closed panel's day grid is " +
+                    DayGridHeight(widget.CalendarView).ToString("0.##") + ", wanted 132");
+            }
+
+            SetPrivateBaseField(widget, "_isExpanded", true);
+            double scale = VisualTreeHelper.GetDpi(widget).DpiScaleX;
+
+            InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                new object[] { new Point(100 + 200 * scale, 100 + 200 * scale) });
+            if (Math.Abs(widget.Height - 537) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the drag made the panel " + widget.Height + " high, wanted 537");
+            }
+            if (Math.Abs(DayGridHeight(widget.CalendarView) - 180) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the grown panel's day grid is " +
+                    DayGridHeight(widget.CalendarView).ToString("0.##") +
+                    ", wanted 180 (content 495 -> cell 36)");
+            }
+
+            InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                new object[] { new Point(100 - 300 * scale, 100 - 300 * scale) });
+            if (Math.Abs(widget.Height - 337) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the shrinking drag made the panel " + widget.Height + " high, wanted the 337 minimum");
+            }
+            if (Math.Abs(DayGridHeight(widget.CalendarView) - 132) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the shrunk panel's day grid is " +
+                    DayGridHeight(widget.CalendarView).ToString("0.##") + ", wanted 132");
+            }
+
+            PrivateBaseMethod("OnResizeEnded").Invoke(widget, new object[] { new Point(100, 100) });
+        }
+
+        private static double DayGridHeight(TodoCalendarView view)
+        {
+            var grid = view.FindName("DayGrid") as UniformGrid;
+            if (grid == null) throw new InvalidOperationException("the day grid was not found");
+            return grid.Height;
+        }
+
+        /// <summary>
+        /// Task A4.1: the view's natural height (the legacy fallback) matches
+        /// the engine's one-shot migration sizes - the engine adds the 40-high
+        /// header to the same content, and the 2 DIP shell border is chrome,
+        /// not part of the engine's formula - and the revealed empty day adds
+        /// exactly the extra input row (30).
+        /// </summary>
+        private static void TodoNaturalHeightMatchesTheEngine()
+        {
+            ThemeManager.Initialize("dark");
+            int weeks = TodayWeekCount();
+
+            var empty = new TodoWidget(new TodoData());
+            var emptyView = empty.CalendarView;
+            var (_, wantEmpty) = PanelLayoutAdapter.DefaultTodoSize(weeks, 0);
+            AssertNaturalHeightMatchesTheEngine(emptyView, wantEmpty, "the empty day");
+
+            var oneData = new TodoData { SelectedDate = DateTime.Today };
+            TodoListOps.AddItem(oneData, "item", DateTime.Today);
+            var oneView = new TodoWidget(oneData).CalendarView;
+            var (_, wantOne) = PanelLayoutAdapter.DefaultTodoSize(weeks, 1);
+            AssertNaturalHeightMatchesTheEngine(oneView, wantOne, "the one-item day");
+
+            double natural = emptyView.DesiredHeight;
+            RevealAddBox(emptyView);
+            if (Math.Abs(emptyView.DesiredHeight - (natural + 30)) > 0.001)
+            {
+                throw new InvalidOperationException(
+                    "the revealed empty day wants " + emptyView.DesiredHeight.ToString("0.##") +
+                    ", wanted the natural " + natural.ToString("0.##") + " + 30");
+            }
+            AssertNaturalHeightMatchesTheEngine(emptyView, wantEmpty + 30, "the revealed empty day");
+        }
+
+        private static int TodayWeekCount()
+        {
+            var culture = TodoCalendar.CultureForLanguage(Localization.CurrentLanguage);
+            return TodoCalendar.WeekCount(DateTime.Today.Year, DateTime.Today.Month,
+                culture.DateTimeFormat.FirstDayOfWeek);
+        }
+
+        private static void AssertNaturalHeightMatchesTheEngine(TodoCalendarView view, double engineHeight, string label)
+        {
+            // DefaultTodoSize.h = HEADER_HEIGHT + the view's natural content
+            // (its 2 DIP shell border is chrome, not part of the engine's
+            // migration formula), so this is the content formula match.
+            double actual = view.DesiredHeight + WidgetConstants.HEADER_HEIGHT;
+            if (Math.Abs(actual - engineHeight) > 0.001)
+            {
+                throw new InvalidOperationException(
+                    label + ": the natural height is " + actual.ToString("0.###") +
+                    " (content " + view.DesiredHeight.ToString("0.###") + " + header " +
+                    WidgetConstants.HEADER_HEIGHT + "), wanted the engine's " +
+                    engineHeight.ToString("0.###"));
+            }
+        }
+
+        /// <summary>
+        /// Task A4.1 (the user's smoke hard requirement): at the 342x337
+        /// minimum the add row stays fully visible - a six-week month with
+        /// seven items squeezes the cells to 22 and the list to one row, and
+        /// a revealed empty-day input still leaves the add row inside the
+        /// 295-high content host.
+        /// </summary>
+        private static void TodoAddRowStaysVisibleAtTheMinimum()
+        {
+            ThemeManager.Initialize("dark");
+
+            // Seven items on a six-week month: the list shrinks to one row.
+            var data = NewSevenRowAugustDay();
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            var chrome = (WidgetChrome)widget.Content;
+            ArrangeChrome(chrome, 342, 337);
+
+            if (Math.Abs(chrome.ContentHost.ActualHeight - 295) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the content host is " + chrome.ContentHost.ActualHeight.ToString("0.##") +
+                    " high, wanted 295");
+            }
+            var dayGrid = view.FindName("DayGrid") as UniformGrid;
+            if (dayGrid == null || Math.Abs(dayGrid.Height - 132) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the minimum panel's day grid is " +
+                    (dayGrid == null ? "<no grid>" : dayGrid.Height.ToString("0.##")) + ", wanted 132");
+            }
+            var scroller = view.FindName("ItemsScroller") as FrameworkElement;
+            if (scroller == null || Math.Abs(scroller.Height - 30) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the minimum panel's list is not one row: " +
+                    (scroller == null ? "ItemsScroller missing" : scroller.Height.ToString("0.##")));
+            }
+            var pill = view.FindName("AddPill") as FrameworkElement;
+            if (pill == null || pill.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the add pill is not visible at the minimum size");
+            }
+            double addBottom = AddRowBottom(view, chrome);
+            if (addBottom > 295 + 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the add row's bottom " + addBottom.ToString("0.##") +
+                    " pokes below the 295-high content host");
+            }
+
+            // Revealed input on an empty day of the same six-week month.
+            DateTime emptyDay = new DateTime(2026, 8, 19);
+            var emptyData = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = emptyDay };
+            var emptyWidget = new TodoWidget(emptyData);
+            var emptyView = emptyWidget.CalendarView;
+            RevealAddBox(emptyView);
+            var emptyChrome = (WidgetChrome)emptyWidget.Content;
+            ArrangeChrome(emptyChrome, 342, 337);
+
+            if (Math.Abs(emptyChrome.ContentHost.ActualHeight - 295) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the revealed content host is " + emptyChrome.ContentHost.ActualHeight.ToString("0.##") +
+                    " high, wanted 295");
+            }
+            var emptyGrid = emptyView.FindName("DayGrid") as UniformGrid;
+            if (emptyGrid == null || Math.Abs(emptyGrid.Height - 132) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the revealed minimum panel's day grid is " +
+                    (emptyGrid == null ? "<no grid>" : emptyGrid.Height.ToString("0.##")) + ", wanted 132");
+            }
+            var emptyScroller = emptyView.FindName("ItemsScroller") as FrameworkElement;
+            if (emptyScroller == null || Math.Abs(emptyScroller.Height) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the revealed empty day reserves a row: " +
+                    (emptyScroller == null ? "ItemsScroller missing" : emptyScroller.Height.ToString("0.##")));
+            }
+            var emptyHost = emptyView.FindName("AddInputHost") as FrameworkElement;
+            if (emptyHost == null || emptyHost.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the revealed input is not visible at the minimum size");
+            }
+            var emptyPill = emptyView.FindName("AddPill") as FrameworkElement;
+            if (emptyPill == null || emptyPill.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the stacked pill is not visible at the minimum size");
+            }
+            double emptyBottom = AddRowBottom(emptyView, emptyChrome);
+            if (emptyBottom > 295 + 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the revealed add row's bottom " + emptyBottom.ToString("0.##") +
+                    " pokes below the 295-high content host");
+            }
+        }
+
+        private static void ArrangeChrome(WidgetChrome chrome, double width, double height)
+        {
+            chrome.Measure(new Size(width, height));
+            chrome.Arrange(new Rect(0, 0, width, height));
+            chrome.UpdateLayout();
+        }
+
+        private static double AddRowBottom(TodoCalendarView view, WidgetChrome chrome)
+        {
+            var addRow = view.FindName("AddRow") as FrameworkElement;
+            if (addRow == null) throw new InvalidOperationException("AddRow not found");
+            return addRow.TransformToAncestor(chrome.ContentHost)
+                .Transform(new Point(0, addRow.ActualHeight)).Y;
+        }
+
+        /// <summary>The day header's row (the parent of the header text).</summary>
+        private static FrameworkElement DayHeaderRow(TodoCalendarView view)
+        {
+            var header = view.FindName("DayHeaderText") as FrameworkElement;
+            var row = header == null ? null : header.Parent as FrameworkElement;
+            if (row == null) throw new InvalidOperationException("the day header row was not found");
+            return row;
+        }
+
+        #endregion
+
         /// <summary>The second-line label TextBlock of a day cell, or null.</summary>
         private static TextBlock DayCellLabelBlock(Border cell)
         {
@@ -1554,22 +2027,65 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("child font " + childFont + " is not smaller than parent " + parentFont);
         }
 
-        /// <summary>The calendar's per-cell height must stay at or under 28 DIP.</summary>
-        private static void TodoCalendarCellsAreCompact()
+        /// <summary>
+        /// Task A4.1: the calendar's per-cell height follows the panel height
+        /// through the engine - the unpersisted fallback keeps the migration
+        /// 28, a 385-high panel reaches the 36 clamp, and the 337-high minimum
+        /// with a six-week month and seven items squeezes the cells to 22 with
+        /// the list at its single scrolling row.
+        /// </summary>
+        private static void TodoCalendarCellHeightTracksThePanel()
         {
             ThemeManager.Initialize("dark");
-            var view = new TodoWidget(new TodoData()).CalendarView;
-            LayoutView(view);
 
+            // No persisted size, empty day: the fallback (the old look).
+            var fallback = new TodoWidget(new TodoData()).CalendarView;
+            LayoutView(fallback);
+            AssertCalendarCellHeight(fallback, 28, "the unpersisted fallback");
+
+            // 342x385, no items: content 343 -> (343 - 133) / 5 = 42 -> 36.
+            var tallData = new TodoData
+            {
+                PanelWidth = 342,
+                PanelHeight = 385,
+                SelectedDate = new DateTime(2026, 10, 12)
+            };
+            var tall = new TodoWidget(tallData).CalendarView;
+            LayoutView(tall);
+            AssertCalendarCellHeight(tall, 36, "the 385-high panel");
+
+            // 342x337, seven items on 2026-08-12 (a six-week month): content
+            // 295 -> (295 - 133 - 30) / 6 = 22, the list keeps one row. The
+            // items are completed on 8/12 so they display there (open
+            // past-dated entries carry to today).
+            var minData = NewSevenRowAugustDay();
+            var min = new TodoWidget(minData).CalendarView;
+            LayoutView(min);
+            AssertCalendarCellHeight(min, 22, "the minimum panel");
+
+            var scroller = min.FindName("ItemsScroller") as FrameworkElement;
+            if (scroller == null || Math.Abs(scroller.Height - 30) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the minimum panel's list is not one row: " +
+                    (scroller == null ? "ItemsScroller missing" : scroller.Height.ToString("0.##")));
+            }
+        }
+
+        private static void AssertCalendarCellHeight(TodoCalendarView view, double wanted, string label)
+        {
             var dayGrid = view.FindName("DayGrid") as UniformGrid;
             if (dayGrid == null || dayGrid.Children.Count == 0 || dayGrid.Children.Count % 7 != 0)
             {
-                throw new InvalidOperationException("day grid not built as whole weeks");
+                throw new InvalidOperationException(label + ": day grid not built as whole weeks");
             }
 
             double cellHeight = dayGrid.Height / (dayGrid.Children.Count / 7.0);
-            if (cellHeight > 28.0)
-                throw new InvalidOperationException("day cell height " + cellHeight.ToString("0.##") + " > 28");
+            if (Math.Abs(cellHeight - wanted) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    label + ": day cell height " + cellHeight.ToString("0.##") + ", wanted " + wanted);
+            }
         }
 
         /// <summary>
@@ -1863,20 +2379,17 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Fix round 12 (R1): empty day + reveal - the list still contributes
-        /// no row, no message appears, and the revealed input takes the pill's
-        /// collapsed slot (fix round 18: the pill's own top margin ADD_GAP is
-        /// the only difference between the two positions).
+        /// Task A4.1 (was fix round 12 R1): empty day + reveal - the list
+        /// still contributes no row and no message appears, but the reveal now
+        /// shrinks the calendar instead of growing the panel, so the revealed
+        /// input sits directly at the day header row's bottom (the list slot
+        /// is zero-high) and the pill stacks one ADD_GAP below the input row.
         /// </summary>
         private static void TodoEmptyDayInputSitsInThePillSlot()
         {
             ThemeManager.Initialize("dark");
             var view = new TodoWidget(new TodoData()).CalendarView;
             LayoutView(view);
-
-            var pill = view.FindName("AddPill") as FrameworkElement;
-            if (pill == null) throw new InvalidOperationException("AddPill not found");
-            double collapsedPillTop = pill.TransformToAncestor(view).Transform(new Point(0, 0)).Y;
 
             RevealAddBox(view);
             LayoutView(view);
@@ -1892,21 +2405,35 @@ namespace Kobold.XamlLoadCheck
             var host = view.FindName("AddInputHost") as FrameworkElement;
             if (host == null || host.Visibility != Visibility.Visible)
                 throw new InvalidOperationException("the input is not visible after the reveal");
+
+            var headerRow = DayHeaderRow(view);
+            double headerBottom = headerRow.TransformToAncestor(view)
+                .Transform(new Point(0, headerRow.ActualHeight)).Y;
             double hostTop = host.TransformToAncestor(view).Transform(new Point(0, 0)).Y;
-            if (Math.Abs(hostTop - (collapsedPillTop - ADD_GAP)) > 1.0)
+            if (Math.Abs(hostTop - headerBottom) > 1.0)
             {
                 throw new InvalidOperationException(
-                    "the revealed input did not take the pill's slot: host top " + hostTop.ToString("0.##") +
-                    " vs collapsed pill top " + collapsedPillTop.ToString("0.##") +
-                    " minus the pill's " + ADD_GAP + " top margin");
+                    "the revealed input is not at the day header's bottom: host top " +
+                    hostTop.ToString("0.##") + " vs header bottom " + headerBottom.ToString("0.##"));
+            }
+
+            var pill = view.FindName("AddPill") as FrameworkElement;
+            if (pill == null) throw new InvalidOperationException("AddPill not found");
+            double pillTop = pill.TransformToAncestor(view).Transform(new Point(0, 0)).Y;
+            if (Math.Abs(pillTop - (hostTop + host.ActualHeight) - ADD_GAP) > 1.0)
+            {
+                throw new InvalidOperationException(
+                    "the pill is not stacked " + ADD_GAP + " below the input row: pill top " +
+                    pillTop.ToString("0.##") + ", host top " + hostTop.ToString("0.##") +
+                    " + height " + host.ActualHeight.ToString("0.##"));
             }
         }
 
         /// <summary>
-        /// Fix round 12 (R1): an empty blur collapses the revealed input back
-        /// to the pill, which lands in the revealed input's slot plus its own
-        /// ADD_GAP top margin (fix round 18; no message row appears and the
-        /// list stays at zero rows).
+        /// Task A4.1 (was fix round 12 R1): an empty blur collapses the
+        /// revealed input back to the pill, which lands one ADD_GAP below the
+        /// day header row's bottom (no message row appears and the list stays
+        /// at zero rows).
         /// </summary>
         private static void TodoCollapsingEmptyDayInputRestoresThePill()
         {
@@ -1915,10 +2442,6 @@ namespace Kobold.XamlLoadCheck
             LayoutView(view);
             RevealAddBox(view);
             LayoutView(view);
-
-            var host = view.FindName("AddInputHost") as FrameworkElement;
-            if (host == null) throw new InvalidOperationException("AddInputHost not found");
-            double revealedHostTop = host.TransformToAncestor(view).Transform(new Point(0, 0)).Y;
 
             var box = view.FindName("AddBox") as TextBox;
             if (box == null) throw new InvalidOperationException("AddBox not found");
@@ -1936,14 +2459,19 @@ namespace Kobold.XamlLoadCheck
             var pill = view.FindName("AddPill") as FrameworkElement;
             if (pill == null || pill.Visibility != Visibility.Visible)
                 throw new InvalidOperationException("the pill is not visible after the collapse");
+            var host = view.FindName("AddInputHost") as FrameworkElement;
             if (host.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("the input is still visible after the collapse");
+
+            var headerRow = DayHeaderRow(view);
+            double headerBottom = headerRow.TransformToAncestor(view)
+                .Transform(new Point(0, headerRow.ActualHeight)).Y;
             double pillTop = pill.TransformToAncestor(view).Transform(new Point(0, 0)).Y;
-            if (Math.Abs(pillTop - revealedHostTop - ADD_GAP) > 1.0)
+            if (Math.Abs(pillTop - headerBottom - ADD_GAP) > 1.0)
             {
                 throw new InvalidOperationException(
-                    "the pill did not return " + ADD_GAP + " below the revealed input's slot: pill top " +
-                    pillTop.ToString("0.##") + " vs host top " + revealedHostTop.ToString("0.##"));
+                    "the pill is not " + ADD_GAP + " below the day header's bottom: pill top " +
+                    pillTop.ToString("0.##") + " vs header bottom " + headerBottom.ToString("0.##"));
             }
         }
 
@@ -1952,7 +2480,8 @@ namespace Kobold.XamlLoadCheck
         /// 1px border on every side, or the arranged content host loses 2 DIP
         /// and WPF's layout clip cuts the view's bottom (the pill's lower
         /// border). Pinned for the collapsed and the revealed empty day, whose
-        /// DesiredHeight differ (fix round 12, R1).
+        /// DesiredHeight differ (fix round 12, R1). Task A4.1 adds the exact
+        /// legacy composition: panel height == view.DesiredHeight + 42.
         /// </summary>
         private static void TodoPanelFitsItsContent()
         {
@@ -1987,6 +2516,16 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "content host height " + chrome.ContentHost.ActualHeight.ToString("0.##") +
                     " < the view's desired height " + view.DesiredHeight.ToString("0.##") +
+                    (revealEmptyDayInput ? " (revealed)" : " (collapsed)"));
+            }
+            // Task A4.1: the legacy panel height is exactly the view's wanted
+            // content plus the chrome (40 header + 2 border), in both states.
+            if (Math.Abs(size.height - (view.DesiredHeight + 42)) > 0.001)
+            {
+                throw new InvalidOperationException(
+                    "the panel height " + size.height.ToString("0.###") +
+                    " != the view's desired height " + view.DesiredHeight.ToString("0.###") +
+                    " + 42 (header 40 + border 2)" +
                     (revealEmptyDayInput ? " (revealed)" : " (collapsed)"));
             }
         }

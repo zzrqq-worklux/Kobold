@@ -24,21 +24,17 @@ namespace Kobold.Controls
     /// </summary>
     public partial class TodoCalendarView : UserControl
     {
-        /// <summary>Content width the panel fixes; the day list lives at this width.</summary>
-        private const double CONTENT_WIDTH = 340;
+        /// <summary>Window chrome above the content: 40 header + 2 DIP shell border.</summary>
+        private const double CHROME_HEIGHT = 42;
 
-        // Compact calendar vs. dominant list (fix round 3): 28px cells and a
-        // 30px row whose 14px parent text (one step down for children) reads
-        // clearly. The list viewport shrinks to its content - one row minimum
-        // on a day with entries (fix round 5, so the add pill follows the last
-        // row) up to six rows, where it scrolls; an empty day reserves no row
-        // (fix round 12, the add row sits directly under the day header).
-        private const double CELL_HEIGHT = 28;
-        private const double ROW_HEIGHT = 30;
+        // The calendar/list split and every size around it come from the pure
+        // layout engine (A4.1): the renderer consumes PanelLayoutAdapter's
+        // constants and AdaptTodo output, so the panel never drifts from the
+        // rules. The list viewport follows the engine's row count - up to six
+        // rows, where it scrolls; an empty day reserves no row (fix round 12,
+        // the add row sits directly under the day header).
         private const double PARENT_FONT = 14;
         private const double CHILD_FONT = 13;
-        private const int MIN_LIST_ROWS = 1;
-        private const int MAX_LIST_ROWS = 6;
 
         private TodoData _data;
         private TodoWidget _host;
@@ -114,7 +110,10 @@ namespace Kobold.Controls
 
         /// <summary>
         /// Repaints everything from the data: call on load, after every edit
-        /// and on theme/language changes. Cheap and idempotent.
+        /// and on theme/language changes. Cheap and idempotent. Task A4.1: the
+        /// layout comes first - the engine splits the panel height between the
+        /// calendar and the day list, and the builders only render its output.
+        /// The panel size itself never follows the content.
         /// </summary>
         public void Refresh()
         {
@@ -126,20 +125,76 @@ namespace Kobold.Controls
 
             DateTime today = DateTime.Today;
             var parents = TodoListOps.ForDay(_data.Items, _selected, today);
+            bool dayIsEmpty = parents.Count == 0;
+            int naturalRows = CountNaturalRows(parents);
+            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
+                _culture.DateTimeFormat.FirstDayOfWeek);
+
+            // The revealed empty-day input is an extra 30-high row in the add
+            // block; the engine's fixed-block maths (133) stays unchanged, so
+            // the input takes that 30 off the available height instead.
+            double layoutH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty)
+                             - (_addBoxRevealed && dayIsEmpty ? 30 : 0);
+            var layout = PanelLayoutAdapter.AdaptTodo(layoutH, weekCount, naturalRows,
+                Localization.CurrentLanguage == "zh");
 
             BuildMonthHeader(today);
             BuildWeekdayHeader();
-            BuildCalendar(today);
-            BuildDayList(parents, today);
-            UpdateAddRowVisuals(parents.Count == 0);
+            BuildCalendar(today, layout);
+            BuildDayList(parents, today, layout);
+            UpdateAddRowVisuals(dayIsEmpty);
+            DesiredHeight = NaturalHeight(weekCount, naturalRows, dayIsEmpty);
+        }
 
-            // The measure cache can return the previous day's size after the
-            // list was rebuilt (seen live as a panel that keeps the empty-day
-            // height), so force the root to re-measure before reading the
-            // desired size.
-            Root.InvalidateMeasure();
-            Root.Measure(new Size(CONTENT_WIDTH, double.PositiveInfinity));
-            DesiredHeight = Math.Ceiling(Root.DesiredSize.Height);
+        /// <summary>
+        /// The content height the engine should lay out for: the live panel
+        /// height while open, the persisted panel size otherwise (both minus
+        /// the chrome), or the natural fallback for a panel that has neither.
+        /// </summary>
+        private double CurrentContentHeight(int weekCount, int naturalRows, bool dayIsEmpty)
+        {
+            if (_host != null)
+            {
+                if (_host.IsPanelOpen)
+                {
+                    double live = _host.Height;
+                    if (!double.IsNaN(live) && live > 0) return Math.Max(0, live - CHROME_HEIGHT);
+                }
+                if (_data != null && _data.PanelWidth.HasValue && _data.PanelHeight.HasValue)
+                    return Math.Max(0, _host.GetPanelSize().height - CHROME_HEIGHT);
+            }
+            return NaturalHeight(weekCount, naturalRows, dayIsEmpty);
+        }
+
+        /// <summary>
+        /// The view's content height at the migration cell size: the fixed
+        /// block plus the calendar plus the (capped) list rows, and the extra
+        /// revealed input row on an empty day.
+        /// </summary>
+        private double NaturalHeight(int weekCount, int naturalRows, bool dayIsEmpty)
+        {
+            int rows = Math.Min(naturalRows, PanelLayoutAdapter.LIST_MAX_ROWS);
+            double h = PanelLayoutAdapter.FIXED_CONTENT_H
+                     + weekCount * PanelLayoutAdapter.MIGRATION_CELL_H
+                     + rows * PanelLayoutAdapter.LIST_ROW_H;
+            if (_addBoxRevealed && dayIsEmpty) h += 30; // the revealed input row
+            return h;
+        }
+
+        /// <summary>
+        /// The day's natural list rows: one per item plus its children, the
+        /// open child adder counting one more.
+        /// </summary>
+        private int CountNaturalRows(List<TodoItem> parents)
+        {
+            int rows = 0;
+            foreach (var item in parents)
+            {
+                if (item == null) continue;
+                rows += 1 + (item.Children?.Count ?? 0);
+                if (item.Id == _addingChildToId) rows++;
+            }
+            return rows;
         }
 
         #region Month calendar
@@ -173,18 +228,18 @@ namespace Kobold.Controls
             }
         }
 
-        private void BuildCalendar(DateTime today)
+        private void BuildCalendar(DateTime today, TodoLayout layout)
         {
             DayGrid.Children.Clear();
             var cells = TodoCalendar.BuildMonth(
                 _viewYear, _viewMonth, _data.Items, _selected, today,
                 _culture.DateTimeFormat.FirstDayOfWeek);
 
-            DayGrid.Height = cells.Count / 7 * CELL_HEIGHT;
-            foreach (var cell in cells) DayGrid.Children.Add(BuildDayCell(cell));
+            DayGrid.Height = cells.Count / 7 * layout.CellHeight;
+            foreach (var cell in cells) DayGrid.Children.Add(BuildDayCell(cell, layout.ShowDayLabels));
         }
 
-        private UIElement BuildDayCell(TodoDayCell cell)
+        private UIElement BuildDayCell(TodoDayCell cell, bool showDayLabels)
         {
             // The Border stays the click target only (fix round 15, R2): the
             // today mark is the filled disc behind the content, never a ring.
@@ -213,7 +268,7 @@ namespace Kobold.Controls
             });
 
             // Task 2.5: the zh second line (区域假日 > 节日 > 节气 > 农历日).
-            var label = BuildDayCellLabel(cell);
+            var label = BuildDayCellLabel(cell, showDayLabels);
             if (label != null) stack.Children.Add(label);
 
             var marks = new StackPanel
@@ -258,17 +313,19 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Task 2.5: the day cell's second line, shown in the zh UI only (en/ja
-        /// keep pure numbers). The region holiday mark wins when one exists,
-        /// otherwise the base layer is festival > solar term > lunar day.
-        /// Colours: an off day wears the widget's readable accent, a make-up
-        /// workday and every base-layer label the muted theme text (the label
-        /// keeps its own colour, never OnAccent). Padding days dim to the
-        /// marks' 0.5. Fits inside the 28 DIP cell via the 8pt/10px slot.
+        /// Task 2.5: the day cell's second line, shown when the engine's
+        /// ShowDayLabels allows it (Task A4.1: zh with available data and a
+        /// cell at least 32 high; en/ja keep pure numbers). The region holiday
+        /// mark wins when one exists, otherwise the base layer is
+        /// festival > solar term > lunar day. Colours: an off day wears the
+        /// widget's readable accent, a make-up workday and every base-layer
+        /// label the muted theme text (the label keeps its own colour, never
+        /// OnAccent). Padding days dim to the marks' 0.5. Fits the cell via
+        /// the 8pt/10px slot.
         /// </summary>
-        private TextBlock BuildDayCellLabel(TodoDayCell cell)
+        private TextBlock BuildDayCellLabel(TodoDayCell cell, bool showDayLabels)
         {
-            if (Localization.CurrentLanguage != "zh") return null;
+            if (!showDayLabels) return null;
 
             string region = PublicHolidays.NormalizeRegion(_data.HolidayRegion);
             string holiday = PublicHolidays.GetLabel(region, cell.Date);
@@ -443,7 +500,6 @@ namespace Kobold.Controls
             _viewYear = shifted.year;
             _viewMonth = shifted.month;
             Refresh();
-            _host?.RequestContentResize();
         }
 
         /// <summary>
@@ -461,27 +517,24 @@ namespace Kobold.Controls
             _host?.PersistSelection();
 
             Refresh();
-            _host?.RequestContentResize();
         }
 
         #endregion
 
         #region Day list
 
-        private void BuildDayList(List<TodoItem> parents, DateTime today)
+        private void BuildDayList(List<TodoItem> parents, DateTime today, TodoLayout layout)
         {
             ItemsPanel.Children.Clear();
             DayHeaderText.Text = _selected.ToString("M", _culture) + " · " +
                                  Localization.Format("Todo_ItemCountFormat", parents.Count);
 
-            int rows = 0;
             foreach (var item in parents)
             {
                 if (item == null) continue;
                 var parentRow = BuildParentRow(item, today);
                 ItemsPanel.Children.Add(parentRow);
                 if (item.Id == _scrollToId) RequestScroll(parentRow);
-                rows++;
 
                 if (item.Children != null)
                 {
@@ -491,7 +544,6 @@ namespace Kobold.Controls
                         var childRow = BuildChildRow(item, child);
                         ItemsPanel.Children.Add(childRow);
                         if (child.Id == _scrollToId) RequestScroll(childRow);
-                        rows++;
                     }
                 }
 
@@ -500,7 +552,6 @@ namespace Kobold.Controls
                     var adderRow = BuildChildAdder(item);
                     ItemsPanel.Children.Add(adderRow);
                     if (item.Id == _scrollToAdderForId) RequestScroll(adderRow);
-                    rows++;
                 }
             }
 
@@ -509,12 +560,9 @@ namespace Kobold.Controls
             _scrollToId = null;
             _scrollToAdderForId = null;
 
-            // An empty day renders no message and reserves no row (fix round
-            // 12): the add row sits directly under the day header.
-            int visible = parents.Count == 0
-                ? 0
-                : Math.Min(MAX_LIST_ROWS, Math.Max(MIN_LIST_ROWS, rows));
-            ItemsScroller.Height = visible * ROW_HEIGHT;
+            // The engine gives the viewport its rows (0 on an empty day: the
+            // add row sits directly under the day header, fix round 12).
+            ItemsScroller.Height = layout.ListRows * PanelLayoutAdapter.LIST_ROW_H;
         }
 
         /// <summary>
@@ -667,7 +715,6 @@ namespace Kobold.Controls
                     _addingChildToId = null;
                     _editorCaretAt = null;
                     Refresh();
-                    _host?.RequestContentResize(); // one row fewer
                 },
                 value =>
                 {
@@ -684,7 +731,6 @@ namespace Kobold.Controls
                     else
                     {
                         Refresh(); // empty blur just closes the adder
-                        _host?.RequestContentResize(); // one row fewer
                     }
                     return true;
                 });
@@ -709,7 +755,7 @@ namespace Kobold.Controls
         {
             return new Border
             {
-                Height = ROW_HEIGHT,
+                Height = PanelLayoutAdapter.LIST_ROW_H,
                 Margin = margin,
                 CornerRadius = new CornerRadius(UiTokens.RadiusControl),
                 Background = Brushes.Transparent
@@ -783,7 +829,7 @@ namespace Kobold.Controls
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0),
-                Height = ROW_HEIGHT - 4,
+                Height = PanelLayoutAdapter.LIST_ROW_H - 4,
                 VerticalAlignment = VerticalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center
             };
@@ -914,7 +960,6 @@ namespace Kobold.Controls
             _addingChildToId = itemId;
             _scrollToAdderForId = itemId;
             Refresh();
-            _host?.RequestContentResize(); // the adder is one more list row
         }
 
         private void ToggleItem(TodoItem item)
@@ -996,13 +1041,13 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Every data edit ends here: repaint, re-fit the open panel, then the
-        /// usual save + island refresh through the base's change event.
+        /// Every data edit ends here: repaint, then the usual save + island
+        /// refresh through the base's change event. The panel size never
+        /// follows the content (Task A4.1).
         /// </summary>
         private void AfterItemEdit()
         {
             Refresh();
-            _host?.RequestContentResize();
             _host?.NotifyDataChanged();
         }
 
@@ -1055,7 +1100,6 @@ namespace Kobold.Controls
             {
                 _addBoxRevealed = true;
                 Refresh(); // rebuild the add row (and, on an empty day, the list height)
-                _host?.RequestContentResize();
             }
             AddBox.Focus();
         }
@@ -1066,7 +1110,6 @@ namespace Kobold.Controls
             if (!string.IsNullOrEmpty(AddBox.Text)) return;
             _addBoxRevealed = false;
             Refresh(); // rebuild the add row (and, on an empty day, the list height)
-            _host?.RequestContentResize();
         }
 
         private void UpdateAddRowVisuals(bool selectedDayIsEmpty)

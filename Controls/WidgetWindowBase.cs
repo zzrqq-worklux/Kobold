@@ -25,12 +25,13 @@ namespace Kobold.Controls
 
         // Kind minimum panel sizes (spec 3.2): the folder's 180x137 fallback
         // is overridden by FolderWidget with the engine's dynamic minimum for
-        // the current icon scale; a todo panel stays at 342x335 (its fixed
-        // content column).
+        // the current icon scale; a todo panel's 342x337 fits the chrome
+        // header (40) + the fixed content block (133) + a six-week calendar at
+        // the 22 cell floor + one 30-high list row + the 2 border.
         private const double FOLDER_MIN_WIDTH = 180;
         private const double FOLDER_MIN_HEIGHT = 137;
         private const double TODO_MIN_WIDTH = 342;
-        private const double TODO_MIN_HEIGHT = 335;
+        private const double TODO_MIN_HEIGHT = 337;
 
         private readonly WidgetData _data;
 
