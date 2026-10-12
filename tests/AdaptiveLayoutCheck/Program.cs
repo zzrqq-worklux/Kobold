@@ -289,6 +289,14 @@ namespace Kobold.AdaptiveLayoutCheck
             Check(three.Pinned, "fit 295/132 with three rows: the add row pins to the bottom");
             Check(three.Scrolls, "fit 295/132 with three rows: 90 of content scrolls in 30");
 
+            // The pinned viewport keeps the fractional space (a half row)
+            // instead of rounding up to a whole row.
+            var half = PanelLayoutAdapter.FitTodoList(280, 132, 3, 36);
+            Check(Near(half.ListTop, 219), "fit 280/132 with three rows: list top 219");
+            Check(Near(half.Viewport, 15), "fit 280/132 with three rows: viewport 15 (a half row)");
+            Check(half.Pinned, "fit 280/132 with three rows: the add row pins to the bottom");
+            Check(half.Scrolls, "fit 280/132 with three rows: 90 of content scrolls in 15");
+
             var squeezed = PanelLayoutAdapter.FitTodoList(200, 132, 1, 36);
             Check(Near(squeezed.Viewport, 0), "fit 200/132 with one row: the viewport clamps to 0");
             Check(squeezed.Pinned, "fit 200/132 with one row: pinned");

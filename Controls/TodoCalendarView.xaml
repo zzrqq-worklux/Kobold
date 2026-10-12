@@ -67,7 +67,8 @@
         <Border x:Name="SplitterBand" Grid.Row="3" Background="Transparent" Cursor="SizeNS"
                 MouseLeftButtonDown="SplitterBand_MouseLeftButtonDown"
                 MouseMove="SplitterBand_MouseMove"
-                MouseLeftButtonUp="SplitterBand_MouseLeftButtonUp"/>
+                MouseLeftButtonUp="SplitterBand_MouseLeftButtonUp"
+                LostMouseCapture="SplitterBand_LostMouseCapture"/>
 
         <!-- Selected day header: "9月28日 · 3 项" -->
         <Grid Grid.Row="4" Height="24">

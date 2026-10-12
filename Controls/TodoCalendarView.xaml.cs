@@ -1383,9 +1383,24 @@ namespace Kobold.Controls
         private void SplitterBand_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (!_splitDragging) return;
-            SplitterBand.ReleaseMouseCapture();
+            // End the drag (and persist) before releasing the capture:
+            // ReleaseMouseCapture raises LostMouseCapture synchronously, whose
+            // handler clears _splitDragging - ending afterwards would skip the
+            // persistence. The later duplicate clear is harmless.
             SplitterDragEnded();
+            SplitterBand.ReleaseMouseCapture();
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// A stolen capture (Alt+Tab, a system dialog) ends the drag without
+        /// persisting: _data keeps whatever the last move wrote, and the next
+        /// press starts a fresh drag from the current cell height. A normal
+        /// release re-enters this after the drag has already ended (harmless).
+        /// </summary>
+        private void SplitterBand_LostMouseCapture(object sender, MouseEventArgs e)
+        {
+            _splitDragging = false;
         }
 
         #endregion

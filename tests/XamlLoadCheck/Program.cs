@@ -276,11 +276,13 @@ namespace Kobold.XamlLoadCheck
                 // Task A4.2 pins: the calendar/list divider drags the per-widget
                 // split (22..36, persisted) and refuses on a locked panel; an
                 // explicit split survives an outer resize, a resize never
-                // rebuilds the list rows, and clicking add scrolls an
-                // overflowing list to the bottom.
+                // rebuilds the list rows, clicking add scrolls an overflowing
+                // list to the bottom, and a drag crossing the 32-high cell
+                // threshold flips the day labels in place.
                 failures += TryCheck("todo: the divider drags the calendar split", TodoSplitterDragsTheCalendarHeight);
                 failures += TryCheck("resize: the explicit split stays while the panel resizes", TodoExplicitSplitSurvivesTheOuterResize);
                 failures += TryCheck("resize: todo does not rebuild its list rows", TodoResizeKeepsTheListRows);
+                failures += TryCheck("resize: the day labels appear when the drag crosses the 32 cell height", TodoResizeFlipsTheDayLabelsInPlace);
                 failures += TryCheck("todo: clicking add scrolls the list to the bottom", TodoAddClickScrollsToTheBottom);
 
                 // Fix round 19: the click-to-edit interleaving the human smoke
@@ -1964,7 +1966,9 @@ namespace Kobold.XamlLoadCheck
         /// <summary>
         /// Task A4.2: dragging the calendar/list divider edits the widget's
         /// explicit cell height (-30 drag = 6 per the five weeks, clamped to
-        /// 22..36); the locked panel refuses the drag entirely.
+        /// 22..36); the locked panel refuses the drag entirely. The normal
+        /// release runs the real handler and must persist through
+        /// OnDataChanged (the capture-loss path never persists).
         /// </summary>
         private static void TodoSplitterDragsTheCalendarHeight()
         {
@@ -1975,7 +1979,8 @@ namespace Kobold.XamlLoadCheck
                 PanelHeight = 385,
                 SelectedDate = new DateTime(2026, 10, 12)
             };
-            var view = new TodoWidget(data).CalendarView;
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
 
             if (Math.Abs(DayGridHeight(view) - 180) > 0.01)
             {
@@ -1986,7 +1991,6 @@ namespace Kobold.XamlLoadCheck
 
             var started = ViewPrivateMethod("SplitterDragStarted");
             var moved = ViewPrivateMethod("SplitterDragMoved");
-            var ended = ViewPrivateMethod("SplitterDragEnded");
 
             if (!(bool)started.Invoke(view, new object[] { 100.0 }))
             {
@@ -2039,7 +2043,29 @@ namespace Kobold.XamlLoadCheck
                     "the clamped 22-cell day grid is " + DayGridHeight(view).ToString("0.##") +
                     ", wanted 110");
             }
-            ended.Invoke(view, null);
+
+            // The real release path: releasing the capture raises
+            // LostMouseCapture synchronously, so the handler must end the drag
+            // (and persist it) before that. No capture is held offscreen, so
+            // ReleaseMouseCapture stays a no-op.
+            bool raised = false;
+            widget.OnDataChanged += () => raised = true;
+            var splitterBand = view.FindName("SplitterBand");
+            var upArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            };
+            ViewPrivateMethod("SplitterBand_MouseLeftButtonUp")
+                .Invoke(view, new object[] { splitterBand, upArgs });
+            if (!raised)
+            {
+                throw new InvalidOperationException(
+                    "the real release path did not persist the split (NotifyDataChanged was not raised)");
+            }
+            if (PrivateField<bool>(view, "_splitDragging"))
+            {
+                throw new InvalidOperationException("the release path left _splitDragging set");
+            }
 
             // Locked: the band is inert and the logic refuses the drag.
             var lockedData = new TodoData
@@ -2184,6 +2210,80 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the resize rebuilt the day-list rows");
             }
             PrivateBaseMethod("OnResizeEnded").Invoke(widget, new object[] { new Point(100, 100) });
+        }
+
+        /// <summary>
+        /// Task A4.2 (fix wave): a resize drag crossing the 32-high label
+        /// threshold flips the labels in place - the zh second lines appear
+        /// and the day-list rows survive (only the calendar rebuilds).
+        /// </summary>
+        private static void TodoResizeFlipsTheDayLabelsInPlace()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                DateTime selected = new DateTime(2026, 10, 1);
+                var data = new TodoData
+                {
+                    PanelWidth = 342,
+                    PanelHeight = 363,
+                    SelectedDate = selected
+                };
+                // Completed on 10/1 so it displays there (an open past-dated
+                // entry would carry to today and leave the day empty).
+                var item = TodoListOps.AddItem(data, "item", selected);
+                TodoRollover.Toggle(item, true, selected);
+                var widget = new TodoWidget(data);
+                var view = widget.CalendarView;
+
+                // 363-high closed: content 321 -> (321 - 133 - 30) / 5 = 31.6.
+                if (DayCellLabelBlock(DayCellFor(view, 1)) != null)
+                {
+                    throw new InvalidOperationException(
+                        "the 31.6-high zh cell already shows its second line");
+                }
+
+                var panel = view.FindName("ItemsPanel") as Panel;
+                if (panel == null || panel.Children.Count == 0)
+                {
+                    throw new InvalidOperationException("the list rows were not built");
+                }
+                var firstRow = panel.Children[0];
+
+                EnsureRealDpi(widget);
+                widget.Width = 342;
+                widget.Height = 363;
+                widget.Left = 100;
+                widget.Top = 100;
+                SetPrivateBaseField(widget, "_isExpanded", true);
+                double scale = VisualTreeHelper.GetDpi(widget).DpiScaleX;
+
+                InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+                PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                    new object[] { new Point(100 + 2 * scale, 100 + 2 * scale) });
+                if (Math.Abs(widget.Height - 365) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the drag made the panel " + widget.Height + " high, wanted 365");
+                }
+                // 365-high open: content 323 -> (323 - 133 - 30) / 5 = 32.0.
+                if (DayCellLabelBlock(DayCellFor(view, 1)) == null)
+                {
+                    throw new InvalidOperationException(
+                        "the 32-high zh cell lost its second line after the drag");
+                }
+                if (!ReferenceEquals(firstRow, panel.Children[0]))
+                {
+                    throw new InvalidOperationException(
+                        "the label flip rebuilt the day-list rows");
+                }
+                PrivateBaseMethod("OnResizeEnded").Invoke(widget, new object[] { new Point(100, 100) });
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
         }
 
         /// <summary>
@@ -2839,7 +2939,8 @@ namespace Kobold.XamlLoadCheck
         /// even on an unrealized tree, where the rebuilt list can otherwise be
         /// measured from the previous day's cache. One item = 303, an empty
         /// day = 273 in this layout (each +6 for fix round 18's pill margin);
-        /// Refresh now invalidates the root before the manual measure.
+        /// Refresh publishes DesiredHeight straight from the NaturalHeight
+        /// formula, so the value is fresh even before any manual measure.
         /// </summary>
         private static void TodoSizeRefreshIsNotStale()
         {

@@ -54,7 +54,7 @@ namespace Kobold.Controls
         private double GetItemScale()
         {
             try { return WidgetManager.Instance.Config.ItemScale; }
-            catch { return 1.3; } // Default if manager not ready
+            catch { return 1.1; } // AppConfig.ItemScale default when the manager is not ready
         }
 
         // The dynamic kind minimum: two columns at the current icon scale.
