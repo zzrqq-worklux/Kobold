@@ -316,3 +316,53 @@ Accent 资源）；`Themes/Controls.xaml` 的 ComboBox 模板补可编辑支持�
 - [ ] `tools\deploy.ps1` → **用户手动冒烟**（browse 复制/剪切/粘贴与 Explorer 双向、拖入子文件夹 +
   Ctrl 复制、拖回上级、新建文件对话框三语/组件色/重名报错、锁定面板拒绝）。
 - [ ] 用户确认后：合并 main + 推送（需用户拍板）；worktree/SDD 工作区按收尾规范清理。
+
+---
+
+## 执行记录（2026-10-12）
+
+**任务审查（先审后交，逐任务）**
+
+- F1 剪贴板内核：RED 编译失败 → GREEN ShellOpsCheck（沙盒 Copy + 冲突保留两份）+ XamlLoadCheck
+  （载荷/Resolve 真值表）→ Spec ✅/Approved → 提交 `232a8be`。
+- F2 剪贴板接线（含菜单抽取=预检裁决 B）：审查 1 项 Important（根菜单 Copy 作用于旧选择）→ 修复轮 1
+  复审通过 → 提交 `0d80cad`。
+- F3 拖入子文件夹：`CanDropInto` 15 pins（预检裁决 A：无合成 DragOver pin）→ Spec ✅/Approved
+  （两处披露偏差被判定为正确取舍）→ 提交 `a67ff6c`。
+- F4 新建内核：命名 pins + 可编辑 ComboBox 模板 + `ShowNewFile` → Spec ✅/Approved → 提交 `2a3940e`。
+- F5 接线：菜单改名 + 4 死键三语同删 + 5 新键（`Dialog_ExtCustomHint` 按裁决用作 ToolTip）→
+  Spec ✅/Approved → 提交 `a6ff9c9`。
+- F6 拖回上级：`BackButton.AllowDrop` pin → Spec ✅/Approved（补 2px 透明边框被判为必要）→ 提交 `216f086`。
+- F7 文档：README 英中 + CHANGELOG → 审查 1 项 Important（"粘贴永不覆盖"对剪切不成立）→ 修复轮 1
+  复审通过 → 提交 `ff11e22`。
+
+**矩阵与修复**
+
+- 首轮矩阵（`ff11e22`）：`UiTokensCheck` 红（DialogFactory `#1F1F1F` 字面量，F4 引入且任务自检未覆盖）+
+  config-pin 并发误报。修复 = `UiTokens.Shared.OnAccentDark` 收编（拒绝 allowlist）→ 复审通过 →
+  提交 `45eaa07`；config-pin 重跑转绿（并发归因确认）。
+- 终版矩阵（`df13129`）：**30/31 绿**；唯一红 `MenuRenderCheck`（`entry #94A3B8: renders #8B99AD`）——
+  同一失败在**未含本分支改动的 main（0db8ff3）上完全复现**，判定为环境触发的既有问题、非本轮回归
+  （详见"未解决项"）。
+
+**整支终审（requesting-code-review）**
+
+- 范围 `0db8ff3..45eaa07`（9 提交）；结论 **With fixes**：唯一 Important = 剪切粘贴成功后未消费剪贴板
+  （重复 Ctrl+V 会二次搬移）→ 修复 `df13129`（仅移动分支、仅成功时 `Clipboard.Clear()`）→ 复审通过。
+- 其余全部为 ledger 记录的 deferred minors（7 条），终审 triage 均"可留"。
+
+**手动冒烟（用户操作）**
+
+- deploy 后执行清单：①browse Ctrl+C/X/V 与资源管理器**双向**（面板→Explorer、Explorer→面板）；
+  ②剪切粘贴后再 Ctrl+V 应为空操作（剪贴板已消费）；③主面板 Ctrl+C 发布 / Ctrl+V=加引用（不动物理文件）；
+  ④拖条目到子文件夹（移动）与 Ctrl=复制；⑤拖到返回键=移回上级；⑥新建文件对话框：点扩展名框输入
+  `.xyz`（重点验证鼠标点击+输入）、实时预览、名称带同后缀去重、组件色跟随、三语、重名框内报错；
+  ⑦锁定面板拒绝以上全部。结果待用户确认后补记。
+
+**未解决项（如实声明，需用户拍板）**
+
+- `MenuRenderCheck` 环境性红：folder 颜色菜单灰色 swatch 的"最饱和像素"采样偶发/环境相关偏差
+  （#94A3B8 渲染 #8B99AD，均匀 ~6% 变暗；疑似灰 swatch 边缘 AA 像素被选中）。0db8ff3 主仓库同复现。
+  建议：单独小任务排查（采样容差或选点策略），或重启会话/换机后重跑确认；不阻塞本分支合并，
+  但会挡发布矩阵。
+- deferred minors 7 条见 SDD ledger，全部"可留"。
