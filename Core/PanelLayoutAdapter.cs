@@ -169,15 +169,14 @@ namespace Kobold.Core
             double usableH = contentHeight - WidgetConstants.PADDING;
 
             double scale = Clamp(itemScale, MIN_ITEM_SCALE, MAX_ITEM_SCALE);
-            double cellW = Math.Ceiling(BASE_CELL_W * scale);
-            double cellH = Math.Ceiling(BASE_CELL_H * scale);
+            var cell = CellSize(scale);
 
             var layout = new FolderLayout
             {
-                Columns = Math.Max(MIN_COLUMNS, (int)Math.Floor(usableW / cellW)),
+                Columns = Math.Max(MIN_COLUMNS, (int)Math.Floor(usableW / cell.w)),
                 Scale = scale,
-                CellWidth = cellW,
-                CellHeight = cellH
+                CellWidth = cell.w,
+                CellHeight = cell.h
             };
             layout.VisibleRows = Math.Max(1, (int)Math.Floor(usableH / layout.CellHeight));
             layout.Scrolls = PanelRows.RowsFor(itemCount, layout.Columns) > layout.VisibleRows;
@@ -191,11 +190,9 @@ namespace Kobold.Core
         /// </summary>
         public static (double w, double h) MinFolderSize(double itemScale)
         {
-            double scale = Clamp(itemScale, MIN_ITEM_SCALE, MAX_ITEM_SCALE);
-            double cellW = Math.Ceiling(BASE_CELL_W * scale);
-            double cellH = Math.Ceiling(BASE_CELL_H * scale);
-            return (MIN_COLUMNS * cellW + WidgetConstants.PADDING + CHROME_BORDER_W,
-                    WidgetConstants.HEADER_HEIGHT + cellH + WidgetConstants.PADDING);
+            var cell = CellSize(Clamp(itemScale, MIN_ITEM_SCALE, MAX_ITEM_SCALE));
+            return (MIN_COLUMNS * cell.w + WidgetConstants.PADDING + CHROME_BORDER_W,
+                    WidgetConstants.HEADER_HEIGHT + cell.h + WidgetConstants.PADDING);
         }
 
         /// <summary>
@@ -267,12 +264,11 @@ namespace Kobold.Core
         /// </summary>
         public static (double w, double h) MigrateFolderSize(int gridColumns, int maxPanelRows, int itemCount, double itemScale)
         {
-            double itemW = Math.Ceiling(BASE_CELL_W * itemScale);
-            double itemH = Math.Ceiling(BASE_CELL_H * itemScale);
+            var cell = CellSize(itemScale);
             int rows = PanelRows.VisibleRows(itemCount, gridColumns, maxPanelRows);
 
-            double w = gridColumns * itemW + WidgetConstants.PADDING + CHROME_BORDER_W;
-            double h = WidgetConstants.HEADER_HEIGHT + rows * itemH + WidgetConstants.PADDING
+            double w = gridColumns * cell.w + WidgetConstants.PADDING + CHROME_BORDER_W;
+            double h = WidgetConstants.HEADER_HEIGHT + rows * cell.h + WidgetConstants.PADDING
                        + (PanelRows.NeedsScroll(itemCount, gridColumns, maxPanelRows)
                            ? WidgetConstants.FOOTER_HEIGHT
                            : 0);
@@ -290,6 +286,11 @@ namespace Kobold.Core
             double h = WidgetConstants.HEADER_HEIGHT + FIXED_CONTENT_H
                        + weekCount * MIGRATION_CELL_H + ClampRows(naturalListRows) * LIST_ROW_H;
             return (DEFAULT_WIDTH, h);
+        }
+
+        private static (double w, double h) CellSize(double scale)
+        {
+            return (Math.Ceiling(BASE_CELL_W * scale), Math.Ceiling(BASE_CELL_H * scale));
         }
 
         private static double Clamp(double value, double min, double max)
