@@ -239,6 +239,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
                 failures += TryCheck("folder: clipboard entries follow the lock and paste gates", FolderClipboardMenuEntries);
                 failures += TryCheck("folder: the new-file menu entries wear the shared label", FolderNewFileMenuUsesTheFileLabel);
+                failures += TryCheck("folder: the browse back button accepts drops", BrowseBackButtonAcceptsDrops);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
                 failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
@@ -4699,6 +4700,22 @@ namespace Kobold.XamlLoadCheck
                     (newFile == null ? "<not a menu item>" : newFile.Header.ToString()) +
                     "', wanted '" + Localization.Get("Menu_NewFile") + "'");
             }
+        }
+
+        /// <summary>
+        /// Task F6: the browse header's back button is an item-level drop
+        /// target - dropping a browse drag on it moves the items into the
+        /// current folder's parent. The chrome moves the button out of the
+        /// staging grid in the constructor, so the pin reads the runtime
+        /// property offscreen (reusing F3's BrowseMove.CanDropInto pins for
+        /// the drop verdict itself).
+        /// </summary>
+        private static void BrowseBackButtonAcceptsDrops()
+        {
+            var widget = new FolderWidget(new FolderData());
+            var button = widget.FindName("BackButton") as Border;
+            if (button == null) throw new InvalidOperationException("BackButton not found");
+            if (!button.AllowDrop) throw new InvalidOperationException("the browse back button does not accept drops");
         }
 
         /// <summary>

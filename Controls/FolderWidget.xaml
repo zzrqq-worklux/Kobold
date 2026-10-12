@@ -44,6 +44,9 @@
                 <!-- Back: only visible while browsing a folder -->
                 <Border x:Name="BackButton" Width="24" Height="24" CornerRadius="6"
                         Background="Transparent" Cursor="Hand"
+                        BorderThickness="2" BorderBrush="Transparent"
+                        AllowDrop="True"
+                        DragOver="BackDrop_DragOver" DragLeave="BackDrop_DragLeave" Drop="BackDrop_Drop"
                         Margin="0,0,6,0" Visibility="Collapsed"
                         MouseLeftButtonDown="BackButton_Click">
                     <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"

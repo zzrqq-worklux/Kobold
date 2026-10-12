@@ -777,6 +777,54 @@ namespace Kobold.Controls
             Dispatcher.BeginInvoke(new Action(UpdateUI));
         }
 
+        /// <summary>The current folder's parent, or null at a disk root / outside browse.</summary>
+        private string BrowseParentFolder()
+        {
+            try { return Path.GetDirectoryName(CurrentBrowsePath); } catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// The back button accepts a browse drag when browsing inside a folder
+        /// with a parent, the panel is unlocked and F3's drop-into guard passes
+        /// (existing target directory, not the dragged item, not inside it).
+        /// </summary>
+        private bool IsBackDropAccepted(DragEventArgs e, out string parent)
+        {
+            parent = BrowseParentFolder();
+            return IsBrowsing && !_data.IsLocked && !string.IsNullOrEmpty(parent) &&
+                   IsBrowseDrag(e.Data, out _) &&
+                   BrowseMove.CanDropInto(BrowseDragPaths(e.Data), parent, Directory.Exists);
+        }
+
+        /// <summary>Highlights the back button while an accepted drag hovers it.</summary>
+        private void BackDrop_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            bool accepted = IsBackDropAccepted(e, out _);
+            e.Effects = accepted ? DragDropEffects.Move : DragDropEffects.None;
+            var button = sender as Border;
+            if (button != null) { if (accepted) button.BorderBrush = ThemeManager.AccentBlueBrush; else button.ClearValue(Border.BorderBrushProperty); }
+            if (!accepted) DragDropSession.Current?.MarkTargetRefused();
+        }
+
+        private void BackDrop_DragLeave(object sender, DragEventArgs e)
+        {
+            (sender as Border)?.ClearValue(Border.BorderBrushProperty);
+        }
+
+        /// <summary>Moves the dropped browse entries into the current folder's parent.</summary>
+        private void BackDrop_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            (sender as Border)?.ClearValue(Border.BorderBrushProperty);
+            if (!IsBackDropAccepted(e, out var parent)) return;
+            var movable = BrowseMove.MovableInto(BrowseDragPaths(e.Data), parent,
+                p => File.Exists(p) || Directory.Exists(p));
+            if (movable.Count == 0) return;
+            ShellFileOperations.Move(movable, parent, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            Dispatcher.BeginInvoke(new Action(UpdateUI));
+        }
+
         /// <summary>
         /// Force complete UI refresh - fixes visual glitches on pinned panels
         /// </summary>
