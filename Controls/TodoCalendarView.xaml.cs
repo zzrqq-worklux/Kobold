@@ -197,7 +197,7 @@ namespace Kobold.Controls
             double h = PanelLayoutAdapter.FIXED_CONTENT_H
                      + weekCount * PanelLayoutAdapter.MIGRATION_CELL_H
                      + rows * PanelLayoutAdapter.LIST_ROW_H;
-            if (_addBoxRevealed && dayIsEmpty) h += 30; // the revealed input row
+            if (_addBoxRevealed && dayIsEmpty) h += PanelLayoutAdapter.LIST_ROW_H; // the revealed input row
             return h;
         }
 
