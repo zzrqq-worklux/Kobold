@@ -37,6 +37,9 @@ namespace Kobold.Controls
         // from, so another browse panel knows what to move and from where.
         private const string BrowseDragPathsFormat = "KoboldBrowsePaths";
         private const string BrowseDragSourceFormat = "KoboldBrowseSource";
+
+        // Folder row currently highlighted as an item-level drop target.
+        private Border _browseDropHighlight;
         
         #region External File Drop
         
@@ -363,6 +366,24 @@ namespace Kobold.Controls
             else Chrome.Shell.ClearValue(Border.BorderBrushProperty);
         }
 
+        /// <summary>Highlights the folder row offered as an item-level drop target.</summary>
+        private void SetItemDropHighlight(Border border)
+        {
+            if (ReferenceEquals(_browseDropHighlight, border)) return;
+
+            ClearItemDropHighlight();
+            _browseDropHighlight = border;
+            if (border != null) border.BorderBrush = ThemeManager.AccentBlueBrush;
+        }
+
+        /// <summary>Removes the row highlight; the selection brushes show again.</summary>
+        private void ClearItemDropHighlight()
+        {
+            var border = _browseDropHighlight;
+            _browseDropHighlight = null;
+            if (border != null) border.ClearValue(Border.BorderBrushProperty);
+        }
+
         /// <summary>
         /// Creates a transparent popup showing dragged item icons
         /// </summary>
@@ -542,6 +563,7 @@ namespace Kobold.Controls
         {
             DropIndicator.Visibility = Visibility.Collapsed;
             SetBrowseDropHighlight(false);
+            ClearItemDropHighlight();
             DragDropSession.Current?.ClearTargetState();
         }
         
@@ -668,6 +690,90 @@ namespace Kobold.Controls
             // Deferred so the re-list does not run inside the OLE drag loop; the
             // listing may have gained entries (or kept some, when the shell
             // skipped or the user cancelled).
+            Dispatcher.BeginInvoke(new Action(UpdateUI));
+        }
+
+        /// <summary>Paths carried by a browse drag; a missing payload means nothing to drop.</summary>
+        private static List<string> BrowseDragPaths(IDataObject data)
+        {
+            var paths = data == null ? null : data.GetData(BrowseDragPathsFormat) as List<string>;
+            return paths ?? new List<string>();
+        }
+
+        private void BrowseItem_DragOver(object sender, DragEventArgs e)
+        {
+            // Root mode keeps its panel-level reorder/merge handling untouched.
+            if (!IsBrowsing) return;
+
+            e.Handled = true;
+
+            var border = sender as Border;
+            var target = border?.DataContext as DisplayItem;
+            bool accepted = !_data.IsLocked &&
+                            target != null &&
+                            target.IsDirectory &&
+                            IsBrowseDrag(e.Data, out _) &&
+                            BrowseMove.CanDropInto(BrowseDragPaths(e.Data), target.Path, Directory.Exists);
+
+            bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+            e.Effects = accepted
+                ? (copy ? DragDropEffects.Copy : DragDropEffects.Move)
+                : DragDropEffects.None;
+
+            if (accepted) SetItemDropHighlight(border);
+            else
+            {
+                ClearItemDropHighlight();
+                DragDropSession.Current?.MarkTargetRefused();
+            }
+        }
+
+        private void BrowseItem_DragLeave(object sender, DragEventArgs e)
+        {
+            if (ReferenceEquals(sender, _browseDropHighlight)) ClearItemDropHighlight();
+        }
+
+        private void BrowseItem_Drop(object sender, DragEventArgs e)
+        {
+            // Root mode keeps its panel-level reorder/merge handling untouched.
+            if (!IsBrowsing) return;
+
+            e.Handled = true;
+            ClearItemDropHighlight();
+
+            var border = sender as Border;
+            var target = border?.DataContext as DisplayItem;
+            bool accepted = !_data.IsLocked &&
+                            target != null &&
+                            target.IsDirectory &&
+                            IsBrowseDrag(e.Data, out _) &&
+                            BrowseMove.CanDropInto(BrowseDragPaths(e.Data), target.Path, Directory.Exists);
+
+            if (!accepted)
+            {
+                e.Effects = DragDropEffects.None;
+                DragDropSession.Current?.MarkTargetRefused();
+                return;
+            }
+
+            var movable = BrowseMove.MovableInto(BrowseDragPaths(e.Data), target.Path,
+                p => File.Exists(p) || Directory.Exists(p));
+            if (movable.Count == 0)
+            {
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
+            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            bool ok = copy
+                ? ShellFileOperations.Copy(movable, target.Path, handle)
+                : ShellFileOperations.Move(movable, target.Path, handle);
+            e.Effects = ok
+                ? (copy ? DragDropEffects.Copy : DragDropEffects.Move)
+                : DragDropEffects.None;
+
+            // Deferred so the re-list does not run inside the OLE drag loop.
             Dispatcher.BeginInvoke(new Action(UpdateUI));
         }
 

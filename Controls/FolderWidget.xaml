@@ -125,6 +125,8 @@
                                         <Border x:Name="ItemBorder" Width="72" Height="85" Margin="2" CornerRadius="8" 
                                                 Background="Transparent" Cursor="Hand"
                                                 BorderThickness="2" BorderBrush="Transparent"
+                                                AllowDrop="True"
+                                                DragOver="BrowseItem_DragOver" DragLeave="BrowseItem_DragLeave" Drop="BrowseItem_Drop"
                                                 MouseEnter="Item_MouseEnter" MouseLeave="Item_MouseLeave"
                                                 MouseLeftButtonDown="Item_MouseDown"
                                                 MouseLeftButtonUp="Item_MouseUp"

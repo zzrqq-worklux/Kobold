@@ -30,6 +30,34 @@ namespace Kobold.Core
             return movable;
         }
 
+        /// <summary>Drop-target guard for the item-level browse drop: target must be an
+        /// existing directory and neither a dragged path itself nor inside one of them.</summary>
+        public static bool CanDropInto(IEnumerable<string> paths, string targetFolder, Func<string, bool> isDirectory)
+        {
+            if (paths == null || string.IsNullOrWhiteSpace(targetFolder)) return false;
+            if (isDirectory != null && !isDirectory(targetFolder)) return false;
+
+            bool any = false;
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                any = true;
+                if (SamePath(path, targetFolder)) return false;
+                try
+                {
+                    if (StorageOps.IsUnder(targetFolder, path)) return false; // 自身子树守卫（复用既有边界安全实现）
+                }
+                catch (Exception) { return false; }                          // 归一化失败按拒绝处理
+            }
+            return any;
+        }
+
+        /// <summary>True when both arguments name the same location (SameFolder comparison).</summary>
+        private static bool SamePath(string path, string target)
+        {
+            return SameFolder(path, target);
+        }
+
         /// <summary>Case-insensitive folder comparison that tolerates trailing separators.</summary>
         public static bool SameFolder(string a, string b)
         {

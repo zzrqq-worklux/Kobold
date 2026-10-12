@@ -39,6 +39,7 @@ namespace Kobold.FolderListingCheck
                 BrowsePathLabelsEveryLevel();
                 BrowseStackNormalization();
                 BrowseMoveFilters();
+                BrowseMoveDropIntoGuard();
                 SameEntriesComparison();
                 SystemDirectoriesAreListed();
             }
@@ -289,6 +290,53 @@ namespace Kobold.FolderListingCheck
                 "browse-move: blank entries are skipped");
             Check(BrowseMove.MovableInto(null, target, exists).Count == 0,
                 "browse-move: a null list moves nothing");
+        }
+
+        private static void BrowseMoveDropIntoGuard()
+        {
+            string source = NewDir("case-dropinto-source");
+            string target = NewDir("case-dropinto-target");
+            string file = Path.Combine(source, "a.txt");
+            File.WriteAllText(file, "");
+            string folder = Path.Combine(source, "sub");
+            Directory.CreateDirectory(folder);
+            string descendant = Path.Combine(folder, "deep");
+            Directory.CreateDirectory(descendant);
+
+            Func<string, bool> isDir = Directory.Exists;
+
+            Check(BrowseMove.CanDropInto(new[] { file }, target, isDir),
+                "drop-into: a file may go into a real folder");
+            Check(BrowseMove.CanDropInto(new[] { folder }, target, isDir),
+                "drop-into: a folder may go into another real folder");
+            Check(!BrowseMove.CanDropInto(new[] { file }, Path.Combine(_root, "gone"), isDir),
+                "drop-into: a missing target is refused");
+            Check(!BrowseMove.CanDropInto(new[] { file }, file, isDir),
+                "drop-into: a file target is refused");
+
+            Check(!BrowseMove.CanDropInto(new[] { target }, target, isDir),
+                "drop-into: the target dropped onto itself is refused");
+            Check(!BrowseMove.CanDropInto(new[] { target }, target.ToUpperInvariant(), isDir),
+                "drop-into: the self check ignores case");
+            Check(!BrowseMove.CanDropInto(new[] { target + Path.DirectorySeparatorChar }, target, isDir),
+                "drop-into: the self check tolerates a trailing separator");
+
+            Check(!BrowseMove.CanDropInto(new[] { folder }, descendant, isDir),
+                "drop-into: a folder dropped into its own descendant is refused");
+            Check(!BrowseMove.CanDropInto(new[] { folder }, descendant.ToUpperInvariant(), isDir),
+                "drop-into: the descendant check ignores case");
+            Check(!BrowseMove.CanDropInto(new[] { folder }, descendant + Path.DirectorySeparatorChar, isDir),
+                "drop-into: the descendant check tolerates a trailing separator");
+
+            Check(!BrowseMove.CanDropInto(null, target, isDir), "drop-into: a null list is refused");
+            Check(!BrowseMove.CanDropInto(new List<string>(), target, isDir),
+                "drop-into: an empty list is refused");
+            Check(!BrowseMove.CanDropInto(new[] { "   ", null }, target, isDir),
+                "drop-into: a list with only blank entries is refused");
+            Check(!BrowseMove.CanDropInto(new[] { file }, "   ", isDir),
+                "drop-into: a blank target is refused");
+            Check(!BrowseMove.CanDropInto(new[] { file, target }, target, isDir),
+                "drop-into: one self-reference refuses the whole selection");
         }
 
         private static void SameEntriesComparison()
