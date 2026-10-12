@@ -34,6 +34,8 @@ namespace Kobold.ShellOpsCheck
             DoubleNullTerminatedListing();
             CreateAndRenameInTemp();
             MoveIntoFolderInTemp();
+            CopyFlagsKeepCollisionsAndUndo();
+            CopyIntoFolderInTemp();
 
             Console.WriteLine();
             if (Errors.Count == 0)
@@ -205,6 +207,15 @@ namespace Kobold.ShellOpsCheck
                 "move flags: a failed move stays visible instead of failing silently");
         }
 
+        private static void CopyFlagsKeepCollisionsAndUndo()
+        {
+            const ushort FOF_ALLOWUNDO = 0x0040;
+            const ushort FOF_RENAMEONCOLLISION = 0x0008;
+
+            Check(ShellFileOperations.CopyFlags == (ushort)(FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION),
+                "copy flags: exactly FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION (0x48) - undoable, collisions rename");
+        }
+
         private static void DoubleNullTerminatedListing()
         {
             string one = ShellFileOperations.ToDoubleNullTerminated(new[] { @"C:\a\b.txt" });
@@ -236,6 +247,48 @@ namespace Kobold.ShellOpsCheck
                     "move: an empty list is a no-op that reports success");
                 Check(!ShellFileOperations.Move(new[] { file }, "   ", IntPtr.Zero),
                     "move: a blank target folder is refused");
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
+
+        private static void CopyIntoFolderInTemp()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "kobold-shellops-" + Guid.NewGuid().ToString("N"));
+            string target = Path.Combine(root, "target");
+            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(target);
+            try
+            {
+                string file = Path.Combine(root, "src.txt");
+                File.WriteAllText(file, "new");
+
+                Check(ShellFileOperations.Copy(new[] { file }, target, IntPtr.Zero) &&
+                      File.Exists(Path.Combine(target, "src.txt")) &&
+                      File.Exists(file),
+                    "copy: a real file lands in the target folder and the source stays");
+
+                Check(ShellFileOperations.Copy(new string[0], target, IntPtr.Zero),
+                    "copy: an empty list is a no-op that reports success");
+                Check(!ShellFileOperations.Copy(new[] { file }, "   ", IntPtr.Zero),
+                    "copy: a blank target folder is refused");
+
+                // Collision: the shell renames the newcomer, both copies stay.
+                File.WriteAllText(Path.Combine(target, "src.txt"), "old");
+                bool copied = ShellFileOperations.Copy(new[] { file }, target, IntPtr.Zero);
+                bool keptOriginal = File.ReadAllText(Path.Combine(target, "src.txt")) == "old";
+                bool renamedCopy = false;
+                foreach (string extra in Directory.GetFiles(target))
+                {
+                    if (Path.GetFileName(extra) != "src.txt" && File.ReadAllText(extra) == "new")
+                    {
+                        renamedCopy = true;
+                    }
+                }
+                Check(copied && keptOriginal && renamedCopy,
+                    "copy: an existing name keeps both copies (the newcomer is renamed)");
             }
             finally
             {

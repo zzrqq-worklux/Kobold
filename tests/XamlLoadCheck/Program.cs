@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -105,6 +106,14 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("drag: move without start is ignored", DragMoveWithoutStartIsIgnored);
                 failures += TryCheck("drag: start then move moves by the DPI-scaled delta", DragStartThenMoveMoves);
                 failures += TryCheck("chrome: start event precedes the drag flag", ChromeRaisesStartBeforeDragActive);
+
+                // Task F1 pins: the file-clipboard payload (FileDrop +
+                // "Preferred DropEffect") round-trips through plain DataObjects
+                // and Resolve follows the Ctrl+C/X/V truth table (browsing
+                // gates Cut; locked / Shift / Alt reject). The real system
+                // clipboard is never touched.
+                failures += TryCheck("files: the clipboard payload round-trips and Resolve follows the truth table",
+                    FileClipboardPayloadAndResolve);
 
                 // Task A2.2 pins: the persisted panel size wins over the legacy
                 // content maths (with the kind minimum applied); the resize
@@ -542,6 +551,139 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "HeaderDragStarted saw _isDragActive=" +
                     (dragActiveAtStart.HasValue ? dragActiveAtStart.Value.ToString() : "never raised"));
+            }
+        }
+
+        /// <summary>
+        /// Task F1: the file-clipboard payload carries the FileDrop list in
+        /// order (blank entries dropped) plus the 4-byte Preferred DropEffect
+        /// stream (Copy=1 / Move=2); the payload reads back through PathsFrom
+        /// (string[] and StringCollection forms) and IsMoveEffect (short or
+        /// missing streams are copies), and Resolve follows the Ctrl+C/X/V
+        /// truth table. Everything uses plain DataObjects - no real clipboard.
+        /// </summary>
+        private static void FileClipboardPayloadAndResolve()
+        {
+            var movePayload = FileClipboard.CreatePayload(new[] { @"C:\a.txt", @"C:\b.txt" }, true);
+            if (!movePayload.GetDataPresent(DataFormats.FileDrop))
+            {
+                throw new InvalidOperationException("the move payload carries no FileDrop list");
+            }
+            var moveFiles = movePayload.GetFileDropList();
+            if (moveFiles.Count != 2 || moveFiles[0] != @"C:\a.txt" || moveFiles[1] != @"C:\b.txt")
+            {
+                throw new InvalidOperationException(
+                    "the FileDrop list lost its order: " + moveFiles.Count + " entries");
+            }
+            if (!FileClipboard.IsMoveEffect(movePayload))
+            {
+                throw new InvalidOperationException("the move payload did not read back as a move effect");
+            }
+
+            var moveBack = FileClipboard.PathsFrom(movePayload);
+            if (moveBack.Count != 2 || moveBack[0] != @"C:\a.txt" || moveBack[1] != @"C:\b.txt")
+            {
+                throw new InvalidOperationException(
+                    "PathsFrom lost the move payload: " + moveBack.Count + " entries");
+            }
+
+            var copyPayload = FileClipboard.CreatePayload(new[] { @"C:\a.txt", @"C:\b.txt" }, false);
+            if (FileClipboard.IsMoveEffect(copyPayload))
+            {
+                throw new InvalidOperationException("the copy payload read back as a move effect");
+            }
+            if (FileClipboard.PathsFrom(copyPayload).Count != 2)
+            {
+                throw new InvalidOperationException("PathsFrom lost the copy payload");
+            }
+
+            var filtered = FileClipboard.CreatePayload(new[] { @"C:\a.txt", "", "   ", null }, false);
+            var filteredFiles = filtered.GetFileDropList();
+            if (filteredFiles.Count != 1 || filteredFiles[0] != @"C:\a.txt")
+            {
+                throw new InvalidOperationException(
+                    "blank paths leaked into the payload: " + filteredFiles.Count + " entries");
+            }
+
+            var legacy = new DataObject();
+            legacy.SetData(DataFormats.FileDrop, new StringCollection { @"C:\legacy.txt", "" });
+            var legacyBack = FileClipboard.PathsFrom(legacy);
+            if (legacyBack.Count != 1 || legacyBack[0] != @"C:\legacy.txt")
+            {
+                throw new InvalidOperationException(
+                    "PathsFrom did not read the StringCollection form: " + legacyBack.Count + " entries");
+            }
+
+            if (FileClipboard.PathsFrom(null).Count != 0 ||
+                FileClipboard.PathsFrom(new DataObject()).Count != 0)
+            {
+                throw new InvalidOperationException("a payload without FileDrop was not read as empty");
+            }
+            if (FileClipboard.IsMoveEffect(null) || FileClipboard.IsMoveEffect(new DataObject()))
+            {
+                throw new InvalidOperationException("a missing drop-effect stream was not read as a copy");
+            }
+
+            var shortEffect = new DataObject();
+            shortEffect.SetData(FileClipboard.PreferredDropEffectFormat, new IO.MemoryStream(new byte[] { 2, 0 }));
+            if (FileClipboard.IsMoveEffect(shortEffect))
+            {
+                throw new InvalidOperationException("a short drop-effect stream was not rejected");
+            }
+
+            var copyEffect = new DataObject();
+            copyEffect.SetData(FileClipboard.PreferredDropEffectFormat,
+                new IO.MemoryStream(BitConverter.GetBytes(FileClipboard.CopyEffect)));
+            if (FileClipboard.IsMoveEffect(copyEffect))
+            {
+                throw new InvalidOperationException("effect 1 was read as a move");
+            }
+
+            if (FileClipboard.Resolve(false, false, false, true, false, Key.C) != ClipboardAction.None ||
+                FileClipboard.Resolve(false, false, false, false, false, Key.X) != ClipboardAction.None ||
+                FileClipboard.Resolve(false, false, false, true, false, Key.V) != ClipboardAction.None)
+            {
+                throw new InvalidOperationException("a missing Ctrl was not rejected");
+            }
+
+            if (FileClipboard.Resolve(true, true, false, true, false, Key.C) != ClipboardAction.None ||
+                FileClipboard.Resolve(true, false, true, true, false, Key.X) != ClipboardAction.None ||
+                FileClipboard.Resolve(true, true, true, true, false, Key.V) != ClipboardAction.None)
+            {
+                throw new InvalidOperationException("Shift/Alt was not rejected");
+            }
+
+            if (FileClipboard.Resolve(true, false, false, true, true, Key.C) != ClipboardAction.None ||
+                FileClipboard.Resolve(true, false, false, true, true, Key.X) != ClipboardAction.None ||
+                FileClipboard.Resolve(true, false, false, true, true, Key.V) != ClipboardAction.None)
+            {
+                throw new InvalidOperationException("a locked panel was not rejected");
+            }
+
+            if (FileClipboard.Resolve(true, false, false, false, false, Key.C) != ClipboardAction.Copy ||
+                FileClipboard.Resolve(true, false, false, true, false, Key.C) != ClipboardAction.Copy)
+            {
+                throw new InvalidOperationException("Ctrl+C was not Copy in both views");
+            }
+
+            if (FileClipboard.Resolve(true, false, false, true, false, Key.X) != ClipboardAction.Cut)
+            {
+                throw new InvalidOperationException("Ctrl+X in the browse view was not Cut");
+            }
+            if (FileClipboard.Resolve(true, false, false, false, false, Key.X) != ClipboardAction.None)
+            {
+                throw new InvalidOperationException("Ctrl+X outside the browse view was not rejected");
+            }
+
+            if (FileClipboard.Resolve(true, false, false, true, false, Key.V) != ClipboardAction.Paste ||
+                FileClipboard.Resolve(true, false, false, false, false, Key.V) != ClipboardAction.Paste)
+            {
+                throw new InvalidOperationException("Ctrl+V was not Paste in both views");
+            }
+
+            if (FileClipboard.Resolve(true, false, false, true, false, Key.A) != ClipboardAction.None)
+            {
+                throw new InvalidOperationException("Ctrl+A was resolved as a clipboard action");
             }
         }
 

@@ -226,6 +226,7 @@ namespace Kobold.Services
         }
 
         private const uint FO_MOVE = 0x0001;
+        private const uint FO_COPY = 0x0002;
         private const uint FO_DELETE = 0x0003;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -247,6 +248,7 @@ namespace Kobold.Services
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint QueryDosDevice(string lpDeviceName, StringBuilder lpTargetPath, uint ucchMax);
 
+        internal const ushort FOF_RENAMEONCOLLISION = 0x0008;
         internal const ushort FOF_NOCONFIRMATION = 0x0010;
         internal const ushort FOF_ALLOWUNDO = 0x0040;
         internal const ushort FOF_NOERRORUI = 0x0400;
@@ -265,6 +267,13 @@ namespace Kobold.Services
         /// FOF_ALLOWUNDO keeps the move undoable.
         /// </summary>
         public const ushort MoveFlags = FOF_ALLOWUNDO;
+
+        /// <summary>
+        /// A paste never silently replaces a file: FOF_RENAMEONCOLLISION
+        /// keeps both copies when the name is taken (the newcomer is
+        /// renamed), and FOF_ALLOWUNDO keeps the copy undoable.
+        /// </summary>
+        public const ushort CopyFlags = FOF_ALLOWUNDO | FOF_RENAMEONCOLLISION;
 
         /// <summary>
         /// Moves files/folders into targetFolder through the shell, so cross-drive
@@ -293,6 +302,37 @@ namespace Kobold.Services
             catch (Exception ex)
             {
                 Debug.WriteLine("[Kobold] Move failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Copies files/folders into targetFolder through the shell. A name
+        /// clash keeps both copies (rename, never a silent replace). Returns
+        /// false when the shell refused or the user cancelled.
+        /// </summary>
+        public static bool Copy(IList<string> paths, string targetFolder, IntPtr ownerHwnd)
+        {
+            if (paths == null || paths.Count == 0) return true;
+            if (string.IsNullOrWhiteSpace(targetFolder)) return false;
+
+            var operation = new SHFILEOPSTRUCT
+            {
+                hwnd = ownerHwnd,
+                wFunc = FO_COPY,
+                pFrom = ToDoubleNullTerminated(paths),
+                pTo = ToDoubleNullTerminated(new[] { targetFolder }),
+                fFlags = CopyFlags
+            };
+
+            try
+            {
+                int result = SHFileOperation(ref operation);
+                return result == 0 && !operation.fAnyOperationsAborted;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Kobold] Copy failed: " + ex.Message);
                 return false;
             }
         }
