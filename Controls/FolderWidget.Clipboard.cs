@@ -47,7 +47,11 @@ namespace Kobold.Controls
                 var movable = BrowseMove.MovableInto(paths, CurrentBrowsePath,
                     p => File.Exists(p) || Directory.Exists(p));
                 if (movable.Count == 0) return;
-                ShellFileOperations.Move(movable, CurrentBrowsePath, handle);
+                if (ShellFileOperations.Move(movable, CurrentBrowsePath, handle))
+                {
+                    try { Clipboard.Clear(); }
+                    catch (Exception ex) { Debug.WriteLine("[Kobold] Clipboard clear failed: " + ex.Message); }
+                }
             }
             else ShellFileOperations.Copy(paths, CurrentBrowsePath, handle);
             Dispatcher.BeginInvoke(new Action(UpdateUI));
