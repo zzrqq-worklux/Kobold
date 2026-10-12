@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Kobold.Controls;
 using Kobold.Controls.IconRenderers;
@@ -121,6 +122,7 @@ namespace Kobold.XamlLoadCheck
                 // while a plain combo keeps it collapsed and still renders
                 // the selection presenter.
                 failures += TryCheck("combo: the editable template hosts a text box", EditableComboBoxSupportsTextEntry);
+                failures += TryCheck("combo: the editable text is not clipped", EditableComboBoxTextIsNotClipped);
 
                 // Task A2.2 pins: the persisted panel size wins over the legacy
                 // content maths (with the kind minimum applied); the resize
@@ -182,6 +184,12 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: adder blur commits once and closes", TodoAdderBlurCommitsOnceAndCloses);
                 failures += TryCheck("todo: adder Enter then blur adds once", TodoAdderEnterThenBlurAddsOnce);
                 failures += TryCheck("todo: empty adder blur closes without adding", TodoAdderEmptyBlurClosesWithoutAdding);
+
+                // Smoke fix C (new spec): Enter in a parent editor commits and
+                // opens that item's child adder; Enter on an empty child adder
+                // jumps to the next day item's adder (last closes).
+                failures += TryCheck("todo: parent editor Enter opens the child adder", TodoParentEditorEnterOpensChildAdder);
+                failures += TryCheck("todo: empty adder Enter moves to the next parent", TodoAdderEmptyEnterMovesToNextParent);
 
                 // Fix round 5 pins: the list viewport shrinks to its content so
                 // the add pill sits directly under the last row (no 2-row
@@ -760,6 +768,111 @@ namespace Kobold.XamlLoadCheck
             if (plainPresenter.Visibility != Visibility.Visible)
             {
                 throw new InvalidOperationException("the plain selection presenter is " + plainPresenter.Visibility);
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix A: the New-File dialog's editable extension ComboBox
+        /// must render ".txt" in full. PART_EditableTextBox inherited the
+        /// global TextBox style, whose 10,6 padding (inside the fixed 32-high
+        /// combo) shrank the text viewport below one glyph line - the human
+        /// smoke saw the text clipped to a thin band. The pin renders the
+        /// same combo offscreen and demands the glyph band match the text's
+        /// real ink height and stay inside the text viewport.
+        /// </summary>
+        private static void EditableComboBoxTextIsNotClipped()
+        {
+            ThemeManager.Initialize("dark");
+
+            var combo = new ComboBox
+            {
+                IsEditable = true,
+                Text = ".txt",
+                Width = 116,
+                ItemsSource = new[] { ".txt", ".md", ".json" }
+            };
+            // An unparented control does not resolve the app's implicit styles;
+            // the dialog's combo does. Apply the same style explicitly so the
+            // template (and the editable host's inherited TextBox style) match
+            // the production resource chain.
+            combo.Style = Application.Current.TryFindResource(typeof(ComboBox)) as Style;
+            if (combo.Style == null)
+            {
+                throw new InvalidOperationException("the app's implicit ComboBox style was not found");
+            }
+            combo.ApplyTemplate();
+            combo.Measure(new Size(116, double.PositiveInfinity));
+            combo.Arrange(new Rect(0, 0, 116, combo.DesiredSize.Height));
+            combo.UpdateLayout();
+
+            var textBox = combo.Template.FindName("PART_EditableTextBox", combo) as TextBox;
+            if (textBox == null) throw new InvalidOperationException("PART_EditableTextBox not found");
+            textBox.ApplyTemplate();
+            var contentHost = textBox.Template.FindName("PART_ContentHost", textBox) as FrameworkElement;
+            if (contentHost == null) throw new InvalidOperationException("PART_ContentHost not found");
+
+            var typeface = new Typeface(textBox.FontFamily, textBox.FontStyle, textBox.FontWeight, textBox.FontStretch);
+            var formatted = new FormattedText(".txt", CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                typeface, textBox.FontSize, Brushes.Black, 1.0);
+            double expectedInk = formatted.BuildGeometry(new Point(0, 0)).Bounds.Height;
+
+            Point boxOrigin = textBox.TransformToAncestor(combo).Transform(new Point(0, 0));
+            Point hostOrigin = contentHost.TransformToAncestor(combo).Transform(new Point(0, 0));
+
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(combo.ActualWidth),
+                (int)Math.Ceiling(combo.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(combo);
+            int width = bitmap.PixelWidth;
+            int height = bitmap.PixelHeight;
+            var pixels = new byte[width * height * 4];
+            bitmap.CopyPixels(pixels, width * 4, 0);
+
+            int x0 = Math.Max(0, (int)Math.Floor(boxOrigin.X));
+            int x1 = Math.Min(width, (int)Math.Ceiling(boxOrigin.X + textBox.ActualWidth));
+            int firstInkRow = int.MaxValue;
+            int lastInkRow = int.MinValue;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = x0; x < x1; x++)
+                {
+                    int i = (y * width + x) * 4;
+                    if (pixels[i] > 128 || pixels[i + 1] > 128 || pixels[i + 2] > 128)
+                    {
+                        if (y < firstInkRow) firstInkRow = y;
+                        if (y > lastInkRow) lastInkRow = y;
+                        break;
+                    }
+                }
+            }
+            if (lastInkRow < firstInkRow)
+            {
+                throw new InvalidOperationException("no glyph pixels rendered for '.txt'");
+            }
+
+            int band = lastInkRow - firstInkRow + 1;
+            double contentHeight = textBox.ActualHeight - textBox.BorderThickness.Top - textBox.BorderThickness.Bottom
+                                   - textBox.Padding.Top - textBox.Padding.Bottom;
+            Console.WriteLine("    probe: combo " + combo.ActualWidth + "x" + combo.ActualHeight +
+                ", box h=" + textBox.ActualHeight + " pad=" + textBox.Padding + " border=" + textBox.BorderThickness +
+                ", box.y=" + boxOrigin.Y.ToString("0.##") + ", host h=" + contentHost.ActualHeight +
+                " host.y=" + hostOrigin.Y.ToString("0.##") + ", content=" + contentHeight.ToString("0.##") +
+                ", ink rows " + firstInkRow + ".." + lastInkRow + " (band " + band + "), expected ink " +
+                expectedInk.ToString("0.##") + ", font " + textBox.FontSize);
+
+            if (band < expectedInk - 2.5)
+            {
+                throw new InvalidOperationException(
+                    "the extension glyph band is " + band + "px, wanted ~" + expectedInk.ToString("0.##") +
+                    " (content viewport " + contentHeight.ToString("0.##") + ")");
+            }
+
+            double hostTop = hostOrigin.Y;
+            double hostBottom = hostOrigin.Y + contentHost.ActualHeight;
+            if (firstInkRow + 0.5 < hostTop || lastInkRow + 0.5 > hostBottom)
+            {
+                throw new InvalidOperationException(
+                    "glyph rows " + firstInkRow + ".." + lastInkRow + " leave the text viewport " +
+                    hostTop.ToString("0.##") + ".." + hostBottom.ToString("0.##"));
             }
         }
 
@@ -2651,6 +2764,23 @@ namespace Kobold.XamlLoadCheck
             throw new InvalidOperationException(label + ": no entry with header '" + header + "'");
         }
 
+        /// <summary>
+        /// Asserts no menu entry carries the header - the absent case of the
+        /// paste gate (smoke fix B): menu structures only.
+        /// </summary>
+        private static void AssertMenuItemAbsent(ContextMenu menu, string header, string label)
+        {
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && Equals(item.Header, header))
+                {
+                    throw new InvalidOperationException(
+                        label + ": unexpected entry '" + header + "' (enabled=" + item.IsEnabled + ")");
+                }
+            }
+        }
+
         private static void ArrangeChrome(WidgetChrome chrome, double width, double height)
         {
             chrome.Measure(new Size(width, height));
@@ -2915,6 +3045,117 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("empty adder blur added a child");
             if (EditorBoxInListOrNull(view) != null)
                 throw new InvalidOperationException("adder still open after empty blur");
+        }
+
+        /// <summary>
+        /// Smoke fix C1 (new spec): Enter in a parent editor commits the text
+        /// and opens that item's child adder in the same state change; the
+        /// blur commit stays a plain commit and never opens the adder.
+        /// </summary>
+        private static void TodoParentEditorEnterOpensChildAdder()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "Buy milk (entered)";
+            RaiseKey(widget, view, box, Key.Enter);
+
+            if (data.Items.Count != 1 || data.Items[0].Text != "Buy milk (entered)")
+            {
+                throw new InvalidOperationException(
+                    "the parent Enter did not commit: '" +
+                    (data.Items.Count == 0 ? "<deleted>" : data.Items[0].Text) + "'");
+            }
+            if (EditorBoxInListOrNull(view) == null)
+                throw new InvalidOperationException("no child adder opened after the parent Enter");
+            string adderFor = PrivateField<string>(view, "_addingChildToId");
+            if (adderFor != item.Id)
+            {
+                throw new InvalidOperationException(
+                    "the adder targets '" + (adderFor ?? "<null>") + "', wanted '" + item.Id + "'");
+            }
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the settled parent Enter scheduled a second commit");
+
+            // The blur path must not open the adder: a fresh editor's focus
+            // loss still commits the text, nothing else.
+            var blurData = NewTodoData(out TodoItem blurItem);
+            var blurView = new TodoWidget(blurData).CalendarView;
+            InvokeViewEdit(blurView, "StartItemEdit", blurItem.Id);
+            LayoutView(blurView);
+            var blurBox = EditorBoxInList(blurView);
+            blurBox.Text = "Buy milk (blurred)";
+            RaiseLostFocus(blurBox);
+            RunPendingEditorCommit(blurView);
+
+            if (blurData.Items.Count != 1 || blurData.Items[0].Text != "Buy milk (blurred)")
+                throw new InvalidOperationException("the blur commit did not save the edited text");
+            if (PrivateField<string>(blurView, "_addingChildToId") != null)
+                throw new InvalidOperationException("the blur commit opened a child adder");
+
+            // An empty-name Enter deletes the item and opens no adder either.
+            var deleteData = NewTodoData(out TodoItem deleteItem);
+            var deleteWidget = new TodoWidget(deleteData);
+            var deleteView = deleteWidget.CalendarView;
+            InvokeViewEdit(deleteView, "StartItemEdit", deleteItem.Id);
+            LayoutView(deleteView);
+            var deleteBox = EditorBoxInList(deleteView);
+            deleteBox.Text = "   ";
+            RaiseKey(deleteWidget, deleteView, deleteBox, Key.Enter);
+
+            if (deleteData.Items.Count != 0)
+                throw new InvalidOperationException(
+                    "the empty-name parent Enter kept " + deleteData.Items.Count + " item(s)");
+            if (PrivateField<string>(deleteView, "_addingChildToId") != null)
+                throw new InvalidOperationException("the empty-name parent Enter opened a child adder");
+            if (RunPendingEditorCommitIfAny(deleteView))
+                throw new InvalidOperationException("the deleted parent scheduled a stale commit");
+        }
+
+        /// <summary>
+        /// Smoke fix C2 (new spec): an empty Enter in a child adder closes it
+        /// and opens the next day item's adder in display order; on the last
+        /// parent it just closes. No child is ever added by the empty Enter.
+        /// </summary>
+        private static void TodoAdderEmptyEnterMovesToNextParent()
+        {
+            var data = NewTodoData(out TodoItem first);
+            var second = TodoListOps.AddItem(data, "Second", data.SelectedDate);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+
+            InvokeViewEdit(view, "StartChildAdd", first.Id);
+            LayoutView(view);
+            var box = EditorBoxInList(view);
+            box.Text = string.Empty;
+            RaiseKey(widget, view, box, Key.Enter);
+
+            string adderFor = PrivateField<string>(view, "_addingChildToId");
+            if (adderFor != second.Id)
+            {
+                throw new InvalidOperationException(
+                    "the empty Enter left the adder on '" + (adderFor ?? "<null>") +
+                    "', wanted the next parent '" + second.Id + "'");
+            }
+            if (first.Children != null && first.Children.Count != 0)
+                throw new InvalidOperationException("the empty Enter added a child to the first item");
+            if (EditorBoxInListOrNull(view) == null)
+                throw new InvalidOperationException("the next parent's adder did not open");
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the moved adder scheduled a stale commit");
+
+            var nextBox = EditorBoxInList(view);
+            nextBox.Text = string.Empty;
+            RaiseKey(widget, view, nextBox, Key.Enter);
+
+            if (EditorBoxInListOrNull(view) != null)
+                throw new InvalidOperationException("the last parent's adder stayed open after the empty Enter");
+            if (PrivateField<string>(view, "_addingChildToId") != null)
+                throw new InvalidOperationException("the adder id survived the last-parent empty Enter");
         }
 
         /// <summary>
@@ -4623,11 +4864,13 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task F2: the four clipboard-aware menu builders hold the right
-        /// entries with the right enabled state - browse item Copy/Cut
-        /// (disabled while the widget is locked), browse background Paste
-        /// (gated by canPaste), the panel Paste and the root item Copy -
-        /// inspected offline; no menu is opened and the system clipboard is
+        /// Task F2 + smoke fix B: the four clipboard-aware menu builders hold
+        /// the right entries with the right enabled state - browse item
+        /// Copy/Cut (disabled while the widget is locked), the root item
+        /// Copy, and the Paste entries: present and gated by the lock only
+        /// when canPaste, absent entirely when the clipboard holds no files
+        /// (the smoke spec change; they used to stay visible greyed out).
+        /// Inspected offline; no menu is opened and the system clipboard is
         /// never touched.
         /// </summary>
         private static void FolderClipboardMenuEntries()
@@ -4660,11 +4903,18 @@ namespace Kobold.XamlLoadCheck
             var pasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, true });
             AssertMenuItem(pasteMenu, Localization.Get("Menu_Paste"), true, "the browse background menu");
             var noPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, false });
-            AssertMenuItem(noPasteMenu, Localization.Get("Menu_Paste"), false, "the paste-less background menu");
+            AssertMenuItemAbsent(noPasteMenu, Localization.Get("Menu_Paste"), "the paste-less background menu");
 
-            var panelMenu = (ContextMenu)FolderPrivateMethod("BuildPanelContextMenu")
-                .Invoke(widget, new object[] { true });
+            data.IsLocked = true;
+            var lockedPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, true });
+            AssertMenuItem(lockedPasteMenu, Localization.Get("Menu_Paste"), false, "the locked browse background menu");
+            data.IsLocked = false;
+
+            var buildPanelMenu = FolderPrivateMethod("BuildPanelContextMenu");
+            var panelMenu = (ContextMenu)buildPanelMenu.Invoke(widget, new object[] { true });
             AssertMenuItem(panelMenu, Localization.Get("Menu_Paste"), true, "the panel menu");
+            var panelNoPaste = (ContextMenu)buildPanelMenu.Invoke(widget, new object[] { false });
+            AssertMenuItemAbsent(panelNoPaste, Localization.Get("Menu_Paste"), "the paste-less panel menu");
 
             var rootMenu = (ContextMenu)FolderPrivateMethod("BuildRootItemMenu")
                 .Invoke(widget, new object[] { item });

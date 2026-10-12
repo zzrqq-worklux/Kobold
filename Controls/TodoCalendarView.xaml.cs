@@ -737,9 +737,12 @@ namespace Kobold.Controls
             UIElement text;
             if (_editingItemId == item.Id)
             {
+                // Smoke fix C: Enter commits and hands the caret to the
+                // item's child adder; the blur path stays a plain commit.
                 text = BuildEditor(item.Text, PARENT_FONT,
-                    value => { CommitItemEdit(item, value); return true; },
-                    () => { _editingItemId = null; _editorCaretAt = null; Refresh(); });
+                    value => { CommitItemEdit(item, value, true); return true; },
+                    () => { _editingItemId = null; _editorCaretAt = null; Refresh(); },
+                    value => { CommitItemEdit(item, value); return true; });
             }
             else
             {
@@ -854,9 +857,25 @@ namespace Kobold.Controls
                 value =>
                 {
                     string text = (value ?? string.Empty).Trim();
-                    if (text.Length == 0) return false; // Enter on empty keeps the adder open
-                    AddChildFromAdder(parent, text);
-                    return true; // the rebuilt adder stays open for the next child
+                    if (text.Length > 0)
+                    {
+                        AddChildFromAdder(parent, text);
+                        return true; // the rebuilt adder stays open for the next child
+                    }
+                    // Smoke fix C: an empty Enter moves to the next day item's
+                    // adder (display order); on the last parent it just closes.
+                    var parents = TodoListOps.ForDay(_data.Items, _selected, DateTime.Today);
+                    int index = parents.FindIndex(p => p != null && p.Id == parent.Id);
+                    TodoItem next = index >= 0 && index + 1 < parents.Count ? parents[index + 1] : null;
+                    if (next != null)
+                    {
+                        StartChildAdd(next.Id); // sets the state and refreshes
+                        return true;
+                    }
+                    _addingChildToId = null;
+                    _editorCaretAt = null;
+                    Refresh();
+                    return true;
                 },
                 () =>
                 {
@@ -1164,6 +1183,18 @@ namespace Kobold.Controls
 
         private void CommitItemEdit(TodoItem item, string value)
         {
+            CommitItemEdit(item, value, false);
+        }
+
+        /// <summary>
+        /// The parent editor's commit. openAdder is the Enter path (smoke fix
+        /// C): a non-empty commit opens the item's child adder in the same
+        /// state change - one repaint - while a blur commit passes false and
+        /// stays plain. Empty text deletes the item and opens nothing either
+        /// way.
+        /// </summary>
+        private void CommitItemEdit(TodoItem item, string value, bool openAdder)
+        {
             // A deferred commit may arrive after the user opened another row's
             // editor; that newer editor must survive the rebuild.
             if (_editingItemId == item.Id)
@@ -1171,8 +1202,21 @@ namespace Kobold.Controls
                 _editingItemId = null;
                 _editorCaretAt = null; // the session ended with this commit
             }
-            if (string.IsNullOrWhiteSpace(value)) TodoListOps.RemoveItem(_data, item.Id);
-            else item.Text = value.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                TodoListOps.RemoveItem(_data, item.Id);
+            }
+            else
+            {
+                item.Text = value.Trim();
+                if (openAdder)
+                {
+                    _addingChildToId = item.Id;
+                    _scrollToAdderForId = item.Id;
+                    _editorCaretAt = null;
+                    _editorSelectAllOnLoad = true;
+                }
+            }
             AfterItemEdit();
         }
 

@@ -275,10 +275,13 @@ namespace Kobold.Controls
         private ContextMenu BuildBrowseBackgroundMenu(string directory, bool canPaste)
         {
             _pendingNativeMenu = null;
-            return new MenuBuilder(_data.Color)
+            var builder = new MenuBuilder(_data.Color)
                 .AddItem("Menu_NewFolder", () => CreateBrowseFolder(directory))
-                .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory))
-                .AddItem("Menu_Paste", PasteHere, !_data.IsLocked && canPaste)
+                .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory));
+            // Smoke fix B: no files on the clipboard means no Paste entry at
+            // all; a locked widget still shows it, greyed out.
+            if (canPaste) builder.AddItem("Menu_Paste", PasteHere, !_data.IsLocked);
+            return builder
                 .AddSeparator()
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true))
                 .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(directory, true))
@@ -293,11 +296,12 @@ namespace Kobold.Controls
         /// <summary>Root panel menu: new entries plus the reference paste.</summary>
         private ContextMenu BuildPanelContextMenu(bool canPaste)
         {
-            return new MenuBuilder(_data.Color)
+            var builder = new MenuBuilder(_data.Color)
                 .AddItem("Menu_NewFile", CreateNewFile)
-                .AddItem("Menu_NewFolder", CreateNewFolder)
-                .AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked && canPaste)
-                .Build();
+                .AddItem("Menu_NewFolder", CreateNewFolder);
+            // Smoke fix B: same paste gate as the browse background menu.
+            if (canPaste) builder.AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked);
+            return builder.Build();
         }
 
         private void ShowRootItemMenu(DisplayItem item, FrameworkElement anchor = null)

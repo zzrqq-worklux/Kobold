@@ -63,11 +63,13 @@
                                                   ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                                   ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
                                                   VerticalAlignment="Center" IsHitTestVisible="False"/>
-                                <TextBox x:Name="PART_EditableTextBox" Margin="0,0,24,0"
+                                <TextBox x:Name="PART_EditableTextBox" Style="{x:Null}" Margin="0,0,24,0"
                                          Background="Transparent" BorderThickness="0"
                                          Foreground="{TemplateBinding Foreground}"
                                          CaretBrush="{DynamicResource Kobold.Brush.Accent}"
-                                         VerticalContentAlignment="Center"
+                                         SelectionBrush="{DynamicResource Kobold.Brush.Accent}"
+                                         Padding="10,0" SnapsToDevicePixels="True"
+                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
                                          Visibility="Collapsed"
                                          Text="{Binding Path=Text, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
                                 <Path x:Name="Arrow" HorizontalAlignment="Right" VerticalAlignment="Center"
