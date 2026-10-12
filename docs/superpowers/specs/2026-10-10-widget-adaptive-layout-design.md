@@ -54,7 +54,8 @@
   - folder（P3 动态）：`(2 × ceil(76×scale) + 18, 40 + ceil(89×scale) + 16)`，scale = clamp(ItemScale, 0.9, 1.5)
     （0.9 倍 = 156×137；默认 1.1 倍 = 186×154；1.5 倍 = 246×190）——至少 2 列 × 1 行可见；
   - todo：日历格宽 ≥ ~36 DIP（内容宽 ≥ ~300）；最小高度 = 40（头部）+ 133（固定块）+ 6×22 + 1×30
-    = 335（见 §4.3；实现定值并 pin）。
+    + 2（边框）= 337（见 §4.3；实现定值并 pin；A4.1 由 335 修正为 337——含边框后 6 周 × 22 + 1 行清单
+    精确装入）。
 - **最大**：面板所在屏的工作区尺寸（拖动过程即 clamp；松手 `FitPanelToWorkArea` 复核）。
 
 ### 3.3 尺寸持久化与迁移
@@ -120,7 +121,8 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 - `scrolls = itemCount > columns × visibleRows`（沿用 `PanelRows` 语义）。
 - 效果：拉宽 → 图标尺寸不变，多出的宽度成为图标间距（`UniformGrid` 均分单元格天然实现，item 模板
   固定 72×85，零渲染改动）；跨过 `columns+1` 的临界（如 1.1 倍：可用宽 419→4 列 / 420→5 列）自动加列；
-  拉高 → 行数增多；缩小 → 列/行减少、滚动。
+  拉高 → **行距不变**（行从上往下紧排，多出的高度留在下方），能完整多放一行时自动加行；
+  缩小 → 列/行减少、滚动。
 - **动态最小尺寸**：`MinFolderSize(scale)` = `(2 × cellW + 18, 40 + cellH + 16)`（18 = 内边距 16 + 边框 2；
   1.5 倍 ≈ 246×190）。调档后**已开面板**小于新下限时放大到下限——唯一自动改尺寸例外；
   关闭面板由 `GetPanelSize()` 的既有 min-clamp 在打开时兜底。
@@ -143,6 +145,7 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
   （任何月份都不溢出，日历不滚动）。
 - **可用性要求（2026-10-10 用户冒烟反馈）**：**添加按钮（添加行）恒完整可见**——它属于固定块，任何
   ≥ 最小尺寸下不得被挤出/裁切；收缩顺序 = 月历格先降到 22 → 清单视口收缩（滚动）（A4.1 必测 pin）。
+  空日展开输入时输入行叠在药丸之上（+30 DIP），渲染侧把引擎可用高相应减 30——固定块口径（133）不变。
 - **第二行小字（已定）**：`ShowDayLabels = cellH ≥ 32`（zh 且数据可用时；< 32 隐藏）。
   **不加宽度兜底**（最小尺寸下内容宽 ≈300、格宽 ≈43，宽度条件不可达，避免死分支）。
   由此：迁移首见尺寸（=旧观感，格高 28 < 32）下小字默认隐藏，拖高面板即显——一次性差异已接受
@@ -174,8 +177,8 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
   （列/尺度/行数/滚动、单调性、`MinFolderSize` 与临界加列）、迁移公式（典型例）、Todo 高度分配与小字阈值、
   尺寸 clamp。
 - `XamlLoadCheck` 扩展：手柄存在与光标映射、锁定禁用、拖动更新尺寸并重排、松手持久化、
-  迁移默认值、Todo 小字随尺寸显隐、folder 动态最小尺寸/图标档位恒定/变宽增间距/调档放大与
-  「图标大小」菜单回归（A3.2；离屏 pin，不驱动真实鼠标）。
+  迁移默认值、Todo 小字随尺寸显隐/面板尺寸稳定/添加行恒可见（A4.1）、folder 动态最小尺寸/图标档位恒定/
+  变宽增间距/调档放大与「图标大小」菜单回归（A3.2；离屏 pin，不驱动真实鼠标）。
 - `WidgetKindsCheck` / `MenuRenderCheck` 跟进：能力标志退休与菜单项的断言更新；本地化死键清理仅限
   列数/最大行数一组（`Menu_GridSize/Menu_Columns/Menu_MaxRows/Menu_Rows`）——`Menu_ItemSize/Size_*`
   保留（P3 菜单回归），三语同步（LangCheck 绿）。

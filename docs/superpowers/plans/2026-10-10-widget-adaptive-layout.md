@@ -204,6 +204,27 @@
       `docs: pin the folder P3 layout and the restored item-size menu`（spec/plan，控制者已修订暂存）→
       `feat(folder): render the grid at the user-set icon size`
 
+### Task A3.3: 行距不随面板高度拉伸（2026-10-12 用户冒烟反馈）
+
+用户冒烟反馈：folder 拉高后图标行的上下间距被拉伸。修法：图标网格不再纵向拉伸——行保持固定行距
+（`ceil` 前的基础行高 89 × 档位）从上往下紧排，多出的高度留在面板下方，能完整多放一行时自动加行；
+横向 P3 行为（变宽只增间距/临界加列）不变。
+
+**Files:**
+- Modify: `Controls/FolderWidget.xaml`（`ItemsPanelTemplate` 的 `BindableUniformGrid` 加
+  `VerticalAlignment="Top"`；保持 ItemsControl 自身拉伸，命中面/套索行为不变）
+- Modify: `tests/XamlLoadCheck/Program.cs`（新 pin：同宽不同高 → 网格行高与行距不变）
+
+- [ ] **Step 1: 失败自检**：12 项 / 433 宽（1.1 档 → 4 列 3 行）在 400 与 700 高下——
+  `grid.ActualHeight` 均为 **267**（=3×89，±0.01）、首行容器高 89、第二行容器相对首行 Y 偏移 89；
+  修复前两例高度不等（≈314.5 / ≈587.3）即红。
+- [ ] **Step 2: 运行确认失败**（运行时红，pin 报两例高度不等）。
+- [ ] **Step 3: 实现**（XAML 一行；引擎/渲染代码零改动）。
+- [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟（用户）**：拉高行距不变、能放整行时加行、宽度行为不变。
+- [ ] **Step 5: 提交（两笔，先审查后提交）** →
+      `docs: pin the folder row pitch against the panel height`（spec/plan，控制者已修订暂存）→
+      `fix(folder): keep the icon row pitch when the panel grows taller`
+
 ---
 
 ## 阶段 4：TodoWidget 接入引擎
@@ -212,19 +233,28 @@
 
 **Files:**
 - Modify: `Controls/TodoCalendarView.xaml(.cs)`（格高/清单行数由引擎输出；`BuildDayCellLabel` 按
-  `ShowDayLabels` 显隐；`RequestContentResize` 自动尺寸移除）、`Controls/TodoWidget.xaml.cs`
-- Modify: `tests/XamlLoadCheck/Program.cs`（小字显隐随尺寸、清单行数、面板尺寸稳定 pins）
+  `ShowDayLabels` 显隐；渲染侧消费引擎常量 `FIXED_CONTENT_H/LIST_ROW_H/MIGRATION_CELL_H/LIST_MAX_ROWS`；
+  `RequestContentResize` 自动尺寸及全部调用点删除；空日展开输入时引擎可用高 −30）、
+  `Controls/TodoWidget.xaml.cs`（`RequestContentResize` 删除；`OnPanelSizeChanged` override → `_view.Refresh()`）、
+  `Controls/WidgetWindowBase.cs`（`TODO_MIN_HEIGHT` 335 → 337）
+- Modify: `tests/XamlLoadCheck/Program.cs`（小字显隐随尺寸、清单行数、面板尺寸稳定、自然高度一致、
+  动态格高、拖动实时重排 pins；**添加按钮恒可见 pin**）
 
-- [ ] **Step 1: 写失败自检**：格高 28（迁移默认）→ 无第二行小字；格高 ≥32 → 有；清单行数随高度；
-  换日/增删条目不再改变面板尺寸（尺寸稳定 pin）；`DesiredHeight` 与引擎公式（固定块 133 等）一致性 pin；
-  无宽度兜底分支；**添加按钮恒可见 pin（用户冒烟反馈）**：最小尺寸（342×335）下两种状态——
-  6 周月 + 多行清单（视口收缩/滚动）与空日展开输入——添加行完整落在内容区内（底边 ≤ 内容高 295）。
+- [ ] **Step 1: 写失败自检**：格高 28（迁移默认）→ 无第二行小字；格高 ≥32 → 有（含 31.8/32 边界与
+  无宽度兜底）；清单行数随高度（含 6 周最小尺寸回落到 1 行滚动）；换日/增删条目不再改变面板尺寸
+  （尺寸稳定 pin，持久 400×500）；`DesiredHeight` 与引擎公式一致（`DesiredHeight + 42 ==
+  DefaultTodoSize(weekCount, clamp(rows)).h`，展开 +30）；拖动中格高实时变（readapt pin）；
+  **添加按钮恒可见 pin（用户冒烟反馈）**：最小尺寸（342×337；A4.1 由 335 调至 337——含 2 DIP 边框后
+  6 周 × 22 + 1 行清单精确装入）下两种状态——6 周月 + 多行清单（视口收缩到 1 行滚动）与空日展开输入
+  （引擎可用高 −30、格高 22）——添加行完整落在内容区内（底边 ≤ 内容高 295）。
 - [ ] **Step 2: 运行确认失败**（编译失败）。
 - [ ] **Step 3: 实现**（引擎输出接入；渲染侧消费引擎常量——格高/行高/固定块分解；zh 判定与数据可用性沿用；
   语义行为不动）。
 - [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟**：Todo 全清单（顺延/完成/子待办/编辑/右键盘菜单/
   换月/今天/持久化）+ 缩放观感（小字显隐、密度）。
-- [ ] **Step 5: 提交** → `feat(todo): adapt the todo panel and day labels to free resizing`
+- [ ] **Step 5: 提交（两笔，先审查后提交）** →
+      `docs: pin the todo minimum size and the adaptive layout`（spec/plan，控制者已修订暂存）→
+      `feat(todo): adapt the todo panel and day labels to free resizing`
 
 ---
 
@@ -233,8 +263,9 @@
 ### Task A5.1: README + CHANGELOG
 
 - README（英中同步）：面板自由缩放与自适应；旧设置（列数/最大行数）移除、**图标大小保留可设置**
-  （P3：面板变宽只增间距、可设置项恢复）说明；数据兼容（新字段、旧字段保留）；行为变化：面板不再随
-  内容自动收放；zh 第二行小字在面板足够高（格高 ≥32）时显示、迁移后默认隐藏（拖高即现）。
+  （P3：面板变宽只增间距、拉高只加行/留白且行距不变、可设置项恢复）说明；数据兼容（新字段、旧字段
+  保留）；行为变化：面板不再随内容自动收放；zh 第二行小字在面板足够高（格高 ≥32）时显示、迁移后默认
+  隐藏（拖高即现）。
 - CHANGELOG「Unreleased」：自由缩放、自适应、Todo 小字按尺寸显隐；行为变化一句（面板不再自动收放）。
 - 提交 → `docs: document the adaptive panel resizing`
 
