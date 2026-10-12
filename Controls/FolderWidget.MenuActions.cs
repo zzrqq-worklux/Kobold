@@ -96,6 +96,26 @@ namespace Kobold.Controls
 
         // ---------- create / rename / delete ----------
 
+        /// <summary>New-file dialog bound to a target directory (labels + the localised
+        /// default name + the composed-name validator); returns the composed name or null.</summary>
+        private string ShowNewFileDialog(string title, string directory)
+        {
+            string result = null;
+            RunModal(() =>
+            {
+                result = DialogFactory.ShowNewFile(this, title,
+                    Localization.Get("Dialog_LabelFileName"),
+                    Localization.Get("Dialog_LabelExtension"),
+                    Localization.Get("Dialog_WillCreateFormat"),
+                    Localization.Get("UI_NewFileDefault"),
+                    NewFileName.DefaultExtension,
+                    NewFileName.CommonExtensions,
+                    _data.Color,
+                    n => NameErrorText(ShellFileOperations.ValidateName(n, directory, PathExists)));
+            });
+            return result;
+        }
+
         private void CreateBrowseFolder(string directory)
         {
             string name = ShowInputModal(
@@ -116,12 +136,8 @@ namespace Kobold.Controls
 
         private void CreateBrowseTextFile(string directory)
         {
-            string name = ShowInputModal(
-                Localization.Get("Dialog_NewTextFile_Title"),
-                Localization.Get("Dialog_NewFile_Prompt"),
-                Localization.Get("UI_NewTextFileDefault"),
-                n => NameErrorText(ShellFileOperations.ValidateName(n, directory, PathExists)));
-            if (name == null) return;
+            string name = ShowNewFileDialog(Localization.Get("Dialog_NewFile_Title"), directory);
+            if (string.IsNullOrWhiteSpace(name)) return;
 
             string error;
             if (!ShellFileOperations.CreateTextFile(directory, name, out error))
@@ -261,7 +277,7 @@ namespace Kobold.Controls
             _pendingNativeMenu = null;
             return new MenuBuilder(_data.Color)
                 .AddItem("Menu_NewFolder", () => CreateBrowseFolder(directory))
-                .AddItem("Menu_NewTextFile", () => CreateBrowseTextFile(directory))
+                .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory))
                 .AddItem("Menu_Paste", PasteHere, !_data.IsLocked && canPaste)
                 .AddSeparator()
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true))

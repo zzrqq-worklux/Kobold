@@ -250,18 +250,14 @@ namespace Kobold.Controls
         
         private void CreateNewFile()
         {
-            string fileName = ShowInputModal(
-                Localization.Get("Dialog_NewFile_Title"),
-                Localization.Get("Dialog_NewFile_Prompt"),
-                "NewFile.txt",
-                null);
-            
+            string storage = Utils.GetStoragePath();
+            string fileName = ShowNewFileDialog(Localization.Get("Dialog_NewFile_Title"), storage);
             if (string.IsNullOrWhiteSpace(fileName)) return;
             
             try
             {
                 // Use same storage path as other files so RestoreToDesktop works
-                string filePath = System.IO.Path.Combine(Utils.GetStoragePath(), fileName);
+                string filePath = System.IO.Path.Combine(storage, fileName);
                 
                 // Create empty file
                 System.IO.File.WriteAllText(filePath, "");

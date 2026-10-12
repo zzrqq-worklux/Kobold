@@ -168,6 +168,7 @@ namespace Kobold.Helpers
                 Text = initialExtension ?? string.Empty,
                 ItemsSource = extensions
             };
+            combo.ToolTip = Localization.Get("Dialog_ExtCustomHint");
 
             var nameStack = new StackPanel { Margin = new Thickness(0, 0, UiTokens.Space2, 0) };
             nameStack.Children.Add(CreateFieldLabel(nameLabel));

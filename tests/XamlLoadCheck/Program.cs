@@ -238,6 +238,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
                 failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
                 failures += TryCheck("folder: clipboard entries follow the lock and paste gates", FolderClipboardMenuEntries);
+                failures += TryCheck("folder: the new-file menu entries wear the shared label", FolderNewFileMenuUsesTheFileLabel);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
                 failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
@@ -4667,6 +4668,37 @@ namespace Kobold.XamlLoadCheck
             var rootMenu = (ContextMenu)FolderPrivateMethod("BuildRootItemMenu")
                 .Invoke(widget, new object[] { item });
             AssertMenuItem(rootMenu, Localization.Get("Menu_Copy"), true, "the root item menu");
+        }
+
+        /// <summary>
+        /// Task F5: the browse background menu offers the shared new-file
+        /// entry - item[1] wears the same label as the root panel menu
+        /// (Menu_NewFile), so both entry points read "New File".
+        /// </summary>
+        private static void FolderNewFileMenuUsesTheFileLabel()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new FolderWidget(new FolderData());
+            var menu = (ContextMenu)FolderPrivateMethod("BuildBrowseBackgroundMenu")
+                .Invoke(widget, new object[] { IO.Path.GetTempPath(), true });
+
+            var newFolder = menu.Items[0] as MenuItem;
+            var newFile = menu.Items[1] as MenuItem;
+            if (newFolder == null || !Equals(newFolder.Header, Localization.Get("Menu_NewFolder")))
+            {
+                throw new InvalidOperationException(
+                    "browse menu item[0] is '" +
+                    (newFolder == null ? "<not a menu item>" : newFolder.Header.ToString()) +
+                    "', wanted '" + Localization.Get("Menu_NewFolder") + "'");
+            }
+            if (newFile == null || !Equals(newFile.Header, Localization.Get("Menu_NewFile")))
+            {
+                throw new InvalidOperationException(
+                    "browse menu item[1] is '" +
+                    (newFile == null ? "<not a menu item>" : newFile.Header.ToString()) +
+                    "', wanted '" + Localization.Get("Menu_NewFile") + "'");
+            }
         }
 
         /// <summary>
