@@ -25,10 +25,17 @@ development base.
   tile to toggle its panel; drag the pill to move the island. Only the
   widget tiles scroll (a slim bar underneath hints at it) when there are
   more than fit; right-click a tile for that widget's options.
-- **Folder panels** — glassy, auto-sizing panels with per-widget colours,
-  configurable grid columns, item size and a row cap (1–6), lock, pin and
-  rename. The panels that were open when the app closed come back on the next
-  launch, on the monitor and scale they were saved on, without stealing focus.
+- **Folder panels** — glassy panels with per-widget colours, lock, pin and
+  rename; drag any edge or the bottom-right corner to resize one freely, and
+  the size is remembered per widget across restarts (a locked panel cannot be
+  resized). The grid follows the panel: a wider panel spreads the icons out
+  and adds a column as soon as one more fits, while a taller one only adds rows
+  with the row spacing unchanged — the extra height stays at the bottom.
+  **Item size** is a six-step setting in the widget menu and no longer follows
+  the panel; the old per-widget **columns** / **max rows** options are gone,
+  and panels no longer resize themselves with their content. Panels that were
+  open when the app closed come back on the next launch, on the monitor and
+  scale they were saved on, without stealing focus.
 - **Widget kinds** — a new widget is either a **folder** or a **todo**, picked
   when you create it; both kinds behave the same on the island, in panels, in
   the context menus and when panels come back after a restart.
@@ -38,7 +45,10 @@ development base.
   shows up on today with a `↷ original date` badge (display only — the stored
   date never changes). Sub-todos nest one level: indented, without dates of
   their own; ticking a parent ticks all of its children, while unticking the
-  parent leaves the children as they are.
+  parent leaves the children as they are. The panel size is entirely up to
+  dragging: the calendar cell height and the day's list stretch with the
+  height. In the Chinese UI a day cell's **second line** (festival / solar
+  term / lunar date) shows only when the cell is tall enough.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in
@@ -154,7 +164,9 @@ the new version. Settings and stored files are kept.
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
 | Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
 | Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
-| Widget options (rename, colour, lock, grid, rows, size, delete) | Right-click a panel header or an island tile |
+| Resize a panel | Drag any edge, or the bottom-right grip (locked panels cannot be resized) |
+| Change the folder icon size | Right-click a folder panel → **Item Size** (six steps) |
+| Widget options (rename, colour, lock, icon size, delete) | Right-click a panel header or an island tile |
 
 Stored vs. referenced files: dropping a file in creates a *reference* — the
 original stays where it is. **Store** in the item menu physically moves it
@@ -215,6 +227,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
   read: falling back to v1.3.0 or v1.3.1 resets you to default settings but
   keeps the original file aside as `config.json.failed-<timestamp>`. Releases
   older than v1.3.0 do not have that safety net.
+- Each widget's **panel size is saved with the widget**, so panels come back
+  the size you left them. On upgrade the old per-widget columns / max-rows
+  settings are converted **once** into an initial panel size (they stay in the
+  config file but are no longer used); **item size** keeps working.
 - Stored files: `%AppData%\Kobold\Storage`
 
 Source layout: `Core/` (models, config, localization, design tokens,
@@ -246,15 +262,20 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **灵动岛启动器** — 屏幕顶部中央的胶囊，悬停展开为「桌面入口 / 组件 / 新建 / 设置」；
   点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。组件多了只在中间区域滚动
   （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
-- **文件夹面板** — 毛玻璃半透明面板，随内容自动调整大小；每个组件可自定义颜色、
-  网格列数、条目大小与行数上限（1–6），支持锁定、置顶与重命名。退出时开着的
-  面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
+- **文件夹面板** — 毛玻璃半透明面板，支持每个组件自定义颜色、锁定、置顶与重命名；
+  拖动任意边缘或右下角手柄即可自由缩放，尺寸属于该组件、重启后恢复，锁定的面板
+  不可缩放。网格随尺寸自适应：变宽会拉开图标间距、能多放一列时自动加列；拉高只
+  加行、行距不变（多出的高度留在下方）。**图标大小**是组件菜单里的六档设置，不再
+  随面板变化；组件菜单里旧的**列数 / 最大行数**选项已移除，面板也不再随内容自动
+  收放。退出时开着的面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
 - **组件类型** — 新建组件时可选「文件夹」或「待办」两种类型；两类组件在岛、
   面板、右键菜单与开机恢复中的行为完全一致。
 - **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
   完成的条目划线置底。未完成且日期已过的条目会显示在今天，并带
   「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
-  独立日期；勾选父项会同时勾选全部子项，取消父项不影响子项。
+  独立日期；勾选父项会同时勾选全部子项，取消父项不影响子项。面板尺寸完全由拖动
+  决定——日历格高与当日清单随高度伸缩；中文界面下日期格的第二行（节日 / 节气 /
+  农历）只在格子足够高时显示。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
@@ -330,7 +351,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
 | 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
 | 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
-| 组件选项（改名、改色、锁定、列数、行数、大小、删除） | 右键面板标题栏或岛上的组件图标 |
+| 调整面板大小 | 拖动任意边缘或右下角手柄（锁定的面板不可缩放） |
+| 修改文件夹图标大小 | 右键文件夹面板 →「📐 图标大小」（六档） |
+| 组件选项（改名、改色、锁定、图标大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
 拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
 移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。把条目拖出面板则交给系统：
@@ -383,6 +406,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 - 组件以新的 `Widgets` 格式保存，旧版本读不出该格式：回退到 v1.3.0 / v1.3.1
   会以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`；更早的
   版本没有这一保护。
+- 每个组件的**面板尺寸随组件保存**，重启后恢复；升级时旧的组件级「列数 / 最大
+  行数」会**一次性换算**为初始面板尺寸（旧值仍保留在配置文件里但不再使用）；
+  **图标大小**继续生效。
 - 收纳文件：`%AppData%\Kobold\Storage`
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
