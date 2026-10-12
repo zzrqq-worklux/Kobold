@@ -222,6 +222,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
+                failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
                 failures += TryCheck("resize: folder re-adapts columns during the drag", FolderReadaptsDuringResize);
 
                 // Restyle pins: the add input aligns with a list row exactly,
@@ -3469,6 +3470,98 @@ namespace Kobold.XamlLoadCheck
 
             gridWidth = grid.ActualWidth;
             return itemRoot.ActualWidth;
+        }
+
+        /// <summary>
+        /// Task A3.3: the folder's icon row pitch is independent of the panel
+        /// height - a 400-tall and a 700-tall panel both lay the twelve items
+        /// (4 columns) out in three 89-DIP rows (85 border + 2x2 margin),
+        /// because the items grid no longer stretches vertically; the extra
+        /// height stays below the grid.
+        /// </summary>
+        private static void FolderRowPitchIsIndependentOfThePanelHeight()
+        {
+            ThemeManager.Initialize("dark");
+
+            var shortPanel = MeasureFolderRowPitch(400);
+            var tallPanel = MeasureFolderRowPitch(700);
+
+            if (Math.Abs(shortPanel.ActualHeight - tallPanel.ActualHeight) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the grid height follows the panel height: 400 -> " +
+                    shortPanel.ActualHeight.ToString("0.##") + ", 700 -> " +
+                    tallPanel.ActualHeight.ToString("0.##") + ", wanted 267 for both");
+            }
+
+            AssertFolderRowPitch(shortPanel, "the 400-tall panel");
+            AssertFolderRowPitch(tallPanel, "the 700-tall panel");
+        }
+
+        private static void AssertFolderRowPitch(BindableUniformGrid grid, string label)
+        {
+            if (Math.Abs(grid.ActualHeight - 267) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    label + ": the grid is " + grid.ActualHeight.ToString("0.##") +
+                    " tall, wanted 267 (3 rows x 89)");
+            }
+
+            var firstRow = grid.Children[0] as FrameworkElement;
+            if (firstRow == null || Math.Abs(firstRow.ActualHeight - 89) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    label + ": the first row is " +
+                    (firstRow == null ? "<not realized>" : firstRow.ActualHeight.ToString("0.##")) +
+                    " tall, wanted 89");
+            }
+
+            var secondRow = grid.Children[4] as FrameworkElement;
+            if (secondRow == null)
+            {
+                throw new InvalidOperationException(label + ": the second row was not realized");
+            }
+            double pitch = secondRow.TransformToAncestor(grid).Transform(new Point(0, 0)).Y;
+            if (Math.Abs(pitch - 89) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    label + ": the second row starts at Y " + pitch.ToString("0.##") +
+                    ", wanted 89 (one 89-DIP row pitch)");
+            }
+        }
+
+        /// <summary>
+        /// Offscreen half of the row-pitch pin: lays a twelve-item folder out
+        /// at 433 wide and the persisted panel height, returns the items grid.
+        /// </summary>
+        private static BindableUniformGrid MeasureFolderRowPitch(double panelHeight)
+        {
+            var data = new FolderData { PanelWidth = 433, PanelHeight = panelHeight };
+            for (int i = 0; i < 12; i++)
+            {
+                data.Items.Add(new WidgetItem
+                {
+                    Name = "item" + i,
+                    Path = System.IO.Path.Combine(@"C:\kobold-row-pitch-probe", "item" + i + ".txt")
+                });
+            }
+
+            var widget = new FolderWidget(data);
+            widget.UpdateUI();
+
+            var root = (FrameworkElement)widget.Content;
+            root.Measure(new Size(433, panelHeight));
+            root.Arrange(new Rect(0, 0, 433, panelHeight));
+            root.UpdateLayout();
+
+            var grid = FindDescendant<BindableUniformGrid>(root);
+            if (grid == null) throw new InvalidOperationException("the items grid was not realized");
+            if (grid.Children.Count != 12)
+            {
+                throw new InvalidOperationException(
+                    "the grid realized " + grid.Children.Count + " container(s), wanted 12");
+            }
+            return grid;
         }
 
         /// <summary>

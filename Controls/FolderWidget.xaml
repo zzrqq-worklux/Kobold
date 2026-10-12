@@ -183,7 +183,8 @@
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <local:BindableUniformGrid x:Name="ItemsGrid" 
-                                            BindableColumns="{Binding GridColumns, RelativeSource={RelativeSource AncestorType=local:FolderWidget}}"/>
+                                            BindableColumns="{Binding GridColumns, RelativeSource={RelativeSource AncestorType=local:FolderWidget}}"
+                                            VerticalAlignment="Top"/>
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
