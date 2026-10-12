@@ -285,6 +285,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("resize: the day labels appear when the drag crosses the 32 cell height", TodoResizeFlipsTheDayLabelsInPlace);
                 failures += TryCheck("todo: clicking add scrolls the list to the bottom", TodoAddClickScrollsToTheBottom);
 
+                failures += TryCheck("todo: the layout metrics compute in one pass", TodoMetricsAreComputedOnce);
+
                 // Fix round 19: the click-to-edit interleaving the human smoke
                 // reported - while one todo is edited, clicking another opens
                 // its editor; the first editor's deferred commit then rebuilds
@@ -2341,6 +2343,53 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the empty day's reveal scrolled to " +
                     emptyScroller.VerticalOffset.ToString("0.##"));
+            }
+        }
+
+        private static void TodoMetricsAreComputedOnce()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("zh");
+            try
+            {
+                var data = new TodoData
+                {
+                    PanelWidth = 342,
+                    PanelHeight = 385,
+                    SelectedDate = new DateTime(2026, 10, 12)
+                };
+                var widget = new TodoWidget(data);
+                var view = widget.CalendarView;
+
+                var metrics = ViewPrivateMethod("ComputeMetrics")
+                    .Invoke(view, new object[] { new DateTime(2026, 10, 12) });
+                var type = metrics.GetType();
+                int weekCount = (int)type.GetField("WeekCount").GetValue(metrics);
+                double cell = (double)type.GetField("Cell").GetValue(metrics);
+
+                if (weekCount != 5 || Math.Abs(cell - 36) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the metrics fixture computed " + weekCount + " weeks / cell " + cell.ToString("0.##") +
+                        ", wanted 5 / 36");
+                }
+                if (!(bool)type.GetField("ShowLabels").GetValue(metrics))
+                    throw new InvalidOperationException("zh with a 36-high cell must show the day labels");
+                if (!(bool)type.GetField("DayIsEmpty").GetValue(metrics) ||
+                    (int)type.GetField("NaturalRows").GetValue(metrics) != 0)
+                    throw new InvalidOperationException("the itemless fixture must read as an empty day");
+                if (Math.Abs((double)type.GetField("ContentH").GetValue(metrics) - 343) > 0.01 ||
+                    Math.Abs((double)type.GetField("AddBlock").GetValue(metrics) - 36) > 0.01)
+                    throw new InvalidOperationException(
+                        "the metrics fixture must carry the 343 content height and the 36 add block");
+                if (Math.Abs(DayGridHeight(view) - weekCount * cell) > 0.01)
+                    throw new InvalidOperationException(
+                        "the computed cell does not match the rendered day grid: " +
+                        DayGridHeight(view).ToString("0.##") + " vs " + (weekCount * cell).ToString("0.##"));
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
             }
         }
 

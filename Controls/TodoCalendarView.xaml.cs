@@ -136,34 +136,21 @@ namespace Kobold.Controls
             _accentBrush.Freeze();
 
             DateTime today = DateTime.Today;
-            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
-            bool dayIsEmpty = parents.Count == 0;
-            int naturalRows = CountNaturalRows(parents);
-            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
-                _culture.DateTimeFormat.FirstDayOfWeek);
-
-            // The layout comes from the pure engine: the calendar cell first
-            // (the user's explicit split or the automatic size), then the day
-            // list and the add row's block below it.
-            double contentH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty);
-            double addBlock = AddBlockHeight(dayIsEmpty);
-            double cell = EffectiveCellHeight(weekCount, naturalRows, contentH, addBlock);
-            bool showLabels = Localization.CurrentLanguage == "zh"
-                              && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
+            var metrics = ComputeMetrics(today);
 
             BuildMonthHeader(today);
             BuildWeekdayHeader();
-            BuildCalendar(today, cell, showLabels);
-            BuildDayList(parents, today);
-            ApplyGeometry(weekCount, cell, naturalRows, contentH, addBlock);
-            UpdateAddRowVisuals(dayIsEmpty);
+            BuildCalendar(today, metrics.Cell, metrics.ShowLabels);
+            BuildDayList(metrics.Parents, today);
+            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH, metrics.AddBlock);
+            UpdateAddRowVisuals(metrics.DayIsEmpty);
 
             // The divider only drags while the panel is unlocked: the band is
             // hit-test-inert when locked and the logic guards again.
             SplitterBand.IsHitTestVisible = !_data.IsLocked;
             SplitterBand.Cursor = Cursors.SizeNS;
 
-            DesiredHeight = NaturalHeight(weekCount, naturalRows, dayIsEmpty);
+            DesiredHeight = NaturalHeight(metrics.WeekCount, metrics.NaturalRows, metrics.DayIsEmpty);
         }
 
         /// <summary>
@@ -268,6 +255,52 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// The day's rows, the displayed weeks and the height split the three
+        /// render paths share (Refresh, the incremental resize, the splitter drag).
+        /// </summary>
+        private struct TodoMetrics
+        {
+            public List<TodoItem> Parents;
+            public bool DayIsEmpty;
+            public int NaturalRows;
+            public int WeekCount;
+            public double ContentH;
+            public double AddBlock;
+            public double Cell;
+            public bool ShowLabels;
+        }
+
+        /// <summary>
+        /// One pass over the layout inputs for the current data and panel height;
+        /// every render path consumes the same numbers.
+        /// </summary>
+        private TodoMetrics ComputeMetrics(DateTime today)
+        {
+            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
+            bool dayIsEmpty = parents.Count == 0;
+            int naturalRows = CountNaturalRows(parents);
+            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
+                _culture.DateTimeFormat.FirstDayOfWeek);
+            double contentH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty);
+            double addBlock = AddBlockHeight(dayIsEmpty);
+            double cell = EffectiveCellHeight(weekCount, naturalRows, contentH, addBlock);
+            bool showLabels = Localization.CurrentLanguage == "zh"
+                              && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
+
+            return new TodoMetrics
+            {
+                Parents = parents,
+                DayIsEmpty = dayIsEmpty,
+                NaturalRows = naturalRows,
+                WeekCount = weekCount,
+                ContentH = contentH,
+                AddBlock = addBlock,
+                Cell = cell,
+                ShowLabels = showLabels
+            };
+        }
+
+        /// <summary>
         /// Applies the fitted geometry: the day grid's height, the list
         /// viewport (capped by its natural rows; the add row pins to the
         /// bottom when the space runs out) and the ring/check scale boxes.
@@ -290,20 +323,11 @@ namespace Kobold.Controls
             if (_data == null || _host == null) return;
 
             DateTime today = DateTime.Today;
-            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
-            bool dayIsEmpty = parents.Count == 0;
-            int natural = CountNaturalRows(parents);
-            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
-                _culture.DateTimeFormat.FirstDayOfWeek);
-            double contentH = CurrentContentHeight(weekCount, natural, dayIsEmpty);
-            double addBlock = AddBlockHeight(dayIsEmpty);
-            double cell = EffectiveCellHeight(weekCount, natural, contentH, addBlock);
-            bool show = Localization.CurrentLanguage == "zh"
-                        && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
+            var metrics = ComputeMetrics(today);
 
-            if (show != _builtShowLabels) BuildCalendar(today, cell, show);
-            ApplyGeometry(weekCount, cell, natural, contentH, addBlock);
-            _builtCellHeight = cell;
+            if (metrics.ShowLabels != _builtShowLabels) BuildCalendar(today, metrics.Cell, metrics.ShowLabels);
+            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH, metrics.AddBlock);
+            _builtCellHeight = metrics.Cell;
         }
 
         #region Month calendar
@@ -1347,15 +1371,10 @@ namespace Kobold.Controls
         {
             if (!_splitDragging || _data == null) return;
 
-            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
-                _culture.DateTimeFormat.FirstDayOfWeek);
-            DateTime today = DateTime.Today;
-            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
-            double contentH = CurrentContentHeight(weekCount, CountNaturalRows(parents), parents.Count == 0);
-            double addBlock = AddBlockHeight(parents.Count == 0);
+            var metrics = ComputeMetrics(DateTime.Today);
             double maxCell = Math.Min(PanelLayoutAdapter.CELL_MAX,
-                MaxCalendarCell(weekCount, contentH, addBlock));
-            double cell = _splitStartCell + (localY - _splitStartY) / Math.Max(1, weekCount);
+                MaxCalendarCell(metrics.WeekCount, metrics.ContentH, metrics.AddBlock));
+            double cell = _splitStartCell + (localY - _splitStartY) / Math.Max(1, metrics.WeekCount);
             _data.CalendarCellHeight = Math.Max(PanelLayoutAdapter.CELL_MIN, Math.Min(cell, maxCell));
             ApplyResizeLayout();
         }
