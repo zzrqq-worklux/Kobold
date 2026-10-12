@@ -123,6 +123,8 @@ namespace Kobold.Core
             public const string Accent = "#3B82F6";
             public const string AccentHover = "#2563EB";
             public const string OnAccent = "#FFFFFF";
+            /// <summary>Dark ink for bright accent surfaces (luminance > 0.6).</summary>
+            public const string OnAccentDark = "#1F1F1F";
             public const string White = "#FFFFFF";
             public const string Danger = "#E81123";
             public const string PinGold = "#FFD700";

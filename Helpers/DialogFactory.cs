@@ -386,7 +386,7 @@ namespace Kobold.Helpers
 
             Color tint = Utils.HexToColor(widgetColor);
             double luminance = (0.299 * tint.R + 0.587 * tint.G + 0.114 * tint.B) / 255.0;
-            Color onAccent = luminance > 0.6 ? (Color)ColorConverter.ConvertFromString("#1F1F1F") : Colors.White;
+            Color onAccent = luminance > 0.6 ? Utils.HexToColor(UiTokens.Shared.OnAccentDark) : Colors.White;
 
             var accentBrush = new SolidColorBrush(tint);
             accentBrush.Freeze();
