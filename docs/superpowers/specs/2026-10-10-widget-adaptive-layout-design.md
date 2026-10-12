@@ -91,12 +91,14 @@ public static class PanelLayoutAdapter
     public static FolderLayout AdaptFolder(double contentWidth, double contentHeight, int itemCount, double itemScale);
     public static (double w, double h) MinFolderSize(double itemScale);
     public static TodoLayout AdaptTodo(double contentHeight, int weekCount, int naturalListRows, bool labelsAvailable);
+    public static TodoListLayout FitTodoList(double contentHeight, double calendarHeight, int naturalListRows, double addBlockHeight);
     public static (double w, double h) MigrateFolderSize(int gridColumns, int maxPanelRows, int itemCount, double itemScale);
     public static (double w, double h) DefaultTodoSize(int weekCount, int naturalListRows);
 }
 
 public struct FolderLayout { public int Columns; public double Scale; public int VisibleRows; public bool Scrolls; public double CellWidth; public double CellHeight; }
 public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; public int ListRows; public bool ListScrolls; }
+public struct TodoListLayout { public double ListTop; public double Viewport; public bool Scrolls; public bool Pinned; }
 ```
 
 - 接口说明（2026-10-10 实施裁决，见 ledger）：`naturalListRows` = 当日清单自然行数（0 = 空日，>6 按 6），
@@ -104,6 +106,11 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 - `itemScale`（2026-10-10 P3 修订）：用户设置的全局图标档位；`AdaptFolder` 输出恒定
   `clamp(itemScale, 0.9, 1.5)`；`MinFolderSize` 给 folder 的动态最小面板尺寸（`GetMinPanelSize` override
   与自检共用）。
+- `FitTodoList`（2026-10-12 A4.2 追加）：清单顶 = 87（`FIXED_ROOT_MARGIN_TOP` 8 + 导航 28 + 星期 18 +
+  分隔 9 + 日头 24）+ `calendarHeight`；所需 = `clamp(naturalListRows,0,6) × 30`；视口 =
+  `max(0, min(底 − 清单顶 − addBlockHeight, 所需))`（底 = contentHeight − 10）；`addBlockHeight`
+  由渲染侧给（折叠 36 / 非空展开 30 / 空日展开 66）；`Scrolls` = 全量内容（`naturalListRows × 30`）
+  > 视口；`Pinned` = 视口 < 所需。
 
 - **复用映射**：`PanelRows.VisibleRows/NeedsScroll` 原样保留调用；`WidgetConstants` 常量直接消费；
   FolderWidget 的 `GetScaledItemWidth/Height` 公式迁入引擎（UI 侧删除复制，单一来源）；
@@ -134,24 +141,38 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 ### 4.3 Todo 策略（已定）
 
 - **宽度**：日历 7 格均分内容宽、清单同宽；文字/数字保持居中。
-- **高度分配（已定）**：`naturalListRows` 由调用方给出（0 = 空日，>6 按 6）。先满足清单
+- **自动高度分配（A4.1，保留为默认）**：`naturalListRows` 由调用方给出（0 = 空日，>6 按 6）。先满足清单
   `listRows = clamp(naturalListRows, 0, 6)`（行高 30），余量给月历
   `cellH = clamp((contentHeight − 固定块 − listRows×30) ÷ weekCount, 22, 36)`；
   若余量 < 22×weekCount，则月历取 22、清单收缩到
   `listRows = clamp(floor((contentHeight − 固定块 − 22×weekCount) ÷ 30), 0, 6)`。
   固定块 = 根边距 18（8+10）+ 月导航 28 + 星期行 18 + 分隔 9（1+4+4）+ 日头 24 + 添加行 36（30+6）
-  = **133**（取自 TodoCalendarView.xaml 当前结构；常量由引擎持有，A4.1 起渲染侧消费）。
-  `ListScrolls = naturalListRows > listRows`。最小面板高度须容纳 6 周 × 22 + 固定块 + 1 行清单
-  （任何月份都不溢出，日历不滚动）。
-- **可用性要求（2026-10-10 用户冒烟反馈）**：**添加按钮（添加行）恒完整可见**——它属于固定块，任何
-  ≥ 最小尺寸下不得被挤出/裁切；收缩顺序 = 月历格先降到 22 → 清单视口收缩（滚动）（A4.1 必测 pin）。
-  空日展开输入时输入行叠在药丸之上（+30 DIP），渲染侧把引擎可用高相应减 30——固定块口径（133）不变。
+  = **133**（取自 TodoCalendarView.xaml 当前结构；常量由引擎持有，渲染侧消费）。
+- **手动分调（2026-10-12 冒烟后追加，A4.2）**：月历与清单之间的分隔线是一条隐形拖动带
+  （Cursor SizeNS；锁定禁用）：拖动直接设定月历格高 `cellH ∈ [22, 36]`，按组件持久化
+  （`TodoData.CalendarCellHeight`，null = 自动）；此后外框缩放保持该格高（按可用空间向下钳），
+  富余进入清单；从未拖动过则为上面的自动分配。
+- **清单取景与添加行锚定（A4.2）**：`FitTodoList(contentHeight, 日历高, naturalListRows, 添加块高)`——
+  清单顶 = 87 + 日历高；所需 = `clamp(naturalListRows,0,6) × 30`；视口 =
+  `max(0, min(底 − 清单顶 − 添加块高, 所需))`（底 = contentHeight − 10）；视口 < 所需时**添加块吸附在
+  距下边界固定位置**（清单滚动、可见半行），否则**跟在最后一条 todo 下方**（富余留在按钮下方）。
+  添加块高：折叠 36 / 非空展开 30 / 空日展开 66。
+- **可用性要求（2026-10-10 用户冒烟反馈；A4.2 重述）**：**添加按钮（添加行）恒完整可见**——块高进入
+  `FitTodoList`，任何 ≥ 最小尺寸下吸附位恰好容纳（342×337：6 周 × 22 + 视口 30 + 块 36 + 边距 = 295）。
+  最小面板高度须容纳 6 周 × 22 + 固定块 + 1 行清单（任何月份都不溢出，日历不滚动）。
+- **点击添加滚动（A4.2）**：视口小于所需时，点击添加（药丸或输入行）自动把清单**滚到底部**，
+  在最后一条 todo 下方继续录入。
+- **今天标记（2026-10-12 冒烟后改定，A4.2）**：去掉实心圆——今天 = 手绘空心圈 + 右下角手绘 ✅
+  （与圈同画笔）；圈与 ✅ 随格高缩放（圈径 = `cellH + 4`）；今天数字用常规文字色（不再 OnAccent）。
+  选中（非今天）仍只有手绘圈。
 - **第二行小字（已定）**：`ShowDayLabels = cellH ≥ 32`（zh 且数据可用时；< 32 隐藏）。
   **不加宽度兜底**（最小尺寸下内容宽 ≈300、格宽 ≈43，宽度条件不可达，避免死分支）。
   由此：迁移首见尺寸（=旧观感，格高 28 < 32）下小字默认隐藏，拖高面板即显——一次性差异已接受
   （§9-7），README/CHANGELOG 说明。**日历密度问题由此解决，不做额外止血**。
-- **清单**：行数 = `clamp(floor(清单高 ÷ 30), 1, 6)`；超出滚动；完成置底/顺延/编辑语义不变。
-- 面板尺寸固定：换日/增删条目不再触发尺寸变化（`RequestContentResize` 的自动尺寸改动移除）。
+- **清单**：视口由 `FitTodoList` 给出；超出滚动；完成置底/顺延/编辑语义不变。
+- 面板尺寸固定：换日/增删条目/拖动分隔带均不改窗口尺寸（`RequestContentResize` 已移除）。
+- **拖动性能（A4.2）**：外框缩放与分隔带拖动只做增量重排（格高/圈尺寸/视口），仅小字阈值翻转时才
+  重建日历；清单行元素不重建。
 
 ### 4.4 迁移公式
 
@@ -170,6 +191,7 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
 | `PanelWidth` / `PanelHeight` | WidgetData | 缺失 → 迁移计算 | 缩放松手写回 | DIP；与 PanelX/Y 同族 |
 | `GridColumns` / `MaxPanelRows` | FolderData | 迁移输入 | 保留原值 | 引擎不再消费；菜单移除 |
 | `ItemScale` | AppConfig | 迁移输入 + folder 渲染（P3） | 「图标大小」菜单写入 | 全局；六档 0.9..1.5 |
+| `CalendarCellHeight` | TodoData | 分隔带拖动 / 缺失 = 自动 | 拖动结束写回 | 22..36；A4.2 |
 
 ## 6. 测试与验证
 
@@ -227,6 +249,11 @@ public struct TodoLayout { public double CellHeight; public bool ShowDayLabels; 
    引擎不再消费；`ItemScale` 保留原值且**恢复为其菜单的设置目标**（P3：folder 渲染的 scale 输入）。
 7. **迁移观感一次性差异**：接受（尺寸近似旧观感后固定不再收放；叠加第 5 条的默认隐藏）；
    README/CHANGELOG 明示。
+8. **2026-10-12 冒烟后追加（A4.2）**：① 月历/清单可经分隔线拖动分别调整（格高 22..36 按组件持久化
+   `TodoData.CalendarCellHeight`；外框缩放保持该格高）；② 添加行锚定——空间不足时贴底（距下边界固定），
+   够用时跟在最后一条 todo 下方，且需容纳"按钮 + 所需"才进入跟随；③ 空间不足时点击添加自动滚到底部；
+   ④ 今天标记改为手绘空心圈 + 右下角手绘 ✅（去实心圆）；⑤ 圈与 ✅ 随格高缩放（圈径 = 格高 + 4）；
+   拖动改为增量重排（不再整视图重建）。
 
 > 另有独立小任务（用户要求先做，见计划的"阶段 0"）：修复自检矩阵会改写真实
 > `%APPDATA%\Kobold\config.json` 的测试卫生缺陷（单例路径重定向 + 字节 pin）。

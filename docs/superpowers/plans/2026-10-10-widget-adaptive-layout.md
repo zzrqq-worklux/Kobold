@@ -256,6 +256,43 @@
       `docs: pin the todo minimum size and the adaptive layout`（spec/plan，控制者已修订暂存）→
       `feat(todo): adapt the todo panel and day labels to free resizing`
 
+### Task A4.2: Todo 交互细化（2026-10-12 用户冒烟后追加）
+
+用户冒烟（A4.1）后确认的五点：① 拖动改为**增量重排**（不再整视图重建，修复添加行位置跳动）；② 今天
+标记去实心圆、改**手绘空心圈 + 右下角手绘 ✅**，圈/✅ 随格高缩放（圈径 = `cellH + 4`）；③ **添加行
+锚定**（`FitTodoList`：空间不足贴底、够用跟随最后一条，条件需容纳"按钮 + 所需"）；④ **分隔线拖动**
+分别调整月历/清单（格高 22..36 按组件持久化 `TodoData.CalendarCellHeight`，外框缩放保持）；⑤ 空间
+不足时**点击添加自动滚到底部**。用户已看 mockup 选定 ✅ 方案 B（`today-marker-mockup.png`）。
+
+**Files:**
+- Modify: `Core/PanelLayoutAdapter.cs`（新增 `TodoListLayout` 结构 + `FitTodoList(contentHeight,
+  calendarHeight, naturalListRows, addBlockHeight)`；新增 `FIXED_ROOT_MARGIN_TOP=8` /
+  `FIXED_ROOT_MARGIN_BOTTOM=10`，`FIXED_ROOT_MARGIN=18` 保留为和）
+- Modify: `Core/TodoData.cs`（`double? CalendarCellHeight`）
+- Modify: `Controls/TodoCalendarView.xaml`（分隔线处（Row 3，9 DIP 全高）加隐形拖动带 `SplitterBand`，
+  Cursor SizeNS，三个鼠标事件）
+- Modify: `Controls/TodoCalendarView.xaml.cs`（`FitTodoList` 接入与锚定视口；分隔带拖动逻辑（锁定禁用、
+  松手 `NotifyDataChanged` 持久化）；增量重排 `ApplyResizeLayout`（格高/圈尺寸/视口；阈值翻转才重建
+  日历；清单行不重建）；今天标记重写（圈 + ✅、无实心圆、数字常规色）；`RevealAddBox` 视口不足时
+  `ScrollToEnd`）、`Controls/TodoWidget.xaml.cs`（`OnPanelSizeChanged` → `_view.ApplyResizeLayout()`）
+- Modify: `tests/AdaptiveLayoutCheck/Program.cs`（`FitTodoList` pins）、`tests/XamlLoadCheck/Program.cs`
+  （今天标记/圈缩放/锚定/分隔带/增量重排/滚动 pins；实心圆 pins 重写）、`tests/WidgetKindsCheck/Program.cs`
+  （`CalendarCellHeight` JSON 往返 pin）
+- Modify: `README.md`、`CHANGELOG.md`（新行为，控制者暂存、随 docs 一笔）
+
+- [ ] **Step 1: 写失败自检**（编译红 = `FitTodoList`/`CalendarCellHeight` 未存在）：
+  - 引擎：`FitTodoList` 跟随/贴底/半行/空日/钳零；342×337 6 周 → 视口 30；空日展开（块 66）→ 视口 0；
+  - XamlLoadCheck：今天 = 圈 + ✅（Tag "TodayCheck" 画布、无 ≥18 实心盘、数字常规色、今天选中同）；
+    圈径 = cellH+4（28→32、36→40）；锚定（高面板视口 = 所需且富余在按钮下方；min 尺寸 30/0 不回归）；
+    分隔带拖动改格高并持久化、锁定禁用、外框缩放保持显式格高；拖动中清单行引用不变（增量）；视口不足
+    时点击添加后 `VerticalOffset == ScrollableHeight`。
+- [ ] **Step 2: 运行确认失败**（编译失败）。
+- [ ] **Step 3: 实现**（引擎几何 + 渲染接线 + 分隔带 + 标记重写；三语无改动、无新键）。
+- [ ] **Step 4: 自检绿 + 全量回归 + 手动冒烟（用户）**：拖分隔带、锚定、滚到底、今天 ✅、拖动顺滑。
+- [ ] **Step 5: 提交（两笔，先审查后提交）** →
+      `docs: pin the todo splitter, anchoring and today check`（spec/plan/README/CHANGELOG，控制者已
+      修订暂存）→ `feat(todo): split the panel and anchor the add row`
+
 ---
 
 ## 阶段 5：收尾

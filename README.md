@@ -48,7 +48,12 @@ development base.
   parent leaves the children as they are. The panel size is entirely up to
   dragging: the calendar cell height and the day's list stretch with the
   height. In the Chinese UI a day cell's **second line** (festival / solar
-  term / lunar date) shows only when the cell is tall enough.
+  term / lunar date) shows only when the cell is tall enough. The divider
+  between the calendar and the list can itself be dragged to give either half
+  more room; the **+** row sticks to the bottom while the list scrolls and
+  follows the last entry when there is room, and clicking it jumps the list to
+  the bottom. Today wears the hand-drawn circle with a matching hand-drawn
+  check tucked into its bottom-right corner.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in
@@ -165,6 +170,7 @@ the new version. Settings and stored files are kept.
 | Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
 | Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
 | Resize a panel | Drag any edge, or the bottom-right grip (locked panels cannot be resized) |
+| Move the calendar / list split | Drag the divider between the calendar and the day list (locked panels cannot) |
 | Change the folder icon size | Right-click a folder panel → **Item Size** (six steps) |
 | Widget options (rename, colour, lock, icon size, delete) | Right-click a panel header or an island tile |
 
@@ -275,7 +281,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
   独立日期；勾选父项会同时勾选全部子项，取消父项不影响子项。面板尺寸完全由拖动
   决定——日历格高与当日清单随高度伸缩；中文界面下日期格的第二行（节日 / 节气 /
-  农历）只在格子足够高时显示。
+  农历）只在格子足够高时显示。月历与清单之间的**分隔线也可拖动**，两部分占比随意
+  调整；空间不足时「＋」添加行贴在面板底部（清单滚动），够用时跟在最后一条 todo
+  下方，点击它自动滚动到清单底部；今天的日期标记是手绘圈 + 右下角手绘 ✅。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
@@ -352,6 +360,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
 | 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
 | 调整面板大小 | 拖动任意边缘或右下角手柄（锁定的面板不可缩放） |
+| 调整月历 / 清单占比 | 拖动月历与清单之间的分隔线（锁定不可拖） |
 | 修改文件夹图标大小 | 右键文件夹面板 →「📐 图标大小」（六档） |
 | 组件选项（改名、改色、锁定、图标大小、删除） | 右键面板标题栏或岛上的组件图标 |
 
