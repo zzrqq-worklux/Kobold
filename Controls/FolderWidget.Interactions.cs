@@ -133,7 +133,7 @@ namespace Kobold.Controls
         /// </summary>
         public override void ShowWidgetMenu(Action onClosed = null)
         {
-            var menu = WidgetMenuBuilder.Build(this, WidgetKindRegistry.Find(_data.Kind), onClosed);
+            var menu = WidgetMenuBuilder.Build(this, onClosed);
             menu.IsOpen = true;
         }
 

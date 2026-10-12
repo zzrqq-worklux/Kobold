@@ -23,7 +23,7 @@ namespace Kobold.Helpers
         /// The kind-aware widget menu. <paramref name="onClosed"/> fires once
         /// the menu is gone (the island uses it to resume auto-collapse).
         /// </summary>
-        public static ContextMenu Build(IWidgetWindow host, WidgetKind kind, Action onClosed)
+        public static ContextMenu Build(IWidgetWindow host, Action onClosed)
         {
             var menu = new MenuBuilder(host.Data.Color)
                 .AddItem(host.IsPanelOpen ? "Menu_HideWidget" : "Menu_ShowWidget",

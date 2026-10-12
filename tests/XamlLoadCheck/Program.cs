@@ -1517,9 +1517,8 @@ namespace Kobold.XamlLoadCheck
 
             var data = new TodoData();
             var widget = new TodoWidget(data);
-            var kind = WidgetKindRegistry.Find("todo");
 
-            var menu = WidgetMenuBuilder.Build(widget, kind, null);
+            var menu = WidgetMenuBuilder.Build(widget, null);
             var regionMenu = FindMenuByHeader(menu, Localization.Get("Menu_HolidayRegion"));
             if (regionMenu == null)
                 throw new InvalidOperationException("the 假日地区 submenu is missing from the todo menu");
@@ -1561,7 +1560,7 @@ namespace Kobold.XamlLoadCheck
                     "clicking 日本 left HolidayRegion at '" + (data.HolidayRegion ?? "null") + "'");
             }
 
-            var reopened = WidgetMenuBuilder.Build(widget, kind, null);
+            var reopened = WidgetMenuBuilder.Build(widget, null);
             var reopenedMenu = FindMenuByHeader(reopened, Localization.Get("Menu_HolidayRegion"));
             if (reopenedMenu == null ||
                 !((MenuItem)reopenedMenu.Items[1]).IsChecked ||
@@ -4260,7 +4259,7 @@ namespace Kobold.XamlLoadCheck
             try
             {
                 var widget = new FolderWidget(new FolderData());
-                var menu = WidgetMenuBuilder.Build(widget, WidgetKindRegistry.Find("folder"), null);
+                var menu = WidgetMenuBuilder.Build(widget, null);
 
                 MenuItem submenu = null;
                 int submenuCount = 0;
