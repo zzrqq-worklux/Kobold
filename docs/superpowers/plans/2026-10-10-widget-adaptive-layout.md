@@ -242,8 +242,8 @@
 
 - [ ] **Step 1: 写失败自检**：格高 28（迁移默认）→ 无第二行小字；格高 ≥32 → 有（含 31.8/32 边界与
   无宽度兜底）；清单行数随高度（含 6 周最小尺寸回落到 1 行滚动）；换日/增删条目不再改变面板尺寸
-  （尺寸稳定 pin，持久 400×500）；`DesiredHeight` 与引擎公式一致（`DesiredHeight + 42 ==
-  DefaultTodoSize(weekCount, clamp(rows)).h`，展开 +30）；拖动中格高实时变（readapt pin）；
+  （尺寸稳定 pin，持久 400×500）；`DesiredHeight` 与引擎公式一致（`DesiredHeight + HEADER_HEIGHT(40) ==
+  DefaultTodoSize(weekCount, clamp(rows)).h`，展开 +30；面板 = 内容 + 42 见 panel-fits pin）；拖动中格高实时变（readapt pin）；
   **添加按钮恒可见 pin（用户冒烟反馈）**：最小尺寸（342×337；A4.1 由 335 调至 337——含 2 DIP 边框后
   6 周 × 22 + 1 行清单精确装入）下两种状态——6 周月 + 多行清单（视口收缩到 1 行滚动）与空日展开输入
   （引擎可用高 −30、格高 22）——添加行完整落在内容区内（底边 ≤ 内容高 295）。
