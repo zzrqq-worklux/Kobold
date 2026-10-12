@@ -213,9 +213,10 @@ namespace Kobold.XamlLoadCheck
                 // widget colour through local resource overrides (R3).
                 // Fix round 16: the pill's background/border become derived
                 // tints of the raw widget colour (R1) and today always shows
-                // the disc plus the hand-drawn circle (R2).
+                // the disc plus the hand-drawn circle (R2). Task A4.2: today
+                // drops the disc for the hand-drawn ring + its corner check.
                 failures += TryCheck("todo: selected day uses the hand-drawn circle", TodoSelectedDayUsesTheHandDrawnCircle);
-                failures += TryCheck("todo: today marker is a filled circle", TodoTodayMarkerIsAFilledCircle);
+                failures += TryCheck("todo: today wears the hand-drawn ring and its check", TodoTodayMarkerIsTheHandDrawnRingWithACheck);
                 failures += TryCheck("folder: item selection follows the widget colour", FolderSelectionFollowsTheWidgetColor);
                 failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
@@ -271,6 +272,16 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("resize: todo re-adapts the cell height during the drag", ResizeReadaptsTodoCellHeightDuringTheDrag);
                 failures += TryCheck("todo: the natural height matches the engine's migration sizes", TodoNaturalHeightMatchesTheEngine);
                 failures += TryCheck("todo: the add row stays visible at the minimum size", TodoAddRowStaysVisibleAtTheMinimum);
+
+                // Task A4.2 pins: the calendar/list divider drags the per-widget
+                // split (22..36, persisted) and refuses on a locked panel; an
+                // explicit split survives an outer resize, a resize never
+                // rebuilds the list rows, and clicking add scrolls an
+                // overflowing list to the bottom.
+                failures += TryCheck("todo: the divider drags the calendar split", TodoSplitterDragsTheCalendarHeight);
+                failures += TryCheck("resize: the explicit split stays while the panel resizes", TodoExplicitSplitSurvivesTheOuterResize);
+                failures += TryCheck("resize: todo does not rebuild its list rows", TodoResizeKeepsTheListRows);
+                failures += TryCheck("todo: clicking add scrolls the list to the bottom", TodoAddClickScrollsToTheBottom);
 
                 // Fix round 19: the click-to-edit interleaving the human smoke
                 // reported - while one todo is edited, clicking another opens
@@ -1950,6 +1961,299 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        /// <summary>
+        /// Task A4.2: dragging the calendar/list divider edits the widget's
+        /// explicit cell height (-30 drag = 6 per the five weeks, clamped to
+        /// 22..36); the locked panel refuses the drag entirely.
+        /// </summary>
+        private static void TodoSplitterDragsTheCalendarHeight()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new TodoData
+            {
+                PanelWidth = 342,
+                PanelHeight = 385,
+                SelectedDate = new DateTime(2026, 10, 12)
+            };
+            var view = new TodoWidget(data).CalendarView;
+
+            if (Math.Abs(DayGridHeight(view) - 180) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the untouched divider fixture is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted the auto 36-cell 180");
+            }
+
+            var started = ViewPrivateMethod("SplitterDragStarted");
+            var moved = ViewPrivateMethod("SplitterDragMoved");
+            var ended = ViewPrivateMethod("SplitterDragEnded");
+
+            if (!(bool)started.Invoke(view, new object[] { 100.0 }))
+            {
+                throw new InvalidOperationException("an unlocked splitter refused the drag");
+            }
+            moved.Invoke(view, new object[] { 70.0 });
+            if (data.CalendarCellHeight == null ||
+                Math.Abs(data.CalendarCellHeight.Value - 30) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "a -30 drag set the cell to " +
+                    (data.CalendarCellHeight.HasValue
+                        ? data.CalendarCellHeight.Value.ToString("0.##") : "<null>") +
+                    ", wanted 36 - 30/5 = 30");
+            }
+            if (Math.Abs(DayGridHeight(view) - 150) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the 30-cell day grid is " + DayGridHeight(view).ToString("0.##") + ", wanted 150");
+            }
+
+            moved.Invoke(view, new object[] { 1100.0 });
+            if (data.CalendarCellHeight == null ||
+                Math.Abs(data.CalendarCellHeight.Value - 36) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "a huge downward drag did not clamp the cell to 36: " +
+                    (data.CalendarCellHeight.HasValue
+                        ? data.CalendarCellHeight.Value.ToString("0.##") : "<null>"));
+            }
+            if (Math.Abs(DayGridHeight(view) - 180) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the clamped 36-cell day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted 180");
+            }
+
+            moved.Invoke(view, new object[] { -900.0 });
+            if (data.CalendarCellHeight == null ||
+                Math.Abs(data.CalendarCellHeight.Value - 22) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "a huge upward drag did not clamp the cell to 22: " +
+                    (data.CalendarCellHeight.HasValue
+                        ? data.CalendarCellHeight.Value.ToString("0.##") : "<null>"));
+            }
+            if (Math.Abs(DayGridHeight(view) - 110) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the clamped 22-cell day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted 110");
+            }
+            ended.Invoke(view, null);
+
+            // Locked: the band is inert and the logic refuses the drag.
+            var lockedData = new TodoData
+            {
+                IsLocked = true,
+                PanelWidth = 342,
+                PanelHeight = 385,
+                SelectedDate = new DateTime(2026, 10, 12)
+            };
+            var lockedView = new TodoWidget(lockedData).CalendarView;
+            var band = lockedView.FindName("SplitterBand") as FrameworkElement;
+            if (band == null || band.IsHitTestVisible)
+            {
+                throw new InvalidOperationException(
+                    "the locked panel's splitter band is " +
+                    (band == null ? "missing" : "hit-testable"));
+            }
+            if ((bool)started.Invoke(lockedView, new object[] { 100.0 }))
+            {
+                throw new InvalidOperationException("the locked splitter started a drag");
+            }
+            moved.Invoke(lockedView, new object[] { 70.0 });
+            if (lockedData.CalendarCellHeight != null)
+            {
+                throw new InvalidOperationException(
+                    "a moved locked splitter wrote the cell " +
+                    lockedData.CalendarCellHeight.Value.ToString("0.##"));
+            }
+        }
+
+        /// <summary>
+        /// Task A4.2: an explicit split (30) stays put while the outer panel
+        /// grows - the engine keeps the user's cell height and only the list
+        /// viewport absorbs the new space.
+        /// </summary>
+        private static void TodoExplicitSplitSurvivesTheOuterResize()
+        {
+            ThemeManager.Initialize("dark");
+            DateTime selected = new DateTime(2026, 10, 12);
+            var data = new TodoData
+            {
+                PanelWidth = 342,
+                PanelHeight = 385,
+                SelectedDate = selected,
+                CalendarCellHeight = 30
+            };
+            TodoListOps.AddItem(data, "item", selected);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+
+            if (Math.Abs(DayGridHeight(view) - 150) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the explicit 30-cell day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted 150");
+            }
+
+            EnsureRealDpi(widget);
+            widget.Width = 342;
+            widget.Height = 385;
+            widget.Left = 100;
+            widget.Top = 100;
+            SetPrivateBaseField(widget, "_isExpanded", true);
+            double scale = VisualTreeHelper.GetDpi(widget).DpiScaleX;
+
+            InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                new object[] { new Point(100 + 200 * scale, 100 + 200 * scale) });
+            if (Math.Abs(widget.Height - 585) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the drag made the panel " + widget.Height + " high, wanted 585");
+            }
+            if (Math.Abs(DayGridHeight(view) - 150) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the resized panel's day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted the explicit 30-cell 150");
+            }
+            if (data.CalendarCellHeight == null ||
+                Math.Abs(data.CalendarCellHeight.Value - 30) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the resize changed the stored split to " +
+                    (data.CalendarCellHeight.HasValue
+                        ? data.CalendarCellHeight.Value.ToString("0.##") : "<null>") +
+                    ", wanted 30");
+            }
+            PrivateBaseMethod("OnResizeEnded").Invoke(widget, new object[] { new Point(100, 100) });
+        }
+
+        /// <summary>
+        /// Task A4.2: a resize drag only re-lays-out the calendar geometry; the
+        /// built day-list rows are kept (their references survive the drag).
+        /// </summary>
+        private static void TodoResizeKeepsTheListRows()
+        {
+            ThemeManager.Initialize("dark");
+            DateTime selected = new DateTime(2026, 10, 12);
+            var data = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = selected };
+            TodoListOps.AddItem(data, "item", selected);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+
+            var panel = view.FindName("ItemsPanel") as Panel;
+            if (panel == null || panel.Children.Count == 0)
+            {
+                throw new InvalidOperationException("the list rows were not built");
+            }
+            if (Math.Abs(DayGridHeight(view) - 132) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the minimum panel's day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted 132");
+            }
+            var firstRow = panel.Children[0];
+
+            EnsureRealDpi(widget);
+            widget.Width = 342;
+            widget.Height = 337;
+            widget.Left = 100;
+            widget.Top = 100;
+            SetPrivateBaseField(widget, "_isExpanded", true);
+            double scale = VisualTreeHelper.GetDpi(widget).DpiScaleX;
+
+            InvokeResizeStarted(widget, WidgetResizeEdge.BottomRight, new Point(100, 100));
+            PrivateBaseMethod("OnResizeMoved").Invoke(widget,
+                new object[] { new Point(100 + 200 * scale, 100 + 200 * scale) });
+            if (Math.Abs(widget.Height - 537) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the drag made the panel " + widget.Height + " high, wanted 537");
+            }
+            if (Math.Abs(DayGridHeight(view) - 180) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the grown panel's day grid is " + DayGridHeight(view).ToString("0.##") +
+                    ", wanted 180 (content 495 -> cell 36)");
+            }
+            if (!ReferenceEquals(firstRow, panel.Children[0]))
+            {
+                throw new InvalidOperationException("the resize rebuilt the day-list rows");
+            }
+            PrivateBaseMethod("OnResizeEnded").Invoke(widget, new object[] { new Point(100, 100) });
+        }
+
+        /// <summary>
+        /// Task A4.2: clicking add on an overflowing list reveals the input and
+        /// scrolls the list to the bottom; an empty day has no extent, so the
+        /// reveal stays at offset zero.
+        /// </summary>
+        private static void TodoAddClickScrollsToTheBottom()
+        {
+            ThemeManager.Initialize("dark");
+            var data = NewSevenRowAugustDay();
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            ArrangeChrome((WidgetChrome)widget.Content, 342, 337);
+
+            var scroller = view.FindName("ItemsScroller") as ScrollViewer;
+            if (scroller == null || scroller.ScrollableHeight <= 0)
+            {
+                throw new InvalidOperationException(
+                    "the seven-row fixture does not scroll: " +
+                    (scroller == null
+                        ? "ItemsScroller missing"
+                        : scroller.ScrollableHeight.ToString("0.##")));
+            }
+
+            RevealAddBox(view);
+            scroller.UpdateLayout();
+            if (!(scroller.VerticalOffset > 0) ||
+                Math.Abs(scroller.VerticalOffset - scroller.ScrollableHeight) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the reveal left the list at " + scroller.VerticalOffset.ToString("0.##") +
+                    " of " + scroller.ScrollableHeight.ToString("0.##"));
+            }
+
+            // An empty day has nothing to scroll: the reveal stays at zero.
+            var emptyData = new TodoData
+            {
+                PanelWidth = 342,
+                PanelHeight = 337,
+                SelectedDate = new DateTime(2026, 8, 19)
+            };
+            var emptyWidget = new TodoWidget(emptyData);
+            var emptyView = emptyWidget.CalendarView;
+            ArrangeChrome((WidgetChrome)emptyWidget.Content, 342, 337);
+
+            RevealAddBox(emptyView);
+            var emptyScroller = emptyView.FindName("ItemsScroller") as ScrollViewer;
+            if (emptyScroller == null)
+            {
+                throw new InvalidOperationException("the empty day's ItemsScroller is missing");
+            }
+            emptyScroller.UpdateLayout();
+            if (Math.Abs(emptyScroller.VerticalOffset) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the empty day's reveal scrolled to " +
+                    emptyScroller.VerticalOffset.ToString("0.##"));
+            }
+        }
+
+        private static MethodInfo ViewPrivateMethod(string name)
+        {
+            var method = typeof(TodoCalendarView).GetMethod(name,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException(name + " not found on TodoCalendarView");
+            return method;
+        }
+
         private static void ArrangeChrome(WidgetChrome chrome, double width, double height)
         {
             chrome.Measure(new Size(width, height));
@@ -3250,6 +3554,9 @@ namespace Kobold.XamlLoadCheck
         /// with the day number unchanged. The day 15 cell is unique in any
         /// month grid, so the number text finds exactly the selected cell.
         /// Fix round 15 (R1): the circle's Viewbox grows to >= 30 DIP.
+        /// Task A4.2: the Viewbox is the applied cell height + 4 (the
+        /// unpersisted fallback keeps the migration cell 28 -> 32; a
+        /// persisted 385-high panel lands on the 36 clamp -> 40).
         /// </summary>
         private static void TodoSelectedDayUsesTheHandDrawnCircle()
         {
@@ -3302,52 +3609,79 @@ namespace Kobold.XamlLoadCheck
                     "the circle Viewbox is " + viewbox.Width + "x" + viewbox.Height +
                     ", wanted at least 30x30");
             }
+            if (Math.Abs(viewbox.Width - 32) > 0.01 || Math.Abs(viewbox.Height - 32) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the fallback circle Viewbox is " + viewbox.Width.ToString("0.##") + "x" +
+                    viewbox.Height.ToString("0.##") + ", wanted the cell 28 + 4 = 32");
+            }
+
+            // A persisted 342x385 panel (5 weeks, empty day) lands on the 36
+            // cell clamp, so the circle box grows to 40.
+            var sizedData = new TodoData
+            {
+                PanelWidth = 342,
+                PanelHeight = 385,
+                SelectedDate = new DateTime(2026, 10, 12),
+                Color = "#E8A33D"
+            };
+            var sizedView = new TodoWidget(sizedData).CalendarView;
+            LayoutView(sizedView);
+            var sizedBox = FirstDescendant<Viewbox>(DayCellFor(sizedView, 12));
+            if (sizedBox == null ||
+                Math.Abs(sizedBox.Width - 40) > 0.01 || Math.Abs(sizedBox.Height - 40) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the 36-cell circle Viewbox is " +
+                    (sizedBox == null
+                        ? "<none>"
+                        : sizedBox.Width.ToString("0.##") + "x" + sizedBox.Height.ToString("0.##")) +
+                    ", wanted the cell 36 + 4 = 40");
+            }
         }
 
         /// <summary>
-        /// Fix round 15 (R2): the today cell carries a filled widget-colour
-        /// disc (w == h >= 18) with the white OnAccent number and a transparent
-        /// border; with today SELECTED it showed the disc inside the hand-drawn
-        /// circle. Fix round 16 (R2) flips the not-selected expectation: today
-        /// always shows the disc AND the circle (>= 3 paths stroked in the
-        /// widget colour) together, while a selected-only day keeps the circle
-        /// and no disc. The disc is the only day-cell Ellipse at >= 18 DIP, so
-        /// it finds the today cell under either contract.
-        /// Fix round 15b: a near-white widget colour under the dark theme must
-        /// still give the disc a non-light fill (brightness <= 0.8) so the
-        /// white number does not vanish; the number stays OnAccent.
+        /// Task A4.2 (was fix round 15 R2): the today cell wears the human's
+        /// hand-drawn ring plus a hand-drawn check tucked into the ring's
+        /// bottom-right corner (the solid disc is gone). The ring keeps its
+        /// 183-degree rotation and the widget-colour strokes; the check's two
+        /// main strokes reuse the ring's brush. The number stays the plain
+        /// themed text colour. A today cell is found by its TodayCheck canvas.
         /// </summary>
-        private static void TodoTodayMarkerIsAFilledCircle()
+        private static void TodoTodayMarkerIsTheHandDrawnRingWithACheck()
         {
             ThemeManager.Initialize("dark");
             DateTime today = DateTime.Today;
             DateTime other = new DateTime(today.Year, today.Month, today.Day == 15 ? 16 : 15);
             Color wanted = Utils.HexToColor("#E8A33D");
 
-            // Today NOT selected: the disc AND the hand-drawn circle mark it.
+            // Today NOT selected: the ring plus the check mark it.
             var data = new TodoData { SelectedDate = other, Color = "#E8A33D" };
             var view = new TodoWidget(data).CalendarView;
             LayoutView(view);
 
-            var cell = TodayDiscCell(view, wanted);
+            var cell = TodayCheckCell(view);
             if (!ContainsText(cell, today.Day.ToString(CultureInfo.InvariantCulture)))
             {
                 throw new InvalidOperationException(
-                    "the disc cell does not show today's number " + today.Day);
+                    "the today cell does not show today's number " + today.Day);
             }
-            AssertTodayDisc(cell, wanted);
+            AssertTodayRingAndCheck(cell, wanted);
             AssertTransparentCellBorder(cell);
-            int paths = CountPathsStroked(cell, wanted);
-            if (paths < 3)
+            if (FindTodayDisc(cell) != null)
+            {
+                throw new InvalidOperationException("the today cell still carries a solid disc");
+            }
+            AssertTodayNumberIsPlain(cell, today.Day);
+
+            // The same view's selected-only day (not today): ring, no check,
+            // no disc.
+            var selectedOnly = DayCellFor(view, other.Day);
+            if (TodayCheckCanvas(selectedOnly) != null)
             {
                 throw new InvalidOperationException(
-                    "the unselected today cell has " + paths +
-                    " path(s) stroked in the widget colour, wanted at least 3");
+                    "the selected-only cell " + other.Day + " wears today's check");
             }
-            AssertTodayNumberIsOnAccent(cell, today.Day);
-
-            // The same view's selected-only day (not today): circle, no disc.
-            var selectedOnly = DayCellFor(view, other.Day);
             if (FindTodayDisc(selectedOnly) != null)
             {
                 throw new InvalidOperationException(
@@ -3361,67 +3695,150 @@ namespace Kobold.XamlLoadCheck
                     " path(s) stroked in the widget colour, wanted at least 3");
             }
 
-            // Today SELECTED: the disc sits inside the hand-drawn circle.
+            // Today SELECTED: the same ring + check, still no disc.
             var selectedData = new TodoData { SelectedDate = today, Color = "#E8A33D" };
             var selectedView = new TodoWidget(selectedData).CalendarView;
             LayoutView(selectedView);
 
-            var selectedCell = TodayDiscCell(selectedView, wanted);
-            AssertTodayDisc(selectedCell, wanted);
-            int strokes = CountPathsStroked(selectedCell, wanted);
-            if (strokes < 3)
+            var selectedCell = TodayCheckCell(selectedView);
+            AssertTodayRingAndCheck(selectedCell, wanted);
+            if (FindTodayDisc(selectedCell) != null)
             {
                 throw new InvalidOperationException(
-                    "the selected today cell has " + strokes +
-                    " path(s) stroked in the widget colour, wanted at least 3");
+                    "the selected today cell still carries a solid disc");
             }
-            AssertTodayNumberIsOnAccent(selectedCell, today.Day);
+            AssertTodayNumberIsPlain(selectedCell, today.Day);
 
-            // Fix round 15b: a near-white widget colour under the dark theme
-            // must not leave a near-white disc under the white number.
+            // A near-white widget colour under the dark theme keeps the ring
+            // and the check in the widget colour; there is no disc to darken.
             var lightData = new TodoData { SelectedDate = other, Color = "#FFFFFF" };
             var lightView = new TodoWidget(lightData).CalendarView;
             LayoutView(lightView);
 
-            var lightCell = TodayAnyDiscCell(lightView);
+            var lightCell = TodayCheckCell(lightView);
             if (!ContainsText(lightCell, today.Day.ToString(CultureInfo.InvariantCulture)))
             {
                 throw new InvalidOperationException(
-                    "the near-white disc cell does not show today's number " + today.Day);
+                    "the near-white today cell does not show today's number " + today.Day);
             }
-            var lightDisc = FindTodayDisc(lightCell);
-            var lightFill = lightDisc.Fill as SolidColorBrush;
-            if (lightFill == null)
+            AssertTodayRingAndCheck(lightCell, Utils.HexToColor("#FFFFFF"));
+            if (FindTodayDisc(lightCell) != null)
             {
                 throw new InvalidOperationException(
-                    "the near-white disc has no solid fill: " +
-                    (lightDisc.Fill == null ? "null" : lightDisc.Fill.ToString()));
+                    "the near-white today cell still carries a solid disc");
             }
-            double lightBrightness = PerceivedBrightness(lightFill.Color);
-            if (lightBrightness > 0.8)
-            {
-                throw new InvalidOperationException(
-                    "the near-white disc keeps brightness " +
-                    lightBrightness.ToString("0.###") + " > 0.8 under the dark theme");
-            }
-            AssertTodayNumberIsOnAccent(lightCell, today.Day);
+            AssertTodayNumberIsPlain(lightCell, today.Day);
         }
 
-        /// <summary>The cell's disc: a widget-coloured Ellipse at 18 DIP or more, square.</summary>
-        private static void AssertTodayDisc(Border cell, Color wanted)
+        /// <summary>
+        /// Task A4.2: the today cell carries the rotated ring (widget-colour
+        /// strokes) and a TodayCheck canvas whose two main strokes reuse the
+        /// ring's brush.
+        /// </summary>
+        private static void AssertTodayRingAndCheck(Border cell, Color wanted)
         {
-            var disc = FindDisc(cell, wanted);
-            if (disc == null)
+            if (!HasRotateTransform(cell, 183))
             {
                 throw new InvalidOperationException(
-                    "the today cell has no Ellipse filled with the widget colour " + Describe(wanted));
+                    "the today cell carries no RotateTransform with Angle 183 (the ring is gone)");
             }
-            if (disc.Width != disc.Height || disc.Width < 18)
+            int stroked = CountPathsStroked(cell, wanted);
+            if (stroked < 3)
             {
                 throw new InvalidOperationException(
-                    "the today disc is " + disc.Width.ToString("0.##") + "x" +
-                    disc.Height.ToString("0.##") + ", wanted a square of at least 18");
+                    "the today cell has " + stroked +
+                    " path(s) stroked in the widget colour, wanted at least 3");
             }
+
+            var check = TodayCheckCanvas(cell);
+            if (check == null)
+            {
+                throw new InvalidOperationException("the today cell has no TodayCheck canvas");
+            }
+            int checkPaths = 0;
+            foreach (var child in check.Children)
+            {
+                if (child is Path) checkPaths++;
+            }
+            if (checkPaths < 3)
+            {
+                throw new InvalidOperationException(
+                    "the today check has " + checkPaths + " path(s), wanted at least 3");
+            }
+
+            Brush ringStroke = MainRingStroke(cell);
+            if (ringStroke == null)
+            {
+                throw new InvalidOperationException("the today ring has no main stroked path");
+            }
+            int mains = 0;
+            foreach (var child in check.Children)
+            {
+                var path = child as Path;
+                if (path == null || path.Stroke == null || path.StrokeThickness < 3.5) continue;
+                mains++;
+                if (!ReferenceEquals(ringStroke, path.Stroke) && !SameBrushColor(ringStroke, path.Stroke))
+                {
+                    throw new InvalidOperationException(
+                        "a today check main stroke does not reuse the ring's brush");
+                }
+            }
+            if (mains < 2)
+            {
+                throw new InvalidOperationException(
+                    "the today check has " + mains + " main stroke(s), wanted 2");
+            }
+        }
+
+        /// <summary>Task A4.2: the ring's first main widget-coloured stroke.</summary>
+        private static Brush MainRingStroke(Border cell)
+        {
+            var canvas = RingCanvas(cell);
+            if (canvas == null) return null;
+            foreach (var child in canvas.Children)
+            {
+                var path = child as Path;
+                if (path != null && path.Stroke != null && path.StrokeThickness >= 3.2)
+                {
+                    return path.Stroke;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Task A4.2: the rotated 183-degree canvas of the hand-drawn ring.</summary>
+        private static Canvas RingCanvas(DependencyObject root)
+        {
+            var canvas = root as Canvas;
+            if (canvas != null && MatchesRotate(canvas.RenderTransform, 183)) return canvas;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = RingCanvas(VisualTreeHelper.GetChild(root, i));
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static bool SameBrushColor(Brush first, Brush second)
+        {
+            var a = first as SolidColorBrush;
+            var b = second as SolidColorBrush;
+            return a != null && b != null && a.Color == b.Color;
+        }
+
+        /// <summary>Task A4.2: the today check's tagged canvas, or null.</summary>
+        private static Canvas TodayCheckCanvas(DependencyObject root)
+        {
+            var canvas = root as Canvas;
+            if (canvas != null && (canvas.Tag as string) == "TodayCheck") return canvas;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = TodayCheckCanvas(VisualTreeHelper.GetChild(root, i));
+                if (found != null) return found;
+            }
+            return null;
         }
 
         /// <summary>The today cell's own border must be transparent, not a ring.</summary>
@@ -3436,18 +3853,18 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        /// <summary>Today's number is white (the shared OnAccent brush) on the disc.</summary>
-        private static void AssertTodayNumberIsOnAccent(Border cell, int day)
+        /// <summary>Task A4.2: today's number is the plain themed text colour (no disc).</summary>
+        private static void AssertTodayNumberIsPlain(Border cell, int day)
         {
             var number = FirstDescendant<TextBlock>(cell);
             if (number == null || number.Text != day.ToString(CultureInfo.InvariantCulture))
             {
                 throw new InvalidOperationException("the today cell lost its day number");
             }
-            if (number.Foreground != ThemeManager.OnAccentBrush)
+            if (number.Foreground != ThemeManager.TextBrush)
             {
                 throw new InvalidOperationException(
-                    "the today number is not OnAccent: " +
+                    "the today number is not the themed text colour: " +
                     (number.Foreground == null ? "null" : number.Foreground.ToString()));
             }
         }
@@ -3469,8 +3886,8 @@ namespace Kobold.XamlLoadCheck
             throw new InvalidOperationException("no day cell shows " + wanted);
         }
 
-        /// <summary>The only day cell whose subtree holds the widget-coloured disc (today).</summary>
-        private static Border TodayDiscCell(TodoCalendarView view, Color wanted)
+        /// <summary>Task A4.2: the day cell whose subtree holds the TodayCheck canvas.</summary>
+        private static Border TodayCheckCell(TodoCalendarView view)
         {
             var grid = view.FindName("DayGrid") as UniformGrid;
             if (grid == null) throw new InvalidOperationException("the day grid was not found");
@@ -3479,52 +3896,9 @@ namespace Kobold.XamlLoadCheck
             {
                 var cell = child as Border;
                 if (cell == null) continue;
-                if (FindDisc(cell, wanted) != null) return cell;
+                if (TodayCheckCanvas(cell) != null) return cell;
             }
-            throw new InvalidOperationException("no today disc cell was found");
-        }
-
-        /// <summary>
-        /// Fix round 15b: the today cell whatever the disc's fill - the only
-        /// day-cell Ellipse at >= 18 DIP (the circle's ink dots stay below).
-        /// </summary>
-        private static Border TodayAnyDiscCell(TodoCalendarView view)
-        {
-            var grid = view.FindName("DayGrid") as UniformGrid;
-            if (grid == null) throw new InvalidOperationException("the day grid was not found");
-
-            foreach (var child in grid.Children)
-            {
-                var cell = child as Border;
-                if (cell == null) continue;
-                if (FindTodayDisc(cell) != null) return cell;
-            }
-            throw new InvalidOperationException("no today disc cell was found");
-        }
-
-        /// <summary>
-        /// The widget-coloured disc: an Ellipse of at least 18 DIP filled with
-        /// the colour. The circle's ink dots are smaller and stay ignored.
-        /// </summary>
-        private static Ellipse FindDisc(DependencyObject root, Color fill)
-        {
-            var ellipse = root as Ellipse;
-            if (ellipse != null)
-            {
-                var brush = ellipse.Fill as SolidColorBrush;
-                if (brush != null && brush.Color == fill &&
-                    ellipse.Width >= 18 && ellipse.Height >= 18)
-                {
-                    return ellipse;
-                }
-            }
-            int count = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < count; i++)
-            {
-                var found = FindDisc(VisualTreeHelper.GetChild(root, i), fill);
-                if (found != null) return found;
-            }
-            return null;
+            throw new InvalidOperationException("no today check cell was found");
         }
 
         /// <summary>Fix round 15b: the today disc by size alone, whatever its fill.</summary>

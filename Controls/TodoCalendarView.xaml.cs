@@ -78,6 +78,17 @@ namespace Kobold.Controls
         private Brush _addPillBaseBrush;
         private Brush _addPillHoverBrush;
 
+        // Task A4.2: the scale boxes of the today/selected ring (+ check); the
+        // incremental resize path grows them with the cell without rebuilding
+        // the calendar. _builtCellHeight/_builtShowLabels describe what the
+        // last BuildCalendar rendered; the splitter drag anchors on the height.
+        private readonly List<Viewbox> _ringBoxes = new List<Viewbox>();
+        private double _builtCellHeight;
+        private bool _builtShowLabels;
+        private bool _splitDragging;
+        private double _splitStartY;
+        private double _splitStartCell;
+
         // The commit an inline editor deferred on focus loss. Kept so the
         // offscreen checks can run the deferred work without pumping the app
         // dispatcher; production clears it when the callback runs.
@@ -113,7 +124,8 @@ namespace Kobold.Controls
         /// and on theme/language changes. Cheap and idempotent. Task A4.1: the
         /// layout comes first - the engine splits the panel height between the
         /// calendar and the day list, and the builders only render its output.
-        /// The panel size itself never follows the content.
+        /// The panel size itself never follows the content. Task A4.2: the
+        /// engine also positions the add row (pinned when the space runs out).
         /// </summary>
         public void Refresh()
         {
@@ -130,19 +142,27 @@ namespace Kobold.Controls
             int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
                 _culture.DateTimeFormat.FirstDayOfWeek);
 
-            // The revealed empty-day input is an extra 30-high row in the add
-            // block; the engine's fixed-block maths (133) stays unchanged, so
-            // the input takes that 30 off the available height instead.
-            double layoutH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty)
-                             - (_addBoxRevealed && dayIsEmpty ? 30 : 0);
-            var layout = PanelLayoutAdapter.AdaptTodo(layoutH, weekCount, naturalRows,
-                Localization.CurrentLanguage == "zh");
+            // The layout comes from the pure engine: the calendar cell first
+            // (the user's explicit split or the automatic size), then the day
+            // list and the add row's block below it.
+            double contentH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty);
+            double addBlock = AddBlockHeight(dayIsEmpty);
+            double cell = EffectiveCellHeight(weekCount, naturalRows, contentH, addBlock);
+            bool showLabels = Localization.CurrentLanguage == "zh"
+                              && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
 
             BuildMonthHeader(today);
             BuildWeekdayHeader();
-            BuildCalendar(today, layout);
-            BuildDayList(parents, today, layout);
+            BuildCalendar(today, cell, showLabels);
+            BuildDayList(parents, today);
+            ApplyGeometry(weekCount, cell, naturalRows, contentH, addBlock);
             UpdateAddRowVisuals(dayIsEmpty);
+
+            // The divider only drags while the panel is unlocked: the band is
+            // hit-test-inert when locked and the logic guards again.
+            SplitterBand.IsHitTestVisible = !_data.IsLocked;
+            SplitterBand.Cursor = Cursors.SizeNS;
+
             DesiredHeight = NaturalHeight(weekCount, naturalRows, dayIsEmpty);
         }
 
@@ -197,6 +217,95 @@ namespace Kobold.Controls
             return rows;
         }
 
+        /// <summary>
+        /// The vertical block the add row occupies: the revealed input row
+        /// (30), the pill (30 + its 6 half-leading) - on an empty day the
+        /// revealed input and the stacked pill together.
+        /// </summary>
+        private double AddBlockHeight(bool dayIsEmpty)
+        {
+            double h = 0;
+            if (_addBoxRevealed) h += PanelLayoutAdapter.LIST_ROW_H;
+            if (!_addBoxRevealed || dayIsEmpty) h += PanelLayoutAdapter.FIXED_ADD_ROW;
+            return h;
+        }
+
+        /// <summary>
+        /// The tallest calendar cell the panel height can afford once every
+        /// fixed block (chrome, margins, the add row) is off: the calendar can
+        /// never crowd the add row out of the panel.
+        /// </summary>
+        private double MaxCalendarCell(int weekCount, double contentHeight, double addBlockHeight)
+        {
+            double space = contentHeight - PanelLayoutAdapter.FIXED_ROOT_MARGIN_TOP
+                - PanelLayoutAdapter.FIXED_MONTH_NAV - PanelLayoutAdapter.FIXED_WEEKDAY_ROW
+                - PanelLayoutAdapter.FIXED_SEPARATOR - PanelLayoutAdapter.FIXED_DAY_HEADER
+                - PanelLayoutAdapter.FIXED_ROOT_MARGIN_BOTTOM - addBlockHeight;
+            return Math.Max(PanelLayoutAdapter.CELL_MIN, space / Math.Max(1, weekCount));
+        }
+
+        /// <summary>
+        /// The cell height actually rendered: the user's explicit split when
+        /// one is stored, otherwise the automatic engine split - always inside
+        /// CELL_MIN..CELL_MAX and never beyond what the panel can afford.
+        /// </summary>
+        private double EffectiveCellHeight(int weekCount, int naturalRows, double contentHeight, double addBlockHeight)
+        {
+            double cell;
+            if (_data.CalendarCellHeight.HasValue)
+            {
+                cell = _data.CalendarCellHeight.Value;
+            }
+            else
+            {
+                double autoInput = contentHeight - Math.Max(0, addBlockHeight - PanelLayoutAdapter.FIXED_ADD_ROW);
+                cell = PanelLayoutAdapter.AdaptTodo(autoInput, weekCount, naturalRows,
+                    Localization.CurrentLanguage == "zh").CellHeight;
+            }
+            double maxCell = MaxCalendarCell(weekCount, contentHeight, addBlockHeight);
+            return Math.Max(PanelLayoutAdapter.CELL_MIN,
+                Math.Min(cell, Math.Min(PanelLayoutAdapter.CELL_MAX, maxCell)));
+        }
+
+        /// <summary>
+        /// Applies the fitted geometry: the day grid's height, the list
+        /// viewport (capped by its natural rows; the add row pins to the
+        /// bottom when the space runs out) and the ring/check scale boxes.
+        /// </summary>
+        private void ApplyGeometry(int weekCount, double cell, int naturalRows, double contentH, double addBlock)
+        {
+            DayGrid.Height = weekCount * cell;
+            var fit = PanelLayoutAdapter.FitTodoList(contentH, weekCount * cell, naturalRows, addBlock);
+            ItemsScroller.Height = fit.Viewport;
+            foreach (var box in _ringBoxes) { box.Width = cell + 4; box.Height = cell + 4; }
+        }
+
+        /// <summary>
+        /// The incremental resize path (outer panel resize and splitter drags):
+        /// re-fits the geometry against the live height without rebuilding the
+        /// day-list rows - only a label-threshold flip rebuilds the calendar.
+        /// </summary>
+        internal void ApplyResizeLayout()
+        {
+            if (_data == null || _host == null) return;
+
+            DateTime today = DateTime.Today;
+            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
+            bool dayIsEmpty = parents.Count == 0;
+            int natural = CountNaturalRows(parents);
+            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
+                _culture.DateTimeFormat.FirstDayOfWeek);
+            double contentH = CurrentContentHeight(weekCount, natural, dayIsEmpty);
+            double addBlock = AddBlockHeight(dayIsEmpty);
+            double cell = EffectiveCellHeight(weekCount, natural, contentH, addBlock);
+            bool show = Localization.CurrentLanguage == "zh"
+                        && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
+
+            if (show != _builtShowLabels) BuildCalendar(today, cell, show);
+            ApplyGeometry(weekCount, cell, natural, contentH, addBlock);
+            _builtCellHeight = cell;
+        }
+
         #region Month calendar
 
         private void BuildMonthHeader(DateTime today)
@@ -228,21 +337,24 @@ namespace Kobold.Controls
             }
         }
 
-        private void BuildCalendar(DateTime today, TodoLayout layout)
+        private void BuildCalendar(DateTime today, double cell, bool showLabels)
         {
+            _ringBoxes.Clear();
             DayGrid.Children.Clear();
             var cells = TodoCalendar.BuildMonth(
                 _viewYear, _viewMonth, _data.Items, _selected, today,
                 _culture.DateTimeFormat.FirstDayOfWeek);
 
-            DayGrid.Height = cells.Count / 7 * layout.CellHeight;
-            foreach (var cell in cells) DayGrid.Children.Add(BuildDayCell(cell, layout.ShowDayLabels));
+            DayGrid.Height = cells.Count / 7 * cell;
+            foreach (var day in cells) DayGrid.Children.Add(BuildDayCell(day, showLabels, cell));
+            _builtCellHeight = cell;
+            _builtShowLabels = showLabels;
         }
 
-        private UIElement BuildDayCell(TodoDayCell cell, bool showDayLabels)
+        private UIElement BuildDayCell(TodoDayCell cell, bool showDayLabels, double cellHeight)
         {
-            // The Border stays the click target only (fix round 15, R2): the
-            // today mark is the filled disc behind the content, never a ring.
+            // The Border stays the click target only: the today/selected mark
+            // is the hand-drawn ring (plus today's check) behind the content.
             var border = new Border
             {
                 Margin = new Thickness(1),
@@ -260,11 +372,10 @@ namespace Kobold.Controls
                 FontSize = 10,
                 FontWeight = cell.IsToday ? FontWeights.SemiBold : FontWeights.Normal,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                // On the today disc the number is white; elsewhere the theme's
-                // text colour, greyed for padding days (fix round 15, R2).
-                Foreground = cell.IsToday
-                    ? ThemeManager.OnAccentBrush
-                    : (cell.InMonth ? ThemeManager.TextBrush : ThemeManager.MutedTextBrush)
+                // Always the theme's text colour, greyed for padding days
+                // (Task A4.2: the today disc that carried the white number is
+                // gone; nothing sits behind the number anymore).
+                Foreground = cell.InMonth ? ThemeManager.TextBrush : ThemeManager.MutedTextBrush
             });
 
             // Task 2.5: the zh second line (区域假日 > 节日 > 节气 > 农历日).
@@ -283,23 +394,19 @@ namespace Kobold.Controls
 
             if (cell.IsToday || cell.IsSelected)
             {
-                // A Grid centres disc (today), circle (today or selected) and
-                // the number stack; today always shows the disc inside the
-                // circle, selected or not (fix round 16, R2).
+                // A Grid centres the ring (today or selected), today's check
+                // (ring's bottom-right corner) and the number stack; the
+                // solid disc is gone (Task A4.2).
                 var overlay = new Grid();
+                var ring = BuildSelectionCircle(ReadableWidgetAccentBrush(), cellHeight);
+                _ringBoxes.Add(ring);
+                overlay.Children.Add(ring);
                 if (cell.IsToday)
                 {
-                    overlay.Children.Add(new Ellipse
-                    {
-                        Width = 20,
-                        Height = 20,
-                        Fill = TodayDiscBrush(),
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        IsHitTestVisible = false
-                    });
+                    var check = BuildTodayCheck(ReadableWidgetAccentBrush(), cellHeight);
+                    _ringBoxes.Add(check);
+                    overlay.Children.Add(check);
                 }
-                overlay.Children.Add(BuildSelectionCircle(ReadableWidgetAccentBrush()));
                 overlay.Children.Add(stack);
                 border.Child = overlay;
             }
@@ -361,14 +468,14 @@ namespace Kobold.Controls
 
         /// <summary>
         /// Fix round 14 (R2): the human's hand-drawn selection circle, in its
-        /// 100x100 coordinate space, scaled into a box centred in the 28px
-        /// cell and rotated 183 degrees about its centre (fix round 15, R1:
-        /// the box grew from 24 to 32, overflowing the cell ~3px per side -
-        /// nothing on the path clips). Every stroke and fill is the readable
-        /// widget accent; non-hit-testable so the whole cell stays one click
-        /// target.
+        /// 100x100 coordinate space, scaled into a box centred in the cell and
+        /// rotated 183 degrees about its centre. The box is the cell height
+        /// + 4 (Task A4.2: it scales with the cell; it overflows the cell
+        /// ~2px per side - nothing on the path clips). Every stroke and fill
+        /// is the readable widget accent; non-hit-testable so the whole cell
+        /// stays one click target.
         /// </summary>
-        private static Viewbox BuildSelectionCircle(Brush stroke)
+        private static Viewbox BuildSelectionCircle(Brush stroke, double cellHeight)
         {
             var canvas = new Canvas
             {
@@ -425,13 +532,34 @@ namespace Kobold.Controls
 
             return new Viewbox
             {
-                Width = 32,
-                Height = 32,
+                Width = cellHeight + 4,
+                Height = cellHeight + 4,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
                 Child = canvas
             };
+        }
+
+        /// <summary>The hand-drawn check tucked into the ring's bottom-right corner.</summary>
+        private static Viewbox BuildTodayCheck(Brush stroke, double cellHeight)
+        {
+            var canvas = new Canvas { Width = 100, Height = 100, Tag = "TodayCheck", IsHitTestVisible = false };
+            canvas.Children.Add(new Path { Data = Geometry.Parse("M 72 73 C 75 78, 78 82, 81 86"),
+                Stroke = stroke, StrokeThickness = 3.6, StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round });
+            canvas.Children.Add(new Path { Data = Geometry.Parse("M 81 86 C 86 76, 91 66, 98 55"),
+                Stroke = stroke, StrokeThickness = 3.8, StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round });
+            canvas.Children.Add(new Path { Data = Geometry.Parse("M 90 66 L 96 57"),
+                Stroke = stroke, StrokeThickness = 2.0, Opacity = 0.55, StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round });
+            var dot = new Ellipse { Width = 2, Height = 2, Fill = stroke, Opacity = 0.6 };
+            Canvas.SetLeft(dot, 70.6); Canvas.SetTop(dot, 70.6);
+            canvas.Children.Add(dot);
+            return new Viewbox { Width = cellHeight + 4, Height = cellHeight + 4,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false, Child = canvas };
         }
 
         private static void AddInkDot(Canvas canvas, double x, double y, double radius, double opacity, Brush fill)
@@ -523,7 +651,7 @@ namespace Kobold.Controls
 
         #region Day list
 
-        private void BuildDayList(List<TodoItem> parents, DateTime today, TodoLayout layout)
+        private void BuildDayList(List<TodoItem> parents, DateTime today)
         {
             ItemsPanel.Children.Clear();
             DayHeaderText.Text = _selected.ToString("M", _culture) + " · " +
@@ -559,10 +687,6 @@ namespace Kobold.Controls
             // not re-scroll the list somewhere the user did not ask for.
             _scrollToId = null;
             _scrollToAdderForId = null;
-
-            // The engine gives the viewport its rows (0 on an empty day: the
-            // add row sits directly under the day header, fix round 12).
-            ItemsScroller.Height = layout.ListRows * PanelLayoutAdapter.LIST_ROW_H;
         }
 
         /// <summary>
@@ -1101,7 +1225,20 @@ namespace Kobold.Controls
                 _addBoxRevealed = true;
                 Refresh(); // rebuild the add row (and, on an empty day, the list height)
             }
+            ScrollListToBottomIfNeeded();
             AddBox.Focus();
+        }
+
+        /// <summary>
+        /// Task A4.2: a click on the add row brings the list's bottom (the
+        /// newest rows) into view when the viewport scrolls; an empty list has
+        /// no extent and stays put.
+        /// </summary>
+        private void ScrollListToBottomIfNeeded()
+        {
+            if (ItemsScroller.ScrollableHeight <= 0) return;
+            ItemsScroller.UpdateLayout();   // let the rebuilt extent settle, then scroll
+            ItemsScroller.ScrollToEnd();
         }
 
         /// <summary>An emptied box that loses focus returns to the pill.</summary>
@@ -1184,32 +1321,71 @@ namespace Kobold.Controls
             return _accentBrush;
         }
 
-        /// <summary>
-        /// Fix round 15b: the today disc's fill carries the white OnAccent
-        /// number, so a very light widget colour is darkened in BOTH themes
-        /// (the shared readable-accent helper only darkens in the light
-        /// theme). On the dark panel a very dark colour is still lightened
-        /// to keep the disc visible; a normal colour reuses the frozen
-        /// widget-colour brush.
-        /// </summary>
-        private Brush TodayDiscBrush()
-        {
-            Color color = Utils.HexToColor(_data.Color);
-            double brightness = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255.0;
+        #endregion
 
-            if (brightness > 0.8)
-            {
-                var darkened = new SolidColorBrush(Utils.DarkenColor(color, 0.6));
-                darkened.Freeze();
-                return darkened;
-            }
-            if (ThemeManager.IsDarkTheme && brightness < 0.3)
-            {
-                var lightened = new SolidColorBrush(Utils.LightenColor(color, 0.5));
-                lightened.Freeze();
-                return lightened;
-            }
-            return _accentBrush;
+        #region Splitter drag
+
+        /// <summary>
+        /// Starts a divider drag; refused on a locked panel or without data.
+        /// The anchor is the effective cell height the calendar last used.
+        /// </summary>
+        private bool SplitterDragStarted(double localY)
+        {
+            if (_data == null || _data.IsLocked) return false;
+            _splitDragging = true;
+            _splitStartY = localY;
+            _splitStartCell = _builtCellHeight;   // drag anchor: the rendered cell height
+            return true;
+        }
+
+        /// <summary>
+        /// One drag step: the vertical delta converts to cell height over the
+        /// week count, clamps to 22..36 (never crowding the add row out) and
+        /// is stored per widget; the incremental path repaints the geometry.
+        /// </summary>
+        private void SplitterDragMoved(double localY)
+        {
+            if (!_splitDragging || _data == null) return;
+
+            int weekCount = TodoCalendar.WeekCount(_viewYear, _viewMonth,
+                _culture.DateTimeFormat.FirstDayOfWeek);
+            DateTime today = DateTime.Today;
+            var parents = TodoListOps.ForDay(_data.Items, _selected, today);
+            double contentH = CurrentContentHeight(weekCount, CountNaturalRows(parents), parents.Count == 0);
+            double addBlock = AddBlockHeight(parents.Count == 0);
+            double maxCell = Math.Min(PanelLayoutAdapter.CELL_MAX,
+                MaxCalendarCell(weekCount, contentH, addBlock));
+            double cell = _splitStartCell + (localY - _splitStartY) / Math.Max(1, weekCount);
+            _data.CalendarCellHeight = Math.Max(PanelLayoutAdapter.CELL_MIN, Math.Min(cell, maxCell));
+            ApplyResizeLayout();
+        }
+
+        /// <summary>The gesture end persists the explicit split through the usual save path.</summary>
+        private void SplitterDragEnded()
+        {
+            if (!_splitDragging) return;
+            _splitDragging = false;
+            _host?.NotifyDataChanged();
+        }
+
+        private void SplitterBand_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!SplitterDragStarted(e.GetPosition(this).Y)) return;
+            SplitterBand.CaptureMouse();
+            e.Handled = true;
+        }
+
+        private void SplitterBand_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_splitDragging) SplitterDragMoved(e.GetPosition(this).Y);
+        }
+
+        private void SplitterBand_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_splitDragging) return;
+            SplitterBand.ReleaseMouseCapture();
+            SplitterDragEnded();
+            e.Handled = true;
         }
 
         #endregion

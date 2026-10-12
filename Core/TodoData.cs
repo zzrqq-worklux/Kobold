@@ -19,6 +19,12 @@ namespace Kobold.Core
         /// </summary>
         public string HolidayRegion { get; set; }
 
+        /// <summary>
+        /// Calendar cell height the user set by dragging the calendar/list divider
+        /// (22..36); null = the automatic split.
+        /// </summary>
+        public double? CalendarCellHeight { get; set; }
+
         public TodoData()
         {
             Id = Guid.NewGuid().ToString();

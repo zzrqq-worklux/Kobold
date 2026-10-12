@@ -57,6 +57,7 @@ namespace Kobold.AdaptiveLayoutCheck
             FolderMinimumSize();
             TodoHeightAllocation();
             TodoLabelThreshold();
+            TodoListFitting();
             MigrationSizes();
         }
 
@@ -253,6 +254,52 @@ namespace Kobold.AdaptiveLayoutCheck
 
             var weekFloor = PanelLayoutAdapter.AdaptTodo(343, 0, 1, true);
             Check(Near(weekFloor.CellHeight, 36), "a missing week count is treated as one week");
+        }
+
+        // Task A4.2: the day list fits under the add row's block - the
+        // viewport takes what is left below the calendar, capped by the
+        // natural rows; when that is not enough the add row pins to the
+        // bottom edge and the list scrolls. A negative row count reads as an
+        // empty day; the viewport never goes below zero.
+        private static void TodoListFitting()
+        {
+            var one = PanelLayoutAdapter.FitTodoList(295, 132, 1, 36);
+            Check(Near(one.ListTop, 219), "fit 295/132 with one row: list top 219");
+            Check(Near(one.Viewport, 30), "fit 295/132 with one row: viewport 30");
+            Check(!one.Scrolls, "fit 295/132 with one row: does not scroll");
+            Check(!one.Pinned, "fit 295/132 with one row: the add row follows the list");
+
+            var many = PanelLayoutAdapter.FitTodoList(295, 132, 7, 36);
+            Check(Near(many.Viewport, 30), "fit 295/132 with seven rows: viewport 30");
+            Check(many.Scrolls, "fit 295/132 with seven rows: 210 of content scrolls in 30");
+            Check(many.Pinned, "fit 295/132 with seven rows: the add row pins to the bottom");
+
+            var empty = PanelLayoutAdapter.FitTodoList(295, 132, 0, 66);
+            Check(Near(empty.Viewport, 0), "fit 295/132 with no rows and the revealed input: viewport 0");
+            Check(!empty.Scrolls, "fit 295/132 with no rows: nothing scrolls");
+            Check(!empty.Pinned, "fit 295/132 with no rows: no pinning (nothing to pin over)");
+
+            var rich = PanelLayoutAdapter.FitTodoList(495, 180, 1, 36);
+            Check(Near(rich.ListTop, 267), "fit 495/180 with one row: list top 267");
+            Check(Near(rich.Viewport, 30), "fit 495/180 with one row: the viewport caps at the row");
+            Check(!rich.Pinned, "fit 495/180 with one row: the spare space stays below the add row");
+
+            var three = PanelLayoutAdapter.FitTodoList(295, 132, 3, 36);
+            Check(Near(three.Viewport, 30), "fit 295/132 with three rows: viewport 30");
+            Check(three.Pinned, "fit 295/132 with three rows: the add row pins to the bottom");
+            Check(three.Scrolls, "fit 295/132 with three rows: 90 of content scrolls in 30");
+
+            var squeezed = PanelLayoutAdapter.FitTodoList(200, 132, 1, 36);
+            Check(Near(squeezed.Viewport, 0), "fit 200/132 with one row: the viewport clamps to 0");
+            Check(squeezed.Pinned, "fit 200/132 with one row: pinned");
+            Check(squeezed.Scrolls, "fit 200/132 with one row: the one row scrolls in the zero viewport");
+
+            var negative = PanelLayoutAdapter.FitTodoList(295, 132, -3, 36);
+            Check(Near(negative.Viewport, 0), "fit 295/132 with -3 rows: the viewport stays 0");
+            Check(!negative.Pinned, "fit 295/132 with -3 rows: a negative count reads as an empty day");
+            Check(!negative.Scrolls, "fit 295/132 with -3 rows: an empty day does not scroll");
+
+            Check(Near(one.ListTop - 132, 87), "the list top minus the calendar is the fixed 87");
         }
 
         // Migration recreates the old look once: the folder formula mirrors

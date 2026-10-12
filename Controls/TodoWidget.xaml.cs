@@ -47,13 +47,13 @@ namespace Kobold.Controls
 
         /// <summary>
         /// A resize move changed the panel size: re-adapt the view's layout
-        /// (calendar cells, day labels, list rows) to the live height. The
-        /// view never resizes the panel back - the user's size is fixed
-        /// (Task A4.1).
+        /// (calendar cells, day labels, list rows) to the live height without
+        /// rebuilding the day list. The view never resizes the panel back -
+        /// the user's size is fixed (Task A4.1).
         /// </summary>
         protected override void OnPanelSizeChanged()
         {
-            _view?.Refresh();
+            _view?.ApplyResizeLayout();
         }
 
         /// <summary>

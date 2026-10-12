@@ -48,6 +48,23 @@ namespace Kobold.Core
     }
 
     /// <summary>
+    /// Vertical geometry of the day list and the add row: the list starts below the
+    /// day header (fixed chrome plus the calendar) and the add row either follows
+    /// the last shown row or pins to the bottom edge when the space runs out.
+    /// </summary>
+    public struct TodoListLayout
+    {
+        /// <summary>DIP from the content top to the list viewport top.</summary>
+        public double ListTop;
+        /// <summary>List viewport height (never beyond the rows it shows).</summary>
+        public double Viewport;
+        /// <summary>True when the list's full content is taller than the viewport.</summary>
+        public bool Scrolls;
+        /// <summary>True when the add row is pinned to the bottom edge.</summary>
+        public bool Pinned;
+    }
+
+    /// <summary>
     /// Pure layout maths behind the freely resizable panels: how the folder
     /// grid fits a given content area at the user-set icon scale (the width
     /// adds columns and spacing, never bigger icons), how the todo panel
@@ -101,8 +118,14 @@ namespace Kobold.Core
         /// <summary>Most day-list rows the panel shows at once.</summary>
         public const int LIST_MAX_ROWS = 6;
 
+        /// <summary>Root margin above the calendar block = 8.</summary>
+        public const double FIXED_ROOT_MARGIN_TOP = 8;
+
+        /// <summary>Root margin below the add row = 10.</summary>
+        public const double FIXED_ROOT_MARGIN_BOTTOM = 10;
+
         /// <summary>Root margin above and below the calendar block = 18 (8 + 10).</summary>
-        public const double FIXED_ROOT_MARGIN = 18;
+        public const double FIXED_ROOT_MARGIN = FIXED_ROOT_MARGIN_TOP + FIXED_ROOT_MARGIN_BOTTOM;
 
         /// <summary>Month navigation bar = 28.</summary>
         public const double FIXED_MONTH_NAV = 28;
@@ -205,6 +228,35 @@ namespace Kobold.Core
                 ListRows = listRows,
                 ListScrolls = natural > listRows,
                 ShowDayLabels = labelsAvailable && cellH >= LABEL_MIN_CELL
+            };
+        }
+
+        /// <summary>
+        /// Fits the day list under the add row's block: the viewport takes what is left
+        /// below the calendar, capped by the natural rows; when that is not enough the
+        /// add row pins to the bottom edge (viewport shrinks, the list scrolls).
+        /// </summary>
+        public static TodoListLayout FitTodoList(
+            double contentHeight, double calendarHeight, int naturalListRows, double addBlockHeight)
+        {
+            double listTop = FIXED_ROOT_MARGIN_TOP + FIXED_MONTH_NAV + FIXED_WEEKDAY_ROW
+                             + calendarHeight + FIXED_SEPARATOR + FIXED_DAY_HEADER;
+            int natural = naturalListRows < 0 ? 0 : naturalListRows;
+            double content = natural * LIST_ROW_H;
+            double needed = Math.Min(natural, LIST_MAX_ROWS) * LIST_ROW_H;
+            double bottomEdge = contentHeight - FIXED_ROOT_MARGIN_BOTTOM;
+
+            double viewport = bottomEdge - listTop - addBlockHeight;
+            if (viewport < 0) viewport = 0;
+            bool pinned = viewport < needed;
+            if (!pinned) viewport = needed;
+
+            return new TodoListLayout
+            {
+                ListTop = listTop,
+                Viewport = viewport,
+                Scrolls = content > viewport,
+                Pinned = pinned
             };
         }
 

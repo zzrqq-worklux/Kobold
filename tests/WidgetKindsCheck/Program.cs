@@ -66,6 +66,7 @@ namespace Kobold.WidgetKindsCheck
             WidgetsWinOverFolders();
             TodoRoundTrips();
             TodoHolidayRegionRoundTrips();
+            TodoSplitRoundTrips();
             TodoRepairNormalizes();
             WidgetKindRegistryChecks();
             FreshConfigGetsOneFolder();
@@ -418,6 +419,21 @@ namespace Kobold.WidgetKindsCheck
                 "a missing HolidayRegion normalizes to cn");
             Check(PublicHolidays.NormalizeRegion("unknown") == "cn",
                 "an unknown HolidayRegion normalizes to cn");
+        }
+
+        private static void TodoSplitRoundTrips()
+        {
+            var withSplit = new TodoData { CalendarCellHeight = 30 };
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(withSplit);
+            var back = Newtonsoft.Json.JsonConvert.DeserializeObject<TodoData>(json);
+            Check(back != null && back.CalendarCellHeight == 30,
+                "the set calendar split survives a config round-trip");
+
+            var without = new TodoData();
+            string bareJson = Newtonsoft.Json.JsonConvert.SerializeObject(without);
+            var bareBack = Newtonsoft.Json.JsonConvert.DeserializeObject<TodoData>(bareJson);
+            Check(bareBack != null && bareBack.CalendarCellHeight == null,
+                "an unset calendar split round-trips as null");
         }
 
         private static void TodoRepairNormalizes()
