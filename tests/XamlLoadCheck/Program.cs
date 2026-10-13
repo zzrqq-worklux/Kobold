@@ -237,6 +237,15 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: empty-day input sits in the pill slot", TodoEmptyDayInputSitsInThePillSlot);
                 failures += TryCheck("todo: collapsing the empty-day input restores the pill", TodoCollapsingEmptyDayInputRestoresThePill);
 
+                // B1 (reported crash): the empty add box's blur used to rebuild
+                // the list synchronously inside the click that blurred it, and
+                // the detached row's handler then crashed resolving its screen
+                // point. The collapse is deferred now and the row handlers carry
+                // a dead-visual guard.
+                failures += TryCheck("todo: an empty add box blur no longer rebuilds the list under the click", TodoEmptyAddBoxBlurKeepsTheList);
+                failures += TryCheck("todo: a click after the empty add box blur still opens the editor", TodoClickAfterEmptyAddBoxBlurOpensTheEditor);
+                failures += TryCheck("todo: a stale row click never throws", TodoStaleRowClickNeverThrows);
+
                 // Post-smoke design: the revealed input is a todo-like row -
                 // unticked checkbox leading, no placeholder, no background
                 // (fix round 11, R1: the control-background tint is gone).
@@ -3742,7 +3751,8 @@ namespace Kobold.XamlLoadCheck
         /// Task A4.1 (was fix round 12 R1): an empty blur collapses the
         /// revealed input back to the pill, which lands one ADD_GAP below the
         /// day header row's bottom (no message row appears and the list stays
-        /// at zero rows).
+        /// at zero rows). B1: the collapse is deferred now, so the offscreen
+        /// check runs its dispatcher half explicitly.
         /// </summary>
         private static void TodoCollapsingEmptyDayInputRestoresThePill()
         {
@@ -3754,7 +3764,8 @@ namespace Kobold.XamlLoadCheck
 
             var box = view.FindName("AddBox") as TextBox;
             if (box == null) throw new InvalidOperationException("AddBox not found");
-            RaiseLostFocus(box); // an empty blur collapses the revealed input
+            RaiseLostFocus(box); // an empty blur queues the collapse
+            InvokeViewAction(view, "CollapseEmptyAddBox"); // the deferred half, run explicitly offscreen
             LayoutView(view);
 
             var scroller = view.FindName("ItemsScroller") as FrameworkElement;
@@ -3782,6 +3793,143 @@ namespace Kobold.XamlLoadCheck
                     "the pill is not " + ADD_GAP + " below the day header's bottom: pill top " +
                     pillTop.ToString("0.##") + " vs header bottom " + headerBottom.ToString("0.##"));
             }
+        }
+
+        /// <summary>
+        /// B1 (reported crash): the empty add box's blur must not rebuild the
+        /// list inside the click that is still being routed - the rebuild
+        /// detaches the clicked row mid-event. The repaint is deferred, so the
+        /// captured row survives the blur.
+        /// </summary>
+        private static void TodoEmptyAddBoxBlurKeepsTheList()
+        {
+            ThemeManager.Initialize("dark");
+            var data = NewTodoData(out TodoItem item);
+            var child = TodoListOps.AddChild(item, "Buy eggs");
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+            RevealAddBox(view);
+            LayoutView(view);
+
+            var box = view.FindName("AddBox") as TextBox;
+            if (box == null) throw new InvalidOperationException("AddBox not found");
+            var block = TextBlockWith(view.FindName("ItemsPanel") as DependencyObject, child.Text);
+            if (block == null) throw new InvalidOperationException("the child row text was not found");
+
+            RaiseLostFocus(box); // the empty blur must not detach the row now
+            if (!((Visual)block).IsDescendantOf(view))
+            {
+                throw new InvalidOperationException(
+                    "the empty add box blur rebuilt the list and detached the clicked row");
+            }
+        }
+
+        /// <summary>
+        /// B1 end-to-end: the very sequence from the crash report - the empty
+        /// add box blurs (its collapse deferred), then the click that blurred
+        /// it still targets the row. The click must reach the row, open the
+        /// child editor and never resolve coordinates on a detached visual.
+        /// The handler resolves screen coordinates, so the view lives in an
+        /// invisible offscreen HwndSource (the r17 caret pin's harness) -
+        /// an unshown window's tree is not connected to a PresentationSource.
+        /// </summary>
+        private static void TodoClickAfterEmptyAddBoxBlurOpensTheEditor()
+        {
+            ThemeManager.Initialize("dark");
+            var data = NewTodoData(out TodoItem item);
+            var child = TodoListOps.AddChild(item, "Buy eggs");
+            var view = new TodoCalendarView();
+            view.Attach(data, null);
+
+            var source = new System.Windows.Interop.HwndSource(
+                new System.Windows.Interop.HwndSourceParameters("xamlloadcheck-b1")
+                {
+                    WindowStyle = 0,
+                    Width = 400,
+                    Height = 700,
+                    PositionX = -10000,
+                    PositionY = -10000
+                });
+            source.RootVisual = view;
+            try
+            {
+                LayoutView(view);
+                RevealAddBox(view);
+                LayoutView(view);
+
+                var box = view.FindName("AddBox") as TextBox;
+                if (box == null) throw new InvalidOperationException("AddBox not found");
+                var block = TextBlockWith(view.FindName("ItemsPanel") as DependencyObject, child.Text);
+                if (block == null) throw new InvalidOperationException("the child row text was not found");
+
+                RaiseLostFocus(box); // the crash's step 1: the empty box blurs
+
+                // The crash's step 2: the same click reaches the row.
+                block.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                });
+
+                if (PrivateField<string>(view, "_editingChildId") != child.Id)
+                {
+                    throw new InvalidOperationException(
+                        "the click after the empty add box blur did not open the child editor");
+                }
+                EditorBoxInList(view); // and its box is really up
+            }
+            finally
+            {
+                source.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// B1 guard: whenever a row is detached between the event's route and
+        /// its handler (any rebuild path, not just the add box), the click
+        /// handler must bail out instead of resolving coordinates on the dead
+        /// visual.
+        /// </summary>
+        private static void TodoStaleRowClickNeverThrows()
+        {
+            ThemeManager.Initialize("dark");
+            var data = NewTodoData(out TodoItem item);
+            TodoListOps.AddChild(item, "Buy eggs");
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            var block = FirstDescendant<TextBlock>(RowAt(view, 1));
+            if (block == null) throw new InvalidOperationException("the child row text was not found");
+
+            view.Refresh(); // detach the captured row
+            if (((Visual)block).IsDescendantOf(view))
+                throw new InvalidOperationException("the row survived the forced rebuild");
+
+            try
+            {
+                block.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                });
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "a stale row click threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>The first text block whose text matches (a row's entry text).</summary>
+        private static TextBlock TextBlockWith(DependencyObject root, string text)
+        {
+            var block = root as TextBlock;
+            if (block != null && block.Text == text) return block;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = TextBlockWith(VisualTreeHelper.GetChild(root, i), text);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         /// <summary>

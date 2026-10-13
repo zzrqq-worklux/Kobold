@@ -755,6 +755,7 @@ namespace Kobold.Controls
                 block.MouseLeftButtonDown += (s, e) =>
                 {
                     e.Handled = true;
+                    if (!IsInside(block, this)) return; // a rebuild detached the row mid-event
                     StartItemEdit(item.Id, block.PointToScreen(e.GetPosition(block)));
                 };
                 text = block;
@@ -810,6 +811,7 @@ namespace Kobold.Controls
                 block.MouseLeftButtonDown += (s, e) =>
                 {
                     e.Handled = true;
+                    if (!IsInside(block, this)) return; // a rebuild detached the row mid-event
                     StartChildEdit(child.Id, block.PointToScreen(e.GetPosition(block)));
                 };
                 text = block;
@@ -1385,10 +1387,23 @@ namespace Kobold.Controls
             ItemsScroller.ScrollToEnd();
         }
 
-        /// <summary>An emptied box that loses focus returns to the pill.</summary>
+        /// <summary>An emptied box that loses focus returns to the pill. The repaint
+        /// is deferred like the inline editors': the click that blurred the box must
+        /// reach its target before the list rebuilds under it - a synchronous rebuild
+        /// detaches the clicked row mid-event and its handler would then crash on the
+        /// dead visual.</summary>
         private void AddBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
         {
             if (!string.IsNullOrEmpty(AddBox.Text)) return;
+            AddBox.Dispatcher.BeginInvoke(new Action(CollapseEmptyAddBox), DispatcherPriority.Background);
+        }
+
+        /// <summary>The deferred half of the empty-box blur (Background priority).</summary>
+        private void CollapseEmptyAddBox()
+        {
+            if (!_addBoxRevealed) return;                   // nothing to collapse
+            if (AddBox.IsKeyboardFocusWithin) return;       // focus came back meanwhile
+            if (!string.IsNullOrEmpty(AddBox.Text)) return; // the user typed meanwhile
             _addBoxRevealed = false;
             Refresh(); // rebuild the add row (and, on an empty day, the list height)
         }
