@@ -979,6 +979,13 @@ namespace Kobold.Controls
             return box;
         }
 
+        /// <summary>The caret ink of every inline editor: the widget colour, so the
+        /// insertion point reads at a glance (high contrast keeps the system ink).</summary>
+        private Brush EditorCaretBrush()
+        {
+            return ThemeManager.IsHighContrast ? ThemeManager.TextBrush : _accentBrush;
+        }
+
         /// <summary>
         /// Single inline editor: Enter commits (when the caller consumes the
         /// box), Esc cancels, and losing keyboard focus commits through the
@@ -1000,6 +1007,7 @@ namespace Kobold.Controls
                 Text = initial ?? string.Empty,
                 FontSize = fontSize,
                 Foreground = ThemeManager.TextBrush,
+                CaretBrush = EditorCaretBrush(),
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0),
@@ -1355,6 +1363,7 @@ namespace Kobold.Controls
             AddPill.Background = _addPillBaseBrush;
             AddPill.BorderBrush = FrozenTint(pillColor, 0x4D);
             AddPillGlyph.Foreground = ReadableWidgetAccentBrush();
+            AddBox.CaretBrush = EditorCaretBrush(); // 每次重绘重建，主题/组件色切换都跟得上
 
             // The pill yields to the input only on a non-empty day; on an empty
             // day both stay visible and the pill stacks below the input row.

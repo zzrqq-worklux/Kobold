@@ -112,7 +112,6 @@
                              VerticalAlignment="Center"
                              Background="Transparent" BorderThickness="0"
                              Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                             CaretBrush="{DynamicResource Kobold.Brush.TextPrimary}"
                              VerticalContentAlignment="Center"
                              LostKeyboardFocus="AddBox_LostKeyboardFocus"
                              KeyDown="AddBox_KeyDown"/>

@@ -194,6 +194,12 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: empty adder Enter moves to the next parent", TodoAdderEmptyEnterMovesToNextParent);
                 failures += TryCheck("todo: add-row Enter opens the new item's adder", TodoAddRowEnterOpensTheNewItemsAdder);
 
+                // Polish round (T1): the caret ink of the inline editors and
+                // the bottom add box is the widget colour (it used to be the
+                // pale theme text), so the insertion point reads at a glance.
+                failures += TryCheck("todo: the item editor caret follows the widget colour", TodoItemEditorCaretFollowsTheWidgetColor);
+                failures += TryCheck("todo: the add box caret follows the widget colour", TodoAddBoxCaretFollowsTheWidgetColor);
+
                 // Fix round 5 pins: the list viewport shrinks to its content so
                 // the add pill sits directly under the last row (no 2-row
                 // reservation), while an overflowing list keeps six rows.
@@ -3127,6 +3133,49 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the empty-name parent Enter opened a child adder");
             if (RunPendingEditorCommitIfAny(deleteView))
                 throw new InvalidOperationException("the deleted parent scheduled a stale commit");
+        }
+
+        /// <summary>
+        /// Polish round (T1): the inline item editor's caret wears the widget
+        /// colour, so the insertion point reads at a glance instead of fading
+        /// into the pale theme text (high contrast keeps the system ink).
+        /// </summary>
+        private static void TodoItemEditorCaretFollowsTheWidgetColor()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            var brush = box.CaretBrush as SolidColorBrush;
+            Color wanted = Utils.HexToColor(data.Color);
+            if (brush == null || brush.Color != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the item editor caret is " +
+                    (brush == null ? "no solid brush" : Describe(brush.Color)) +
+                    ", wanted the widget colour " + Describe(wanted));
+            }
+        }
+
+        /// <summary>Same caret rule for the bottom add box (polish round T1).</summary>
+        private static void TodoAddBoxCaretFollowsTheWidgetColor()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+
+            var addBox = view.FindName("AddBox") as TextBox;
+            if (addBox == null) throw new InvalidOperationException("AddBox not found");
+            var brush = addBox.CaretBrush as SolidColorBrush;
+            Color wanted = Utils.HexToColor(data.Color);
+            if (brush == null || brush.Color != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the add box caret is " +
+                    (brush == null ? "no solid brush" : Describe(brush.Color)) +
+                    ", wanted the widget colour " + Describe(wanted));
+            }
         }
 
         /// <summary>
