@@ -391,9 +391,26 @@ Accent 资源）；`Themes/Controls.xaml` 的 ComboBox 模板补可编辑支持�
 
 **终版矩阵（`2a52261`，会话重启后重跑）**：**31/31 全绿**；`MenuRenderCheck` 转绿（同环境不同会话
 下实测 #94A3B8→#8B99AD 与 #94A3B8→#94A3B8 两种结果），环境瞬时性判定确认，未复现。
-- 处置：用户原拍板的"独立小任务排查采样容差"因前提（可复现红）消失，建议转为**观察项**
-  （复发再加固采样/容差），留待用户复核。
-- deferred minors：终审 7 条维持"可留"；F4 `DropDownToggle` 覆盖扩展名框一项由冒烟通过消解。
+- 处置：用户复核拍板——转**观察项**（2026-10-13）：检查保持原样、不放松 ±6 容差；若再复发再排查加固。
+- deferred minors：终审 7 条维持"可留"（详情转入文末附录）；F4 `DropDownToggle` 覆盖扩展名框一项由冒烟
+  通过消解。
 
-**合并/推送**：用户拍板"冒烟通过 → 补执行记录 → 合并 main + 推送 origin"，条件已满足；本记录提交后
-执行合并与推送，随后清理 worktree 与 SDD 工作区（记录以 git 历史与本文件为准）。
+**合并/推送**：用户拍板"冒烟通过 → 补执行记录 → 合并 main + 推送 origin"。已执行：ff 合并 →
+推送（tip `41c158d`），worktree、分支与 SDD 工作区清理完毕（记录以 git 历史与本文件为准）。
+
+### 附：deferred minors 7 条（自 SDD ledger 转入，2026-10-13；状态均"可留"）
+
+1. **F1**：`PathsFrom` 的 `string[]` 分支缺确定性直测 pin（可补 `SetData(FileDrop, new[]{...})` 直测）；
+   `IsMoveEffect` 用 `ToArray()` 读 4 字节，纯分配开销。
+2. **F2**：`Build*` 菜单构建器重置共享 `_pendingNativeMenu` 字段、点击时读取 `_nativeMenuKeyboardAnchored`
+   （当前语义等价，触碰时再清理）；pin 缺"锁定 × Paste 置灰"组合；pin 临时目录
+   `%TEMP%\kobold-f2-clipboard-pin` 未清理。
+3. **F3**：DragOver 与 Drop 间重复的 5 条件 `accepted` 表达式（触碰时抽助手）；hover 对"已是父目标的项"
+   显示 Move 而 Drop 为 no-op（计划认可的 hover/drop 拆分）；缺"全通过多路径"pin；`SamePath` 一行别名可
+   内联；`ClearValue` 留 null vs Transparent（装饰性，选区触发仍生效）。
+4. **F4**：`DropDownToggle` 与可编辑扩展名框重叠——冒烟已通过（点击/输入/预览正常），此项消解；畸形非空
+   `widgetColor` 走 tint 路径（惰性）；高对比度预览后缀固定蓝 vs 系统高亮（计划规定）。
+5. **F5**：无主名 + 后缀合成为点文件（如 `.txt`）；`WriteAllText` 在对话框存在性检查后仍有 TOCTOU 截断
+   （改造前模式，`FileMode.CreateNew` 会改变错误行为）。
+6. **F6**：`BackDrop_Drop` 未设置 `e.Effects`/未检查 `Move` 返回值（计划字面执行；当前无影响）。
+7. **F7**：使用表里剪切粘贴注意事项的可发现性微调；"the clipboard" 引用顺序（纯风格）。
