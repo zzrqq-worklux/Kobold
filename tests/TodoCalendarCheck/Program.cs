@@ -52,6 +52,9 @@ namespace Kobold.TodoCalendarCheck
             ListRemoves();
             DayFilter();
             DisplayOrder();
+            RemovalSnapshots();
+            ChildRemovalSnapshots();
+            DayClear();
             WeekCounts();
             CultureLookups();
         }
@@ -382,6 +385,173 @@ namespace Kobold.TodoCalendarCheck
                 "completed entries sort to the bottom without disturbing either group's order");
             Check(input.Select(i => i.Id).SequenceEqual(new[] { "d1", "o1", "d2", "o2" }),
                 "sorting does not disturb the source list");
+        }
+
+        private static void RemovalSnapshots()
+        {
+            var day = new DateTime(2026, 10, 12);
+            var one = Item("p1", "one", day);
+            var two = Item("p2", "two", day);
+            var three = Item("p3", "three", day);
+            var items = new List<TodoItem> { one, two, three };
+
+            var removal = TodoListOps.RemoveParent(items, two);
+            Check(items.Count == 2 && !items.Contains(two),
+                "removing a parent takes it out of the list");
+            Check(!removal.IsEmpty && removal.Parents.Count == 1
+                  && removal.Parents[0].Item == two && removal.Parents[0].Index == 1,
+                "the removal records the entry and its old index");
+
+            TodoListOps.RestoreRemoval(removal, items);
+            Check(items.Count == 3 && items[0] == one && items[1] == two && items[2] == three,
+                "restoring the removal puts the entry back at its old index");
+
+            var missing = Item("p4", "missing", day);
+            var untouched = TodoListOps.RemoveParent(items, missing);
+            Check(untouched.IsEmpty && items.Count == 3,
+                "removing an entry that is not in the list changes nothing");
+
+            var noList = TodoListOps.RemoveParent(null, two);
+            Check(noList.IsEmpty, "a null list yields an empty removal");
+        }
+
+        private static void ChildRemovalSnapshots()
+        {
+            var day = new DateTime(2026, 10, 12);
+            var parent = Item("p1", "parent", day);
+            var first = Child("c1", "first");
+            var second = Child("c2", "second");
+            var third = Child("c3", "third");
+            parent.Children.AddRange(new[] { first, second, third });
+            var items = new List<TodoItem> { parent };
+
+            var removal = TodoListOps.RemoveChildItem(parent, second);
+            Check(parent.Children.Count == 2 && !parent.Children.Contains(second),
+                "removing a sub-todo takes it out of its parent");
+            Check(!removal.IsEmpty && removal.Children.Count == 1
+                  && removal.Children[0].Parent == parent && removal.Children[0].Child == second
+                  && removal.Children[0].Index == 1,
+                "the child removal records parent, child and index");
+            Check(removal.Parents.Count == 0, "a child removal leaves the parent list alone");
+
+            TodoListOps.RestoreRemoval(removal, items);
+            Check(parent.Children.Count == 3 && parent.Children[0] == first
+                  && parent.Children[1] == second && parent.Children[2] == third,
+                "restoring the child removal puts the sub-todo back in place");
+
+            var ghost = TodoListOps.RemoveChildItem(parent, Child("c4", "ghost"));
+            Check(ghost.IsEmpty && parent.Children.Count == 3,
+                "removing a sub-todo that is not there changes nothing");
+        }
+
+        private static void DayClear()
+        {
+            var today = new DateTime(2026, 10, 12);
+            var day = new DateTime(2026, 10, 12);
+            var items = DayClearFixture(day);
+            var before = items.Select(State).ToList();
+
+            var doneToday = items.First(i => i.Id == "d1");
+            var doneToday2 = items.First(i => i.Id == "d3");
+            var openParent = items.First(i => i.Id == "o1");
+            var doneKid = openParent.Children.First(c => c.Id == "o1b");
+            var doneKid2 = openParent.Children.First(c => c.Id == "o1c");
+
+            Check(TodoListOps.HasCompletedOn(items, day, today),
+                "the day reports completed rows when the clear has work");
+
+            var removal = TodoListOps.RemoveCompletedOn(items, day, today);
+
+            var recordedDone = removal.Parents.FirstOrDefault(p => p.Item == doneToday);
+            var recordedDone2 = removal.Parents.FirstOrDefault(p => p.Item == doneToday2);
+            Check(removal.Parents.Count == 2 && recordedDone != null && recordedDone2 != null
+                  && recordedDone.Index == 0 && recordedDone2.Index == 3,
+                "the clear takes both entries completed on the day, each at its old index");
+            Check(!items.Contains(doneToday) && !items.Any(i => i.Id == "d1"),
+                "the completed entry leaves the list");
+            Check(doneToday.Children.Count == 1 && !doneToday.Children[0].Done,
+                "the completed entry's open sub-todo rides along untouched");
+            Check(items.Any(i => i.Id == "d2"),
+                "the entry completed yesterday stays");
+            var recordedKid = removal.Children.FirstOrDefault(c => c.Child == doneKid);
+            var recordedKid2 = removal.Children.FirstOrDefault(c => c.Child == doneKid2);
+            Check(removal.Children.Count == 2 && recordedKid != null && recordedKid2 != null
+                  && recordedKid.Parent == openParent && recordedKid2.Parent == openParent
+                  && recordedKid.Index == 1 && recordedKid2.Index == 2,
+                "the clear records both completed sub-todos of the day's open entry");
+            Check(!openParent.Children.Contains(doneKid) && !openParent.Children.Contains(doneKid2)
+                  && openParent.Children.Count == 1 && openParent.Children[0].Id == "o1a",
+                "those completed sub-todos leave and the open sibling stays");
+            Check(items.First(i => i.Id == "f1").Children.Count == 1,
+                "a completed sub-todo under a non-day entry stays");
+            Check(items.Select(i => i.Id).SequenceEqual(new[] { "d2", "o1", "f1", "o2", "u1", "f2" }),
+                "the day's open entries and every other entry survive in order");
+            Check(!TodoListOps.HasCompletedOn(items, day, today),
+                "the day reports nothing left after the clear");
+
+            TodoListOps.RestoreRemoval(removal, items);
+            Check(items.Select(State).SequenceEqual(before),
+                "restoring the clear rebuilds the original list text for text");
+
+            var openOnly = new List<TodoItem> { Item("x1", "open only", day) };
+            Check(!TodoListOps.HasCompletedOn(openOnly, day, today),
+                "a day of open entries reports nothing to clear");
+            var noWork = TodoListOps.RemoveCompletedOn(openOnly, day, today);
+            Check(noWork.IsEmpty && openOnly.Count == 1,
+                "clearing a day of open entries changes nothing");
+
+            var emptyDay = new DateTime(2026, 10, 20);
+            Check(!TodoListOps.HasCompletedOn(items, emptyDay, today),
+                "a day without rows reports nothing to clear");
+            var emptyRemoval = TodoListOps.RemoveCompletedOn(items, emptyDay, today);
+            Check(emptyRemoval.IsEmpty && items.Select(State).SequenceEqual(before),
+                "clearing a day without rows yields an empty removal and changes nothing");
+        }
+
+        private static List<TodoItem> DayClearFixture(DateTime day)
+        {
+            // (1) completed on the day: the whole entry goes, an open sub-todo rides along
+            var doneToday = Item("d1", "done today", day);
+            TodoRollover.Toggle(doneToday, true, day);
+            TodoListOps.AddChild(doneToday, "open kid");
+
+            // (1b) a second entry completed on the day, childless: the descending
+            // removal has two top-level indices (0 and 3) to walk
+            var doneToday2 = Item("d3", "done today two", day);
+            TodoRollover.Toggle(doneToday2, true, day);
+
+            // (2) completed yesterday: stays
+            var doneYesterday = Item("d2", "done yesterday", day.AddDays(-1));
+            TodoRollover.Toggle(doneYesterday, true, day.AddDays(-1));
+
+            // (3) open on the day with one open and two completed sub-todos
+            var openParent = Item("o1", "open today", day);
+            openParent.Children.Add(Child("o1a", "open kid"));
+            openParent.Children.Add(Child("o1b", "done kid", true));
+            openParent.Children.Add(Child("o1c", "done kid two", true));
+
+            // (4) off the day with a completed sub-todo: the whole entry stays
+            var futureParent = Item("f1", "future parent", day.AddDays(1));
+            futureParent.Children.Add(Child("f1a", "done kid", true));
+
+            // (5) the day's untouched rows: open entries, the undated one, the future
+            var openToday = Item("o2", "open today too", day);
+            var undated = Item("u1", "undated", null);
+            var future = Item("f2", "future", day.AddDays(2));
+
+            return new List<TodoItem>
+            {
+                doneToday, doneYesterday, openParent, doneToday2, futureParent, openToday, undated, future
+            };
+        }
+
+        private static string State(TodoItem item)
+        {
+            return item.Id + "|" + item.Text + "|" + item.Done + "|"
+                + (item.CompletedDate.HasValue
+                    ? item.CompletedDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                    : "-")
+                + "|" + string.Join(",", item.Children.Select(c => c.Id + ":" + c.Text + ":" + c.Done));
         }
 
         private static int CountOn(List<TodoDayCell> cells, DateTime date)

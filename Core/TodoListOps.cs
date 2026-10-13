@@ -4,6 +4,30 @@ using System.Linq;
 
 namespace Kobold.Core
 {
+    /// <summary>One removed top-level entry and where it sat.</summary>
+    public sealed class TodoParentRemoval
+    {
+        public TodoItem Item;
+        public int Index;
+    }
+
+    /// <summary>One removed sub-todo and where it sat under its parent.</summary>
+    public sealed class TodoChildRemoval
+    {
+        public TodoItem Parent;
+        public SubTodoItem Child;
+        public int Index;
+    }
+
+    /// <summary>A deletion (one entry, one sub-todo, or a day's clear) kept in
+    /// the shape <see cref="TodoListOps.RestoreRemoval"/> can undo.</summary>
+    public sealed class TodoRemoval
+    {
+        public readonly List<TodoParentRemoval> Parents = new List<TodoParentRemoval>();
+        public readonly List<TodoChildRemoval> Children = new List<TodoChildRemoval>();
+        public bool IsEmpty => Parents.Count == 0 && Children.Count == 0;
+    }
+
     /// <summary>
     /// The list operations behind the todo day view: appending and removing
     /// top-level entries and sub-todos, the completed-last display order, and
@@ -122,6 +146,97 @@ namespace Kobold.Core
                 }
             }
             return OrderForDisplay(dayItems);
+        }
+
+        /// <summary>Removes a top-level entry and records where it sat; an item that
+        /// is not in the list yields an empty removal and changes nothing.</summary>
+        public static TodoRemoval RemoveParent(IList<TodoItem> items, TodoItem item)
+        {
+            var removal = new TodoRemoval();
+            if (items == null || item == null) return removal;
+            int index = items.IndexOf(item);
+            if (index < 0) return removal;
+            items.RemoveAt(index);
+            removal.Parents.Add(new TodoParentRemoval { Item = item, Index = index });
+            return removal;
+        }
+
+        /// <summary>Removes one sub-todo and records its position under the parent.</summary>
+        public static TodoRemoval RemoveChildItem(TodoItem parent, SubTodoItem child)
+        {
+            var removal = new TodoRemoval();
+            if (parent == null || parent.Children == null || child == null) return removal;
+            int index = parent.Children.IndexOf(child);
+            if (index < 0) return removal;
+            parent.Children.RemoveAt(index);
+            removal.Children.Add(new TodoChildRemoval { Parent = parent, Child = child, Index = index });
+            return removal;
+        }
+
+        /// <summary>The day-scoped clear: every completed row on the day list. A
+        /// completed top-level entry goes whole (sub-todos ride along); under the
+        /// day's open entries, completed sub-todos go individually.</summary>
+        public static TodoRemoval RemoveCompletedOn(IList<TodoItem> items, DateTime day, DateTime today)
+        {
+            var removal = new TodoRemoval();
+            if (items == null) return removal;
+
+            var dayList = ForDay(items, day, today);
+            var parents = new List<TodoItem>();
+            var children = new List<KeyValuePair<TodoItem, SubTodoItem>>();
+            foreach (var item in dayList)
+            {
+                if (item.Done) { parents.Add(item); continue; }
+                if (item.Children == null) continue;
+                foreach (var child in item.Children)
+                    if (child != null && child.Done) children.Add(new KeyValuePair<TodoItem, SubTodoItem>(item, child));
+            }
+
+            foreach (var item in parents)
+            {
+                int index = items.IndexOf(item);
+                if (index >= 0) removal.Parents.Add(new TodoParentRemoval { Item = item, Index = index });
+            }
+            foreach (var entry in removal.Parents.OrderByDescending(e => e.Index)) items.RemoveAt(entry.Index);
+
+            foreach (var pair in children)
+            {
+                int index = pair.Key.Children.IndexOf(pair.Value);
+                if (index >= 0) removal.Children.Add(new TodoChildRemoval { Parent = pair.Key, Child = pair.Value, Index = index });
+            }
+            foreach (var entry in removal.Children.OrderByDescending(e => e.Index))
+                entry.Parent.Children.RemoveAt(entry.Index);
+
+            return removal;
+        }
+
+        /// <summary>True when the day's clear would remove something (the menu gate).</summary>
+        public static bool HasCompletedOn(IList<TodoItem> items, DateTime day, DateTime today)
+        {
+            if (items == null) return false;
+            foreach (var item in ForDay(items, day, today))
+            {
+                if (item.Done) return true;
+                if (item.Children == null) continue;
+                foreach (var child in item.Children)
+                    if (child != null && child.Done) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Puts a removal back: ascending inserts at the recorded indices
+        /// reproduce the original order; missing slots are clamped to the ends.</summary>
+        public static void RestoreRemoval(TodoRemoval removal, IList<TodoItem> items)
+        {
+            if (removal == null || items == null) return;
+            foreach (var entry in removal.Parents.OrderBy(e => e.Index))
+                items.Insert(Math.Min(entry.Index, items.Count), entry.Item);
+            foreach (var entry in removal.Children.OrderBy(e => e.Index))
+            {
+                if (entry.Parent == null) continue;
+                if (entry.Parent.Children == null) entry.Parent.Children = new List<SubTodoItem>();
+                entry.Parent.Children.Insert(Math.Min(entry.Index, entry.Parent.Children.Count), entry.Child);
+            }
         }
     }
 }
