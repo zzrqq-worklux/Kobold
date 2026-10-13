@@ -800,9 +800,9 @@ namespace Kobold.Controls
             if (_editingChildId == child.Id)
             {
                 text = BuildEditor(child.Text, CHILD_FONT,
-                    value => { CommitChildEdit(parent, child, value); return true; },
+                    value => { CommitChildEdit(parent, child, value, true); return true; },
                     () => { _editingChildId = null; _editorCaretAt = null; Refresh(); },
-                    null,
+                    value => { CommitChildEdit(parent, child, value); return true; },
                     value => BackspaceLadder(parent, child, value));
             }
             else
@@ -871,15 +871,16 @@ namespace Kobold.Controls
                         AddChildFromAdder(parent, text);
                         return true; // the rebuilt adder stays open for the next child
                     }
-                    // Smoke fix C: an empty Enter moves to the next day item's
-                    // adder (display order); on the last parent it jumps to the
-                    // bottom add-new input instead of closing.
+                    // B2 (Enter chain, user 2026-10-13): an empty Enter hands
+                    // the caret to the next day item's text editor (display
+                    // order); on the last parent it jumps to the bottom
+                    // add-new input instead of closing.
                     var parents = TodoListOps.ForDay(_data.Items, _selected, DateTime.Today);
                     int index = parents.FindIndex(p => p != null && p.Id == parent.Id);
                     TodoItem next = index >= 0 && index + 1 < parents.Count ? parents[index + 1] : null;
                     if (next != null)
                     {
-                        StartChildAdd(next.Id); // sets the state and refreshes
+                        StartItemEditFromChain(next); // sets the state and refreshes
                         return true;
                     }
                     // Final spec rule 4: reveal the bottom add input in the
@@ -1166,6 +1167,41 @@ namespace Kobold.Controls
             Refresh();
         }
 
+        /// <summary>Chain-opens an entry's editor from the keyboard (no click anchor):
+        /// select-all like the adders, scrolled into view.</summary>
+        private void StartItemEditFromChain(TodoItem item)
+        {
+            _editingItemId = item.Id;
+            _editingChildId = null;
+            _addingChildToId = null;
+            _editorCaretAt = null;
+            _editorSelectAllOnLoad = true;
+            _scrollToId = item.Id;
+            Refresh();
+        }
+
+        /// <summary>The first non-null sub-todo of an entry, or null.</summary>
+        private static SubTodoItem FirstChildOf(TodoItem item)
+        {
+            if (item == null || item.Children == null) return null;
+            foreach (var child in item.Children)
+                if (child != null) return child;
+            return null;
+        }
+
+        /// <summary>The first non-null sub-todo after the given one, or null.</summary>
+        private static SubTodoItem NextChildOf(TodoItem parent, SubTodoItem child)
+        {
+            if (parent == null || parent.Children == null || child == null) return null;
+            bool seen = false;
+            foreach (var candidate in parent.Children)
+            {
+                if (seen && candidate != null) return candidate;
+                if (candidate != null && candidate.Id == child.Id) seen = true;
+            }
+            return null;
+        }
+
         private void ToggleItem(TodoItem item)
         {
             TodoRollover.Toggle(item, !item.Done, DateTime.Today);
@@ -1256,11 +1292,11 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The parent editor's commit. openAdder is the Enter path (smoke fix
-        /// C): a non-empty commit opens the item's child adder in the same
-        /// state change - one repaint - while a blur commit passes false and
-        /// stays plain. Empty text deletes the item and opens nothing either
-        /// way.
+        /// The parent editor's commit. openAdder is the Enter path (B2 chain):
+        /// a non-empty commit hands the caret to the item's first child editor,
+        /// or to its child adder when there is no child - one repaint - while
+        /// a blur commit passes false and stays plain. Empty text deletes the
+        /// item and opens nothing either way.
         /// </summary>
         private void CommitItemEdit(TodoItem item, string value, bool openAdder)
         {
@@ -1279,15 +1315,31 @@ namespace Kobold.Controls
             item.Text = value.Trim();
             if (openAdder)
             {
-                _addingChildToId = item.Id;
-                _scrollToAdderForId = item.Id;
+                var firstChild = FirstChildOf(item);
+                if (firstChild != null)
+                {
+                    _addingChildToId = null;
+                    _editingChildId = firstChild.Id;
+                    _scrollToId = firstChild.Id;
+                }
+                else
+                {
+                    _addingChildToId = item.Id;
+                    _scrollToAdderForId = item.Id;
+                }
                 _editorCaretAt = null;
                 _editorSelectAllOnLoad = true;
             }
             AfterItemEdit();
         }
 
-        private void CommitChildEdit(TodoItem parent, SubTodoItem child, string value)
+        /// <summary>
+        /// The child editor's commit. advance is the Enter path (B2 chain): a
+        /// non-empty commit walks to the next sibling's editor, or to the
+        /// parent's adder after the last sibling; the blur path stays plain.
+        /// An empty text deletes without advancing either way (rule 5).
+        /// </summary>
+        private void CommitChildEdit(TodoItem parent, SubTodoItem child, string value, bool advance = false)
         {
             if (_editingChildId == child.Id)
             {
@@ -1300,6 +1352,23 @@ namespace Kobold.Controls
                 return;
             }
             child.Text = value.Trim();
+            if (advance)
+            {
+                var next = NextChildOf(parent, child);
+                if (next != null)
+                {
+                    _addingChildToId = null;
+                    _editingChildId = next.Id;
+                    _scrollToId = next.Id;
+                }
+                else
+                {
+                    _addingChildToId = parent.Id;
+                    _scrollToAdderForId = parent.Id;
+                }
+                _editorCaretAt = null;
+                _editorSelectAllOnLoad = true;
+            }
             AfterItemEdit();
         }
 

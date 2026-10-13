@@ -191,8 +191,19 @@ namespace Kobold.XamlLoadCheck
                 // the bottom add input); the add row's Enter hands the caret
                 // to the new item's adder.
                 failures += TryCheck("todo: parent editor Enter opens the child adder", TodoParentEditorEnterOpensChildAdder);
-                failures += TryCheck("todo: empty adder Enter moves to the next parent", TodoAdderEmptyEnterMovesToNextParent);
+                failures += TryCheck("todo: empty adder Enter opens the next parent's editor", TodoAdderEmptyEnterOpensTheNextParentEditor);
                 failures += TryCheck("todo: add-row Enter opens the new item's adder", TodoAddRowEnterOpensTheNewItemsAdder);
+
+                // B2 (Enter chain, user 2026-10-13): a parent's Enter hands the
+                // caret to its first child's editor (the adder only when there
+                // is no child); a child's Enter walks to the next sibling's
+                // editor (the adder after the last); every chain-opened editor
+                // selects all and an emptied box still deletes without walking.
+                failures += TryCheck("todo: parent Enter opens the first child's editor", TodoParentEnterOpensTheFirstChildsEditor);
+                failures += TryCheck("todo: child Enter walks to the next sibling", TodoChildEnterWalksToTheNextSibling);
+                failures += TryCheck("todo: child Enter at the last one opens the adder", TodoChildEnterAtTheLastOneOpensTheAdder);
+                failures += TryCheck("todo: child Enter on an emptied box deletes without walking", TodoChildEnterOnAnEmptiedBoxDeletesWithoutWalking);
+                failures += TryCheck("todo: chain-opened editors select all", TodoChainOpenedEditorsSelectAll);
 
                 // Polish round (T1): the caret ink of the inline editors and
                 // the bottom add box is the widget colour (it used to be the
@@ -3090,9 +3101,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix C1 (new spec): Enter in a parent editor commits the text
-        /// and opens that item's child adder in the same state change; the
-        /// blur commit stays a plain commit and never opens the adder.
+        /// Smoke fix C1 + B2: Enter in a parent editor commits the text; a
+        /// childless parent then opens its child adder in the same state change
+        /// (a parent with children chains to the first child's editor instead -
+        /// the B2 pin), while the blur commit stays a plain commit and never
+        /// opens the adder.
         /// </summary>
         private static void TodoParentEditorEnterOpensChildAdder()
         {
@@ -3434,13 +3447,13 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix C2 (final spec): an empty Enter in a child adder closes
-        /// it and opens the next day item's adder in display order; on the
-        /// last parent it jumps to the bottom add-new input (revealed, adder
-        /// state cleared) instead of closing. No child is ever added by the
-        /// empty Enter.
+        /// B2 (Enter chain, user 2026-10-13; was smoke fix C2): an empty Enter
+        /// in a child adder opens the next day item's text editor in display
+        /// order; on the last parent it jumps to the bottom add-new input
+        /// (revealed, adder state cleared) instead of closing. No child is
+        /// ever added by the empty Enter.
         /// </summary>
-        private static void TodoAdderEmptyEnterMovesToNextParent()
+        private static void TodoAdderEmptyEnterOpensTheNextParentEditor()
         {
             var data = NewTodoData(out TodoItem first);
             var second = TodoListOps.AddItem(data, "Second", data.SelectedDate);
@@ -3453,23 +3466,37 @@ namespace Kobold.XamlLoadCheck
             box.Text = string.Empty;
             RaiseKey(widget, view, box, Key.Enter);
 
-            string adderFor = PrivateField<string>(view, "_addingChildToId");
-            if (adderFor != second.Id)
+            string editingItem = PrivateField<string>(view, "_editingItemId");
+            if (editingItem != second.Id)
             {
                 throw new InvalidOperationException(
-                    "the empty Enter left the adder on '" + (adderFor ?? "<null>") +
-                    "', wanted the next parent '" + second.Id + "'");
+                    "the empty Enter left the editor on item '" + (editingItem ?? "<null>") +
+                    "', wanted the next parent's editor '" + second.Id + "'");
             }
+            if (PrivateField<string>(view, "_editingChildId") != null)
+                throw new InvalidOperationException("the empty Enter left a child editor open");
+            if (PrivateField<string>(view, "_addingChildToId") != null)
+                throw new InvalidOperationException("the empty Enter left the adder open");
             if (first.Children != null && first.Children.Count != 0)
                 throw new InvalidOperationException("the empty Enter added a child to the first item");
             if (EditorBoxInListOrNull(view) == null)
-                throw new InvalidOperationException("the next parent's adder did not open");
+                throw new InvalidOperationException("the next parent's editor did not open");
             if (RunPendingEditorCommitIfAny(view))
-                throw new InvalidOperationException("the moved adder scheduled a stale commit");
+                throw new InvalidOperationException("the chain move scheduled a stale commit");
 
+            // The chain reaches the last parent's adder through its editor
+            // (Enter commits and, childless, opens that adder); the adder's
+            // empty Enter keeps the rule-4 jump to the bottom input.
             var nextBox = EditorBoxInList(view);
-            nextBox.Text = string.Empty;
             RaiseKey(widget, view, nextBox, Key.Enter);
+            if (PrivateField<string>(view, "_addingChildToId") != second.Id)
+                throw new InvalidOperationException("the next parent's Enter did not open its child adder");
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the next parent's Enter scheduled a stale commit");
+
+            var adderBox = EditorBoxInList(view);
+            adderBox.Text = string.Empty;
+            RaiseKey(widget, view, adderBox, Key.Enter);
 
             if (EditorBoxInListOrNull(view) != null)
                 throw new InvalidOperationException("the last parent's adder stayed open after the empty Enter");
@@ -3488,6 +3515,148 @@ namespace Kobold.XamlLoadCheck
             }
             if (RunPendingEditorCommitIfAny(view))
                 throw new InvalidOperationException("the last-parent jump scheduled a stale commit");
+        }
+
+        /// <summary>
+        /// B2 (Enter chain, user 2026-10-13): a parent editor's Enter commits
+        /// and hands the caret to the first child's editor (select-all), not
+        /// the adder; the adder stays the childless fallback.
+        /// </summary>
+        private static void TodoParentEnterOpensTheFirstChildsEditor()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var first = TodoListOps.AddChild(item, "Buy eggs");
+            TodoListOps.AddChild(item, "Buy bread");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "Buy milk (entered)";
+            RaiseKey(widget, view, box, Key.Enter);
+
+            if (item.Text != "Buy milk (entered)")
+                throw new InvalidOperationException("the parent Enter did not commit the text");
+            if (PrivateField<string>(view, "_editingChildId") != first.Id)
+                throw new InvalidOperationException("the parent Enter did not open the first child's editor");
+            if (PrivateField<string>(view, "_editingItemId") != null)
+                throw new InvalidOperationException("the parent editor stayed open after its Enter");
+            if (PrivateField<string>(view, "_addingChildToId") != null)
+                throw new InvalidOperationException("the parent Enter opened the adder despite children");
+            EditorBoxInList(view); // the child editor box is really up
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the chain move scheduled a stale commit");
+        }
+
+        /// <summary>
+        /// B2 (Enter chain, user 2026-10-13): a child editor's Enter commits
+        /// and moves to the next sibling's editor; the adder only opens after
+        /// the last sibling.
+        /// </summary>
+        private static void TodoChildEnterWalksToTheNextSibling()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var first = TodoListOps.AddChild(item, "Buy eggs");
+            var second = TodoListOps.AddChild(item, "Buy bread");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartChildEdit", first.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "Buy eggs (entered)";
+            RaiseKey(widget, view, box, Key.Enter);
+
+            if (first.Text != "Buy eggs (entered)")
+                throw new InvalidOperationException("the child Enter did not commit the text");
+            if (PrivateField<string>(view, "_editingChildId") != second.Id)
+                throw new InvalidOperationException("the child Enter did not walk to the next sibling");
+            if (PrivateField<string>(view, "_addingChildToId") != null)
+                throw new InvalidOperationException("the child Enter opened the adder with a sibling left");
+            EditorBoxInList(view);
+        }
+
+        /// <summary>B2: the last sibling's Enter opens the parent's child adder.</summary>
+        private static void TodoChildEnterAtTheLastOneOpensTheAdder()
+        {
+            var data = NewTodoData(out TodoItem item);
+            TodoListOps.AddChild(item, "Buy eggs");
+            var last = TodoListOps.AddChild(item, "Buy bread");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartChildEdit", last.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "Buy bread (entered)";
+            RaiseKey(widget, view, box, Key.Enter);
+
+            if (last.Text != "Buy bread (entered)")
+                throw new InvalidOperationException("the last child's Enter did not commit the text");
+            if (PrivateField<string>(view, "_editingChildId") != null)
+                throw new InvalidOperationException("the last child's Enter kept a child editor open");
+            if (PrivateField<string>(view, "_addingChildToId") != item.Id)
+                throw new InvalidOperationException("the last child's Enter did not open the parent's adder");
+            EditorBoxInList(view);
+        }
+
+        /// <summary>
+        /// B2 (rule 5): an emptied child box deletes on Enter and never walks
+        /// the chain (the blur path's rule, now shared by Enter).
+        /// </summary>
+        private static void TodoChildEnterOnAnEmptiedBoxDeletesWithoutWalking()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var first = TodoListOps.AddChild(item, "Buy eggs");
+            TodoListOps.AddChild(item, "Buy bread");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartChildEdit", first.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = string.Empty;
+            RaiseKey(widget, view, box, Key.Enter);
+
+            if (item.Children.IndexOf(first) >= 0)
+                throw new InvalidOperationException("the emptied-box Enter kept the child");
+            if (PrivateField<string>(view, "_editingChildId") != null)
+                throw new InvalidOperationException("the emptied-box Enter opened a child editor");
+            if (PrivateField<string>(view, "_addingChildToId") != null)
+                throw new InvalidOperationException("the emptied-box Enter advanced to the adder");
+            if (PrivateField<string>(view, "_editingItemId") != null)
+                throw new InvalidOperationException("the emptied-box Enter advanced to a parent editor");
+        }
+
+        /// <summary>
+        /// B2: every chain-opened editor carries the adder's select-all default
+        /// (the session was opened by the keyboard, not by a click).
+        /// </summary>
+        private static void TodoChainOpenedEditorsSelectAll()
+        {
+            var data = NewTodoData(out TodoItem item);
+            TodoListOps.AddChild(item, "Buy eggs");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "Buy milk (entered)";
+            RaiseKey(widget, view, box, Key.Enter);
+            LayoutView(view);
+
+            var chainBox = EditorBoxInList(view);
+            InvokeApplyEditorCaret(view, chainBox); // the editor's Loaded half, run offscreen
+            if (chainBox.CaretIndex != 0 || chainBox.SelectionLength != chainBox.Text.Length ||
+                chainBox.Text.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "the chain-opened editor carries caret " + chainBox.CaretIndex +
+                    "/selection " + chainBox.SelectionLength + " of " + chainBox.Text.Length +
+                    " characters, wanted the select-all default");
+            }
         }
 
         /// <summary>
