@@ -7,6 +7,7 @@
         Topmost="False" ResizeMode="NoResize" ShowInTaskbar="False"
         Width="340" Height="40"
         PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
+        PreviewKeyDown="Window_PreviewKeyDown"
         TextOptions.TextFormattingMode="Display">
 
     <!-- The shared shell. TodoCalendarView is injected into the chrome's

@@ -49,6 +49,10 @@ namespace Kobold.Controls
         private string _editingChildId;
         private string _addingChildToId;
 
+        // The one-step delete undo (backspace ladder / row menu / later the
+        // day clear): the last removal snapshot and its restore point.
+        private TodoRemoval _lastRemoval;
+
         // The screen point a text click opened the editor at (fix round 17,
         // R2; fix round 19, R1): the active session's editor places the caret
         // at that character instead of selecting all - on its first build
@@ -742,7 +746,8 @@ namespace Kobold.Controls
                 text = BuildEditor(item.Text, PARENT_FONT,
                     value => { CommitItemEdit(item, value, true); return true; },
                     () => { _editingItemId = null; _editorCaretAt = null; Refresh(); },
-                    value => { CommitItemEdit(item, value); return true; });
+                    value => { CommitItemEdit(item, value); return true; },
+                    value => BackspaceLadder(item, value));
             }
             else
             {
@@ -795,7 +800,9 @@ namespace Kobold.Controls
             {
                 text = BuildEditor(child.Text, CHILD_FONT,
                     value => { CommitChildEdit(parent, child, value); return true; },
-                    () => { _editingChildId = null; _editorCaretAt = null; Refresh(); });
+                    () => { _editingChildId = null; _editorCaretAt = null; Refresh(); },
+                    null,
+                    value => BackspaceLadder(parent, child, value));
             }
             else
             {
@@ -989,7 +996,9 @@ namespace Kobold.Controls
         /// <summary>
         /// Single inline editor: Enter commits (when the caller consumes the
         /// box), Esc cancels, and losing keyboard focus commits through the
-        /// blur path too. The blur commit is deferred with Dispatcher.BeginInvoke
+        /// blur path too. A Backspace at the text start with no selection is an
+        /// entry action (the backspace ladder) when the caller passes
+        /// backspaceAtStart. The blur commit is deferred with Dispatcher.BeginInvoke
         /// so the click that blurred the box reaches its target (checkbox, ×,
         /// another row) before the list rebuilds under it. The settled flag
         /// makes the blur that follows Enter, and the one after Esc, no-ops.
@@ -998,7 +1007,8 @@ namespace Kobold.Controls
         /// the row's text starts.
         /// </summary>
         private TextBox BuildEditor(string initial, double fontSize,
-            Func<string, bool> commit, Action cancel, Func<string, bool> commitOnBlur = null)
+            Func<string, bool> commit, Action cancel, Func<string, bool> commitOnBlur = null,
+            Action<string> backspaceAtStart = null)
         {
             if (commitOnBlur == null) commitOnBlur = commit;
 
@@ -1038,6 +1048,16 @@ namespace Kobold.Controls
                     settled = true;
                     cancel();
                 }
+            };
+            // Backspace at the text start must be seen before the TextBox's own
+            // class handler consumes Key.Back (an instance KeyDown handler never
+            // runs for it); the tunnelling preview is the interception point.
+            box.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key != Key.Back || backspaceAtStart == null) return;
+                if (box.CaretIndex != 0 || box.SelectionLength != 0) return;
+                e.Handled = true;   // 位置 0 的退格属于条目动作，不是文字编辑
+                backspaceAtStart(box.Text);
             };
             box.LostKeyboardFocus += (s, e) =>
             {
@@ -1152,29 +1172,61 @@ namespace Kobold.Controls
 
         private void RemoveItem(TodoItem item)
         {
-            if (_editingItemId == item.Id)
-            {
-                _editingItemId = null;
-                _editorCaretAt = null; // the session ended with the removal
-            }
-            if (_addingChildToId == item.Id)
-            {
-                _addingChildToId = null;
-                _editorCaretAt = null;
-            }
-            TodoListOps.RemoveItem(_data, item.Id);
+            if (_editingItemId == item.Id) { _editingItemId = null; _editorCaretAt = null; }
+            if (_addingChildToId == item.Id) { _addingChildToId = null; _editorCaretAt = null; }
+            var removal = TodoListOps.RemoveParent(_data.Items, item);
+            if (removal.IsEmpty) return;
+            _lastRemoval = removal;
             AfterItemEdit();
         }
 
         private void RemoveChild(TodoItem parent, SubTodoItem child)
         {
-            if (_editingChildId == child.Id)
-            {
-                _editingChildId = null;
-                _editorCaretAt = null;
-            }
-            TodoListOps.RemoveChild(parent, child.Id);
+            if (_editingChildId == child.Id) { _editingChildId = null; _editorCaretAt = null; }
+            var removal = TodoListOps.RemoveChildItem(parent, child);
+            if (removal.IsEmpty) return;
+            _lastRemoval = removal;
             AfterItemEdit();
+        }
+
+        /// <summary>Two-step safety on Backspace at the text start: the box's live
+        /// text commits first, an open entry then completes (the normal tick
+        /// semantics), and a completed or emptied entry deletes. The deletion
+        /// lands in the one-step undo slot like every other delete; the waiting
+        /// editor must not keep re-anchoring its caret to the old click point.</summary>
+        private void BackspaceLadder(TodoItem item, string text)
+        {
+            if (item.Done) { RemoveItem(item); return; }
+            string trimmed = (text ?? string.Empty).Trim();
+            if (trimmed.Length == 0) { RemoveItem(item); return; } // 框内已清空：与 blur 提交一致地删除
+            item.Text = trimmed;
+            _editorCaretAt = null;
+            TodoRollover.Toggle(item, true, DateTime.Today);
+            AfterItemEdit();
+        }
+
+        private void BackspaceLadder(TodoItem parent, SubTodoItem child, string text)
+        {
+            if (child.Done) { RemoveChild(parent, child); return; }
+            string trimmed = (text ?? string.Empty).Trim();
+            if (trimmed.Length == 0) { RemoveChild(parent, child); return; }
+            child.Text = trimmed;
+            _editorCaretAt = null;
+            TodoRollover.ToggleChild(child, true);
+            AfterItemEdit();
+        }
+
+        /// <summary>The delete-undo: restores the last removal (entry, sub-todo or
+        /// the day's clear) at its original place. A focused text box never gets
+        /// here - the widget routes Ctrl+Z only for the list context.</summary>
+        public bool UndoLastRemoval()
+        {
+            var removal = _lastRemoval;
+            if (removal == null || removal.IsEmpty) return false;
+            _lastRemoval = null;
+            TodoListOps.RestoreRemoval(removal, _data.Items);
+            AfterItemEdit();
+            return true;
         }
 
         /// <summary>
@@ -1219,18 +1271,16 @@ namespace Kobold.Controls
             }
             if (string.IsNullOrWhiteSpace(value))
             {
-                TodoListOps.RemoveItem(_data, item.Id);
+                RemoveItem(item);
+                return;
             }
-            else
+            item.Text = value.Trim();
+            if (openAdder)
             {
-                item.Text = value.Trim();
-                if (openAdder)
-                {
-                    _addingChildToId = item.Id;
-                    _scrollToAdderForId = item.Id;
-                    _editorCaretAt = null;
-                    _editorSelectAllOnLoad = true;
-                }
+                _addingChildToId = item.Id;
+                _scrollToAdderForId = item.Id;
+                _editorCaretAt = null;
+                _editorSelectAllOnLoad = true;
             }
             AfterItemEdit();
         }
@@ -1242,8 +1292,12 @@ namespace Kobold.Controls
                 _editingChildId = null;
                 _editorCaretAt = null;
             }
-            if (string.IsNullOrWhiteSpace(value)) TodoListOps.RemoveChild(parent, child.Id);
-            else child.Text = value.Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                RemoveChild(parent, child);
+                return;
+            }
+            child.Text = value.Trim();
             AfterItemEdit();
         }
 

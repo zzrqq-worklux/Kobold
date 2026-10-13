@@ -200,6 +200,20 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: the item editor caret follows the widget colour", TodoItemEditorCaretFollowsTheWidgetColor);
                 failures += TryCheck("todo: the add box caret follows the widget colour", TodoAddBoxCaretFollowsTheWidgetColor);
 
+                // Polish round (T3): Backspace at the text start ladders an
+                // entry - an open one completes (the tick semantics), a
+                // completed one deletes - and every ladder delete lands in the
+                // one-step undo slot; a Backspace away from the start stays a
+                // plain text edit.
+                failures += TryCheck("todo: backspace at the text start completes an open item", TodoBackspaceAtStartCompletesAnOpenItem);
+                failures += TryCheck("todo: backspace again deletes the completed item", TodoBackspaceAgainDeletesTheCompletedItem);
+                failures += TryCheck("todo: undo restores the last deleted item", TodoUndoRestoresTheLastDeletedItem);
+                failures += TryCheck("todo: the child ladder completes then deletes", TodoChildLadderCompletesThenDeletes);
+                failures += TryCheck("todo: backspace mid-text stays plain editing", TodoBackspaceMidTextStaysPlainEditing);
+                failures += TryCheck("todo: the ladder commits the box text before completing", TodoLadderCommitsTheBoxTextBeforeCompleting);
+                failures += TryCheck("todo: the ladder deletes when the box was emptied", TodoLadderDeletesWhenTheBoxWasEmptied);
+                failures += TryCheck("todo: the ladder clears the click anchor before the rebuild", TodoLadderClearsTheClickAnchorBeforeTheRebuild);
+
                 // Fix round 5 pins: the list viewport shrinks to its content so
                 // the add pill sits directly under the last row (no 2-row
                 // reservation), while an overflowing list keeps six rows.
@@ -3179,6 +3193,238 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// Polish round (T3): Backspace with the caret at the text start is an
+        /// entry action, not a text edit - an open entry completes first (the
+        /// normal tick semantics) and its editor stays open for the second
+        /// press, exactly the way the checkbox tick keeps the row.
+        /// </summary>
+        private static void TodoBackspaceAtStartCompletesAnOpenItem()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (!item.Done)
+                throw new InvalidOperationException(
+                    "Backspace at the text start did not complete the open item");
+            EditorBoxInList(view); // still open for the second press
+        }
+
+        /// <summary>
+        /// Polish round (T3): the second press at the text start deletes the
+        /// completed entry (the whole parent subtree rides along, here none).
+        /// </summary>
+        private static void TodoBackspaceAgainDeletesTheCompletedItem()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back); // completes
+
+            box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back); // deletes
+
+            if (data.Items.IndexOf(item) >= 0)
+                throw new InvalidOperationException("the second Backspace kept the completed item in the list");
+        }
+
+        /// <summary>
+        /// Polish round (T3): the ladder's delete lands in the one-step undo
+        /// slot - the restore puts the entry back at its original index with
+        /// its text untouched.
+        /// </summary>
+        private static void TodoUndoRestoresTheLastDeletedItem()
+        {
+            var data = NewTodoData(out TodoItem item); // stays at index 0
+            var second = TodoListOps.AddItem(data, "Second", data.SelectedDate);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", second.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back); // completes
+
+            box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back); // deletes
+
+            if (data.Items.Count != 1 || data.Items[0] != item)
+            {
+                throw new InvalidOperationException(
+                    "the ladder did not delete the completed item (" + data.Items.Count + " left)");
+            }
+            if (!InvokeUndoLastRemoval(view))
+                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (data.Items.Count != 2 || !ReferenceEquals(data.Items[1], second) || second.Text != "Second")
+            {
+                throw new InvalidOperationException(
+                    "the undo did not put the deleted item back at its index with its text");
+            }
+        }
+
+        /// <summary>
+        /// Polish round (T3): the child ladder mirrors the parent - the first
+        /// Backspace completes the sub-todo, the second deletes it from its
+        /// parent, and the undo restores its slot.
+        /// </summary>
+        private static void TodoChildLadderCompletesThenDeletes()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var child = TodoListOps.AddChild(item, "Buy eggs");
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartChildEdit", child.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (!child.Done)
+                throw new InvalidOperationException(
+                    "Backspace at the text start did not complete the open child");
+
+            box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (item.Children.IndexOf(child) >= 0)
+                throw new InvalidOperationException("the second Backspace kept the completed child");
+
+            if (!InvokeUndoLastRemoval(view))
+                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (item.Children.Count != 1 || !ReferenceEquals(item.Children[0], child))
+                throw new InvalidOperationException("the undo did not put the deleted child back in its slot");
+        }
+
+        /// <summary>
+        /// Polish round (T3): a Backspace away from the text start (or with a
+        /// selection) stays a plain text edit - no completion, no deletion.
+        /// </summary>
+        private static void TodoBackspaceMidTextStaysPlainEditing()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 2;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (data.Items.IndexOf(item) < 0)
+                throw new InvalidOperationException("a mid-text Backspace removed the entry");
+            if (item.Done)
+                throw new InvalidOperationException("a mid-text Backspace completed the entry");
+        }
+
+        /// <summary>
+        /// Polish round (T3 fix): the ladder commits the editor's live text
+        /// before completing - typing in the box and pressing Backspace at the
+        /// start must keep the edit (not toggle the stale stored text).
+        /// </summary>
+        private static void TodoLadderCommitsTheBoxTextBeforeCompleting()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = "edited";
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (item.Text != "edited")
+                throw new InvalidOperationException(
+                    "the ladder completed with '" + item.Text + "' instead of the box's live text");
+            if (!item.Done)
+                throw new InvalidOperationException("the ladder did not complete the item");
+            EditorBoxInList(view); // still open
+        }
+
+        /// <summary>
+        /// Polish round (T3 fix): an emptied box deletes on the ladder press -
+        /// the same rule as the empty blur commit - and the undo restores the
+        /// entry at its place with its original text.
+        /// </summary>
+        private static void TodoLadderDeletesWhenTheBoxWasEmptied()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.Text = string.Empty;
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (data.Items.IndexOf(item) >= 0)
+                throw new InvalidOperationException("the emptied box kept the item on the ladder press");
+
+            if (!InvokeUndoLastRemoval(view))
+                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (data.Items.Count != 1 || !ReferenceEquals(data.Items[0], item) || item.Text != "Buy milk")
+            {
+                throw new InvalidOperationException(
+                    "the undo did not restore the emptied-box deletion with its original text");
+            }
+        }
+
+        /// <summary>
+        /// Polish round (T3 fix): the completion clears the session's click
+        /// point before the rebuild, so the rebuilt editor keeps its default
+        /// caret position instead of being re-anchored to the old click.
+        /// </summary>
+        private static void TodoLadderClearsTheClickAnchorBeforeTheRebuild()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id); // carries a click point
+            LayoutView(view);
+
+            if (!PrivateField<Point?>(view, "_editorCaretAt").HasValue)
+                throw new InvalidOperationException("the session did not start with a click point");
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+
+            if (PrivateField<Point?>(view, "_editorCaretAt").HasValue)
+                throw new InvalidOperationException("the completed ladder left the old click anchor in place");
+        }
+
+        /// <summary>
         /// Smoke fix C2 (final spec): an empty Enter in a child adder closes
         /// it and opens the next day item's adder in display order; on the
         /// last parent it jumps to the bottom add-new input (revealed, adder
@@ -5539,6 +5785,25 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// The tunnelling half of the same key input (polish round T3): the
+        /// inline editor intercepts Backspace at the text start in
+        /// PreviewKeyDown, because the TextBox's own class handler consumes
+        /// Key.Back before any bubbling KeyDown handler runs.
+        /// </summary>
+        private static void RaisePreviewKey(Window window, TodoCalendarView view, TextBox box, Key key)
+        {
+            EnsureRealDpi(window);
+            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            PresentationSource source = System.Windows.Interop.HwndSource.FromHwnd(handle);
+            if (source == null) throw new InvalidOperationException("no presentation source for key input");
+
+            box.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+            {
+                RoutedEvent = UIElement.PreviewKeyDownEvent
+            });
+        }
+
+        /// <summary>
         /// Runs the deferred editor commit the blur queued, without pumping the
         /// app dispatcher (a pump would run the dormant App.OnStartup op). The
         /// production code schedules the same delegate at Background priority.
@@ -5639,6 +5904,20 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(method + " does not take a click point (no caret placement)");
             }
             start.Invoke(view, new object[] { id, screenPoint });
+        }
+
+        /// <summary>
+        /// Calls the view's one-step undo through reflection (the RED run has no
+        /// such method yet; afterwards it is public, reflection keeps the pin
+        /// stable either way).
+        /// </summary>
+        private static bool InvokeUndoLastRemoval(TodoCalendarView view)
+        {
+            var method = typeof(TodoCalendarView).GetMethod("UndoLastRemoval",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException("UndoLastRemoval not found on TodoCalendarView");
+            return (bool)method.Invoke(view, null);
         }
 
         private static void AssertItemsPanelEditorNotClipped(string label, TodoCalendarView view)

@@ -1,4 +1,5 @@
 using System;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Kobold.Core;
 using Kobold.Helpers;
@@ -38,6 +39,15 @@ namespace Kobold.Controls
         private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             _view?.HandleMouseDownOutsideEditor(e.OriginalSource);
+        }
+
+        /// <summary>Ctrl+Z in the list context restores the last delete; a focused
+        /// text box keeps its own text undo.</summary>
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return;
+            if (Keyboard.FocusedElement is TextBox) return;
+            if (_view != null && _view.UndoLastRemoval()) e.Handled = true;
         }
 
         protected override (double width, double height) GetContentSize()
