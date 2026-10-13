@@ -366,3 +366,34 @@ Accent 资源）；`Themes/Controls.xaml` 的 ComboBox 模板补可编辑支持�
   建议：单独小任务排查（采样容差或选点策略），或重启会话/换机后重跑确认；不阻塞本分支合并，
   但会挡发布矩阵。
 - deferred minors 7 条见 SDD ledger，全部"可留"。
+
+## 执行记录（二）：冒烟波与 Enter 链精修（2026-10-12/13）
+
+**冒烟修复波（review 经用户明示豁免，一笔提交）**
+
+- `8ae0139 fix(ui): close the dialog clip, paste gating and todo-enter findings`（4 文件 +324/−24）：
+  - A 扩展名裁切：`PART_EditableTextBox` 继承了全局 TextBox 样式（Padding 10,6 → 15px 字号下可视区仅
+    ~6px）→ `Style="{x:Null}"` + 透明/无边框/Padding 10,0 居中 + Accent 选区；新增永久渲染 pin
+    （可视条带 1px → 10px，vs ink 10.68）。
+  - B 空剪贴板"粘贴"项：菜单仅在 `canPaste` 时加入（存在且锁定时仍置灰）；pin 期望从"禁用"改为"缺席"。
+  - C Enter 链（新规格）：父项编辑器 Enter 提交并打开该子项添加框；添加器空 Enter 移动到下一条
+    `ForDay` 父项（末条原为关闭，精修规则 4 后改为跳底部添加框）；非空 Enter 保持打开。
+- Enter 链精修（用户确认补充规则，review 再获豁免）→ `2a52261 fix(todo): chain the enter flow through the add row`
+  （2 文件 +97/−11）：
+  - 规则 4：末条父项空 Enter → 跳到底部添加框（`_addBoxRevealed = true` + 一次 Refresh +
+    `ScrollListToBottomIfNeeded()` + `AddBox.Focus()`）。
+  - 规则 5：添加行 Enter 新增父项 → 光标进入新父项的子项添加框。
+  - 日期翻转（仅测试）：跨日后冻结日期的夹具含未完成项随"carry 到今天"失效（3 处 pin 的行消失），
+    夹具改为"当日完成"写法；产品行为无影响。
+- 交验证据：XamlLoadCheck 129 PASS、LangCheck 145×3、build 0 警告。
+
+**用户冒烟（2026-10-13）**：A/B/C 与 Enter 链两条**全部通过**。
+
+**终版矩阵（`2a52261`，会话重启后重跑）**：**31/31 全绿**；`MenuRenderCheck` 转绿（同环境不同会话
+下实测 #94A3B8→#8B99AD 与 #94A3B8→#94A3B8 两种结果），环境瞬时性判定确认，未复现。
+- 处置：用户原拍板的"独立小任务排查采样容差"因前提（可复现红）消失，建议转为**观察项**
+  （复发再加固采样/容差），留待用户复核。
+- deferred minors：终审 7 条维持"可留"；F4 `DropDownToggle` 覆盖扩展名框一项由冒烟通过消解。
+
+**合并/推送**：用户拍板"冒烟通过 → 补执行记录 → 合并 main + 推送 origin"，条件已满足；本记录提交后
+执行合并与推送，随后清理 worktree 与 SDD 工作区（记录以 git 历史与本文件为准）。
