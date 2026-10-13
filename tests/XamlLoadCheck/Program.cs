@@ -187,9 +187,12 @@ namespace Kobold.XamlLoadCheck
 
                 // Smoke fix C (new spec): Enter in a parent editor commits and
                 // opens that item's child adder; Enter on an empty child adder
-                // jumps to the next day item's adder (last closes).
+                // jumps to the next day item's adder (the last parent jumps to
+                // the bottom add input); the add row's Enter hands the caret
+                // to the new item's adder.
                 failures += TryCheck("todo: parent editor Enter opens the child adder", TodoParentEditorEnterOpensChildAdder);
                 failures += TryCheck("todo: empty adder Enter moves to the next parent", TodoAdderEmptyEnterMovesToNextParent);
+                failures += TryCheck("todo: add-row Enter opens the new item's adder", TodoAddRowEnterOpensTheNewItemsAdder);
 
                 // Fix round 5 pins: the list viewport shrinks to its content so
                 // the add pill sits directly under the last row (no 2-row
@@ -1962,7 +1965,12 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        /// <summary>One item on 2026-10-12 (a five-week month) at a panel size.</summary>
+        /// <summary>
+        /// One item on 2026-10-12 (a five-week month) at a panel size. The
+        /// item is completed on that day so its row displays there on every
+        /// run date - an open past-dated entry carries to today, which would
+        /// shrink the list and grow the calendar cells.
+        /// </summary>
         private static TodoData NewTodoLabelData(double width, double height)
         {
             var data = new TodoData
@@ -1971,7 +1979,8 @@ namespace Kobold.XamlLoadCheck
                 PanelWidth = width,
                 PanelHeight = height
             };
-            TodoListOps.AddItem(data, "item", new DateTime(2026, 10, 12));
+            TodoRollover.Toggle(TodoListOps.AddItem(data, "item", new DateTime(2026, 10, 12)),
+                true, new DateTime(2026, 10, 12));
             return data;
         }
 
@@ -2078,7 +2087,9 @@ namespace Kobold.XamlLoadCheck
             ThemeManager.Initialize("dark");
             DateTime selected = new DateTime(2026, 10, 12);
             var data = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = selected };
-            TodoListOps.AddItem(data, "item", selected);
+            // Completed on the day: the row must display there on every run
+            // date (an open past-dated entry carries to today).
+            TodoRollover.Toggle(TodoListOps.AddItem(data, "item", selected), true, selected);
             var widget = new TodoWidget(data);
             EnsureRealDpi(widget);
             widget.Width = 342;
@@ -2498,7 +2509,9 @@ namespace Kobold.XamlLoadCheck
             ThemeManager.Initialize("dark");
             DateTime selected = new DateTime(2026, 10, 12);
             var data = new TodoData { PanelWidth = 342, PanelHeight = 337, SelectedDate = selected };
-            TodoListOps.AddItem(data, "item", selected);
+            // Completed on the day: the row must display there on every run
+            // date (an open past-dated entry carries to today).
+            TodoRollover.Toggle(TodoListOps.AddItem(data, "item", selected), true, selected);
             var widget = new TodoWidget(data);
             var view = widget.CalendarView;
 
@@ -3117,9 +3130,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix C2 (new spec): an empty Enter in a child adder closes it
-        /// and opens the next day item's adder in display order; on the last
-        /// parent it just closes. No child is ever added by the empty Enter.
+        /// Smoke fix C2 (final spec): an empty Enter in a child adder closes
+        /// it and opens the next day item's adder in display order; on the
+        /// last parent it jumps to the bottom add-new input (revealed, adder
+        /// state cleared) instead of closing. No child is ever added by the
+        /// empty Enter.
         /// </summary>
         private static void TodoAdderEmptyEnterMovesToNextParent()
         {
@@ -3156,6 +3171,63 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the last parent's adder stayed open after the empty Enter");
             if (PrivateField<string>(view, "_addingChildToId") != null)
                 throw new InvalidOperationException("the adder id survived the last-parent empty Enter");
+            if (!PrivateField<bool>(view, "_addBoxRevealed"))
+            {
+                throw new InvalidOperationException(
+                    "the last-parent empty Enter did not reveal the bottom add input");
+            }
+            var addHost = view.FindName("AddInputHost") as FrameworkElement;
+            if (addHost == null || addHost.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException(
+                    "the bottom add input is not visible after the last-parent empty Enter");
+            }
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the last-parent jump scheduled a stale commit");
+        }
+
+        /// <summary>
+        /// Smoke fix C (final spec rule 5): Enter in the bottom add box adds
+        /// the parent and hands the caret to the new item's child adder - the
+        /// add box no longer keeps focus (spec change). The offscreen harness
+        /// cannot observe keyboard focus reliably, so the pin asserts the
+        /// state (adder targeted at the new item, editor present, add box
+        /// cleared, no pending commit) and the reveal contract only.
+        /// </summary>
+        private static void TodoAddRowEnterOpensTheNewItemsAdder()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new TodoData { SelectedDate = DateTime.Today };
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            LayoutView(view);
+            RevealAddBox(view);
+
+            var addBox = view.FindName("AddBox") as TextBox;
+            if (addBox == null) throw new InvalidOperationException("AddBox not found");
+            addBox.Text = "New parent";
+            RaiseKey(widget, view, addBox, Key.Enter);
+
+            if (data.Items.Count != 1 || data.Items[0].Text != "New parent")
+            {
+                throw new InvalidOperationException(
+                    "the add-row Enter added " + data.Items.Count + " item(s): " +
+                    (data.Items.Count == 0 ? "<none>" : "'" + data.Items[0].Text + "'"));
+            }
+            TodoItem added = data.Items[0];
+            string adderFor = PrivateField<string>(view, "_addingChildToId");
+            if (adderFor != added.Id)
+            {
+                throw new InvalidOperationException(
+                    "the add-row Enter left the adder on '" + (adderFor ?? "<null>") +
+                    "', wanted the new item '" + added.Id + "'");
+            }
+            if (EditorBoxInListOrNull(view) == null)
+                throw new InvalidOperationException("the new item's child adder did not open");
+            if (addBox.Text.Length != 0)
+                throw new InvalidOperationException("the add box kept its text: '" + addBox.Text + "'");
+            if (RunPendingEditorCommitIfAny(view))
+                throw new InvalidOperationException("the add-row Enter scheduled a stale commit");
         }
 
         /// <summary>

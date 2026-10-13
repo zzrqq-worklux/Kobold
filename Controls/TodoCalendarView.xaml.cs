@@ -863,7 +863,8 @@ namespace Kobold.Controls
                         return true; // the rebuilt adder stays open for the next child
                     }
                     // Smoke fix C: an empty Enter moves to the next day item's
-                    // adder (display order); on the last parent it just closes.
+                    // adder (display order); on the last parent it jumps to the
+                    // bottom add-new input instead of closing.
                     var parents = TodoListOps.ForDay(_data.Items, _selected, DateTime.Today);
                     int index = parents.FindIndex(p => p != null && p.Id == parent.Id);
                     TodoItem next = index >= 0 && index + 1 < parents.Count ? parents[index + 1] : null;
@@ -872,9 +873,15 @@ namespace Kobold.Controls
                         StartChildAdd(next.Id); // sets the state and refreshes
                         return true;
                     }
+                    // Final spec rule 4: reveal the bottom add input in the
+                    // same repaint (the RevealAddBox tail inline, so the
+                    // rebuild happens once), then scroll and focus it.
                     _addingChildToId = null;
                     _editorCaretAt = null;
+                    _addBoxRevealed = true;
                     Refresh();
+                    ScrollListToBottomIfNeeded();
+                    AddBox.Focus();
                     return true;
                 },
                 () =>
@@ -1256,10 +1263,17 @@ namespace Kobold.Controls
             if (text.Length == 0) return;
 
             var added = TodoListOps.AddItem(_data, text, _selected);
-            _scrollToId = added.Id; // the item must not land below the fold
             AddBox.Clear();
+            // Final spec rule 5: the caret enters the new item's child adder
+            // (one repaint through AfterItemEdit); the scroll target is the
+            // new adder, not the row, and the add box keeps no focus.
+            _editorCaretAt = null;
+            _editorSelectAllOnLoad = true;
+            _editingItemId = null;
+            _editingChildId = null;
+            _addingChildToId = added.Id;
+            _scrollToAdderForId = added.Id;
             AfterItemEdit();
-            AddBox.Focus();
         }
 
         /// <summary>The pill's click reveals and focuses the inline input.</summary>
