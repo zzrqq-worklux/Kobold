@@ -120,6 +120,10 @@ namespace Kobold.Controls
             _selected = (_data.SelectedDate ?? DateTime.Today).Date;
             _viewYear = _selected.Year;
             _viewMonth = _selected.Month;
+
+            // 行菜单在各自行上是最近的 ContextMenu，优先命中；空白处命中这里。
+            Root.ContextMenuOpening += (s, e) => { Root.ContextMenu = BuildDayAreaMenu(); };
+
             Refresh();
         }
 
@@ -838,6 +842,28 @@ namespace Kobold.Controls
             return new MenuBuilder(_data.Color)
                 .AddItem("Menu_DeleteItem", () => RemoveChild(parent, child))
                 .Build();
+        }
+
+        /// <summary>The day-area menu (empty list/calendar space): the day-scoped
+        /// clear. Rebuilt per right-click so the enabled state is always current;
+        /// rows carry their own menus and take precedence.</summary>
+        private ContextMenu BuildDayAreaMenu()
+        {
+            return new MenuBuilder(_data.Color)
+                .AddItem("Menu_ClearCompleted", () => ClearCompletedForDay(),
+                    TodoListOps.HasCompletedOn(_data.Items, _selected, DateTime.Today))
+                .Build();
+        }
+
+        /// <summary>Clears the selected day's completed rows (whole completed
+        /// parents, plus completed sub-todos of the day's open parents) as one
+        /// undoable deletion.</summary>
+        private void ClearCompletedForDay()
+        {
+            var removal = TodoListOps.RemoveCompletedOn(_data.Items, _selected, DateTime.Today);
+            if (removal.IsEmpty) return;
+            _lastRemoval = removal;
+            AfterItemEdit();
         }
 
         /// <summary>

@@ -242,6 +242,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: row menus act on their row", TodoRowMenusActOnTheirRow);
                 failures += TryCheck("todo: rows carry no hover buttons", TodoRowsCarryNoHoverButtons);
 
+                // T4: the day-area menu (empty list/calendar space) clears the
+                // selected day's completed rows as one undoable batch; it is
+                // enabled only while the day actually has completed rows.
+                failures += TryCheck("todo: the day-area menu holds the clear entry", TodoDayAreaMenuHoldsTheClearEntry);
+                failures += TryCheck("todo: the clear entry enables only with completed rows on the day", TodoClearEntryEnablesOnlyWithCompletedRows);
+                failures += TryCheck("todo: clicking clear removes the day's completed rows", TodoClickingClearRemovesTheDaysCompletedRows);
+
                 // Fix round 12 (R1): the empty-day message is gone; the reveal
                 // keeps the input in the pill's collapsed slot (fix round 11's
                 // stacking), and an empty blur restores the pill there.
@@ -2117,6 +2124,19 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// Builds the view's day-area menu through reflection (T4; the RED run
+        /// has no such method yet) - the typed variant of InvokeViewAction.
+        /// </summary>
+        private static ContextMenu InvokeBuildDayAreaMenu(TodoCalendarView view)
+        {
+            var method = typeof(TodoCalendarView).GetMethod("BuildDayAreaMenu",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException("BuildDayAreaMenu not found on TodoCalendarView");
+            return (ContextMenu)method.Invoke(view, null);
+        }
+
+        /// <summary>
         /// Task A4.1: a resize drag re-adapts the todo layout against the live
         /// window height (the base's OnPanelSizeChanged refreshes the view):
         /// 337 (cell 26.4) -> +200 -> 537 (cell 36 clamp) -> -300 -> 337 again.
@@ -3863,6 +3883,98 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException("a row still carries the hover ＋/× glyphs");
             }
+        }
+
+        /// <summary>
+        /// T4: the day-area menu (empty list/calendar space) holds exactly the
+        /// day-scoped clear entry.
+        /// </summary>
+        private static void TodoDayAreaMenuHoldsTheClearEntry()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            var menu = InvokeBuildDayAreaMenu(view);
+            if (menu.Items.Count != 1)
+                throw new InvalidOperationException("the day-area menu has " + menu.Items.Count + " item(s)");
+            string header = HeaderOf(menu.Items[0]);
+            if (header != Localization.Get("Menu_ClearCompleted"))
+                throw new InvalidOperationException("the day-area menu header is '" + header + "'");
+        }
+
+        /// <summary>
+        /// T4: the clear entry is greyed out while the selected day has no
+        /// completed row and enabled as soon as one exists (the menu is rebuilt
+        /// per right-click, so every build sees the current day).
+        /// </summary>
+        private static void TodoClearEntryEnablesOnlyWithCompletedRows()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            var emptyEntry = InvokeBuildDayAreaMenu(view).Items[0] as MenuItem;
+            if (emptyEntry == null) throw new InvalidOperationException("the clear entry is not a MenuItem");
+            if (emptyEntry.IsEnabled)
+            {
+                throw new InvalidOperationException(
+                    "the clear entry is enabled on a day without completed rows");
+            }
+
+            TodoRollover.Toggle(item, true, DateTime.Today); // a row completed today
+            var filledEntry = InvokeBuildDayAreaMenu(view).Items[0] as MenuItem;
+            if (filledEntry == null || !filledEntry.IsEnabled)
+            {
+                throw new InvalidOperationException(
+                    "the clear entry stays disabled with a completed row on the day");
+            }
+        }
+
+        /// <summary>
+        /// T4: clicking the clear entry removes the selected day's completed
+        /// rows as one batch - a completed parent goes whole (subtree riding
+        /// along), a completed sub-todo of an open parent goes alone, an open
+        /// parent stays - and the undo restores the whole batch in place.
+        /// </summary>
+        private static void TodoClickingClearRemovesTheDaysCompletedRows()
+        {
+            DateTime today = DateTime.Today;
+            var data = new TodoData { SelectedDate = today };
+            var doneParent = TodoListOps.AddItem(data, "Done parent", today);
+            var doneChild = TodoListOps.AddChild(doneParent, "Done child of the completed parent");
+            TodoRollover.Toggle(doneParent, true, today); // the parent and its subtree
+            var openParent = TodoListOps.AddItem(data, "Open parent", today);
+            var openDoneChild = TodoListOps.AddChild(openParent, "Done child of the open parent");
+            TodoRollover.ToggleChild(openDoneChild, true);
+            var plainParent = TodoListOps.AddItem(data, "Plain parent", today);
+
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            var entry = InvokeBuildDayAreaMenu(view).Items[0] as MenuItem;
+            if (entry == null || !entry.IsEnabled)
+                throw new InvalidOperationException("the clear entry is not enabled with completed rows on the day");
+            entry.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            if (data.Items.IndexOf(doneParent) >= 0)
+                throw new InvalidOperationException("the completed parent survived the clear");
+            if (openParent.Children.IndexOf(openDoneChild) >= 0)
+                throw new InvalidOperationException("the completed sub-todo survived the clear");
+            if (data.Items.IndexOf(openParent) < 0 || data.Items.IndexOf(plainParent) < 0)
+                throw new InvalidOperationException("the clear removed an open entry");
+            if (openParent.Children.Count != 0)
+                throw new InvalidOperationException("the clear left a completed sub-todo behind");
+
+            if (!InvokeUndoLastRemoval(view))
+                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (data.Items.Count != 3 || data.Items[0] != doneParent ||
+                data.Items[1] != openParent || data.Items[2] != plainParent)
+            {
+                throw new InvalidOperationException("the undo did not restore the parent order");
+            }
+            if (openParent.Children.Count != 1 || openParent.Children[0] != openDoneChild || !openDoneChild.Done)
+                throw new InvalidOperationException("the undo did not restore the completed sub-todo");
         }
 
         /// <summary>
