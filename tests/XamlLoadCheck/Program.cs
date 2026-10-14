@@ -249,6 +249,15 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: the clear entry enables only with completed rows on the day", TodoClearEntryEnablesOnlyWithCompletedRows);
                 failures += TryCheck("todo: clicking clear removes the day's completed rows", TodoClickingClearRemovesTheDaysCompletedRows);
 
+                // B3: the one-step delete undo grew into a multi-step stack -
+                // deletes and ticks both land on it, the newest twenty survive,
+                // and every press walks back exactly one edit.
+                failures += TryCheck("todo: undo walks back through several edits", TodoUndoWalksBackThroughSeveralEdits);
+                failures += TryCheck("todo: the undo stack keeps only the newest twenty", TodoUndoStackKeepsOnlyTheNewestTwenty);
+                failures += TryCheck("todo: undo restores a ticked parent with its cascade", TodoUndoRestoresATickedParentWithItsCascade);
+                failures += TryCheck("todo: undo restores a child tick", TodoUndoRestoresAChildTick);
+                failures += TryCheck("todo: the ladder tick lands on the undo stack", TodoLadderTickLandsOnTheUndoStack);
+
                 // Fix round 12 (R1): the empty-day message is gone; the reveal
                 // keeps the input in the pill's collapsed slot (fix round 11's
                 // stacking), and an empty blur restores the pill there.
@@ -2123,6 +2132,26 @@ namespace Kobold.XamlLoadCheck
             action.Invoke(view, null);
         }
 
+        /// <summary>Invokes a private view method with arguments (B3 pins).</summary>
+        private static void InvokeViewActionWith(TodoCalendarView view, string method, params object[] args)
+        {
+            var action = typeof(TodoCalendarView).GetMethod(method,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (action == null) throw new InvalidOperationException(method + " not found on TodoCalendarView");
+            action.Invoke(view, args);
+        }
+
+        /// <summary>The view's undo-stack size, read reflectively (B3).</summary>
+        private static int UndoStackCount(TodoCalendarView view)
+        {
+            var field = typeof(TodoCalendarView).GetField("_undoStack",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("_undoStack not found on TodoCalendarView");
+            var stack = field.GetValue(view) as System.Collections.ICollection;
+            if (stack == null) throw new InvalidOperationException("_undoStack is not a collection");
+            return stack.Count;
+        }
+
         /// <summary>
         /// Builds the view's day-area menu through reflection (T4; the RED run
         /// has no such method yet) - the typed variant of InvokeViewAction.
@@ -3314,8 +3343,8 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the ladder did not delete the completed item (" + data.Items.Count + " left)");
             }
-            if (!InvokeUndoLastRemoval(view))
-                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (!InvokeTryUndo(view))
+                throw new InvalidOperationException("TryUndo reported nothing to restore");
             if (data.Items.Count != 2 || !ReferenceEquals(data.Items[1], second) || second.Text != "Second")
             {
                 throw new InvalidOperationException(
@@ -3354,8 +3383,8 @@ namespace Kobold.XamlLoadCheck
             if (item.Children.IndexOf(child) >= 0)
                 throw new InvalidOperationException("the second Backspace kept the completed child");
 
-            if (!InvokeUndoLastRemoval(view))
-                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (!InvokeTryUndo(view))
+                throw new InvalidOperationException("TryUndo reported nothing to restore");
             if (item.Children.Count != 1 || !ReferenceEquals(item.Children[0], child))
                 throw new InvalidOperationException("the undo did not put the deleted child back in its slot");
         }
@@ -3432,8 +3461,8 @@ namespace Kobold.XamlLoadCheck
             if (data.Items.IndexOf(item) >= 0)
                 throw new InvalidOperationException("the emptied box kept the item on the ladder press");
 
-            if (!InvokeUndoLastRemoval(view))
-                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (!InvokeTryUndo(view))
+                throw new InvalidOperationException("TryUndo reported nothing to restore");
             if (data.Items.Count != 1 || !ReferenceEquals(data.Items[0], item) || item.Text != "Buy milk")
             {
                 throw new InvalidOperationException(
@@ -3966,8 +3995,8 @@ namespace Kobold.XamlLoadCheck
             if (openParent.Children.Count != 0)
                 throw new InvalidOperationException("the clear left a completed sub-todo behind");
 
-            if (!InvokeUndoLastRemoval(view))
-                throw new InvalidOperationException("UndoLastRemoval reported nothing to restore");
+            if (!InvokeTryUndo(view))
+                throw new InvalidOperationException("TryUndo reported nothing to restore");
             if (data.Items.Count != 3 || data.Items[0] != doneParent ||
                 data.Items[1] != openParent || data.Items[2] != plainParent)
             {
@@ -3975,6 +4004,137 @@ namespace Kobold.XamlLoadCheck
             }
             if (openParent.Children.Count != 1 || openParent.Children[0] != openDoneChild || !openDoneChild.Done)
                 throw new InvalidOperationException("the undo did not restore the completed sub-todo");
+        }
+
+        /// <summary>
+        /// B3: the undo stack is multi-step - a removal, a parent tick and a
+        /// child tick walk back newest-first, each press restoring exactly one
+        /// edit; the empty stack reports false.
+        /// </summary>
+        private static void TodoUndoWalksBackThroughSeveralEdits()
+        {
+            var data = NewTodoData(out TodoItem item); // A
+            var b = TodoListOps.AddItem(data, "Second", data.SelectedDate);
+            var d = TodoListOps.AddItem(data, "Third", data.SelectedDate);
+            var c = TodoListOps.AddChild(d, "Nested");
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            InvokeViewActionWith(view, "RemoveItem", item);      // 1: delete A
+            InvokeViewActionWith(view, "ApplyItemToggle", b, true);  // 2: tick B
+            InvokeViewActionWith(view, "ApplyChildToggle", c, true); // 3: tick C
+
+            if (!c.Done || !b.Done) throw new InvalidOperationException("the fixture toggles did not stick");
+            if (data.Items.IndexOf(item) >= 0) throw new InvalidOperationException("the fixture removal did not stick");
+
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the child tick did not undo");
+            if (c.Done || !b.Done) throw new InvalidOperationException("the first undo restored the wrong edit");
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the parent tick did not undo");
+            if (b.Done) throw new InvalidOperationException("the second undo restored the wrong edit");
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the removal did not undo");
+            if (data.Items.IndexOf(item) != 0)
+                throw new InvalidOperationException("the removal undo did not put the entry back at its index");
+            if (data.Items.Count != 3 || data.Items[0] != item || data.Items[1] != b || data.Items[2] != d)
+                throw new InvalidOperationException("the removal undo did not restore the order");
+            if (InvokeTryUndo(view))
+                throw new InvalidOperationException("the drained stack still reported an undo");
+        }
+
+        /// <summary>
+        /// B3: the stack is capped at twenty - the oldest edits fall off, so
+        /// exactly twenty undos succeed and the twenty-first reports false.
+        /// The stack size is read reflectively (the entry type is an
+        /// implementation detail; the cap is what matters here).
+        /// </summary>
+        private static void TodoUndoStackKeepsOnlyTheNewestTwenty()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            for (int i = 0; i < 21; i++)
+                InvokeViewActionWith(view, "ApplyItemToggle", item, i % 2 == 0);
+
+            int count = UndoStackCount(view);
+            if (count != 20)
+                throw new InvalidOperationException("the undo stack kept " + count + " entries, wanted 20");
+
+            // The oldest edit fell off, not the newest: the first undo must walk
+            // back the last toggle (i = 20 set the entry done, so its restore
+            // turns the entry open again).
+            if (!InvokeTryUndo(view))
+                throw new InvalidOperationException("the first undo reported nothing to restore");
+            if (item.Done)
+                throw new InvalidOperationException("the cap dropped the newest edit, not the oldest");
+
+            int remaining = 0;
+            while (InvokeTryUndo(view)) remaining++;
+            if (remaining != 19)
+                throw new InvalidOperationException("the stack yielded " + (remaining + 1) + " undos, wanted 20");
+        }
+
+        /// <summary>
+        /// B3: ticking a parent is undoable - the restore brings back the open
+        /// state, the cleared stamp and every child flag (the cascade included),
+        /// keeping a pre-completed child done.
+        /// </summary>
+        private static void TodoUndoRestoresATickedParentWithItsCascade()
+        {
+            var data = NewTodoData(out TodoItem parent);
+            var doneChild = TodoListOps.AddChild(parent, "Already done");
+            TodoRollover.ToggleChild(doneChild, true);
+            var openChild = TodoListOps.AddChild(parent, "Still open");
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            InvokeViewActionWith(view, "ApplyItemToggle", parent, true);
+            if (!parent.Done || parent.CompletedDate != DateTime.Today)
+                throw new InvalidOperationException("the parent tick did not complete and stamp the entry");
+            if (!doneChild.Done || !openChild.Done)
+                throw new InvalidOperationException("the parent tick did not cascade");
+
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the parent tick did not undo");
+            if (parent.Done || parent.CompletedDate != null)
+                throw new InvalidOperationException("the undo left the parent completed or stamped");
+            if (!doneChild.Done || openChild.Done)
+                throw new InvalidOperationException("the undo did not restore the child flags");
+        }
+
+        /// <summary>B3: a lone sub-todo tick is undoable too.</summary>
+        private static void TodoUndoRestoresAChildTick()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var child = TodoListOps.AddChild(item, "Nested");
+            var view = new TodoWidget(data).CalendarView;
+            LayoutView(view);
+
+            InvokeViewActionWith(view, "ApplyChildToggle", child, true);
+            if (!child.Done) throw new InvalidOperationException("the child tick did not stick");
+
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the child tick did not undo");
+            if (child.Done) throw new InvalidOperationException("the undo left the child ticked");
+        }
+
+        /// <summary>
+        /// B3: the backspace ladder's completion lands on the undo stack like
+        /// the checkbox tick does.
+        /// </summary>
+        private static void TodoLadderTickLandsOnTheUndoStack()
+        {
+            var data = NewTodoData(out TodoItem item);
+            var widget = new TodoWidget(data);
+            var view = widget.CalendarView;
+            InvokeViewEdit(view, "StartItemEdit", item.Id);
+            LayoutView(view);
+
+            var box = EditorBoxInList(view);
+            box.CaretIndex = 0;
+            box.SelectionLength = 0;
+            RaisePreviewKey(widget, view, box, Key.Back);
+            if (!item.Done) throw new InvalidOperationException("the ladder did not complete the item");
+
+            if (!InvokeTryUndo(view)) throw new InvalidOperationException("the ladder tick did not undo");
+            if (item.Done) throw new InvalidOperationException("the undo left the ladder tick in place");
         }
 
         /// <summary>
@@ -6336,16 +6496,16 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Calls the view's one-step undo through reflection (the RED run has no
-        /// such method yet; afterwards it is public, reflection keeps the pin
-        /// stable either way).
+        /// Calls the view's multi-step undo through reflection (B3; the RED run
+        /// has no such method yet; afterwards it is public, reflection keeps the
+        /// pin stable either way).
         /// </summary>
-        private static bool InvokeUndoLastRemoval(TodoCalendarView view)
+        private static bool InvokeTryUndo(TodoCalendarView view)
         {
-            var method = typeof(TodoCalendarView).GetMethod("UndoLastRemoval",
+            var method = typeof(TodoCalendarView).GetMethod("TryUndo",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (method == null)
-                throw new InvalidOperationException("UndoLastRemoval not found on TodoCalendarView");
+                throw new InvalidOperationException("TryUndo not found on TodoCalendarView");
             return (bool)method.Invoke(view, null);
         }
 

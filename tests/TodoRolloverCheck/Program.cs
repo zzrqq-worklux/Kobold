@@ -44,6 +44,7 @@ namespace Kobold.TodoRolloverCheck
             CarryFlags();
             Toggling();
             ChildToggling();
+            ToggleSnapshots();
         }
 
         private static void DisplayDates()
@@ -188,6 +189,64 @@ namespace Kobold.TodoRolloverCheck
             TodoRollover.ToggleChild(doneParent.Children[0], true);
             Check(doneParent.Done && doneParent.CompletedDate == new DateTime(2026, 9, 26),
                 "toggling a child leaves its parent's completion alone");
+        }
+
+        private static void ToggleSnapshots()
+        {
+            // Capture: a parent snapshot holds its stamp and every child's flag.
+            var parent = Item("p1", "parent", new DateTime(2026, 9, 25), true, new DateTime(2026, 9, 26),
+                new List<SubTodoItem> { Child("c1", "one", true), Child("c2", "two") });
+            var snapshot = TodoRollover.CaptureToggle(parent);
+            Check(snapshot.Item == parent && snapshot.Child == null && snapshot.Done &&
+                  snapshot.CompletedDate == new DateTime(2026, 9, 26) &&
+                  snapshot.Children.Count == 2 &&
+                  snapshot.Children[0].Child == parent.Children[0] && snapshot.Children[0].Done &&
+                  snapshot.Children[1].Child == parent.Children[1] && !snapshot.Children[1].Done,
+                "toggle capture: a parent snapshot keeps its stamp and every child's flag");
+
+            var childSnapshot = TodoRollover.CaptureChildToggle(parent.Children[1]);
+            Check(childSnapshot.Child == parent.Children[1] && childSnapshot.Item == null &&
+                  !childSnapshot.Done && childSnapshot.CompletedDate == null &&
+                  childSnapshot.Children.Count == 0,
+                "toggle capture: a child snapshot keeps only the child");
+
+            // The cascade is undone exactly - flags and stamp both come back.
+            var cascaded = Item("p2", "parent", new DateTime(2026, 9, 25), false, null,
+                new List<SubTodoItem> { Child("c1", "one", true), Child("c2", "two") });
+            var beforeTick = TodoRollover.CaptureToggle(cascaded);
+            TodoRollover.Toggle(cascaded, true, Today);
+            TodoRollover.RestoreToggle(beforeTick);
+            Check(!cascaded.Done && cascaded.CompletedDate == null &&
+                  cascaded.Children[0].Done && !cascaded.Children[1].Done,
+                "restore: a cascaded parent goes back exactly (flags + stamp)");
+
+            // Unticking never touches the children, so the restore puts only the
+            // parent's own state back.
+            var doneParent = Item("p3", "done parent", new DateTime(2026, 9, 25), true, new DateTime(2026, 9, 26),
+                new List<SubTodoItem> { Child("c1", "one", true), Child("c2", "two") });
+            var beforeUntick = TodoRollover.CaptureToggle(doneParent);
+            TodoRollover.Toggle(doneParent, false, Today);
+            TodoRollover.RestoreToggle(beforeUntick);
+            Check(doneParent.Done && doneParent.CompletedDate == new DateTime(2026, 9, 26) &&
+                  doneParent.Children[0].Done && !doneParent.Children[1].Done,
+                "restore: an untick keeps the children as captured");
+
+            var single = Item("p4", "parent", new DateTime(2026, 9, 28), false, null,
+                new List<SubTodoItem> { Child("c1", "one") });
+            var beforeChild = TodoRollover.CaptureChildToggle(single.Children[0]);
+            TodoRollover.ToggleChild(single.Children[0], true);
+            TodoRollover.RestoreToggle(beforeChild);
+            Check(!single.Children[0].Done && !single.Done,
+                "restore: a child toggle goes back");
+
+            var noChildren = Item("p5", "no children", new DateTime(2026, 9, 28));
+            noChildren.Children = null;
+            TodoToggleSnapshot nullSnapshot = null;
+            bool threw = false;
+            try { nullSnapshot = TodoRollover.CaptureToggle(noChildren); }
+            catch (Exception) { threw = true; }
+            Check(!threw && nullSnapshot != null && nullSnapshot.Children.Count == 0,
+                "capture: a null child list captures empty (no throw)");
         }
 
         private static TodoItem Item(string id, string text, DateTime? date,

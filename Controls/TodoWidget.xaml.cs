@@ -41,13 +41,13 @@ namespace Kobold.Controls
             _view?.HandleMouseDownOutsideEditor(e.OriginalSource);
         }
 
-        /// <summary>Ctrl+Z in the list context restores the last delete; a focused
-        /// text box keeps its own text undo.</summary>
+        /// <summary>Ctrl+Z in the list context walks the undo stack back a step
+        /// (the newest delete or tick); a focused text box keeps its own text undo.</summary>
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return;
             if (Keyboard.FocusedElement is TextBox) return;
-            if (_view != null && _view.UndoLastRemoval()) e.Handled = true;
+            if (_view != null && _view.TryUndo()) e.Handled = true;
         }
 
         protected override (double width, double height) GetContentSize()

@@ -28,6 +28,17 @@ namespace Kobold.Core
         public bool IsEmpty => Parents.Count == 0 && Children.Count == 0;
     }
 
+    /// <summary>One undoable structural edit: exactly one of the two payloads
+    /// is set. The stack lives in the view; the payloads are the pure cores.</summary>
+    public sealed class TodoUndoEntry
+    {
+        public readonly TodoRemoval Removal;
+        public readonly TodoToggleSnapshot Toggle;
+
+        public TodoUndoEntry(TodoRemoval removal) { Removal = removal; }
+        public TodoUndoEntry(TodoToggleSnapshot toggle) { Toggle = toggle; }
+    }
+
     /// <summary>
     /// The list operations behind the todo day view: appending and removing
     /// top-level entries and sub-todos, the completed-last display order, and

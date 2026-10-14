@@ -49,9 +49,11 @@ namespace Kobold.Controls
         private string _editingChildId;
         private string _addingChildToId;
 
-        // The one-step delete undo (backspace ladder / row menu / later the
-        // day clear): the last removal snapshot and its restore point.
-        private TodoRemoval _lastRemoval;
+        // The multi-step undo stack (Ctrl+Z): deletes (backspace ladder, row
+        // menu, the day clear) and ticks (checkbox or ladder, the parent
+        // cascade included) ride it; the newest 20 survive.
+        private const int UNDO_DEPTH = 20;
+        private readonly List<TodoUndoEntry> _undoStack = new List<TodoUndoEntry>();
 
         // The screen point a text click opened the editor at (fix round 17,
         // R2; fix round 19, R1): the active session's editor places the caret
@@ -794,11 +796,7 @@ namespace Kobold.Controls
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            row.Children.Add(BuildCheckBox(child.Done, () =>
-            {
-                TodoRollover.ToggleChild(child, !child.Done);
-                AfterItemEdit();
-            }));
+            row.Children.Add(BuildCheckBox(child.Done, () => ApplyChildToggle(child, !child.Done)));
 
             UIElement text;
             if (_editingChildId == child.Id)
@@ -862,7 +860,7 @@ namespace Kobold.Controls
         {
             var removal = TodoListOps.RemoveCompletedOn(_data.Items, _selected, DateTime.Today);
             if (removal.IsEmpty) return;
-            _lastRemoval = removal;
+            PushUndo(new TodoUndoEntry(removal));
             AfterItemEdit();
         }
 
@@ -1228,10 +1226,26 @@ namespace Kobold.Controls
             return null;
         }
 
+        /// <summary>Every parent tick (checkbox or ladder) passes here: the
+        /// pre-state rides the undo stack, then the normal completion logic runs.</summary>
+        private void ApplyItemToggle(TodoItem item, bool done)
+        {
+            PushUndo(new TodoUndoEntry(TodoRollover.CaptureToggle(item)));
+            TodoRollover.Toggle(item, done, DateTime.Today);
+            AfterItemEdit();
+        }
+
+        /// <summary>Every sub-todo tick passes here (capture first, then flip).</summary>
+        private void ApplyChildToggle(SubTodoItem child, bool done)
+        {
+            PushUndo(new TodoUndoEntry(TodoRollover.CaptureChildToggle(child)));
+            TodoRollover.ToggleChild(child, done);
+            AfterItemEdit();
+        }
+
         private void ToggleItem(TodoItem item)
         {
-            TodoRollover.Toggle(item, !item.Done, DateTime.Today);
-            AfterItemEdit();
+            ApplyItemToggle(item, !item.Done);
         }
 
         private void RemoveItem(TodoItem item)
@@ -1240,7 +1254,7 @@ namespace Kobold.Controls
             if (_addingChildToId == item.Id) { _addingChildToId = null; _editorCaretAt = null; }
             var removal = TodoListOps.RemoveParent(_data.Items, item);
             if (removal.IsEmpty) return;
-            _lastRemoval = removal;
+            PushUndo(new TodoUndoEntry(removal));
             AfterItemEdit();
         }
 
@@ -1249,15 +1263,15 @@ namespace Kobold.Controls
             if (_editingChildId == child.Id) { _editingChildId = null; _editorCaretAt = null; }
             var removal = TodoListOps.RemoveChildItem(parent, child);
             if (removal.IsEmpty) return;
-            _lastRemoval = removal;
+            PushUndo(new TodoUndoEntry(removal));
             AfterItemEdit();
         }
 
         /// <summary>Two-step safety on Backspace at the text start: the box's live
         /// text commits first, an open entry then completes (the normal tick
         /// semantics), and a completed or emptied entry deletes. The deletion
-        /// lands in the one-step undo slot like every other delete; the waiting
-        /// editor must not keep re-anchoring its caret to the old click point.</summary>
+        /// lands on the undo stack like every other delete; the waiting editor
+        /// must not keep re-anchoring its caret to the old click point.</summary>
         private void BackspaceLadder(TodoItem item, string text)
         {
             if (item.Done) { RemoveItem(item); return; }
@@ -1265,8 +1279,7 @@ namespace Kobold.Controls
             if (trimmed.Length == 0) { RemoveItem(item); return; } // 框内已清空：与 blur 提交一致地删除
             item.Text = trimmed;
             _editorCaretAt = null;
-            TodoRollover.Toggle(item, true, DateTime.Today);
-            AfterItemEdit();
+            ApplyItemToggle(item, true);
         }
 
         private void BackspaceLadder(TodoItem parent, SubTodoItem child, string text)
@@ -1276,19 +1289,29 @@ namespace Kobold.Controls
             if (trimmed.Length == 0) { RemoveChild(parent, child); return; }
             child.Text = trimmed;
             _editorCaretAt = null;
-            TodoRollover.ToggleChild(child, true);
-            AfterItemEdit();
+            ApplyChildToggle(child, true);
         }
 
-        /// <summary>The delete-undo: restores the last removal (entry, sub-todo or
-        /// the day's clear) at its original place. A focused text box never gets
-        /// here - the widget routes Ctrl+Z only for the list context.</summary>
-        public bool UndoLastRemoval()
+        /// <summary>Pushes one structural edit; beyond the depth the oldest falls off.</summary>
+        private void PushUndo(TodoUndoEntry entry)
         {
-            var removal = _lastRemoval;
-            if (removal == null || removal.IsEmpty) return false;
-            _lastRemoval = null;
-            TodoListOps.RestoreRemoval(removal, _data.Items);
+            _undoStack.Add(entry);
+            if (_undoStack.Count > UNDO_DEPTH) _undoStack.RemoveAt(0);
+        }
+
+        /// <summary>The multi-step undo (Ctrl+Z in the list context): pops the
+        /// newest structural edit - a delete or a tick - and puts it back
+        /// exactly; repeatable up to UNDO_DEPTH steps. Text edits keep their own
+        /// undo; a focused text box never reaches here.</summary>
+        public bool TryUndo()
+        {
+            int last = _undoStack.Count - 1;
+            if (last < 0) return false;
+            var entry = _undoStack[last];
+            _undoStack.RemoveAt(last);
+            if (entry.Removal != null) TodoListOps.RestoreRemoval(entry.Removal, _data.Items);
+            else if (entry.Toggle != null) TodoRollover.RestoreToggle(entry.Toggle);
+            else return false;
             AfterItemEdit();
             return true;
         }
