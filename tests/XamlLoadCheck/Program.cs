@@ -431,6 +431,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("config pin: the real config files are untouched", RealConfigFilesAreUnchanged);
                 failures += TryCheck("config pin: a late override is rejected and leaves the paths alone", LateOverrideIsRejected);
 
+                // Task T5 pins: the global scroll bar is a slim pill - its
+                // thumb rests 4 DIP (2 DIP rounded) centred in the 8 DIP
+                // click zone and thickens with the hover brush while hovered
+                // or dragged, in both orientations.
+                failures += TryCheck("scrollbar: the pill rests slim and centred", ScrollBarPillRestsSlim);
+                failures += TryCheck("scrollbar: the horizontal pill mirrors the rest state", ScrollBarHorizontalPillMirrorsRestState);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -7446,6 +7453,78 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the rejected late override changed the recorded paths: " + pathBefore + "/" + backupBefore +
                     " -> " + pathAfter + "/" + backupAfter);
+            }
+        }
+
+        #endregion
+
+        #region Task T5 scroll-bar pins
+
+        /// <summary>
+        /// Task T5: the implicit ScrollBar style makes the thumb a pill - it
+        /// rests 4 DIP wide (2 DIP rounded) centred in the 8 DIP click zone,
+        /// instead of the old margin-inset border that stretched edge to edge.
+        /// The logical host mirrors the windowed bars' resource chain - a
+        /// bare unparented control resolves no implicit styles (see
+        /// EditableComboBoxTextIsNotClipped).
+        /// </summary>
+        private static void ScrollBarPillRestsSlim()
+        {
+            var bar = new ScrollBar { Orientation = Orientation.Vertical };
+            var host = new Grid();
+            host.Children.Add(bar);
+            bar.ApplyTemplate();
+            if (bar.Template == null)
+            {
+                throw new InvalidOperationException("the app's implicit ScrollBar style was not applied");
+            }
+            var track = (Track)bar.Template.FindName("PART_Track", bar);
+            track.Thumb.ApplyTemplate();
+            var th = (Border)track.Thumb.Template.FindName("Th", track.Thumb);
+
+            if (th.Width != 4)
+            {
+                throw new InvalidOperationException("the vertical pill rests " + th.Width + " wide, wanted 4");
+            }
+            if (th.CornerRadius.TopLeft != 2)
+            {
+                throw new InvalidOperationException(
+                    "the vertical pill's corner radius is " + th.CornerRadius.TopLeft + ", wanted 2");
+            }
+            if (th.HorizontalAlignment != HorizontalAlignment.Center)
+            {
+                throw new InvalidOperationException(
+                    "the vertical pill is aligned " + th.HorizontalAlignment + ", wanted Center");
+            }
+        }
+
+        /// <summary>
+        /// Task T5: the horizontal bar mirrors the rest state - a 4 DIP tall
+        /// pill centred vertically in the 8 DIP lane (its own template swaps
+        /// the axis and un-reverses the track direction).
+        /// </summary>
+        private static void ScrollBarHorizontalPillMirrorsRestState()
+        {
+            var bar = new ScrollBar { Orientation = Orientation.Horizontal };
+            var host = new Grid();
+            host.Children.Add(bar);
+            bar.ApplyTemplate();
+            if (bar.Template == null)
+            {
+                throw new InvalidOperationException("the app's implicit ScrollBar style was not applied");
+            }
+            var track = (Track)bar.Template.FindName("PART_Track", bar);
+            track.Thumb.ApplyTemplate();
+            var th = (Border)track.Thumb.Template.FindName("Th", track.Thumb);
+
+            if (th.Height != 4)
+            {
+                throw new InvalidOperationException("the horizontal pill rests " + th.Height + " tall, wanted 4");
+            }
+            if (th.VerticalAlignment != VerticalAlignment.Center)
+            {
+                throw new InvalidOperationException(
+                    "the horizontal pill is aligned " + th.VerticalAlignment + ", wanted Center");
             }
         }
 
