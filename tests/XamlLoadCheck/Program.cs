@@ -312,6 +312,17 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
                 failures += TryCheck("resize: folder re-adapts columns during the drag", FolderReadaptsDuringResize);
 
+                // T6 (user spec 2026-10-13): the chrome title follows the
+                // selection - one entry's full name (tooltip: its path),
+                // several entries' count, and the widget name / browse path
+                // when nothing is selected.
+                failures += TryCheck("folder: a single selection shows the full name in the title",
+                    FolderSingleSelectionShowsTheFullNameInTheTitle);
+                failures += TryCheck("folder: multiple selections show the count",
+                    FolderMultipleSelectionsShowTheCount);
+                failures += TryCheck("folder: an empty selection keeps the widget name",
+                    FolderEmptySelectionKeepsTheWidgetName);
+
                 // Restyle pins: the add input aligns with a list row exactly,
                 // and inline editors are borderless with no background band
                 // (fix round 11, R1: the caret is the only editing cue).
@@ -5638,6 +5649,122 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// T6: a two-item root-mode folder for the title pins, with the list
+        /// UpdateUI rebuilt handed back so the pins can flip IsSelected
+        /// directly. The first entry carries a long file name (no .lnk, so
+        /// the display name and Path.GetFileName agree).
+        /// </summary>
+        private static FolderWidget NewTitleProbeWidget(out List<DisplayItem> items)
+        {
+            ThemeManager.Initialize("dark");
+            const string longName =
+                "the quarterly budget spreadsheet for the whole year 2026 - final version.txt";
+            var data = new FolderData { Name = "title-probe" };
+            data.Items.Add(new WidgetItem(System.IO.Path.Combine(@"C:\kobold-title-probe", longName)));
+            data.Items.Add(new WidgetItem(System.IO.Path.Combine(@"C:\kobold-title-probe", "second entry.txt")));
+
+            var widget = new FolderWidget(data);
+            widget.UpdateUI();
+
+            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            items = container.ItemsSource as List<DisplayItem>;
+            if (items == null || items.Count != 2)
+            {
+                throw new InvalidOperationException("the title probe items were not built");
+            }
+            return widget;
+        }
+
+        /// <summary>
+        /// T6: one selected entry shows its full name in the chrome title and
+        /// its whole path in the tooltip.
+        /// </summary>
+        private static void FolderSingleSelectionShowsTheFullNameInTheTitle()
+        {
+            List<DisplayItem> items;
+            var widget = NewTitleProbeWidget(out items);
+            var chrome = ChromeOf(widget);
+
+            items[0].IsSelected = true;
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+
+            string wanted = System.IO.Path.GetFileName(items[0].Path);
+            if (chrome.Title != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the title is '" + chrome.Title + "', wanted the full name '" + wanted + "'");
+            }
+            if (!Equals(chrome.TitleText.ToolTip, items[0].Path))
+            {
+                throw new InvalidOperationException(
+                    "the title tooltip is '" + chrome.TitleText.ToolTip +
+                    "', wanted the path '" + items[0].Path + "'");
+            }
+        }
+
+        /// <summary>
+        /// T6: several selected entries collapse the title to the localized
+        /// count and drop the tooltip.
+        /// </summary>
+        private static void FolderMultipleSelectionsShowTheCount()
+        {
+            List<DisplayItem> items;
+            var widget = NewTitleProbeWidget(out items);
+            var chrome = ChromeOf(widget);
+
+            items[0].IsSelected = true;
+            items[1].IsSelected = true;
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+
+            string wanted = Localization.Format("UI_SelectedCountFormat", 2);
+            if (chrome.Title != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the title is '" + chrome.Title + "', wanted the count '" + wanted + "'");
+            }
+            if (chrome.TitleText.ToolTip != null)
+            {
+                throw new InvalidOperationException(
+                    "the count title kept a tooltip: '" + chrome.TitleText.ToolTip + "'");
+            }
+        }
+
+        /// <summary>
+        /// T6: clearing the selection falls back to the widget's name (root
+        /// mode) and clears the tooltip. The title is first taken through the
+        /// selection branch, so the empty branch really runs on the way back
+        /// (an early-return regression would keep the selected title).
+        /// </summary>
+        private static void FolderEmptySelectionKeepsTheWidgetName()
+        {
+            List<DisplayItem> items;
+            var widget = NewTitleProbeWidget(out items);
+            var chrome = ChromeOf(widget);
+
+            items[0].IsSelected = true;
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+            if (chrome.Title == widget.Data.Name)
+            {
+                throw new InvalidOperationException("the selection title did not take over before the clear");
+            }
+
+            foreach (var item in items) item.IsSelected = false;
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+
+            if (chrome.Title != widget.Data.Name)
+            {
+                throw new InvalidOperationException(
+                    "the empty selection's title is '" + chrome.Title +
+                    "', wanted the widget name '" + widget.Data.Name + "'");
+            }
+            if (chrome.TitleText.ToolTip != null)
+            {
+                throw new InvalidOperationException(
+                    "the empty selection kept a tooltip: '" + chrome.TitleText.ToolTip + "'");
+            }
+        }
+
+        /// <summary>
         /// Task A3.1: without persisted sizes the panel falls back to the
         /// engine's one-shot migration of the old per-widget settings (the
         /// sandbox config carries the default ItemScale 1.1). The old auto
@@ -6655,6 +6782,19 @@ namespace Kobold.XamlLoadCheck
             var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             if (field == null) throw new InvalidOperationException(name + " field not found");
             return (T)field.GetValue(target);
+        }
+
+        /// <summary>
+        /// The widget's attached chrome (a protected base property), for pins
+        /// that inspect the shared header.
+        /// </summary>
+        private static WidgetChrome ChromeOf(WidgetWindowBase widget)
+        {
+            var property = typeof(WidgetWindowBase).GetProperty("Chrome",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            var chrome = property == null ? null : (WidgetChrome)property.GetValue(widget);
+            if (chrome == null) throw new InvalidOperationException("the widget chrome is not attached");
+            return chrome;
         }
 
         private static void SetPrivateBaseField<T>(object target, string name, T value)

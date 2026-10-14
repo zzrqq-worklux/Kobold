@@ -90,6 +90,8 @@ namespace Kobold.Controls
                 }
             }
 
+            RefreshChromeTitle(); // the rebuilt list may have dropped the selection
+
             ItemsScroller.ScrollToVerticalOffset(scrollOffset);
         }
 

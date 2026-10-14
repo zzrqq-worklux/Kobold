@@ -139,7 +139,11 @@ namespace Kobold.Controls
                         item.IsSelected = true;
                     }
                 }
-                
+
+                // Both paths above changed (or re-affirmed) the selection:
+                // publish it before the capture starts the drag.
+                RefreshChromeTitle();
+
                 Mouse.Capture(b);
             }
         }

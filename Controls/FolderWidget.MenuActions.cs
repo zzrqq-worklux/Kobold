@@ -216,6 +216,7 @@ namespace Kobold.Controls
             {
                 ClearAllSelections();
                 item.IsSelected = true;
+                RefreshChromeTitle();
             }
 
             _nativeMenuKeyboardAnchored = anchor != null;

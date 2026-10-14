@@ -47,6 +47,8 @@ namespace Kobold.Controls
             {
                 SelectionRect.Visibility = Visibility.Collapsed;
             }
+
+            RefreshChromeTitle();
         }
         
         /// <summary>
@@ -147,6 +149,7 @@ namespace Kobold.Controls
             _isLassoSelecting = false;
             SelectionRect.Visibility = Visibility.Collapsed;
             Mouse.Capture(null);
+            RefreshChromeTitle(); // one refresh at release; the drag itself stays quiet
         }
         
         private void SelectItemsInRect(Rect selectionBounds)

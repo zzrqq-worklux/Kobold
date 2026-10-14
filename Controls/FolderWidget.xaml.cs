@@ -158,12 +158,11 @@ namespace Kobold.Controls
 
         public override void UpdateUI()
         {
-            // Name / lock / pin / colour first; the browse title below wins
-            // over the base's widget name while a folder is on screen.
+            // Name / lock / pin / colour first; the title then follows the
+            // selection (browse path / widget name when nothing is selected).
             base.UpdateUI();
 
-            Chrome.Title = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
-            Chrome.TitleText.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
+            RefreshChromeTitle();
             BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
             BackButton.ToolTip = Localization.Get("UI_BrowseBack");
             PathButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
@@ -198,6 +197,32 @@ namespace Kobold.Controls
             // Enter/leave folders and theme changes all land here; keep the
             // watcher following the folder that is on screen now.
             UpdateBrowseWatch();
+        }
+
+        /// <summary>The chrome title follows the selection: one entry shows its
+        /// full name (tooltip: the whole path), several show the count, and an
+        /// empty selection falls back to the widget name / browse path.</summary>
+        private void RefreshChromeTitle()
+        {
+            var selected = GetSelectedItems();
+            string title;
+            string tooltip = null;
+            if (selected.Count == 1)
+            {
+                title = GetDisplayName(selected[0].Path);
+                tooltip = selected[0].Path;
+            }
+            else if (selected.Count > 1)
+            {
+                title = Localization.Format("UI_SelectedCountFormat", selected.Count);
+            }
+            else
+            {
+                title = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
+                tooltip = IsBrowsing ? CurrentBrowsePath : null;
+            }
+            Chrome.Title = title;
+            Chrome.TitleText.ToolTip = tooltip;
         }
 
         /// <summary>
