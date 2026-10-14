@@ -323,6 +323,12 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: an empty selection keeps the widget name",
                     FolderEmptySelectionKeepsTheWidgetName);
 
+                // T7 (user spec 2026-10-13): the arrow keys walk the item
+                // grid; the chrome title follows the moved selection and a
+                // boundary press stays unhandled for the scroller.
+                failures += TryCheck("folder: the arrow keys move the selection across the grid",
+                    FolderArrowKeysMoveTheSelectionAcrossTheGrid);
+
                 // Restyle pins: the add input aligns with a list row exactly,
                 // and inline editors are borderless with no background band
                 // (fix round 11, R1: the caret is the only editing cue).
@@ -5765,6 +5771,76 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// T7 (user spec 2026-10-13): the arrow keys walk the item grid
+        /// through the window's tunnelling preview handler. Right moves the
+        /// selection to the next entry and the chrome title follows it (the
+        /// T6 refresh); at the grid's end the boundary press leaves the
+        /// selection alone and stays unhandled so the scroller keeps it.
+        /// Synthetic keyboard only - no pointer input.
+        /// </summary>
+        private static void FolderArrowKeysMoveTheSelectionAcrossTheGrid()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new FolderData { Name = "grid-probe" };
+            for (int i = 0; i < 4; i++)
+            {
+                data.Items.Add(new WidgetItem(System.IO.Path.Combine(
+                    @"C:\kobold-grid-probe", "entry " + i + ".txt")));
+            }
+
+            var widget = new FolderWidget(data);
+            widget.UpdateUI();
+
+            // Realize the grid like the adaptive-layout pins: the movement
+            // reads the live column count off the UniformGrid.
+            var root = (FrameworkElement)widget.Content;
+            root.Measure(new Size(433, 285));
+            root.Arrange(new Rect(0, 0, 433, 285));
+            root.UpdateLayout();
+
+            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var items = container.ItemsSource as List<DisplayItem>;
+            if (items == null || items.Count != 4)
+            {
+                throw new InvalidOperationException("the grid probe items were not built");
+            }
+
+            var chrome = ChromeOf(widget);
+            items[0].IsSelected = true;
+
+            var moved = RaiseFolderKey(widget, Key.Right);
+            if (!items[1].IsSelected || items[0].IsSelected)
+            {
+                throw new InvalidOperationException(
+                    "Right did not move the selection from entry 0 to entry 1");
+            }
+            string wanted = System.IO.Path.GetFileName(items[1].Path);
+            if (chrome.Title != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the title is '" + chrome.Title + "', wanted the moved entry's name '" + wanted + "'");
+            }
+            if (!moved.Handled)
+            {
+                throw new InvalidOperationException("the successful move did not handle the key");
+            }
+
+            // The last entry: Right must keep the selection and leave the
+            // key to the scroller (no Handled).
+            foreach (var item in items) item.IsSelected = false;
+            items[3].IsSelected = true;
+            var boundary = RaiseFolderKey(widget, Key.Right);
+            if (!items[3].IsSelected || items[0].IsSelected || items[1].IsSelected || items[2].IsSelected)
+            {
+                throw new InvalidOperationException("Right at the last entry moved the selection");
+            }
+            if (boundary.Handled)
+            {
+                throw new InvalidOperationException("the boundary press was handled");
+            }
+        }
+
+        /// <summary>
         /// Task A3.1: without persisted sizes the panel falls back to the
         /// engine's one-shot migration of the old per-widget settings (the
         /// sandbox config carries the default ItemScale 1.1). The old auto
@@ -6524,6 +6600,33 @@ namespace Kobold.XamlLoadCheck
             {
                 RoutedEvent = UIElement.PreviewKeyDownEvent
             });
+        }
+
+        /// <summary>
+        /// T7: folder key input - the same real presentation source as
+        /// <see cref="RaiseKey"/> (EnsureHandle creates the HwndSource), but
+        /// raised on the widget window itself as the tunnelling
+        /// PreviewKeyDown the folder's keyboard handler listens for. Returns
+        /// the args so the pin can read their Handled state.
+        /// </summary>
+        private static KeyEventArgs RaiseFolderKey(Window window, Key key)
+        {
+            // The folder keeps the arrows for a focused text box (the rename
+            // editor); the earlier key pins can leave one focused, so the
+            // real card's premise - focus outside any editor - is set here.
+            Keyboard.ClearFocus();
+
+            EnsureRealDpi(window);
+            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            PresentationSource source = System.Windows.Interop.HwndSource.FromHwnd(handle);
+            if (source == null) throw new InvalidOperationException("no presentation source for key input");
+
+            var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+            {
+                RoutedEvent = Keyboard.PreviewKeyDownEvent
+            };
+            window.RaiseEvent(args);
+            return args;
         }
 
         /// <summary>

@@ -59,6 +59,7 @@ namespace Kobold.AdaptiveLayoutCheck
             TodoLabelThreshold();
             TodoListFitting();
             MigrationSizes();
+            GridNavigationMatrix();
         }
 
         // The folder grid follows usable = content - PADDING; the icon scale
@@ -335,6 +336,74 @@ namespace Kobold.AdaptiveLayoutCheck
 
             var (tw4, th4) = PanelLayoutAdapter.DefaultTodoSize(0, 0);
             Check(Near(tw4, 342) && Near(th4, 201), "default todo size floors the week count at one");
+        }
+
+        // T7 (user spec 2026-10-13): the arrow-key motion over the folder
+        // item grid. Left/Right are the neighbouring cell - the two row ends
+        // meet, so a row's last cell steps on to the next row's first cell
+        // and a row's first cell back to the previous row's last; Up/Down
+        // jump a whole row of columns and stop at the top/bottom edge; a
+        // partial last row takes Down from anywhere above on its last entry.
+        // The degenerate inputs (empty list, fewer than one column, an index
+        // outside 0..count-1) return the index untouched.
+        private static void GridNavigationMatrix()
+        {
+            // Left/Right: the neighbouring cell, clamped at both grid ends.
+            Check(GridNavigation.Move(1, 10, 4, GridDirection.Left) == 0,
+                "grid (1,10,4): Left walks to 0");
+            Check(GridNavigation.Move(1, 10, 4, GridDirection.Right) == 2,
+                "grid (1,10,4): Right walks to 2");
+            Check(GridNavigation.Move(0, 10, 4, GridDirection.Left) == 0,
+                "grid (0,10,4): Left stays on the first entry");
+            Check(GridNavigation.Move(9, 10, 4, GridDirection.Right) == 9,
+                "grid (9,10,4): Right stays on the last entry");
+
+            // The row ends meet: (3,10,4) is a row's last cell, (4,10,4) the
+            // next row's first.
+            Check(GridNavigation.Move(3, 10, 4, GridDirection.Right) == 4,
+                "grid (3,10,4): Right crosses to the next row's first cell");
+            Check(GridNavigation.Move(4, 10, 4, GridDirection.Left) == 3,
+                "grid (4,10,4): Left crosses to the previous row's last cell");
+
+            // Up/Down: one full row of columns; the edges keep the cell.
+            Check(GridNavigation.Move(2, 10, 4, GridDirection.Down) == 6,
+                "grid (2,10,4): Down jumps to 6 (same column)");
+            Check(GridNavigation.Move(6, 10, 4, GridDirection.Up) == 2,
+                "grid (6,10,4): Up jumps to 2 (same column)");
+            Check(GridNavigation.Move(1, 10, 4, GridDirection.Up) == 1,
+                "grid (1,10,4): Up stays on the top row");
+            Check(GridNavigation.Move(9, 10, 4, GridDirection.Down) == 9,
+                "grid (9,10,4): Down stays on the full last row");
+
+            // Partial last row (10 items: two full rows of four plus two):
+            // Down lands on its last entry - (7) sits above a column the
+            // partial row does not have, (5) likewise.
+            Check(GridNavigation.Move(7, 10, 4, GridDirection.Down) == 9,
+                "grid (7,10,4): Down falls to the partial row's last entry");
+            Check(GridNavigation.Move(5, 10, 4, GridDirection.Down) == 9,
+                "grid (5,10,4): Down falls to the partial row's last entry");
+            Check(GridNavigation.Move(8, 10, 4, GridDirection.Down) == 8,
+                "grid (8,10,4): Down inside the partial last row stays");
+            Check(GridNavigation.Move(0, 3, 4, GridDirection.Down) == 0,
+                "grid (0,3,4): Down on a single-row grid stays");
+
+            // One column: the grid degenerates to a linear list.
+            Check(GridNavigation.Move(1, 5, 1, GridDirection.Down) == 2,
+                "grid (1,5,1): one column walks down like a list");
+            Check(GridNavigation.Move(3, 5, 1, GridDirection.Up) == 2,
+                "grid (3,5,1): one column walks up like a list");
+
+            // Degenerate inputs stay untouched.
+            Check(GridNavigation.Move(0, 0, 4, GridDirection.Right) == 0,
+                "grid: an empty list returns the index");
+            Check(GridNavigation.Move(0, -3, 4, GridDirection.Right) == 0,
+                "grid: a negative count returns the index");
+            Check(GridNavigation.Move(2, 10, 0, GridDirection.Down) == 2,
+                "grid: zero columns returns the index");
+            Check(GridNavigation.Move(-1, 10, 4, GridDirection.Right) == -1,
+                "grid: index -1 returns the index");
+            Check(GridNavigation.Move(10, 10, 4, GridDirection.Right) == 10,
+                "grid: index count returns the index");
         }
     }
 }

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
@@ -38,6 +40,8 @@ namespace Kobold.Controls
         /// </summary>
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (TryMoveSelectionWithKey(e)) return;
+
             if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return;
 
             // Holding Space repeats this event; QuickLook toggles on a repeated
@@ -52,6 +56,60 @@ namespace Kobold.Controls
             if (item.IsDirectory || !System.IO.File.Exists(item.Path)) return;
 
             if (QuickLookPreview.Request(item.Path)) e.Handled = true;
+        }
+
+        /// <summary>Arrow keys walk the item grid; a focused text box (the rename
+        /// editor) keeps the arrows for caret movement, and modifier combinations
+        /// stay untouched. A boundary press falls through to the scroller.</summary>
+        private bool TryMoveSelectionWithKey(KeyEventArgs e)
+        {
+            GridDirection direction;
+            switch (e.Key)
+            {
+                case Key.Left: direction = GridDirection.Left; break;
+                case Key.Right: direction = GridDirection.Right; break;
+                case Key.Up: direction = GridDirection.Up; break;
+                case Key.Down: direction = GridDirection.Down; break;
+                default: return false;
+            }
+            if (e.KeyboardDevice.Modifiers != ModifierKeys.None) return false;
+            if (Keyboard.FocusedElement is TextBox) return false;
+            if (!MoveItemSelection(direction)) return false;
+            e.Handled = true;
+            return true;
+        }
+
+        /// <summary>Moves the single selection across the grid; nothing selected
+        /// means the first arrow picks the first entry. Returns true when the
+        /// selection changed (or was created).</summary>
+        private bool MoveItemSelection(GridDirection direction)
+        {
+            var items = ItemsContainer.ItemsSource as List<DisplayItem>;
+            if (items == null || items.Count == 0) return false;
+
+            int columns = 1;
+            var panel = GetItemsPanel(ItemsContainer) as UniformGrid;
+            if (panel != null && panel.Columns > 0) columns = panel.Columns;
+
+            int current = items.FindIndex(i => i.IsSelected);
+            int target;
+            if (current < 0)
+            {
+                target = 0;
+            }
+            else
+            {
+                target = GridNavigation.Move(current, items.Count, columns, direction);
+                if (target == current) return false; // grid boundary: leave the key alone
+            }
+
+            ClearAllSelections();
+            items[target].IsSelected = true;
+            RefreshChromeTitle();
+
+            var container = ItemsContainer.ItemContainerGenerator.ContainerFromIndex(target) as FrameworkElement;
+            if (container != null) container.BringIntoView();
+            return true;
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)
