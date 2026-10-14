@@ -455,6 +455,16 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("scrollbar: the pill rests slim and centred", ScrollBarPillRestsSlim);
                 failures += TryCheck("scrollbar: the horizontal pill mirrors the rest state", ScrollBarHorizontalPillMirrorsRestState);
 
+                // Task T8 pins (user style A, 2026-10-13): every right-click
+                // menu wears the rounded surface - a 12 DIP-radius 8 DIP-inset
+                // panel under the soft shadow, 8 DIP-radius entry pills inset
+                // 4 DIP with a dimmed disabled state, and a 30 DIP-inset
+                // separator that lines up with the entry text.
+                failures += TryCheck("menu: the surface wears the rounded style", MenuSurfaceWearsTheRoundedStyle);
+                failures += TryCheck("menu: the item pill is inset and rounded", MenuItemPillIsInsetAndRounded);
+                failures += TryCheck("menu: a disabled entry dims its pill", DisabledMenuItemDimsItsPill);
+                failures += TryCheck("menu: the separator fits the rounded rows", SeparatorFitsTheRoundedRows);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -7769,6 +7779,142 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the horizontal pill is aligned " + th.VerticalAlignment + ", wanted Center");
             }
+        }
+
+        #endregion
+
+        #region Task T8 context-menu restyle pins
+
+        /// <summary>
+        /// Task T8 (style A): the shared ContextMenu template wears the rounded
+        /// surface - a 12 DIP corner radius with 8 DIP padding, seated in the
+        /// 10 DIP transparent gutter that gives the soft drop shadow room (and
+        /// keeps the stack panel as the items host, so the Overlay* dynamic
+        /// keys and the widget tint keep resolving).
+        /// </summary>
+        private static void MenuSurfaceWearsTheRoundedStyle()
+        {
+            var menu = new MenuBuilder(null).AddItem("Menu_Delete", () => { }).Build();
+            ApplyAppImplicitStyle(menu);
+            menu.ApplyTemplate();
+
+            if (menu.Template == null)
+            {
+                throw new InvalidOperationException("the menu carries no template");
+            }
+            var surface = menu.Template.FindName("Surface", menu) as Border;
+            if (surface == null)
+            {
+                throw new InvalidOperationException("the menu template has no Surface border");
+            }
+            if (surface.CornerRadius.TopLeft != 12)
+            {
+                throw new InvalidOperationException(
+                    "the surface corner radius is " + surface.CornerRadius.TopLeft + ", wanted 12");
+            }
+            if (surface.Padding != new Thickness(8))
+            {
+                throw new InvalidOperationException(
+                    "the surface padding is '" + surface.Padding + "', wanted 8 on every side");
+            }
+        }
+
+        /// <summary>
+        /// Task T8 (style A): the entry's highlight is a 4 DIP-inset, 8 DIP-
+        /// radius capsule around the header + arrow, not a full-bleed band.
+        /// </summary>
+        private static void MenuItemPillIsInsetAndRounded()
+        {
+            var item = new MenuItem { Header = "x" };
+            ApplyAppImplicitStyle(item);
+            item.ApplyTemplate();
+
+            var pill = PillOf(item);
+            if (pill.Margin != new Thickness(4, 1, 4, 1))
+            {
+                throw new InvalidOperationException(
+                    "the item pill margin is '" + pill.Margin + "', wanted 4,1,4,1");
+            }
+            if (pill.CornerRadius.TopLeft != 8)
+            {
+                throw new InvalidOperationException(
+                    "the item pill corner radius is " + pill.CornerRadius.TopLeft + ", wanted 8");
+            }
+        }
+
+        /// <summary>
+        /// Task T8 (style A): a disabled entry dims its whole pill to half
+        /// opacity so the greying reads as one rounded shape.
+        /// </summary>
+        private static void DisabledMenuItemDimsItsPill()
+        {
+            var item = new MenuItem { Header = "x", IsEnabled = false };
+            ApplyAppImplicitStyle(item);
+            item.ApplyTemplate();
+
+            var pill = PillOf(item);
+            if (pill.Opacity != 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the disabled pill opacity is " + pill.Opacity + ", wanted 0.5");
+            }
+        }
+
+        /// <summary>
+        /// Task T8 (style A): the separator line insets 30 DIP on both sides,
+        /// lining up with the entry text of the 4 DIP-inset pills.
+        /// </summary>
+        private static void SeparatorFitsTheRoundedRows()
+        {
+            var sep = new Separator();
+            ApplyAppImplicitStyle(sep);
+            sep.ApplyTemplate();
+
+            if (sep.Template == null)
+            {
+                throw new InvalidOperationException("the separator carries no template");
+            }
+            var line = sep.Template.FindName("Line", sep) as Border;
+            if (line == null)
+            {
+                throw new InvalidOperationException("the separator template has no Line border");
+            }
+            if (line.Margin != new Thickness(30, 5, 30, 5))
+            {
+                throw new InvalidOperationException(
+                    "the separator line margin is '" + line.Margin + "', wanted 30,5,30,5");
+            }
+        }
+
+        /// <summary>
+        /// An unparented control resolves no implicit style from App.xaml (see
+        /// EditableComboBoxTextIsNotClipped), so the pins put the app's own
+        /// style on the control before probing its template.
+        /// </summary>
+        private static void ApplyAppImplicitStyle(Control control)
+        {
+            var style = Application.Current.TryFindResource(control.GetType()) as Style;
+            if (style == null)
+            {
+                throw new InvalidOperationException(
+                    "the app's implicit " + control.GetType().Name + " style was not found");
+            }
+            control.Style = style;
+        }
+
+        /// <summary>The rounded highlight capsule inside a menu item's template.</summary>
+        private static Border PillOf(MenuItem item)
+        {
+            if (item.Template == null)
+            {
+                throw new InvalidOperationException("the menu item carries no template");
+            }
+            var pill = item.Template.FindName("Pill", item) as Border;
+            if (pill == null)
+            {
+                throw new InvalidOperationException("the menu item template has no Pill border");
+            }
+            return pill;
         }
 
         #endregion

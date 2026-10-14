@@ -248,7 +248,11 @@ namespace Kobold.MenuRenderCheck
                 double bestSat = 0;
                 for (int i = 0; i < pixels.Length; i += 4)
                 {
-                    if (pixels[i + 3] < 200) continue;
+                    // Pbgra32: partial alpha is premultiplied, so an anti-aliased
+                    // edge pixel reads as a darker blend of the same hue. Only the
+                    // fully opaque pixels carry the straight swatch colour - the
+                    // swatch's interior always provides them.
+                    if (pixels[i + 3] != 255) continue;
 
                     double hue, sat, val;
                     RgbToHsv(pixels[i + 2], pixels[i + 1], pixels[i], out hue, out sat, out val);
