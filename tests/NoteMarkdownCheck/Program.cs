@@ -6,9 +6,10 @@ using Kobold.Core;
 namespace Kobold.NoteMarkdownCheck
 {
     /// <summary>
-    /// Behaviour checks for the note markdown helpers in NoteOps: the derived
-    /// title, the plain-text excerpt, the task-box rewrite, and the stable
-    /// display order. Exit code 0 = all green; 1 = failures.
+    /// Behaviour checks for the note markdown layer: the NoteOps helpers (the
+    /// derived title, the plain-text excerpt, the task-box rewrite, the stable
+    /// display order) and the MarkdownParser block parse. Exit code 0 = all
+    /// green; 1 = failures.
     /// Run: dotnet run --project tests/NoteMarkdownCheck
     /// </summary>
     internal static class Program
@@ -42,6 +43,15 @@ namespace Kobold.NoteMarkdownCheck
             Excerpts();
             Toggles();
             Sorts();
+            BlockBasics();
+            Headings();
+            Paragraphs();
+            Lists();
+            Tasks();
+            Quotes();
+            Fences();
+            Rules();
+            Tables();
         }
 
         private static void Titles()
@@ -150,6 +160,244 @@ namespace Kobold.NoteMarkdownCheck
 
             Check(input.Select(n => n.Id).SequenceEqual(new[] { "a", "b", "c" }),
                 "sort: the source list is not disturbed");
+        }
+
+        // ---- MarkdownParser block pins (T7) ------------------------------
+
+        private static void BlockBasics()
+        {
+            Check(MarkdownParser.Parse("").Count == 0, "block: a blank text parses to nothing");
+            Check(MarkdownParser.Parse("   \n\t\n\n").Count == 0,
+                "block: a blank text parses to nothing (whitespace-only lines)");
+
+            var one = MarkdownParser.Parse("hello");
+            var para = one.Count == 1 ? one[0] as MdParagraph : null;
+            Check(para != null && para.Line == 0 && para.Lines.Count == 1
+                  && para.Lines[0].Count == 1 && InlineText(para.Lines[0]) == "hello",
+                "block: a single line parses as one paragraph");
+
+            var stub = MarkdownParser.ParseInlines("**x** `y`");
+            Check(stub.Count == 1 && stub[0] is MdText && ((MdText)stub[0]).Text == "**x** `y`",
+                "block: inline parsing is a literal stub");
+        }
+
+        private static void Headings()
+        {
+            var blocks = MarkdownParser.Parse(
+                "# 一级\n## 二级\n### 三级\n#### 四级\n##### 五级\n###### 六级\n## 带尾井号 ##\n#x");
+            var texts = new[] { "一级", "二级", "三级", "四级", "五级", "六级" };
+
+            bool levels = blocks.Count == 8;
+            for (int i = 0; i < 6 && levels; i++)
+            {
+                var h = blocks[i] as MdHeading;
+                levels = h != null && h.Level == i + 1 && h.Line == i && InlineText(h.Inlines) == texts[i];
+            }
+            Check(levels, "block: headings carry their level");
+
+            var trailing = blocks.Count == 8 ? blocks[6] as MdHeading : null;
+            Check(trailing != null && trailing.Level == 2 && trailing.Line == 6
+                  && InlineText(trailing.Inlines) == "带尾井号",
+                "block: headings carry their level (a trailing hash run is stripped)");
+
+            var plain = blocks.Count == 8 ? blocks[7] as MdParagraph : null;
+            Check(plain != null && plain.Line == 7 && plain.Lines.Count == 1
+                  && InlineText(plain.Lines[0]) == "#x",
+                "block: headings carry their level (a hash with no space is a paragraph)");
+
+            var seven = MarkdownParser.Parse("####### 七级");
+            var sevenPara = seven.Count == 1 ? seven[0] as MdParagraph : null;
+            Check(sevenPara != null && sevenPara.Line == 0 && sevenPara.Lines.Count == 1
+                  && InlineText(sevenPara.Lines[0]) == "####### 七级",
+                "block: headings carry their level (seven hashes is a paragraph)");
+        }
+
+        private static void Paragraphs()
+        {
+            var three = MarkdownParser.Parse("a\nb\nc");
+            var para = three.Count == 1 ? three[0] as MdParagraph : null;
+            Check(para != null && para.Line == 0 && para.Lines.Count == 3
+                  && InlineText(para.Lines[0]) == "a" && InlineText(para.Lines[1]) == "b"
+                  && InlineText(para.Lines[2]) == "c",
+                "block: a paragraph keeps its source lines");
+
+            var split = MarkdownParser.Parse("a\n\nb\n\nc");
+            var paras = split.OfType<MdParagraph>().ToList();
+            Check(split.Count == 3 && paras.Count == 3 && paras[0].Lines.Count == 1
+                  && paras[0].Line == 0 && paras[1].Line == 2 && paras[2].Line == 4,
+                "block: a paragraph keeps its source lines (a blank line splits it)");
+
+            var headed = MarkdownParser.Parse("a\n# b");
+            var hp = headed.Count == 2 ? headed[0] as MdParagraph : null;
+            var hh = headed.Count == 2 ? headed[1] as MdHeading : null;
+            Check(hp != null && hp.Line == 0 && hp.Lines.Count == 1 && hh != null && hh.Line == 1
+                  && InlineText(hh.Inlines) == "b",
+                "block: a paragraph keeps its source lines (a heading ends it)");
+        }
+
+        private static void Lists()
+        {
+            var bullets = MarkdownParser.Parse("- a\n- b\n- c");
+            var list = bullets.Count == 1 ? bullets[0] as MdListBlock : null;
+            Check(list != null && !list.Ordered && list.Start == 1 && list.Line == 0
+                  && list.Items.Count == 3 && list.Items[0].Line == 0
+                  && list.Items[1].Line == 1 && list.Items[2].Line == 2
+                  && InlineText(list.Items[0].Inlines) == "a" && InlineText(list.Items[2].Inlines) == "c",
+                "block: bullets group into one list");
+
+            var stars = MarkdownParser.Parse("* a\n* b");
+            var starList = stars.Count == 1 ? stars[0] as MdListBlock : null;
+            Check(starList != null && !starList.Ordered && starList.Items.Count == 2
+                  && starList.Items[1].Line == 1 && InlineText(starList.Items[0].Inlines) == "a",
+                "block: bullets group into one list (asterisks work too)");
+
+            var mixed = MarkdownParser.Parse("- a\n1. b");
+            Check(mixed.Count == 2 && mixed[0] is MdListBlock && !((MdListBlock)mixed[0]).Ordered
+                  && mixed[1] is MdListBlock && ((MdListBlock)mixed[1]).Ordered,
+                "block: bullets group into one list (a numbered item starts a new list)");
+
+            var numbered = MarkdownParser.Parse("3. a\n4. b");
+            var num = numbered.Count == 1 ? numbered[0] as MdListBlock : null;
+            Check(num != null && num.Ordered && num.Start == 3 && num.Line == 0 && num.Items.Count == 2
+                  && num.Items[0].Line == 0 && num.Items[1].Line == 1
+                  && InlineText(num.Items[1].Inlines) == "b",
+                "block: numbered items keep the start number");
+
+            var nested = MarkdownParser.Parse("  - x\n  - y");
+            var nestedPara = nested.Count == 1 ? nested[0] as MdParagraph : null;
+            Check(nestedPara != null && nestedPara.Line == 0 && nestedPara.Lines.Count == 2
+                  && InlineText(nestedPara.Lines[0]) == "  - x",
+                "block: a nested-looking item stays a paragraph");
+        }
+
+        private static void Tasks()
+        {
+            var blocks = MarkdownParser.Parse("- [ ] open\n- [x] done\n- [X] caps\n- [x]nospace");
+            var open = blocks.Count == 4 ? blocks[0] as MdTaskBlock : null;
+            var done = blocks.Count == 4 ? blocks[1] as MdTaskBlock : null;
+            var caps = blocks.Count == 4 ? blocks[2] as MdTaskBlock : null;
+            Check(open != null && !open.Checked && open.Line == 0 && InlineText(open.Inlines) == "open"
+                  && done != null && done.Checked && done.Line == 1 && InlineText(done.Inlines) == "done"
+                  && caps != null && caps.Checked && caps.Line == 2 && InlineText(caps.Inlines) == "caps",
+                "block: tasks parse with their state and line");
+
+            var spurious = blocks.Count == 4 && !(blocks[3] is MdTaskBlock)
+                ? blocks[3] as MdListBlock : null;
+            Check(spurious != null && spurious.Items.Count == 1
+                  && InlineText(spurious.Items[0].Inlines) == "[x]nospace",
+                "block: tasks parse with their state and line (a box with no space is not a task)");
+
+            var bare = MarkdownParser.Parse("- [ ]");
+            var bareTask = bare.Count == 1 ? bare[0] as MdTaskBlock : null;
+            Check(bareTask != null && !bareTask.Checked && bareTask.Line == 0
+                  && InlineText(bareTask.Inlines) == "",
+                "block: tasks parse with their state and line (a bare box)");
+        }
+
+        private static void Quotes()
+        {
+            var blocks = MarkdownParser.Parse("> a\n> b\n> - [ ] t");
+            var quote = blocks.Count == 1 ? blocks[0] as MdQuote : null;
+            var inner = quote != null && quote.Blocks.Count == 2 ? quote.Blocks[0] as MdParagraph : null;
+            var task = quote != null && quote.Blocks.Count == 2 ? quote.Blocks[1] as MdTaskBlock : null;
+            Check(quote != null && quote.Line == 0 && quote.Blocks.Count == 2
+                  && inner != null && inner.Line == 0 && inner.Lines.Count == 2
+                  && InlineText(inner.Lines[1]) == "b"
+                  && task != null && task.Line == 2 && !task.Checked,
+                "block: a quote groups its lines");
+
+            var shifted = MarkdownParser.Parse("intro\n> q1\n> q2");
+            var sq = shifted.Count == 2 ? shifted[1] as MdQuote : null;
+            var sp = sq != null && sq.Blocks.Count == 1 ? sq.Blocks[0] as MdParagraph : null;
+            Check(sq != null && sq.Line == 1 && sp != null && sp.Line == 1 && sp.Lines.Count == 2,
+                "block: a quote groups its lines (inner lines are absolute)");
+        }
+
+        private static void Fences()
+        {
+            var closed = MarkdownParser.Parse("```\ncode\nmore\n```");
+            var cb = closed.Count == 1 ? closed[0] as MdCodeBlock : null;
+            Check(cb != null && cb.Line == 0 && cb.Info == "" && cb.Text == "code\nmore",
+                "block: a closed fence collects its lines");
+
+            var info = MarkdownParser.Parse("```csharp\nx = 1;\n```");
+            var ib = info.Count == 1 ? info[0] as MdCodeBlock : null;
+            Check(ib != null && ib.Info == "csharp" && ib.Text == "x = 1;",
+                "block: the info string is kept");
+
+            var open = MarkdownParser.Parse("```\ncode\nafter");
+            var ob = open.Count == 1 ? open[0] as MdCodeBlock : null;
+            Check(ob != null && ob.Text == "code\nafter",
+                "block: an unclosed fence runs to the end");
+
+            var trailing = MarkdownParser.Parse("```\ncode\n```\nafter");
+            Check(trailing.Count == 2 && trailing[0] is MdCodeBlock && trailing[1] is MdParagraph
+                  && ((MdParagraph)trailing[1]).Line == 3,
+                "block: a closed fence ends where it says");
+        }
+
+        private static void Rules()
+        {
+            var single = MarkdownParser.Parse("---");
+            var tb = single.Count == 1 ? single[0] as MdThematicBreak : null;
+            Check(tb != null && tb.Line == 0 && !(single[0] is MdTable),
+                "block: a standalone rule is a break, not a table");
+
+            var others = MarkdownParser.Parse("***\n\n___");
+            Check(others.Count == 2 && others[0] is MdThematicBreak && others[1] is MdThematicBreak
+                  && others[1].Line == 2,
+                "block: a standalone rule is a break, not a table (stars and underscores)");
+
+            var after = MarkdownParser.Parse("para\n---\nafter");
+            Check(after.Count == 3 && after[0] is MdParagraph && after[1] is MdThematicBreak
+                  && after[1].Line == 1 && after[2] is MdParagraph
+                  && ((MdParagraph)after[2]).Line == 2,
+                "block: the line after a paragraph rule");
+        }
+
+        private static void Tables()
+        {
+            var blocks = MarkdownParser.Parse(
+                "| A | B | C |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n| 4 |\n| 5 | 6 | 7 | 8 |");
+            var table = blocks.Count == 1 ? blocks[0] as MdTable : null;
+            bool align = table != null && table.Align != null && table.Align.Length == 3
+                && table.Align[0] == MdAlign.Left && table.Align[1] == MdAlign.Center
+                && table.Align[2] == MdAlign.Right;
+            Check(table != null && table.Line == 0 && align && table.Header.Count == 3
+                  && InlineText(table.Header[0]) == "A" && InlineText(table.Header[2]) == "C"
+                  && table.Rows.Count == 3 && InlineText(table.Rows[0][1]) == "2",
+                "block: a table reads the header, the separator and the rows");
+
+            bool padded = table != null && table.Rows.Count == 3;
+            Check(padded && table.Rows[1].Count == 3 && InlineText(table.Rows[1][0]) == "4"
+                  && InlineText(table.Rows[1][1]) == "" && table.Rows[2].Count == 3
+                  && InlineText(table.Rows[2][2]) == "7",
+                "block: the table pads short rows and drops extra cells");
+
+            var pipeless = MarkdownParser.Parse("a | b\nc | d");
+            var pp = pipeless.Count == 1 ? pipeless[0] as MdParagraph : null;
+            Check(pp != null && pp.Lines.Count == 2 && InlineText(pp.Lines[1]) == "c | d",
+                "block: a pipe line without a separator stays a paragraph");
+
+            var escaped = MarkdownParser.Parse("| a \\| b | c |\n|---|---|");
+            var et = escaped.Count == 1 ? escaped[0] as MdTable : null;
+            Check(et != null && et.Header.Count == 2 && InlineText(et.Header[0]) == "a \\| b"
+                  && InlineText(et.Header[1]) == "c",
+                "block: an escaped pipe does not split a cell");
+
+            var bare = MarkdownParser.Parse("A | B\n--- | ---\n1 | 2");
+            var bt = bare.Count == 1 ? bare[0] as MdTable : null;
+            Check(bt != null && bt.Header.Count == 2 && bt.Rows.Count == 1
+                  && InlineText(bt.Rows[0][1]) == "2",
+                "block: a table needs no outer pipes");
+        }
+
+        /// <summary>The literal text of a stub inline run (T7's ParseInlines
+        /// returns one MdText per source string).</summary>
+        private static string InlineText(List<MdInline> inlines)
+        {
+            if (inlines == null) return null;
+            return string.Concat(inlines.Select(i => i is MdText ? ((MdText)i).Text : "?"));
         }
 
         private static NoteItem Note(string id, string text, DateTime modified)
