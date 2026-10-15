@@ -12,6 +12,10 @@ namespace Kobold.Core
     /// </summary>
     public static class PanelSizeMigration
     {
+        // The fixed default size of a note panel (spec §6.5).
+        private const double NOTE_DEFAULT_WIDTH = 300;
+        private const double NOTE_DEFAULT_HEIGHT = 380;
+
         /// <summary>
         /// Fills the missing size fields of one widget. Folders replay the old
         /// grid settings through <see cref="PanelLayoutAdapter.MigrateFolderSize"/>;
@@ -46,6 +50,12 @@ namespace Kobold.Core
                 var (w, h) = PanelLayoutAdapter.DefaultTodoSize(weekCount, rows);
                 if (todo.PanelWidth == null) todo.PanelWidth = w;
                 if (todo.PanelHeight == null) todo.PanelHeight = h;
+            }
+
+            if (widget is NoteData note)
+            {
+                if (note.PanelWidth == null) note.PanelWidth = NOTE_DEFAULT_WIDTH;
+                if (note.PanelHeight == null) note.PanelHeight = NOTE_DEFAULT_HEIGHT;
             }
         }
     }

@@ -68,6 +68,9 @@ namespace Kobold.WidgetKindsCheck
             TodoHolidayRegionRoundTrips();
             TodoSplitRoundTrips();
             TodoRepairNormalizes();
+            NoteRoundTrips();
+            NoteRepairNormalizes();
+            NoteNullListIsCorrupt();
             WidgetKindRegistryChecks();
             RegisteredTypeDrivesTheLoad();
             FreshConfigGetsOneFolder();
@@ -85,6 +88,7 @@ namespace Kobold.WidgetKindsCheck
             DefaultConfigGetsSizes();
             LoadDoesNotForceASave();
             FactoryDefaults();
+            NoteSizeMigration();
         }
 
         private static void LegacyFolderSizeMigrates()
@@ -249,6 +253,35 @@ namespace Kobold.WidgetKindsCheck
             PanelSizeMigration.FillMissingSizes(todo, 1.1, "en", new DateTime(2026, 10, 10));
             Check(todo.PanelWidth == 342 && todo.PanelHeight == 313,
                 "H: a fresh todo defaults to (342, 313)");
+
+            var note = new NoteData();
+            PanelSizeMigration.FillMissingSizes(note, 1.1, "en", new DateTime(2026, 10, 15));
+            Check(note.PanelWidth == 300 && note.PanelHeight == 380,
+                "note: the migration default is 300x380");
+        }
+
+        private static void NoteSizeMigration()
+        {
+            string dir = NewCase("size-note");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n1"", ""Notes"": [] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var note = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as NoteData : null;
+            Check(note != null && note.PanelWidth == 300 && note.PanelHeight == 380,
+                "note: a sizeless note widget gets (300, 380)");
+
+            string dir2 = NewCase("size-note-partial");
+            string main2 = Path.Combine(dir2, "config.json");
+            File.WriteAllText(main2,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n2"", ""PanelWidth"": 500, ""Notes"": [] } ] }");
+
+            var cfg2 = AppConfig.Load(main2, main2 + ".backup");
+            var note2 = cfg2.Widgets.Count == 1 ? cfg2.Widgets[0] as NoteData : null;
+            Check(note2 != null && note2.PanelWidth == 500 && note2.PanelHeight == 380,
+                "note: only the missing note height is filled");
         }
 
         private static void LegacyFoldersMigrate()
@@ -479,17 +512,90 @@ namespace Kobold.WidgetKindsCheck
             Check(kept != null && kept.Text == "  spaced  ", "repair keeps whitespace around a text");
         }
 
+        private static void NoteRoundTrips()
+        {
+            string dir = NewCase("note");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n1"", ""Name"": ""Notes"", " +
+                @"""Notes"": [ " +
+                @"{ ""Id"": ""n1a"", ""Text"": ""# Title\nbody"", " +
+                @"""CreatedAt"": ""2026-10-15T09:30:00"", ""ModifiedAt"": ""2026-10-15T10:00:00"" } ] } ] }");
+            var cfg = AppConfig.Load(main, backup);
+
+            var note = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as NoteData : null;
+            Check(note != null && note.Kind == "note", "a note Kind loads as NoteData");
+
+            cfg.Save();
+            string savedText = File.ReadAllText(main);
+            Check(savedText.Contains("\"Kind\": \"note\""), "note: saving writes Kind= note");
+
+            var reloaded = AppConfig.Load(main, backup);
+            var rt = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as NoteData : null;
+            Check(rt != null && rt.Kind == "note" && rt.Notes.Count == 1
+                  && rt.Notes[0].Text == "# Title\nbody"
+                  && rt.Notes[0].CreatedAt == new DateTime(2026, 10, 15, 9, 30, 0)
+                  && rt.Notes[0].ModifiedAt == new DateTime(2026, 10, 15, 10, 0, 0),
+                "note: a round trip keeps the kind and the notes");
+        }
+
+        private static void NoteRepairNormalizes()
+        {
+            string dir = NewCase("note-repair");
+            string main = Path.Combine(dir, "config.json");
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n1"", ""Notes"": [ " +
+                @"{ ""Text"": null }, " +
+                @"{ ""Id"": ""n2"", ""Text"": ""kept"", " +
+                @"""CreatedAt"": ""2026-10-15T09:30:00"", ""ModifiedAt"": ""2026-10-15T10:00:00"" } ] } ] }");
+            var cfg = AppConfig.Load(main, main + ".backup");
+
+            var note = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as NoteData : null;
+            Check(note != null && note.Notes.Count == 2,
+                "a note with a null text still loads");
+
+            var first = note != null && note.Notes.Count > 0 ? note.Notes[0] : null;
+            Check(first != null && !string.IsNullOrEmpty(first.Id),
+                "note: repair gives a missing item id one");
+            Check(first != null && first.Text == string.Empty,
+                "note: a null note text becomes empty");
+
+            var second = note != null && note.Notes.Count > 1 ? note.Notes[1] : null;
+            Check(second != null && second.CreatedAt == new DateTime(2026, 10, 15, 9, 30, 0)
+                  && second.ModifiedAt == new DateTime(2026, 10, 15, 10, 0, 0),
+                "note: repair leaves the timestamps alone");
+        }
+
+        private static void NoteNullListIsCorrupt()
+        {
+            string dir = NewCase("note-null-notes");
+            string main = Path.Combine(dir, "config.json");
+            File.WriteAllText(main, @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Notes"": null } ] }");
+
+            var cfg = AppConfig.Load(main, main + ".backup");
+            Check(cfg.Widgets.Count == 1 && cfg.Widgets[0] is FolderData,
+                "note: a null notes list is rejected as corrupt");
+            Check(Directory.GetFiles(dir, "config.json.failed-*").Length == 1,
+                "note: the corrupt notes list is kept as evidence");
+        }
+
         private static void WidgetKindRegistryChecks()
         {
             var folder = WidgetKindRegistry.Find("folder");
             var todo = WidgetKindRegistry.Find("todo");
+            var note = WidgetKindRegistry.Find("note");
 
-            Check(WidgetKindRegistry.All.Count == 2 && folder != null && todo != null,
-                "the registry holds folder and todo");
+            Check(WidgetKindRegistry.All.Count == 3 && folder != null && todo != null && note != null,
+                "the registry holds three kinds");
             Check(folder != null && folder.Id == "folder" && folder.NameKey == "UI_DefaultFolderName"
                   && folder.IconKey == "folder", "the folder kind carries its id, name key and icon key");
             Check(todo != null && todo.Id == "todo" && todo.NameKey == "UI_DefaultTodoName"
                   && todo.IconKey == "todo", "the todo kind carries its id, name key and icon key");
+            Check(note != null && note.Id == "note" && note.NameKey == "UI_DefaultNoteName"
+                  && note.IconKey == "note", "the note kind carries its id, name key and icon key");
             Check(WidgetKindRegistry.Find("weather") == null, "an unknown kind id is not found");
 
             Check(typeof(WidgetKind).GetField("SupportsGridColumns") == null
@@ -508,10 +614,16 @@ namespace Kobold.WidgetKindsCheck
             Check(defaultTodo != null && defaultTodo.Items != null && defaultTodo.Items.Count == 0
                   && defaultTodo.Kind == "todo", "the todo factory builds an empty todo");
 
+            var defaultNote = note?.CreateDefault() as NoteData;
+            Check(defaultNote != null && defaultNote.Notes != null && defaultNote.Notes.Count == 0
+                  && defaultNote.Kind == "note", "the note factory builds an empty note");
+
             Check(folder != null && folder.DataType == typeof(FolderData),
                 "the folder kind carries its data type");
             Check(todo != null && todo.DataType == typeof(TodoData),
                 "the todo kind carries its data type");
+            Check(note != null && note.DataType == typeof(NoteData),
+                "the note kind carries its data type");
         }
 
         private static void RegisteredTypeDrivesTheLoad()
@@ -551,6 +663,7 @@ namespace Kobold.WidgetKindsCheck
                 @"{ ""Widgets"": null }",
                 @"{ ""Widgets"": [ { ""Kind"": ""folder"", ""Items"": null } ] }",
                 @"{ ""Widgets"": [ { ""Kind"": ""todo"", ""Items"": null } ] }",
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Notes"": null } ] }",
                 @"{ ""Widgets"": [ null ] }"
             };
 
@@ -604,6 +717,7 @@ namespace Kobold.WidgetKindsCheck
                 if (widget == null) return false;
                 if (widget is FolderData folder && folder.Items == null) return false;
                 if (widget is TodoData todo && todo.Items == null) return false;
+                if (widget is NoteData note && note.Notes == null) return false;
             }
             return true;
         }

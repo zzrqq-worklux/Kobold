@@ -41,6 +41,14 @@ namespace Kobold.Core
                 IconKey = "todo",
                 CreateDefault = () => new TodoData(),
                 DataType = typeof(TodoData),
+            },
+            new WidgetKind
+            {
+                Id = "note",
+                NameKey = "UI_DefaultNoteName",
+                IconKey = "note",
+                CreateDefault = () => new NoteData(),
+                DataType = typeof(NoteData),
             }
         }.AsReadOnly();
 

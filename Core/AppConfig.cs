@@ -219,6 +219,8 @@ namespace Kobold.Core
                     throw new InvalidDataException("config folder Items is null");
                 if (widget is TodoData todo && todo.Items == null)
                     throw new InvalidDataException("config todo Items is null");
+                if (widget is NoteData note && note.Notes == null)
+                    throw new InvalidDataException("config note Notes is null");
             }
         }
 
@@ -232,6 +234,7 @@ namespace Kobold.Core
             {
                 if (widget is FolderData folder) RepairFolder(folder);
                 else if (widget is TodoData todo) RepairTodo(todo);
+                else if (widget is NoteData note) RepairNote(note);
             }
         }
 
@@ -272,6 +275,17 @@ namespace Kobold.Core
                     if (string.IsNullOrEmpty(child.Id)) child.Id = Guid.NewGuid().ToString();
                     if (child.Text == null) child.Text = string.Empty;
                 }
+            }
+        }
+
+        private static void RepairNote(NoteData note)
+        {
+            // Timestamps are deliberately left alone: note times are not
+            // date-normalized the way todo dates are.
+            foreach (var item in note.Notes)
+            {
+                if (string.IsNullOrEmpty(item.Id)) item.Id = Guid.NewGuid().ToString();
+                if (item.Text == null) item.Text = string.Empty;
             }
         }
 
