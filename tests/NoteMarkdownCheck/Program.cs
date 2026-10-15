@@ -54,6 +54,7 @@ namespace Kobold.NoteMarkdownCheck
             Tables();
             Inlines();
             Progress();
+            EditorOps();
         }
 
         private static void Titles()
@@ -533,6 +534,145 @@ namespace Kobold.NoteMarkdownCheck
 
             Check(ProgressIs(NoteOps.TaskProgressOf("> - [x] a\n> - [ ] b"), 1, 2),
                 "progress: quoted tasks are counted");
+        }
+
+        // ---- NoteEditorOps quick-insert pins (T9) ------------------------
+
+        private static void EditorOps()
+        {
+            // Headings: set the marker, replacing an existing one.
+            CheckOp(NoteEditorOps.InsertHeading("", 0, 0, 1), "# ", 2, 0,
+                "editor: heading on an empty note writes '# ' and parks the caret after it");
+            CheckOp(NoteEditorOps.InsertHeading("## a", 0, 0, 3), "### a", 4, 0,
+                "editor: heading replaces an existing marker");
+            CheckOp(NoteEditorOps.InsertHeading("a\nb", 0, 3, 2), "## a\n## b", 3, 6,
+                "editor: heading prefixes every line of a multi-line selection");
+            CheckOp(NoteEditorOps.InsertHeading("x", 0, 0, 9), "###### x", 7, 0,
+                "editor: a heading level past six clamps to six");
+
+            // Bullets: insert, replace a sibling list prefix, or toggle off.
+            CheckOp(NoteEditorOps.InsertBullet("- a", 0, 0), "a", 0, 0,
+                "editor: bullet on a bullet line toggles the prefix off");
+            CheckOp(NoteEditorOps.InsertBullet("1. a", 0, 0), "- a", 2, 0,
+                "editor: bullet replaces a numbered prefix");
+            CheckOp(NoteEditorOps.InsertBullet("* a", 0, 0), "a", 0, 0,
+                "editor: bullet treats a star bullet as the same construct (toggles off)");
+            CheckOp(NoteEditorOps.InsertBullet("a", 0, 0), "- a", 2, 0,
+                "editor: bullet prefixes a plain line");
+            CheckOp(NoteEditorOps.InsertBullet("  x", 0, 0), "-   x", 2, 0,
+                "editor: bullet prefixes an indented line with no list marker");
+            Check(NoteEditorOps.InsertBullet(NoteEditorOps.InsertBullet("- a", 0, 0).Text, 0, 0).Text == "- a",
+                "editor: two bullets round-trip character for character");
+            CheckOp(NoteEditorOps.InsertBullet("a\nb", 0, 2), "- a\nb", 2, 2,
+                "editor: a selection ending at a line start leaves the next line alone");
+
+            // Numbered items.
+            CheckOp(NoteEditorOps.InsertNumbered("a", 0, 0), "1. a", 3, 0,
+                "editor: numbered prefixes a plain line");
+            CheckOp(NoteEditorOps.InsertNumbered("- a", 0, 0), "1. a", 3, 0,
+                "editor: numbered replaces a bullet prefix");
+            CheckOp(NoteEditorOps.InsertNumbered("  x", 0, 0), "1.   x", 3, 0,
+                "editor: numbered keeps the line's own text untouched");
+            CheckOp(NoteEditorOps.InsertNumbered("1. a", 0, 0), "a", 0, 0,
+                "editor: numbered on a numbered line toggles the prefix off");
+            Check(NoteEditorOps.InsertNumbered(NoteEditorOps.InsertNumbered("- a", 0, 0).Text, 0, 0).Text == "a",
+                "editor: replace then toggle round-trips");
+
+            // Task boxes.
+            CheckOp(NoteEditorOps.InsertTask("a", 0, 0), "- [ ] a", 6, 0,
+                "editor: task prefixes a plain line");
+            CheckOp(NoteEditorOps.InsertTask("- [x] a", 0, 0), "a", 0, 0,
+                "editor: task on any task box toggles the prefix off");
+            CheckOp(NoteEditorOps.InsertTask("- a", 0, 0), "- [ ] a", 6, 0,
+                "editor: task replaces a bullet prefix");
+            Check(NoteEditorOps.InsertTask(NoteEditorOps.InsertTask("a", 0, 0).Text, 0, 0).Text == "a",
+                "editor: a task round-trips character for character");
+
+            // Quotes.
+            CheckOp(NoteEditorOps.InsertQuote("a", 0, 0), "> a", 2, 0,
+                "editor: quote prefixes a plain line");
+            CheckOp(NoteEditorOps.InsertQuote("> a", 0, 0), "a", 0, 0,
+                "editor: quote on a quote line toggles the prefix off");
+            CheckOp(NoteEditorOps.InsertQuote("a\nb", 0, 3), "> a\n> b", 2, 5,
+                "editor: quote prefixes every line of a multi-line selection");
+
+            // Code fences: skeleton on a blank line, line-end insert otherwise.
+            CheckOp(NoteEditorOps.InsertCodeBlock("", 0, 0), "```\n\n```", 4, 0,
+                "editor: code fence on an empty note writes the skeleton with the caret inside");
+            CheckOp(NoteEditorOps.InsertCodeBlock("abc", 0, 0), "abc\n```\n\n```", 8, 0,
+                "editor: code fence after a non-empty line inserts at the line end");
+            CheckOp(NoteEditorOps.InsertCodeBlock("a\n\nb", 2, 0), "a\n```\n\n```\nb", 6, 0,
+                "editor: code fence replaces a blank line in place");
+
+            // Tables: three-line skeleton, caret in the first body cell.
+            CheckOp(NoteEditorOps.InsertTable("", 0, 0, "列 1", "列 2"),
+                "| 列 1 | 列 2 |\n| --- | --- |\n|  |  |", 30, 0,
+                "editor: table skeleton replaces a blank line with the caret in the first body cell");
+            CheckOp(NoteEditorOps.InsertTable("p", 0, 0, "列 1", "列 2"),
+                "p\n| 列 1 | 列 2 |\n| --- | --- |\n|  |  |", 32, 0,
+                "editor: table skeleton follows a non-empty line");
+            var skeleton = NoteEditorOps.InsertTable("", 0, 0, "A", "B").Text;
+            var parsedTable = MarkdownParser.Parse(skeleton);
+            var table = parsedTable.Count == 1 ? parsedTable[0] as MdTable : null;
+            Check(table != null && table.Align.Length == 2 && table.Rows.Count == 1,
+                "editor: the table skeleton parses back as a two-column table");
+
+            // Divider: block-boundary insert at both anchors.
+            CheckOp(NoteEditorOps.InsertDivider("", 0, 0), "---", 3, 0,
+                "editor: divider replaces an empty note");
+            CheckOp(NoteEditorOps.InsertDivider("abc", 0, 0), "abc\n---", 7, 0,
+                "editor: divider follows a non-empty line");
+            CheckOp(NoteEditorOps.InsertDivider("a\n\nb", 2, 0), "a\n---\nb", 5, 0,
+                "editor: divider replaces a blank line in place");
+
+            // Wrap family: a selection is wrapped, an empty one inserts a placeholder.
+            CheckOp(NoteEditorOps.WrapBold("abc", 1, 1, "粗体"), "a**b**c", 3, 1,
+                "editor: bold wraps a selection and keeps it selected");
+            CheckOp(NoteEditorOps.WrapBold("abc", 1, 0, "粗体"), "a**粗体**bc", 3, 2,
+                "editor: bold with no selection inserts and selects the placeholder");
+            CheckOp(NoteEditorOps.WrapBold("", 0, 0, "粗体"), "**粗体**", 2, 2,
+                "editor: bold on an empty note selects the placeholder");
+
+            CheckOp(NoteEditorOps.WrapItalic("abc", 1, 1, "斜体"), "a*b*c", 2, 1,
+                "editor: italic wraps a selection and keeps it selected");
+            CheckOp(NoteEditorOps.WrapItalic("", 0, 0, "斜体"), "*斜体*", 1, 2,
+                "editor: italic on an empty note selects the placeholder");
+
+            CheckOp(NoteEditorOps.WrapStrike("abc", 1, 1, "删除线"), "a~~b~~c", 3, 1,
+                "editor: strike wraps a selection and keeps it selected");
+            CheckOp(NoteEditorOps.WrapStrike("", 0, 0, "删除线"), "~~删除线~~", 2, 3,
+                "editor: strike on an empty note selects the placeholder");
+
+            CheckOp(NoteEditorOps.WrapInlineCode("abc", 1, 1, "代码"), "a`b`c", 2, 1,
+                "editor: inline code wraps a selection and keeps it selected");
+            CheckOp(NoteEditorOps.WrapInlineCode("", 0, 0, "代码"), "`代码`", 1, 2,
+                "editor: inline code on an empty note selects the placeholder");
+
+            CheckOp(NoteEditorOps.WrapLink("abc", 1, 1, "链接"), "a[b]()c", 5, 0,
+                "editor: link wraps a selection and parks the caret inside the parentheses");
+            CheckOp(NoteEditorOps.WrapLink("ab", 1, 0, "链接"), "a[链接]()b", 2, 2,
+                "editor: link with no selection inserts and selects the placeholder");
+            CheckOp(NoteEditorOps.WrapLink("", 0, 0, "链接"), "[链接]()", 1, 2,
+                "editor: link on an empty note selects the placeholder");
+
+            // Boundary safety: out-of-range selections clamp, nulls never throw.
+            CheckOp(NoteEditorOps.WrapBold("ab", 5, 3, "粗体"), "ab**粗体**", 4, 2,
+                "editor: a wrap with an out-of-range selection clamps to the end");
+            CheckOp(NoteEditorOps.WrapBold("abc", 1, -5, "粗体"), "a**粗体**bc", 3, 2,
+                "editor: a negative selection length reads as a caret");
+            CheckOp(NoteEditorOps.InsertHeading("ab", -3, 1, 1), "# ab", 2, 1,
+                "editor: a negative caret clamps to the start");
+            CheckOp(NoteEditorOps.InsertTask("abc", 99, 0), "- [ ] abc", 9, 0,
+                "editor: a caret past the end clamps to the end");
+            CheckOp(NoteEditorOps.InsertBullet("", 0, 0), "- ", 2, 0,
+                "editor: a bullet on an empty note writes the bare prefix");
+            CheckOp(NoteEditorOps.InsertDivider(null, 0, 0), "---", 3, 0,
+                "editor: a null text never throws");
+        }
+
+        private static void CheckOp((string, int, int) result, string text, int selStart, int selLength, string what)
+        {
+            Check(result.Item1 == text && result.Item2 == selStart && result.Item3 == selLength, what);
         }
 
         private static bool ProgressIs((int done, int total)? progress, int done, int total)
