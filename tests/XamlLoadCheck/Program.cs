@@ -466,6 +466,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("menu: a disabled entry dims its pill", DisabledMenuItemDimsItsPill);
                 failures += TryCheck("menu: the separator fits the rounded rows", SeparatorFitsTheRoundedRows);
 
+                // Task T2 pins: the kind factory is the single kind-to-window
+                // registry - folder and todo data build their windows, while an
+                // unregistered kind or a null datum has no window.
+                failures += TryCheck("factory: folder data builds the folder widget", FactoryFolderDataBuildsFolderWidget);
+                failures += TryCheck("factory: todo data builds the todo widget", FactoryTodoDataBuildsTodoWidget);
+                failures += TryCheck("factory: an unknown kind has no window", FactoryUnknownKindHasNoWindow);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -7974,6 +7981,37 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the menu item template has no Pill border");
             }
             return pill;
+        }
+
+        /// <summary>Task T2: folder data builds the folder window through the factory.</summary>
+        private static void FactoryFolderDataBuildsFolderWidget()
+        {
+            if (!(WidgetWindowFactory.Create(new FolderData()) is FolderWidget))
+            {
+                throw new InvalidOperationException("folder data did not build a FolderWidget");
+            }
+        }
+
+        /// <summary>Task T2: todo data builds the todo window through the factory.</summary>
+        private static void FactoryTodoDataBuildsTodoWidget()
+        {
+            if (!(WidgetWindowFactory.Create(new TodoData()) is TodoWidget))
+            {
+                throw new InvalidOperationException("todo data did not build a TodoWidget");
+            }
+        }
+
+        /// <summary>Task T2: an unregistered kind and a null datum both have no window.</summary>
+        private static void FactoryUnknownKindHasNoWindow()
+        {
+            if (WidgetWindowFactory.Create(new UnknownData { Kind = "weather" }) != null)
+            {
+                throw new InvalidOperationException("an unknown kind built a window");
+            }
+            if (WidgetWindowFactory.Create(null) != null)
+            {
+                throw new InvalidOperationException("null data built a window");
+            }
         }
 
         #endregion

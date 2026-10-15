@@ -350,9 +350,7 @@ namespace Kobold.Core
         {
             if (data == null || WidgetKindRegistry.Find(data.Kind) == null) return null;
 
-            if (data is FolderData folder) return new FolderWidget(folder);
-            if (data is TodoData todo) return new TodoWidget(todo);
-            return null;
+            return WidgetWindowFactory.Create(data);
         }
 
         /// <summary>
