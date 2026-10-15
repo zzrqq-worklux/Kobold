@@ -9,8 +9,9 @@ namespace Kobold.Core
     /// Kind-discriminating converter for <see cref="WidgetData"/>. On write it
     /// puts "Kind" first, then the concrete type's fields; an
     /// <see cref="UnknownData"/> is written back verbatim. On read a missing or
-    /// empty Kind means folder, "folder"/"todo" pick the concrete type, and any
-    /// other Kind becomes an <see cref="UnknownData"/> holding the raw JSON.
+    /// empty Kind means folder, a registered Kind picks the concrete type, and any
+    /// other Kind becomes an <see cref="UnknownData"/> holding the raw JSON. The
+    /// Kind-to-type mapping comes from <see cref="WidgetKindRegistry"/>.
     /// </summary>
     public sealed class WidgetDataConverter : JsonConverter
     {
@@ -53,27 +54,21 @@ namespace Kobold.Core
             var raw = JObject.Load(reader);
             string kind = (string)raw["Kind"];
 
-            if (string.IsNullOrEmpty(kind) || kind == "folder")
-            {
-                var folder = raw.ToObject<FolderData>(CreatePayloadSerializer());
-                folder.Kind = "folder";
-                return folder;
-            }
+            if (string.IsNullOrEmpty(kind)) kind = "folder";
+            var entry = WidgetKindRegistry.Find(kind);
+            if (entry == null) return new UnknownData { Kind = kind, Raw = raw };
 
-            if (kind == "todo")
-            {
-                var todo = raw.ToObject<TodoData>(CreatePayloadSerializer());
-                todo.Kind = "todo";
-                return todo;
-            }
-
-            return new UnknownData { Kind = kind, Raw = raw };
+            var data = (WidgetData)raw.ToObject(entry.DataType, CreatePayloadSerializer());
+            data.Kind = kind;
+            return data;
         }
 
         private static string KindOf(WidgetData data)
         {
-            if (data is FolderData) return "folder";
-            if (data is TodoData) return "todo";
+            foreach (var entry in WidgetKindRegistry.All)
+            {
+                if (entry.DataType == data.GetType()) return entry.Id;
+            }
             return data.Kind;
         }
 

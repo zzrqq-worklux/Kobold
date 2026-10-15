@@ -13,6 +13,9 @@ namespace Kobold.Core
         public string NameKey;
         public string IconKey;
         public Func<WidgetData> CreateDefault;
+
+        /// <summary>The concrete data type the converter instantiates for this kind.</summary>
+        public Type DataType;
     }
 
     /// <summary>
@@ -28,14 +31,16 @@ namespace Kobold.Core
                 NameKey = "UI_DefaultFolderName",
                 IconKey = "folder",
                 CreateDefault = () => FolderData.Create(
-                    Localization.Get("UI_DefaultFolderName"), UiTokens.DefaultFolderColor)
+                    Localization.Get("UI_DefaultFolderName"), UiTokens.DefaultFolderColor),
+                DataType = typeof(FolderData),
             },
             new WidgetKind
             {
                 Id = "todo",
                 NameKey = "UI_DefaultTodoName",
                 IconKey = "todo",
-                CreateDefault = () => new TodoData()
+                CreateDefault = () => new TodoData(),
+                DataType = typeof(TodoData),
             }
         }.AsReadOnly();
 

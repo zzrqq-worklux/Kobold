@@ -69,6 +69,7 @@ namespace Kobold.WidgetKindsCheck
             TodoSplitRoundTrips();
             TodoRepairNormalizes();
             WidgetKindRegistryChecks();
+            RegisteredTypeDrivesTheLoad();
             FreshConfigGetsOneFolder();
             CorruptWidgetListsAreUnreadable();
             PanelSizeMigrationChecks();
@@ -506,6 +507,23 @@ namespace Kobold.WidgetKindsCheck
             var defaultTodo = todo?.CreateDefault() as TodoData;
             Check(defaultTodo != null && defaultTodo.Items != null && defaultTodo.Items.Count == 0
                   && defaultTodo.Kind == "todo", "the todo factory builds an empty todo");
+
+            Check(folder != null && folder.DataType == typeof(FolderData),
+                "the folder kind carries its data type");
+            Check(todo != null && todo.DataType == typeof(TodoData),
+                "the todo kind carries its data type");
+        }
+
+        private static void RegisteredTypeDrivesTheLoad()
+        {
+            string dir = NewCase("registered-type");
+            string main = Path.Combine(dir, "config.json");
+
+            File.WriteAllText(main, @"{ ""Widgets"": [ { ""Kind"": ""todo"", ""Id"": ""t1"", ""Name"": ""T"" } ] }");
+            var cfg = AppConfig.Load(main, main + ".backup");
+
+            Check(cfg.Widgets.Count == 1 && cfg.Widgets[0] is TodoData && cfg.Widgets[0].Kind == "todo",
+                "the registered type drives the load of a todo");
         }
 
         private static void FreshConfigGetsOneFolder()
