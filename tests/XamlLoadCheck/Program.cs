@@ -454,6 +454,7 @@ namespace Kobold.XamlLoadCheck
                 // or dragged, in both orientations.
                 failures += TryCheck("scrollbar: the pill rests slim and centred", ScrollBarPillRestsSlim);
                 failures += TryCheck("scrollbar: the horizontal pill mirrors the rest state", ScrollBarHorizontalPillMirrorsRestState);
+                failures += TryCheck("scrollbar: the pill grows and darkens on hover or drag", ScrollBarPillGrowsWhenHoveredOrDragged);
 
                 // Task T8 pins (user style A, 2026-10-13): every right-click
                 // menu wears the rounded surface - a 12 DIP-radius 8 DIP-inset
@@ -7779,6 +7780,64 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the horizontal pill is aligned " + th.VerticalAlignment + ", wanted Center");
             }
+        }
+
+        /// <summary>
+        /// Task T5 (final-review F1): the advertised growth - the resting pill
+        /// thickens to 6 DIP and takes the hover brush under IsMouseOver and
+        /// IsDragging, in both orientations. The setters live in the Thumb
+        /// template's triggers; this inspects them directly (the resting
+        /// geometry pins cannot see the trigger values).
+        /// </summary>
+        private static void ScrollBarPillGrowsWhenHoveredOrDragged()
+        {
+            AssertThumbGrowth(Orientation.Vertical, FrameworkElement.WidthProperty);
+            AssertThumbGrowth(Orientation.Horizontal, FrameworkElement.HeightProperty);
+        }
+
+        private static void AssertThumbGrowth(Orientation orientation, DependencyProperty longAxis)
+        {
+            var bar = new ScrollBar { Orientation = orientation };
+            var host = new Grid();
+            host.Children.Add(bar);
+            bar.ApplyTemplate();
+            var track = (Track)bar.Template.FindName("PART_Track", bar);
+            track.Thumb.ApplyTemplate();
+
+            var triggers = track.Thumb.Template.Triggers;
+            RequireGrowthTrigger(triggers, UIElement.IsMouseOverProperty, longAxis, orientation);
+            RequireGrowthTrigger(triggers, Thumb.IsDraggingProperty, longAxis, orientation);
+        }
+
+        private static void RequireGrowthTrigger(TriggerCollection triggers, DependencyProperty state,
+            DependencyProperty longAxis, Orientation orientation)
+        {
+            foreach (var triggerBase in triggers)
+            {
+                var trigger = triggerBase as Trigger;
+                if (trigger == null || trigger.Property != state) continue;
+
+                bool grown = false;
+                bool hoverInk = false;
+                foreach (var setterBase in trigger.Setters)
+                {
+                    var setter = setterBase as Setter;
+                    if (setter == null || !"Th".Equals(setter.TargetName)) continue;
+                    if (setter.Property == longAxis && IsSix(setter.Value)) grown = true;
+                    if (setter.Property == Border.BackgroundProperty) hoverInk = true;
+                }
+                if (grown && hoverInk) return;
+            }
+
+            throw new InvalidOperationException(
+                "the " + state.Name + " trigger does not grow the pill along " +
+                longAxis.Name + " to 6 and darken it (" + orientation + ")");
+        }
+
+        private static bool IsSix(object value)
+        {
+            if (value is double d) return d == 6.0;
+            return value is string s && s == "6";
         }
 
         #endregion
