@@ -412,6 +412,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("icon: classic todo accents use the widget colour", ClassicTodoUsesWidgetColour);
                 failures += TryCheck("icon: hand-drawn todo accents use the widget colour", HandDrawnTodoUsesWidgetColour);
                 failures += TryCheck("icon: hand-drawn todo paper follows the theme", HandDrawnTodoPaperFollowsTheme);
+                failures += TryCheck("icon: the by-key factory dispatches todo", ByKeyFactoryDispatchesTodo);
+                failures += TryCheck("icon: the by-key factory falls back to folder for everything else", ByKeyFactoryFallsBackToFolder);
                 failures += TryCheck("island: folder tile refreshes with the icon style", IslandFolderTileRefreshesWithStyle);
                 failures += TryCheck("island: todo tile refreshes with the icon style", IslandTodoTileRefreshesWithStyle);
 
@@ -6999,6 +7001,24 @@ namespace Kobold.XamlLoadCheck
             });
             if (highlight == null)
                 throw new InvalidOperationException("the hand-drawn folder has no translucent white highlight");
+        }
+
+        private static void ByKeyFactoryDispatchesTodo()
+        {
+            if (!(IconRendererFactory.CreateByKey("todo", "handdrawn") is HandDrawnTodoIconRenderer))
+                throw new InvalidOperationException("CreateByKey(todo, handdrawn) is not a HandDrawnTodoIconRenderer");
+            if (!(IconRendererFactory.CreateByKey("todo", "classic") is ClassicTodoIconRenderer))
+                throw new InvalidOperationException("CreateByKey(todo, classic) is not a ClassicTodoIconRenderer");
+        }
+
+        private static void ByKeyFactoryFallsBackToFolder()
+        {
+            if (!(IconRendererFactory.CreateByKey("folder", "classic") is ClassicIconRenderer))
+                throw new InvalidOperationException("CreateByKey(folder, classic) is not a ClassicIconRenderer");
+            if (!(IconRendererFactory.CreateByKey("nonsense", "classic") is ClassicIconRenderer))
+                throw new InvalidOperationException("an unknown icon key did not fall back to the folder renderer");
+            if (!(IconRendererFactory.CreateByKey(null, "handdrawn") is HandDrawnIconRenderer))
+                throw new InvalidOperationException("a null icon key did not fall back to the hand-drawn folder renderer");
         }
 
         private static void TodoFactoryDispatchesStyles()

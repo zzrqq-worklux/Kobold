@@ -612,14 +612,9 @@ namespace Kobold.Controls
         private Border CreateTile(WidgetData widget, string iconStyle)
         {
             var iconCanvas = new Canvas { Width = 64, Height = 64 };
-            if (widget.Kind == "todo")
-            {
-                IconRendererFactory.CreateTodo(iconStyle).Render(iconCanvas, widget.Color);
-            }
-            else
-            {
-                IconRendererFactory.Create(iconStyle).Render(iconCanvas, widget.Color);
-            }
+            var kind = WidgetKindRegistry.Find(widget.Kind);
+            IconRendererFactory.CreateByKey(kind != null ? kind.IconKey : "folder", iconStyle)
+                .Render(iconCanvas, widget.Color);
 
             var tile = new Border
             {

@@ -86,6 +86,15 @@ namespace Kobold.Controls.IconRenderers
                 default: return new ClassicTodoIconRenderer();
             }
         }
+
+        /// <summary>Picks the renderer from a <see cref="WidgetKind.IconKey"/>;
+        /// the folder glyph covers the fallback cases, matching the island's
+        /// historical else-branch.</summary>
+        public static IIconRenderer CreateByKey(string iconKey, string style)
+        {
+            if (iconKey == "todo") return CreateTodo(style);
+            return Create(style);
+        }
     }
 }
 
