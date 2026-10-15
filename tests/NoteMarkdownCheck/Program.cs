@@ -7,9 +7,9 @@ namespace Kobold.NoteMarkdownCheck
 {
     /// <summary>
     /// Behaviour checks for the note markdown layer: the NoteOps helpers (the
-    /// derived title, the plain-text excerpt, the task-box rewrite, the stable
-    /// display order) and the MarkdownParser block parse. Exit code 0 = all
-    /// green; 1 = failures.
+    /// derived title, the plain-text excerpt, the task-box rewrite, the task
+    /// progress and the stable display order) and the MarkdownParser block and
+    /// inline parse. Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/NoteMarkdownCheck
     /// </summary>
     internal static class Program
@@ -52,6 +52,8 @@ namespace Kobold.NoteMarkdownCheck
             Fences();
             Rules();
             Tables();
+            Inlines();
+            Progress();
         }
 
         private static void Titles()
@@ -176,9 +178,12 @@ namespace Kobold.NoteMarkdownCheck
                   && para.Lines[0].Count == 1 && InlineText(para.Lines[0]) == "hello",
                 "block: a single line parses as one paragraph");
 
-            var stub = MarkdownParser.ParseInlines("**x** `y`");
-            Check(stub.Count == 1 && stub[0] is MdText && ((MdText)stub[0]).Text == "**x** `y`",
-                "block: inline parsing is a literal stub");
+            var mixed = MarkdownParser.ParseInlines("**x** `y`");
+            Check(mixed.Count == 3 && mixed[0] is MdStrong
+                  && InlineText(((MdStrong)mixed[0]).Inlines) == "x"
+                  && mixed[1] is MdText && ((MdText)mixed[1]).Text == " "
+                  && mixed[2] is MdCodeSpan && ((MdCodeSpan)mixed[2]).Text == "y",
+                "block: inline parsing is no longer a literal stub");
         }
 
         private static void Headings()
@@ -397,7 +402,7 @@ namespace Kobold.NoteMarkdownCheck
 
             var escaped = MarkdownParser.Parse("| a \\| b | c |\n|---|---|");
             var et = escaped.Count == 1 ? escaped[0] as MdTable : null;
-            Check(et != null && et.Header.Count == 2 && InlineText(et.Header[0]) == "a \\| b"
+            Check(et != null && et.Header.Count == 2 && InlineText(et.Header[0]) == "a | b"
                   && InlineText(et.Header[1]) == "c",
                 "block: an escaped pipe does not split a cell");
 
@@ -408,8 +413,136 @@ namespace Kobold.NoteMarkdownCheck
                 "block: a table needs no outer pipes");
         }
 
-        /// <summary>The literal text of a stub inline run (T7's ParseInlines
-        /// returns one MdText per source string).</summary>
+        // ---- MarkdownParser inline pins (T8) -----------------------------
+
+        private static void Inlines()
+        {
+            // Code spans win over emphasis: the backticks' content is verbatim.
+            var code = MarkdownParser.ParseInlines("`a **b** c`");
+            Check(code.Count == 1 && code[0] is MdCodeSpan
+                  && ((MdCodeSpan)code[0]).Text == "a **b** c",
+                "inline: code spans win over emphasis");
+
+            var openTick = MarkdownParser.ParseInlines("`a");
+            Check(openTick.Count == 1 && openTick[0] is MdText
+                  && ((MdText)openTick[0]).Text == "`a",
+                "inline: an unclosed backtick stays literal");
+
+            var strong = MarkdownParser.ParseInlines("**a**");
+            var strongUnder = MarkdownParser.ParseInlines("__a__");
+            var em = MarkdownParser.ParseInlines("*b*");
+            var emUnder = MarkdownParser.ParseInlines("_b_");
+            Check(strong.Count == 1 && strong[0] is MdStrong
+                  && InlineText(((MdStrong)strong[0]).Inlines) == "a"
+                  && strongUnder.Count == 1 && strongUnder[0] is MdStrong
+                  && InlineText(((MdStrong)strongUnder[0]).Inlines) == "a"
+                  && em.Count == 1 && em[0] is MdEm && InlineText(((MdEm)em[0]).Inlines) == "b"
+                  && emUnder.Count == 1 && emUnder[0] is MdEm
+                  && InlineText(((MdEm)emUnder[0]).Inlines) == "b",
+                "inline: strong and em pair simply");
+
+            var nested = MarkdownParser.ParseInlines("**a *b* c**");
+            var nestedStrong = nested.Count == 1 ? nested[0] as MdStrong : null;
+            Check(nestedStrong != null && nestedStrong.Inlines.Count == 3
+                  && InlineText(new List<MdInline> { nestedStrong.Inlines[0] }) == "a "
+                  && nestedStrong.Inlines[1] is MdEm
+                  && InlineText(((MdEm)nestedStrong.Inlines[1]).Inlines) == "b"
+                  && nestedStrong.Inlines[2] is MdText
+                  && ((MdText)nestedStrong.Inlines[2]).Text == " c",
+                "inline: strong and em pair simply (em nests inside strong)");
+
+            var openStrong = MarkdownParser.ParseInlines("**a");
+            Check(openStrong.Count == 1 && openStrong[0] is MdText
+                  && ((MdText)openStrong[0]).Text == "**a",
+                "inline: an unclosed strong marker stays literal");
+
+            var strike = MarkdownParser.ParseInlines("~~x~~");
+            Check(strike.Count == 1 && strike[0] is MdStrike
+                  && InlineText(((MdStrike)strike[0]).Inlines) == "x",
+                "inline: strike uses the double tilde");
+
+            var singleTilde = MarkdownParser.ParseInlines("~x~");
+            Check(singleTilde.Count == 1 && singleTilde[0] is MdText
+                  && ((MdText)singleTilde[0]).Text == "~x~",
+                "inline: a single tilde stays literal");
+
+            var link = MarkdownParser.ParseInlines("[t](https://x)");
+            Check(link.Count == 1 && link[0] is MdLink && ((MdLink)link[0]).Text == "t"
+                  && ((MdLink)link[0]).Url == "https://x",
+                "inline: links carry text and url");
+
+            var httpLink = MarkdownParser.ParseInlines("[t](http://x)");
+            Check(httpLink.Count == 1 && httpLink[0] is MdLink
+                  && ((MdLink)httpLink[0]).Url == "http://x",
+                "inline: http links carry text and url");
+
+            var ftpLink = MarkdownParser.ParseInlines("[t](ftp://x)");
+            Check(ftpLink.Count == 1 && ftpLink[0] is MdText
+                  && ((MdText)ftpLink[0]).Text == "[t](ftp://x)",
+                "inline: a non-web link stays literal");
+
+            var openLink = MarkdownParser.ParseInlines("[t](");
+            Check(openLink.Count == 1 && openLink[0] is MdText
+                  && ((MdText)openLink[0]).Text == "[t](",
+                "inline: an unclosed link stays literal");
+
+            var escaped = MarkdownParser.ParseInlines("\\*x\\*");
+            Check(escaped.Count == 1 && escaped[0] is MdText
+                  && ((MdText)escaped[0]).Text == "*x*",
+                "inline: backslash escapes the markers");
+
+            var escapedBackslash = MarkdownParser.ParseInlines("\\\\");
+            Check(escapedBackslash.Count == 1 && escapedBackslash[0] is MdText
+                  && ((MdText)escapedBackslash[0]).Text == "\\",
+                "inline: a backslash escapes itself");
+
+            var escapedPipe = MarkdownParser.ParseInlines("\\|");
+            Check(escapedPipe.Count == 1 && escapedPipe[0] is MdText
+                  && ((MdText)escapedPipe[0]).Text == "|",
+                "inline: a backslash escapes a pipe");
+
+            var table = MarkdownParser.Parse("| **a** | b |\n|---|---|");
+            var tt = table.Count == 1 ? table[0] as MdTable : null;
+            Check(tt != null && tt.Header.Count == 2 && tt.Header[0].Count == 1
+                  && tt.Header[0][0] is MdStrong
+                  && InlineText(((MdStrong)tt.Header[0][0]).Inlines) == "a"
+                  && InlineText(tt.Header[1]) == "b",
+                "inline: table cells parse their inlines");
+
+            var quote = MarkdownParser.Parse("> **a**");
+            var qt = quote.Count == 1 ? quote[0] as MdQuote : null;
+            var qp = qt != null && qt.Blocks.Count == 1 ? qt.Blocks[0] as MdParagraph : null;
+            Check(qp != null && qp.Lines.Count == 1 && qp.Lines[0].Count == 1
+                  && qp.Lines[0][0] is MdStrong
+                  && InlineText(((MdStrong)qp.Lines[0][0]).Inlines) == "a",
+                "inline: quotes re-parse their content");
+        }
+
+        // ---- NoteOps.TaskProgressOf pins (T8) ----------------------------
+
+        private static void Progress()
+        {
+            Check(ProgressIs(NoteOps.TaskProgressOf("- [x] a\n- [ ] b\n- [ ] c"), 1, 3),
+                "progress: counts open and done tasks");
+
+            Check(NoteOps.TaskProgressOf("just a plain line\nand another") == null,
+                "progress: a day with no tasks reports null");
+
+            Check(NoteOps.TaskProgressOf("```\n- [ ] x\n```") == null,
+                "progress: code-block task lines are not counted");
+
+            Check(ProgressIs(NoteOps.TaskProgressOf("> - [x] a\n> - [ ] b"), 1, 2),
+                "progress: quoted tasks are counted");
+        }
+
+        private static bool ProgressIs((int done, int total)? progress, int done, int total)
+        {
+            return progress.HasValue && progress.Value.done == done
+                && progress.Value.total == total;
+        }
+
+        /// <summary>The literal text of an inline run (non-text inlines read as
+        /// "?", so callers assert their type separately).</summary>
         private static string InlineText(List<MdInline> inlines)
         {
             if (inlines == null) return null;

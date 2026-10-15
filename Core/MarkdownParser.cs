@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Kobold.Core
@@ -64,12 +65,12 @@ namespace Kobold.Core
     public sealed class MdStrike : MdInline { public List<MdInline> Inlines; }
 
     /// <summary>
-    /// The block-level markdown parser behind the note widget: source text in,
-    /// a small AST out. It covers the closed subset of the design - headings,
-    /// paragraphs, bullet / numbered lists, task boxes, quotes, fenced code,
-    /// rules and GFM-style tables - and is pure logic with no WPF dependency.
-    /// Inline syntax is not handled here yet: <see cref="ParseInlines"/> is a
-    /// literal stub that the inline task replaces.
+    /// The markdown parser behind the note widget: source text in, a small AST
+    /// out. It covers the closed subset of the design - headings, paragraphs,
+    /// bullet / numbered lists, task boxes, quotes, fenced code, rules and
+    /// GFM-style tables - and is pure logic with no WPF dependency. Inline
+    /// syntax is parsed by <see cref="ParseInlines"/>: escapes, code spans,
+    /// links and the emphasis family, with anything unclosed kept literal.
     /// </summary>
     public static class MarkdownParser
     {
@@ -87,6 +88,9 @@ namespace Kobold.Core
         private static readonly Regex Separator = new Regex(
             "^\\s*\\|?\\s*:?-{1,}:?\\s*(\\|\\s*:?-{1,}:?\\s*)+\\|?\\s*$", RegexOptions.Compiled);
         private static readonly Regex CellSplit = new Regex("(?<!\\\\)\\|", RegexOptions.Compiled);
+
+        /// <summary>The characters a backslash may escape (design §4).</summary>
+        private const string EscapeChars = "*_~`[]|#>-\\";
 
         /// <summary>
         /// Parses the whole text into blocks. Lines end in LF, CRLF or CR and
@@ -161,13 +165,174 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Placeholder inline pass: the whole string becomes one literal
-        /// <see cref="MdText"/>. The inline task replaces this; nothing else in
-        /// the block parser needs to change when it does.
+        /// The inline scan, left to right: a backslash escape, a code span, a
+        /// link, then the emphasis family (`**`/`__`, `~~`, `*`/`_`). A run the
+        /// scanner cannot pair stays literal text; neighbouring literals merge
+        /// into one <see cref="MdText"/>. A bracketed link is a link only when
+        /// its target is http or https - any other one is kept as the whole
+        /// literal span.
         /// </summary>
         public static List<MdInline> ParseInlines(string text)
         {
-            return new List<MdInline> { new MdText { Text = text ?? string.Empty } };
+            var inlines = new List<MdInline>();
+            if (string.IsNullOrEmpty(text)) return inlines;
+
+            var literal = new StringBuilder();
+            int i = 0;
+            while (i < text.Length)
+            {
+                char c = text[i];
+
+                // A backslash escapes the subset's own markers and itself.
+                if (c == '\\' && i + 1 < text.Length && EscapeChars.IndexOf(text[i + 1]) >= 0)
+                {
+                    literal.Append(text[i + 1]);
+                    i += 2;
+                    continue;
+                }
+
+                // Code spans win over everything: their content is verbatim.
+                if (c == '`')
+                {
+                    int close = text.IndexOf('`', i + 1);
+                    if (close > i)
+                    {
+                        Flush(inlines, literal);
+                        inlines.Add(new MdCodeSpan { Text = text.Substring(i + 1, close - i - 1) });
+                        i = close + 1;
+                        continue;
+                    }
+                    literal.Append(c);
+                    i++;
+                    continue;
+                }
+
+                if (c == '[')
+                {
+                    string label, url;
+                    int end;
+                    if (TryReadLink(text, i, out label, out url, out end))
+                    {
+                        if (IsWebUrl(url))
+                        {
+                            Flush(inlines, literal);
+                            inlines.Add(new MdLink { Text = label, Url = url });
+                        }
+                        else
+                        {
+                            // A link we will not follow keeps its whole source
+                            // span: brackets, label and target are literal.
+                            literal.Append(text, i, end - i);
+                        }
+                        i = end;
+                        continue;
+                    }
+                    literal.Append(c);
+                    i++;
+                    continue;
+                }
+
+                if (c == '*' || c == '_' || c == '~')
+                {
+                    int run = 1;
+                    while (i + run < text.Length && text[i + run] == c) run++;
+
+                    if (c == '~')
+                    {
+                        // Only a double tilde strikes; a single one is literal.
+                        if (run >= 2)
+                        {
+                            int close = text.IndexOf("~~", i + 2, StringComparison.Ordinal);
+                            if (close >= 0)
+                            {
+                                Flush(inlines, literal);
+                                inlines.Add(new MdStrike
+                                {
+                                    Inlines = ParseInlines(text.Substring(i + 2, close - i - 2))
+                                });
+                                i = close + 2;
+                                continue;
+                            }
+                        }
+                    }
+                    else if (run >= 2)
+                    {
+                        string marker = new string(c, 2);
+                        int close = text.IndexOf(marker, i + 2, StringComparison.Ordinal);
+                        if (close >= 0)
+                        {
+                            Flush(inlines, literal);
+                            inlines.Add(new MdStrong
+                            {
+                                Inlines = ParseInlines(text.Substring(i + 2, close - i - 2))
+                            });
+                            i = close + 2;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        int close = text.IndexOf(c, i + 1);
+                        if (close >= 0)
+                        {
+                            Flush(inlines, literal);
+                            inlines.Add(new MdEm
+                            {
+                                Inlines = ParseInlines(text.Substring(i + 1, close - i - 1))
+                            });
+                            i = close + 1;
+                            continue;
+                        }
+                    }
+
+                    // Unpaired: the whole marker run stays literal as written.
+                    literal.Append(text, i, run);
+                    i += run;
+                    continue;
+                }
+
+                literal.Append(c);
+                i++;
+            }
+
+            Flush(inlines, literal);
+            return inlines;
+        }
+
+        /// <summary>Reads a `[label](url)` at <paramref name="start"/> when its
+        /// shape is complete. A missing bracket or parenthesis fails.</summary>
+        private static bool TryReadLink(string text, int start, out string label, out string url, out int end)
+        {
+            label = null;
+            url = null;
+            end = start;
+
+            int closeBracket = text.IndexOf(']', start + 1);
+            if (closeBracket < 0) return false;
+            if (closeBracket + 1 >= text.Length || text[closeBracket + 1] != '(') return false;
+
+            int closeParen = text.IndexOf(')', closeBracket + 2);
+            if (closeParen < 0) return false;
+
+            label = text.Substring(start + 1, closeBracket - start - 1);
+            url = text.Substring(closeBracket + 2, closeParen - closeBracket - 2);
+            end = closeParen + 1;
+            return true;
+        }
+
+        /// <summary>A followable link target: http or https only.</summary>
+        private static bool IsWebUrl(string url)
+        {
+            return url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Appends the pending literal text as one <see cref="MdText"/>.</summary>
+        private static void Flush(List<MdInline> inlines, StringBuilder literal)
+        {
+            if (literal.Length == 0) return;
+            inlines.Add(new MdText { Text = literal.ToString() });
+            literal.Clear();
         }
 
         private static MdCodeBlock ReadCodeBlock(IList<string> lines, ref int i)

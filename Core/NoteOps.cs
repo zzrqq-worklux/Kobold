@@ -102,6 +102,42 @@ namespace Kobold.Core
             return notes.OrderByDescending(n => n.ModifiedAt).ToList();
         }
 
+        /// <summary>
+        /// The task progress the card shows: how many boxes are done out of how
+        /// many the note renders. The count follows the parser, so quoted tasks
+        /// count and code-block task lines do not; a note with no task at all
+        /// reports null.
+        /// </summary>
+        public static (int done, int total)? TaskProgressOf(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+
+            int done = 0;
+            int total = 0;
+            CountTasks(MarkdownParser.Parse(text), ref done, ref total);
+            return total == 0 ? ((int done, int total)?)null : (done, total);
+        }
+
+        /// <summary>Walks the block tree and tallies the task boxes, quoting
+        /// down into every quote (code blocks hold no blocks, so their lines
+        /// are never counted).</summary>
+        private static void CountTasks(List<MdBlock> blocks, ref int done, ref int total)
+        {
+            foreach (var block in blocks)
+            {
+                var task = block as MdTaskBlock;
+                if (task != null)
+                {
+                    total++;
+                    if (task.Checked) done++;
+                    continue;
+                }
+
+                var quote = block as MdQuote;
+                if (quote != null) CountTasks(quote.Blocks, ref done, ref total);
+            }
+        }
+
         /// <summary>A column-zero task: "- [ ]", "- [x]" or "- [X]", with a
         /// space or the end of the line after the closing bracket.</summary>
         private static bool IsTaskLine(string line)
