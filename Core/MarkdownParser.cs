@@ -76,7 +76,10 @@ namespace Kobold.Core
         private static readonly Regex FenceOpen = new Regex("^\\s*```", RegexOptions.Compiled);
         private static readonly Regex FenceClose = new Regex("^\\s*```+\\s*$", RegexOptions.Compiled);
         private static readonly Regex Heading = new Regex("^(#{1,6})\\s+(.*?)(?:\\s+#+)?\\s*$", RegexOptions.Compiled);
-        private static readonly Regex Quote = new Regex("^>\\s?(.*)$", RegexOptions.Compiled);
+        // A quote line is exactly one ">" then a space or the end of the line:
+        // quotes are single level, so ">> x" is literal text (design §4).
+        private static readonly Regex QuoteLine = new Regex("^>(?: |$)", RegexOptions.Compiled);
+        private static readonly Regex QuotePrefix = new Regex("^> ?", RegexOptions.Compiled);
         private static readonly Regex Task = new Regex("^- \\[( |x|X)\\](?: (.*)|$)", RegexOptions.Compiled);
         private static readonly Regex Bullet = new Regex("^[-*](?: (?<c>.*)|$)", RegexOptions.Compiled);
         private static readonly Regex Numbered = new Regex("^(?<n>\\d+)\\.(?: (?<c>.*)|$)", RegexOptions.Compiled);
@@ -91,6 +94,16 @@ namespace Kobold.Core
         /// shifted by the quote's own start line.
         /// </summary>
         public static List<MdBlock> Parse(string text)
+        {
+            return ParseBlocks(text, true);
+        }
+
+        /// <summary>
+        /// The block scan. <paramref name="allowQuotes"/> is false while a
+        /// quote's own content is parsed: quotes are single level, so a quote
+        /// block never holds another quote block.
+        /// </summary>
+        private static List<MdBlock> ParseBlocks(string text, bool allowQuotes)
         {
             var blocks = new List<MdBlock>();
             if (string.IsNullOrEmpty(text)) return blocks;
@@ -118,7 +131,11 @@ namespace Kobold.Core
                     continue;
                 }
 
-                if (Quote.IsMatch(lines[i])) { blocks.Add(ReadQuote(lines, ref i)); continue; }
+                if (allowQuotes && QuoteLine.IsMatch(lines[i]))
+                {
+                    blocks.Add(ReadQuote(lines, ref i));
+                    continue;
+                }
 
                 // A task box is tested before the bullet list: it reads like a
                 // bullet but is its own block with its source line kept.
@@ -138,7 +155,7 @@ namespace Kobold.Core
                 if (Bullet.IsMatch(lines[i])) { blocks.Add(ReadList(lines, ref i, false)); continue; }
                 if (Numbered.IsMatch(lines[i])) { blocks.Add(ReadList(lines, ref i, true)); continue; }
 
-                blocks.Add(ReadParagraph(lines, ref i));
+                blocks.Add(ReadParagraph(lines, ref i, allowQuotes));
             }
             return blocks;
         }
@@ -181,15 +198,14 @@ namespace Kobold.Core
         {
             int start = i;
             var inner = new List<string>();
-            while (i < lines.Count)
+            while (i < lines.Count && QuoteLine.IsMatch(lines[i]))
             {
-                var m = Quote.Match(lines[i]);
-                if (!m.Success) break;
-                inner.Add(m.Groups[1].Value);
+                inner.Add(QuotePrefix.Replace(lines[i], string.Empty));
                 i++;
             }
 
-            var blocks = Parse(string.Join("\n", inner));
+            // Quotes never nest: the inner parse runs with quote detection off.
+            var blocks = ParseBlocks(string.Join("\n", inner), false);
             ShiftLines(blocks, start);
             return new MdQuote { Line = start, Blocks = blocks };
         }
@@ -227,10 +243,10 @@ namespace Kobold.Core
             return block;
         }
 
-        private static MdParagraph ReadParagraph(IList<string> lines, ref int i)
+        private static MdParagraph ReadParagraph(IList<string> lines, ref int i, bool allowQuotes)
         {
             var paragraph = new MdParagraph { Line = i, Lines = new List<List<MdInline>>() };
-            while (i < lines.Count && !StartsBlock(lines, i))
+            while (i < lines.Count && !StartsBlock(lines, i, allowQuotes))
             {
                 paragraph.Lines.Add(ParseInlines(lines[i]));
                 i++;
@@ -269,12 +285,13 @@ namespace Kobold.Core
 
         /// <summary>True when the line starts a block (and therefore ends a
         /// paragraph).</summary>
-        private static bool StartsBlock(IList<string> lines, int i)
+        private static bool StartsBlock(IList<string> lines, int i, bool allowQuotes)
         {
             var line = lines[i];
             return IsBlank(line) || FenceOpen.IsMatch(line) || Rule.IsMatch(line)
-                || Heading.IsMatch(line) || Quote.IsMatch(line) || Task.IsMatch(line)
-                || Bullet.IsMatch(line) || Numbered.IsMatch(line) || IsTableStart(lines, i);
+                || Heading.IsMatch(line) || Task.IsMatch(line)
+                || Bullet.IsMatch(line) || Numbered.IsMatch(line) || IsTableStart(lines, i)
+                || (allowQuotes && QuoteLine.IsMatch(line));
         }
 
         /// <summary>True when the line holds a pipe and is followed by a

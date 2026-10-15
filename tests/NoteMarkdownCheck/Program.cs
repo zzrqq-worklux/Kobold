@@ -311,6 +311,22 @@ namespace Kobold.NoteMarkdownCheck
             var sp = sq != null && sq.Blocks.Count == 1 ? sq.Blocks[0] as MdParagraph : null;
             Check(sq != null && sq.Line == 1 && sp != null && sp.Line == 1 && sp.Lines.Count == 2,
                 "block: a quote groups its lines (inner lines are absolute)");
+
+            // Quotes are single level: ">>" is not a quote marker (spec §4).
+            var doubleGt = MarkdownParser.Parse(">> a\n");
+            var dg = doubleGt.Count == 1 ? doubleGt[0] as MdParagraph : null;
+            Check(dg != null && dg.Line == 0 && dg.Lines.Count == 1
+                  && InlineText(dg.Lines[0]) == ">> a",
+                "block: a double-gt line stays literal text");
+
+            var spaced = MarkdownParser.Parse("> > a\n");
+            var spacedQuote = spaced.Count == 1 ? spaced[0] as MdQuote : null;
+            var spacedInner = spacedQuote != null && spacedQuote.Blocks.Count == 1
+                ? spacedQuote.Blocks[0] as MdParagraph : null;
+            Check(spacedQuote != null && spacedQuote.Line == 0 && spacedQuote.Blocks.Count == 1
+                  && spacedInner != null && spacedInner.Line == 0
+                  && spacedInner.Lines.Count == 1 && InlineText(spacedInner.Lines[0]) == "> a",
+                "block: quotes never nest");
         }
 
         private static void Fences()
