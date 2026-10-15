@@ -475,6 +475,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("menu: the item pill is inset and rounded", MenuItemPillIsInsetAndRounded);
                 failures += TryCheck("menu: a disabled entry dims its pill", DisabledMenuItemDimsItsPill);
                 failures += TryCheck("menu: the separator fits the rounded rows", SeparatorFitsTheRoundedRows);
+                failures += TryCheck("menu: every kind choice resolves to a translated label",
+                    EveryKindChoiceResolvesToATranslatedLabel);
 
                 // Task T2 pins: the kind factory is the single kind-to-window
                 // registry - folder and todo data build their windows, while an
@@ -8070,6 +8072,39 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the separator line margin is '" + line.Margin + "', wanted 30,5,30,5");
+            }
+        }
+
+        /// <summary>
+        /// The island's + tile and the tray's new-widget submenu build one entry
+        /// per registered kind through <see cref="WidgetMenuBuilder.BuildKindChoices"/>.
+        /// A kind whose label key is missing would leak the raw "UI_WidgetKind…"
+        /// key into the menu (<see cref="Localization.Get"/> returns the key on a
+        /// miss), so every entry's header must be a real, translated label.
+        /// </summary>
+        private static void EveryKindChoiceResolvesToATranslatedLabel()
+        {
+            var choices = WidgetMenuBuilder.BuildKindChoices(kind => { });
+
+            if (choices.Count != WidgetKindRegistry.All.Count)
+            {
+                throw new InvalidOperationException(
+                    "the menu built " + choices.Count + " kind choices for "
+                    + WidgetKindRegistry.All.Count + " registered kinds");
+            }
+
+            foreach (var choice in choices)
+            {
+                string header = choice.Header as string;
+                if (header == null)
+                {
+                    throw new InvalidOperationException("a kind choice has no string header");
+                }
+                if (header.Contains("UI_"))
+                {
+                    throw new InvalidOperationException(
+                        "a kind choice leaks a raw localization key: '" + header + "'");
+                }
             }
         }
 
