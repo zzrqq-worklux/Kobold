@@ -36,6 +36,13 @@ development base.
   and panels no longer resize themselves with their content. Panels that were
   open when the app closed come back on the next launch, on the monitor and
   scale they were saved on, without stealing focus.
+- **Folder selection in the title bar** — the panel title follows the
+  selection: one entry shows its full name (the tooltip holds the whole
+  path), several show **N selected**, and an empty selection falls back to
+  the widget's name (or the folder being browsed). The arrow keys walk the
+  grid: left/right step to the neighbouring cell across rows, up/down hold
+  the column, a short last row falls to its last entry, and an edge stops —
+  with nothing selected, the first arrow picks the first entry.
 - **Widget kinds** — a new widget is either a **folder** or a **todo**, picked
   when you create it; both kinds behave the same on the island, in panels, in
   the context menus and when panels come back after a restart.
@@ -54,6 +61,23 @@ development base.
   follows the last entry when there is room, and clicking it jumps the list to
   the bottom. Today wears the hand-drawn circle with a matching hand-drawn
   check tucked into its bottom-right corner.
+- **Todo editing, undo & cleanup** — click a row to edit it in place: the
+  insertion caret takes the widget's colour (system ink under high contrast),
+  and Backspace at the very start of the text is a ladder — an open entry is
+  ticked (the normal completion path: today is stamped as the completion date
+  and a parent's children follow), a completed or emptied one is deleted,
+  parents and sub-todos alike. Enter walks the list: a parent's editor opens
+  its first sub-todo (or its sub-todo adder when it has none), a sub-todo's
+  editor opens the next sibling (or its parent's adder after the last), and
+  an adder keeps adding while you type; an empty Enter moves to the next
+  parent's editor and ends at the bottom add box. Clicking away never jumps.
+  Deletes and ticks — the row menu, the ladder, **Clear completed**, parent /
+  child / ladder ticks — step back with Ctrl+Z up to 20 steps (no redo; a
+  focused editor keeps its own text undo). **Clear completed**, on the list's
+  or the calendar's blank space, removes the selected day's completed entries
+  — a completed parent goes with its whole subtree, completed sub-todos under
+  an open parent go one by one — and is greyed out when the day has none;
+  Ctrl+Z brings the batch back.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in
@@ -113,6 +137,12 @@ development base.
 - **Theming** — dark/light applies to every surface (panels, island,
   settings, menus, tooltips); context menus pick up their widget's colour;
   with Windows high contrast on, every surface follows the system colours.
+- **Slim scrollbars, rounded menus** — every scrollbar is a thin pill: an
+  8 px hit area, a 4 px resting thumb that grows to 6 px and darkens while
+  hovered or dragged, and no track arrows. Context menus share one rounded,
+  airy surface — 12 px corners, an inset pill hover, a thin chevron for
+  submenus, and disabled entries at half opacity — still tinted with their
+  widget's colour.
 - **Three languages** — English, 简体中文, 日本語.
 - **Tray + startup** — tray menu for add / show all / hide all / settings
   / exit, single-instance guard and optional auto-start with Windows.
@@ -182,12 +212,15 @@ the new version. Settings and stored files are kept.
 | Add a widget | Island `+` entry (or tray menu) |
 | Add a todo widget | Island `+` entry (or tray menu) → choose **Todo** |
 | Select a day | Click a day in the calendar (a grey day from another month switches the month first) |
-| Add a sub-todo | Right-click a todo entry → **Add sub-todo** (Enter keeps the adder open for the next one) |
+| Add a sub-todo | Right-click a todo entry → **Add sub-todo** (a typed Enter adds the next one, an empty Enter moves on) |
 | Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
+| Undo a delete or a tick | With no editor focused, Ctrl+Z steps back up to 20 edits |
+| Clear the day's completed todos | Right-click the list or the calendar's blank space → **Clear completed** (greyed out when the day has none) |
 | Open settings | Island gear entry (or tray menu) |
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
 | Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
+| Move the selection with the arrow keys | Left/right cross rows, up/down keep the column, an edge stops |
 | File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
 | Create a file | Right-click the empty area or the browse background → **New File** (name + extension picker + a **Will create** preview) |
 | Color a folder | Right-click a folder entry → **Folder color** (nine colours, or **Default color** to undo) |
@@ -304,6 +337,10 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   加行、行距不变（多出的高度留在下方）。**图标大小**是组件菜单里的六档设置，不再
   随面板变化；组件菜单里旧的**列数 / 最大行数**选项已移除，面板也不再随内容自动
   收放。退出时开着的面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
+- **文件夹标题栏与方向键选择** — 选中条目时标题栏显示该条目的全名（Tooltip 是完整路径），
+  多选显示「N 项已选」，没有选择时回落为组件名（浏览时是当前文件夹名）；方向键按网格
+  移动选择——左右跨行走到相邻格、上下保持同列，最后一行不满时向下落到最后一项，边界
+  停住（未选中任何条目时，第一次方向键选中最前一项）。
 - **组件类型** — 新建组件时可选「文件夹」或「待办」两种类型；两类组件在岛、
   面板、右键菜单与开机恢复中的行为完全一致。
 - **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
@@ -314,6 +351,16 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   农历）只在格子足够高时显示。月历与清单之间的**分隔线也可拖动**，两部分占比随意
   调整；空间不足时「＋」添加行贴在面板底部（清单滚动），够用时跟在最后一条 todo
   下方，点击它自动滚动到清单底部；今天的日期标记是手绘圈 + 右下角手绘 ✅。
+- **待办编辑、撤回与清理** — 点击条目即可就地编辑：插入光标跟随组件颜色（高对比度回落
+  系统文本色）；光标在文本最前（无选区）按退格是一道阶梯——未完成 → 打勾（与正常勾选
+  一致：盖完成日期、父项级联子项），已完成或框内已清空 → 删除，父项与子项规则一致。
+  Enter 可一路走到底：父项编辑器进第一个子项（没有子项则进它的子项添加框），子项编辑器
+  进下一个兄弟（最后一个则进该父项的添加框），添加框有输入就连续添加；空 Enter 跳到
+  下一个父项的编辑器，最后一个父项落到底部新增输入。点到别处不会跳行。删除与勾选（行菜单、
+  退格阶梯、「清理已完成」整批、父项 / 子项 / 阶梯打勾）都能用 Ctrl+Z 按步撤回，最多
+  连续回退 20 步（编辑器聚焦时仍是文本框自带的文字撤回；没有重做）。在清单或日历空白处
+  右键 →「清理已完成」：清掉当前选中日的已完成条目（已完成的父项整条含子树；未完成父项
+  下的已完成子项逐条删除），当天没有已完成项时置灰；整批可 Ctrl+Z 找回。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
@@ -352,6 +399,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **桌面图标开关** — 单击岛的桌面入口隐藏/显示桌面图标，双击打开桌面文件夹。
 - **主题** — 深色/浅色覆盖所有界面（面板、岛、设置、菜单、Tooltip）；
   右键菜单会带上所属组件的颜色；系统开启高对比度时界面跟随系统色。
+- **细胶囊滚动条与圆润菜单** — 全局滚动条都是细胶囊：点击区 8px，静止时是 4px 圆角
+  胶囊、悬停或拖动时 6px 并加深，没有轨道与箭头；右键菜单统一为圆润留白样式——圆角 12、
+  内缩胶囊悬停、细人字子菜单箭头、禁用项 0.5 置灰，仍带所属组件的颜色淡染。
 - **三语界面** — English / 简体中文 / 日本語。
 - **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
   单实例保护，可选开机自启。
@@ -392,12 +442,15 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 新建组件 | 岛的 `+` 入口（或托盘菜单） |
 | 新建待办 | 岛的 `+` 入口（或托盘菜单）→ 选择「待办」 |
 | 选中日期 | 点击月历中的日期（非本月的格子会先切月） |
-| 添加子待办 | 右键待办条目 →「添加子项」（Enter 可连续录入） |
+| 添加子待办 | 右键待办条目 →「添加子项」（有输入时 Enter 继续添加，空 Enter 跳到下一个父项） |
 | 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
+| 撤回删除或勾选 | 编辑器未聚焦时按 Ctrl+Z，最多连续回退 20 步 |
+| 清理当天已完成 | 在清单或日历空白处右键 →「清理已完成」（当天没有已完成项时置灰） |
 | 打开设置 | 岛的齿轮入口（或托盘菜单） |
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
 | 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
+| 方向键移动选择 | 左右跨行、上下同列，到边界停住 |
 | 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
 | 新建文件 | 右键空白处或浏览背景 →「新建文件」（名称 + 后缀选择器 +「将创建」预览） |
 | 给文件夹上色 | 右键文件夹条目 →「文件夹颜色」（9 种颜色；「恢复默认颜色」可还原） |
