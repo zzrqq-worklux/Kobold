@@ -414,6 +414,14 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("icon: hand-drawn todo paper follows the theme", HandDrawnTodoPaperFollowsTheme);
                 failures += TryCheck("icon: the by-key factory dispatches todo", ByKeyFactoryDispatchesTodo);
                 failures += TryCheck("icon: the by-key factory falls back to folder for everything else", ByKeyFactoryFallsBackToFolder);
+
+                // Task T4 pins: the note kind draws a page of its own in both
+                // styles, dispatched from CreateByKey("note", ...).
+                failures += TryCheck("icon: note factory dispatches classic and hand-drawn", NoteFactoryDispatchesStyles);
+                failures += TryCheck("icon: the by-key factory dispatches note", ByKeyFactoryDispatchesNote);
+                failures += TryCheck("icon: classic note accents use the widget colour", ClassicNoteUsesWidgetColour);
+                failures += TryCheck("icon: hand-drawn note uses the widget colour and themed ink", HandDrawnNoteUsesWidgetColourAndInk);
+                failures += TryCheck("icon: hand-drawn note geometry differs from classic", HandDrawnNoteGeometryDiffersFromClassic);
                 failures += TryCheck("island: folder tile refreshes with the icon style", IslandFolderTileRefreshesWithStyle);
                 failures += TryCheck("island: todo tile refreshes with the icon style", IslandTodoTileRefreshesWithStyle);
 
@@ -7111,6 +7119,99 @@ namespace Kobold.XamlLoadCheck
         {
             Shape paper = FindShape(root, s => s is Path && s.Fill is SolidColorBrush && s.Stroke is SolidColorBrush);
             return paper == null ? (Color?)null : ((SolidColorBrush)paper.Fill).Color;
+        }
+
+        private static void NoteFactoryDispatchesStyles()
+        {
+            if (!(IconRendererFactory.CreateNote("classic") is ClassicNoteIconRenderer))
+                throw new InvalidOperationException("CreateNote(classic) is not a ClassicNoteIconRenderer");
+            if (!(IconRendererFactory.CreateNote("handdrawn") is HandDrawnNoteIconRenderer))
+                throw new InvalidOperationException("CreateNote(handdrawn) is not a HandDrawnNoteIconRenderer");
+            if (!(IconRendererFactory.CreateNote("rounded") is ClassicNoteIconRenderer))
+                throw new InvalidOperationException("the retired rounded note style did not fall back to classic");
+        }
+
+        private static void ByKeyFactoryDispatchesNote()
+        {
+            if (!(IconRendererFactory.CreateByKey("note", "classic") is ClassicNoteIconRenderer))
+                throw new InvalidOperationException("CreateByKey(note, classic) is not a ClassicNoteIconRenderer");
+            if (!(IconRendererFactory.CreateByKey("note", "handdrawn") is HandDrawnNoteIconRenderer))
+                throw new InvalidOperationException("CreateByKey(note, handdrawn) is not a HandDrawnNoteIconRenderer");
+        }
+
+        private static void ClassicNoteUsesWidgetColour()
+        {
+            ThemeManager.Initialize("dark");
+            const string hex = "#3B82F6";
+            Color wanted = Utils.HexToColor(hex);
+            var canvas = RenderIcon(new ClassicNoteIconRenderer(), hex);
+
+            Shape accent = FindShape(canvas, s =>
+            {
+                var fill = s.Fill as SolidColorBrush;
+                return fill != null && fill.Color == wanted;
+            });
+            if (accent == null)
+            {
+                throw new InvalidOperationException(
+                    "no classic note accent carries the widget colour " + Describe(wanted));
+            }
+        }
+
+        private static void HandDrawnNoteUsesWidgetColourAndInk()
+        {
+            const string hex = "#EF4444";
+            Color wanted = Utils.HexToColor(hex);
+
+            ThemeManager.Initialize("light");
+            var light = RenderIcon(new HandDrawnNoteIconRenderer(), hex);
+            Shape accent = FindShape(light, s =>
+            {
+                var fill = s.Fill as SolidColorBrush;
+                if (fill != null && fill.Color == wanted) return true;
+                var stroke = s.Stroke as SolidColorBrush;
+                return stroke != null && stroke.Color == wanted;
+            });
+            if (accent == null)
+                throw new InvalidOperationException("no hand-drawn note accent carries the widget colour");
+
+            ThemeManager.Initialize("dark");
+            var dark = RenderIcon(new HandDrawnNoteIconRenderer(), hex);
+
+            Color? lightPaper = HandDrawnNotePaperColour(light);
+            Color? darkPaper = HandDrawnNotePaperColour(dark);
+            if (lightPaper == null || darkPaper == null)
+                throw new InvalidOperationException("the hand-drawn note paper path was not found");
+            if (lightPaper.Value == darkPaper.Value)
+            {
+                throw new InvalidOperationException(
+                    "the paper is " + Describe(lightPaper.Value) + " under both themes");
+            }
+        }
+
+        private static Color? HandDrawnNotePaperColour(Canvas root)
+        {
+            Shape paper = FindShape(root, s => s is Path && s.Fill is SolidColorBrush && s.Stroke is SolidColorBrush);
+            return paper == null ? (Color?)null : ((SolidColorBrush)paper.Fill).Color;
+        }
+
+        private static void HandDrawnNoteGeometryDiffersFromClassic()
+        {
+            ThemeManager.Initialize("dark");
+            const string hex = "#EF4444";
+            var classic = RenderIcon(new ClassicNoteIconRenderer(), hex);
+            var handDrawn = RenderIcon(new HandDrawnNoteIconRenderer(), hex);
+
+            if (handDrawn.Children.Count == 0)
+                throw new InvalidOperationException("the hand-drawn note draws nothing");
+
+            string handFingerprint = IconFingerprint(handDrawn);
+            if (handFingerprint.IndexOf("|d=", StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException("the hand-drawn note has no baked path geometry");
+            if (IconFingerprint(classic) == handFingerprint)
+                throw new InvalidOperationException("the hand-drawn note geometry matches classic");
+            if (classic.Children.Count == handDrawn.Children.Count)
+                throw new InvalidOperationException("both note styles draw the same number of child elements");
         }
 
         private static void IslandFolderTileRefreshesWithStyle()

@@ -87,12 +87,24 @@ namespace Kobold.Controls.IconRenderers
             }
         }
 
+        /// <summary>Note icon renderer for a style id; unknown/retired ids fall back to classic.</summary>
+        public static IIconRenderer CreateNote(string style)
+        {
+            switch (style)
+            {
+                case "classic": return new ClassicNoteIconRenderer();
+                case "handdrawn": return new HandDrawnNoteIconRenderer();
+                default: return new ClassicNoteIconRenderer();
+            }
+        }
+
         /// <summary>Picks the renderer from a <see cref="WidgetKind.IconKey"/>;
         /// the folder glyph covers the fallback cases, matching the island's
         /// historical else-branch.</summary>
         public static IIconRenderer CreateByKey(string iconKey, string style)
         {
             if (iconKey == "todo") return CreateTodo(style);
+            if (iconKey == "note") return CreateNote(style);
             return Create(style);
         }
     }
