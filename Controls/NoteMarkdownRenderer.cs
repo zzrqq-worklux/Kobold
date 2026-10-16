@@ -69,12 +69,50 @@ namespace Kobold.Controls
     /// source line, quotes to a left rule, code to a monospace band, tables to
     /// an aligned Table and rules to a thin line. Colours arrive through
     /// <see cref="NoteRenderStyle"/> and the high contrast flag swaps the whole
-    /// palette for the system roles.
+    /// palette for the system roles. Every painted block is also tagged with
+    /// the absolute source line it stands for through
+    /// <see cref="SourceLineProperty"/>, so a host can map a click back to the
+    /// line it edits.
     /// </summary>
     public static class NoteMarkdownRenderer
     {
         /// <summary>The H1..H6 multipliers of the body size (design §4).</summary>
         private static readonly double[] HeadingScale = { 1.6, 1.4, 1.25, 1.12, 1.05, 1.0 };
+
+        /// <summary>
+        /// The absolute source line a painted element stands for (default -1:
+        /// "no line"). T4/T6 read it back to map a click in the document to the
+        /// line it edits. Registered on this static class on purpose - WPF
+        /// allows it, exactly like the BCL's <see cref="TextOptions"/>.
+        /// </summary>
+        public static readonly DependencyProperty SourceLineProperty =
+            DependencyProperty.RegisterAttached("SourceLine", typeof(int), typeof(NoteMarkdownRenderer),
+                new FrameworkPropertyMetadata(-1));
+
+        /// <summary>Tags <paramref name="element"/> with its source line.</summary>
+        public static void SetSourceLine(DependencyObject element, int line)
+        {
+            if (element == null) throw new ArgumentNullException(nameof(element));
+            element.SetValue(SourceLineProperty, line);
+        }
+
+        /// <summary>The element's source line, or -1 when it was never tagged.</summary>
+        public static int GetSourceLine(DependencyObject element)
+        {
+            if (element == null) throw new ArgumentNullException(nameof(element));
+            return (int)element.GetValue(SourceLineProperty);
+        }
+
+        /// <summary>
+        /// The heading size for a 1..6 level: the body size times the ladder
+        /// multiplier, levels clamped to the ends so an out-of-range level can
+        /// never size a box off the ladder.
+        /// </summary>
+        public static double HeadingFontSize(int level, double baseSize)
+        {
+            int clamped = Math.Min(Math.Max(level, 1), HeadingScale.Length);
+            return baseSize * HeadingScale[clamped - 1];
+        }
 
         /// <summary>The code stack: Consolas first, then the usual fallbacks.</summary>
         private static readonly FontFamily MonospaceFont =
@@ -218,16 +256,16 @@ namespace Kobold.Controls
             var table = block as MdTable;
             if (table != null) { target.Add(BuildTable(table, ctx, foreground)); return; }
 
-            if (block is MdThematicBreak) target.Add(BuildRule(ctx));
+            if (block is MdThematicBreak) target.Add(BuildRule(block.Line, ctx));
         }
 
         private static Paragraph BuildHeading(MdHeading heading, RenderContext ctx, Brush foreground)
         {
-            int level = Math.Min(Math.Max(heading.Level, 1), HeadingScale.Length);
             var paragraph = NewParagraph(foreground);
-            paragraph.FontSize = ctx.BaseFontSize * HeadingScale[level - 1];
+            paragraph.FontSize = HeadingFontSize(heading.Level, ctx.BaseFontSize);
             paragraph.FontWeight = FontWeights.SemiBold;
             paragraph.Margin = new Thickness(0, 6, 0, 4);
+            SetSourceLine(paragraph, heading.Line);
             AppendInlines(paragraph.Inlines, heading.Inlines, ctx, new InlineFormat(), foreground);
             return paragraph;
         }
@@ -235,6 +273,7 @@ namespace Kobold.Controls
         private static Paragraph BuildParagraph(MdParagraph block, RenderContext ctx, Brush foreground)
         {
             var paragraph = NewParagraph(foreground);
+            SetSourceLine(paragraph, block.Line);
             var lines = block.Lines;
             if (lines != null)
             {
@@ -242,8 +281,13 @@ namespace Kobold.Controls
                 {
                     // Soft breaks stay breaks: the parser hands one inline run
                     // per source line (the Chinese-note deviation, design §4).
+                    // Each line group is a Span tagged with its own source line,
+                    // so a click inside it maps back to the line it edits.
                     if (i > 0) paragraph.Inlines.Add(new LineBreak());
-                    AppendInlines(paragraph.Inlines, lines[i], ctx, new InlineFormat(), foreground);
+                    var span = new Span();
+                    SetSourceLine(span, block.Line + i);
+                    AppendInlines(span.Inlines, lines[i], ctx, new InlineFormat(), foreground);
+                    paragraph.Inlines.Add(span);
                 }
             }
             return paragraph;
@@ -267,6 +311,7 @@ namespace Kobold.Controls
                     if (item == null) continue;
                     var paragraph = NewParagraph(foreground);
                     paragraph.Margin = new Thickness(0);
+                    SetSourceLine(paragraph, item.Line);
                     AppendInlines(paragraph.Inlines, item.Inlines, ctx, new InlineFormat(), foreground);
                     list.ListItems.Add(new ListItem(paragraph));
                 }
@@ -277,6 +322,7 @@ namespace Kobold.Controls
         private static Paragraph BuildTask(MdTaskBlock block, RenderContext ctx, Brush foreground)
         {
             var paragraph = NewParagraph(foreground);
+            SetSourceLine(paragraph, block.Line);
             paragraph.Inlines.Add(TaskGlyph(block.Line, block.Checked, ctx));
             AppendInlines(paragraph.Inlines, block.Inlines, ctx, new InlineFormat(), foreground);
             return paragraph;
@@ -344,6 +390,7 @@ namespace Kobold.Controls
                 Margin = new Thickness(0, 2, 0, 8),
                 Foreground = ctx.Palette.Muted
             };
+            SetSourceLine(section, block.Line);
 
             if (block.Blocks != null)
             {
@@ -367,6 +414,7 @@ namespace Kobold.Controls
                 Background = ctx.Palette.CodeBackground,
                 Margin = new Thickness(0, 2, 0, 8)
             };
+            SetSourceLine(paragraph, block.Line);
             paragraph.Inlines.Add(new Run(block.Text ?? string.Empty));
             return paragraph;
         }
@@ -379,6 +427,7 @@ namespace Kobold.Controls
                 CellSpacing = 0,
                 Margin = new Thickness(0, 2, 0, 8)
             };
+            SetSourceLine(table, block.Line);
 
             for (int c = 0; c < align.Length; c++)
             {
@@ -450,14 +499,16 @@ namespace Kobold.Controls
             }
         }
 
-        private static Block BuildRule(RenderContext ctx)
+        private static Block BuildRule(int line, RenderContext ctx)
         {
-            return new BlockUIContainer(new Border
+            var container = new BlockUIContainer(new Border
             {
                 Height = 1,
                 Background = ctx.Palette.Divider,
                 Margin = new Thickness(0, 8, 0, 8)
             });
+            SetSourceLine(container, line);
+            return container;
         }
 
         /// <summary>

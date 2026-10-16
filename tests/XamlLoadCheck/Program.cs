@@ -535,6 +535,9 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("renderer: high contrast swaps to system colours",
                     RendererHighContrastUsesSystemColours);
                 failures += TryCheck("renderer: the accent follows the widget colour", RendererAccentFollowsWidgetColour);
+                failures += TryCheck("renderer: blocks carry their source lines", RendererBlocksCarryTheirSourceLines);
+                failures += TryCheck("renderer: the heading size helper follows the ladder",
+                    RendererHeadingSizeHelperFollowsTheLadder);
 
                 // Task T13 pins: the reading state - a card click drills into
                 // the rendered read-only document, the back button and Backspace
@@ -9067,6 +9070,112 @@ namespace Kobold.XamlLoadCheck
                     + (linkInk == null ? "<null>" : linkInk.Color.ToString()) + "', wanted " + wanted);
         }
 
+        /// <summary>
+        /// T2: every painted block is tagged with the absolute source line it
+        /// stands for, read back through the attached
+        /// <see cref="NoteMarkdownRenderer.SourceLineProperty"/>. Headings,
+        /// tasks, quotes (the section and its inner block), code, rules and
+        /// tables tag their own container; a paragraph tags itself with the
+        /// first line and each soft-broken line group's Span with its own, so a
+        /// click can be traced to the line it edits.
+        /// </summary>
+        private static void RendererBlocksCarryTheirSourceLines()
+        {
+            const string source =
+                "one\ntwo\n\n# h\n\n- [ ] t\n\n> q\n\n```\nc\n```\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |";
+            var doc = RenderDocument(source, NewRenderStyle());
+            if (doc.Blocks.Count != 7)
+                throw new InvalidOperationException("the fixture produced " + doc.Blocks.Count + " block(s), wanted 7");
+
+            var first = ParagraphAt(doc, 0);
+            var groups = new List<Span>();
+            foreach (var inline in first.Inlines)
+            {
+                var span = inline as Span;
+                if (span != null) groups.Add(span);
+            }
+            if (groups.Count != 2)
+                throw new InvalidOperationException("the first paragraph carries " + groups.Count
+                    + " line group(s), wanted 2");
+            ExpectSourceLine(groups[0], 0, "the first line group");
+            ExpectSourceLine(groups[1], 1, "the second line group");
+
+            ExpectSourceLine(ParagraphAt(doc, 1), 3, "the heading");
+            ExpectSourceLine(ParagraphAt(doc, 2), 5, "the task");
+
+            var quote = BlockAt(doc.Blocks, 3) as Section;
+            if (quote == null)
+                throw new InvalidOperationException("block 3 is a " + BlockAsText(doc.Blocks, 3) + ", not a section");
+            ExpectSourceLine(quote, 7, "the quote");
+            var quoteBody = BlockAt(quote.Blocks, 0) as Paragraph;
+            if (quoteBody == null)
+                throw new InvalidOperationException("the quote holds no paragraph");
+            ExpectSourceLine(quoteBody, 7, "the quote paragraph");
+
+            ExpectSourceLine(ParagraphAt(doc, 4), 9, "the code block");
+
+            var rule = BlockAt(doc.Blocks, 5);
+            if (!(rule is BlockUIContainer))
+                throw new InvalidOperationException("block 5 is a " + rule.GetType().Name + ", not a rule");
+            ExpectSourceLine(rule, 13, "the thematic break");
+
+            var table = BlockAt(doc.Blocks, 6) as Table;
+            if (table == null)
+                throw new InvalidOperationException("block 6 is a " + BlockAsText(doc.Blocks, 6) + ", not a table");
+            ExpectSourceLine(table, 15, "the table");
+
+            // A list tags each item's paragraph with the item's own line.
+            var listDoc = RenderDocument("- a\n- b", NewRenderStyle());
+            var list = BlockAt(listDoc.Blocks, 0) as List;
+            if (list == null || list.ListItems.Count != 2)
+                throw new InvalidOperationException("the two list items did not render to a list");
+            int itemIndex = 0;
+            foreach (var item in list.ListItems)
+            {
+                var itemParagraph = BlockAt(item.Blocks, 0) as Paragraph;
+                if (itemParagraph == null)
+                    throw new InvalidOperationException("list item " + itemIndex + " holds no paragraph");
+                ExpectSourceLine(itemParagraph, itemIndex, "list item " + itemIndex);
+                itemIndex++;
+            }
+        }
+
+        /// <summary>
+        /// T2: <see cref="NoteMarkdownRenderer.HeadingFontSize"/> is the single
+        /// source of truth for the heading ladder (body size times
+        /// 1.6/1.4/1.25/1.12/1.05/1.0), with levels clamped to 1..6 so an
+        /// out-of-range level can never size a box off the ladder.
+        /// </summary>
+        private static void RendererHeadingSizeHelperFollowsTheLadder()
+        {
+            double[] scale = { 1.6, 1.4, 1.25, 1.12, 1.05, 1.0 };
+            for (int level = 1; level <= scale.Length; level++)
+            {
+                double wanted = 16 * scale[level - 1];
+                double actual = NoteMarkdownRenderer.HeadingFontSize(level, 16);
+                if (Math.Abs(actual - wanted) > 0.001)
+                    throw new InvalidOperationException("H" + level + " sizes to " + actual + ", wanted " + wanted);
+            }
+
+            if (NoteMarkdownRenderer.HeadingFontSize(0, 16) != NoteMarkdownRenderer.HeadingFontSize(1, 16))
+                throw new InvalidOperationException("level 0 does not clamp to H1");
+            if (NoteMarkdownRenderer.HeadingFontSize(7, 16) != NoteMarkdownRenderer.HeadingFontSize(6, 16))
+                throw new InvalidOperationException("level 7 does not clamp to H6");
+        }
+
+        private static void ExpectSourceLine(DependencyObject element, int wanted, string what)
+        {
+            int line = NoteMarkdownRenderer.GetSourceLine(element);
+            if (line != wanted)
+                throw new InvalidOperationException(what + " is tagged line " + line + ", wanted " + wanted);
+        }
+
+        private static string BlockAsText(BlockCollection blocks, int index)
+        {
+            var block = BlockAt(blocks, index);
+            return block == null ? "<null>" : block.GetType().Name;
+        }
+
         private static Paragraph ParagraphAt(FlowDocument doc, int index)
         {
             if (doc.Blocks.Count <= index)
@@ -9110,14 +9219,31 @@ namespace Kobold.XamlLoadCheck
             throw new InvalidOperationException("the paragraph carries no task glyph");
         }
 
+        /// <summary>The run that reads <paramref name="text"/>. Paragraphs wrap
+        /// each soft-broken line group in a <see cref="Span"/>, so the scan
+        /// recurses like <see cref="InlineText"/> does.</summary>
         private static Run RunWithText(Paragraph paragraph, string text)
         {
-            foreach (var inline in paragraph.Inlines)
+            var run = FindRunWithText(paragraph.Inlines, text);
+            if (run != null) return run;
+            throw new InvalidOperationException("no run in the paragraph reads '" + text + "'");
+        }
+
+        private static Run FindRunWithText(IEnumerable<Inline> inlines, string text)
+        {
+            foreach (var inline in inlines)
             {
                 var run = inline as Run;
                 if (run != null && run.Text == text) return run;
+
+                var span = inline as Span;
+                if (span != null)
+                {
+                    var nested = FindRunWithText(span.Inlines, text);
+                    if (nested != null) return nested;
+                }
             }
-            throw new InvalidOperationException("no run in the paragraph reads '" + text + "'");
+            return null;
         }
 
         private static Hyperlink FirstHyperlink(FlowDocument doc)
