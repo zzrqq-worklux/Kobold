@@ -31,6 +31,12 @@ namespace Kobold.Core
                 ["UI_DefaultNoteName"] = "My Note",
                 ["UI_NoteSourceTab"] = "Source",
                 ["UI_NotePreviewTab"] = "Preview",
+                ["Note_PlaceholderBold"] = "bold",
+                ["Note_PlaceholderItalic"] = "italic",
+                ["Note_PlaceholderStrike"] = "struck",
+                ["Note_PlaceholderInlineCode"] = "code",
+                ["Note_PlaceholderLink"] = "link",
+                ["Note_TableColumnFormat"] = "Column {0}",
                 ["UI_NewWidgetFormat"] = "New {0}",
                 ["UI_SelectedCountFormat"] = "{0} selected",
                 ["UI_BadgeHelpTitle"] = "Badge meanings",
@@ -184,7 +190,25 @@ namespace Kobold.Core
                 ["Menu_CopyPath"] = "📋 Copy Path",
                 ["Menu_Copy"] = "📄 Copy",
                 ["Menu_Cut"] = "✂ Cut",
-                ["Menu_Paste"] = "📋 Paste"
+                ["Menu_Paste"] = "📋 Paste",
+                ["Menu_SelectAll"] = "▣ Select All",
+
+                // Note editor - right-click quick insert (spec 6.4)
+                ["Menu_Heading"] = "Heading",
+                ["Menu_Format"] = "Format",
+                ["Menu_InsertHeading"] = "Heading {0}",
+                ["Menu_InsertBullets"] = "Bullet List",
+                ["Menu_InsertNumbers"] = "Numbered List",
+                ["Menu_InsertTasks"] = "Task List",
+                ["Menu_InsertQuote"] = "Quote",
+                ["Menu_InsertCode"] = "Code Block",
+                ["Menu_InsertTable"] = "Table",
+                ["Menu_InsertDivider"] = "Divider",
+                ["Menu_FormatBold"] = "Bold",
+                ["Menu_FormatItalic"] = "Italic",
+                ["Menu_FormatStrike"] = "Strikethrough",
+                ["Menu_FormatCode"] = "Inline Code",
+                ["Menu_FormatLink"] = "Link"
             },
 
             ["zh"] = new Dictionary<string, string>
@@ -205,6 +229,12 @@ namespace Kobold.Core
                 ["UI_DefaultNoteName"] = "我的笔记",
                 ["UI_NoteSourceTab"] = "源码",
                 ["UI_NotePreviewTab"] = "预览",
+                ["Note_PlaceholderBold"] = "粗体",
+                ["Note_PlaceholderItalic"] = "斜体",
+                ["Note_PlaceholderStrike"] = "删除线",
+                ["Note_PlaceholderInlineCode"] = "代码",
+                ["Note_PlaceholderLink"] = "链接",
+                ["Note_TableColumnFormat"] = "列 {0}",
                 ["UI_NewWidgetFormat"] = "新建{0}",
                 ["UI_SelectedCountFormat"] = "{0} 项已选",
                 ["UI_BadgeHelpTitle"] = "角标说明",
@@ -358,7 +388,25 @@ namespace Kobold.Core
                 ["Menu_CopyPath"] = "📋 复制路径",
                 ["Menu_Copy"] = "📄 复制",
                 ["Menu_Cut"] = "✂ 剪切",
-                ["Menu_Paste"] = "📋 粘贴"
+                ["Menu_Paste"] = "📋 粘贴",
+                ["Menu_SelectAll"] = "▣ 全选",
+
+                // Note editor - right-click quick insert (spec 6.4)
+                ["Menu_Heading"] = "标题",
+                ["Menu_Format"] = "格式",
+                ["Menu_InsertHeading"] = "标题 {0}",
+                ["Menu_InsertBullets"] = "无序列表",
+                ["Menu_InsertNumbers"] = "有序列表",
+                ["Menu_InsertTasks"] = "任务列表",
+                ["Menu_InsertQuote"] = "引用",
+                ["Menu_InsertCode"] = "代码块",
+                ["Menu_InsertTable"] = "表格",
+                ["Menu_InsertDivider"] = "分割线",
+                ["Menu_FormatBold"] = "粗体",
+                ["Menu_FormatItalic"] = "斜体",
+                ["Menu_FormatStrike"] = "删除线",
+                ["Menu_FormatCode"] = "行内代码",
+                ["Menu_FormatLink"] = "链接"
             },
 
             ["ja"] = new Dictionary<string, string>
@@ -379,6 +427,12 @@ namespace Kobold.Core
                 ["UI_DefaultNoteName"] = "マイ ノート",
                 ["UI_NoteSourceTab"] = "ソース",
                 ["UI_NotePreviewTab"] = "プレビュー",
+                ["Note_PlaceholderBold"] = "太字",
+                ["Note_PlaceholderItalic"] = "斜体",
+                ["Note_PlaceholderStrike"] = "取り消し線",
+                ["Note_PlaceholderInlineCode"] = "コード",
+                ["Note_PlaceholderLink"] = "リンク",
+                ["Note_TableColumnFormat"] = "列 {0}",
                 ["UI_NewWidgetFormat"] = "新規{0}",
                 ["UI_SelectedCountFormat"] = "{0} 件選択中",
                 ["UI_BadgeHelpTitle"] = "バッジの説明",
@@ -532,7 +586,25 @@ namespace Kobold.Core
                 ["Menu_CopyPath"] = "📋 パスのコピー",
                 ["Menu_Copy"] = "📄 コピー",
                 ["Menu_Cut"] = "✂ 切り取り",
-                ["Menu_Paste"] = "📋 貼り付け"
+                ["Menu_Paste"] = "📋 貼り付け",
+                ["Menu_SelectAll"] = "▣ すべて選択",
+
+                // Note editor - right-click quick insert (spec 6.4)
+                ["Menu_Heading"] = "見出し",
+                ["Menu_Format"] = "書式",
+                ["Menu_InsertHeading"] = "見出し {0}",
+                ["Menu_InsertBullets"] = "箇条書き",
+                ["Menu_InsertNumbers"] = "番号付きリスト",
+                ["Menu_InsertTasks"] = "タスクリスト",
+                ["Menu_InsertQuote"] = "引用",
+                ["Menu_InsertCode"] = "コードブロック",
+                ["Menu_InsertTable"] = "表",
+                ["Menu_InsertDivider"] = "区切り線",
+                ["Menu_FormatBold"] = "太字",
+                ["Menu_FormatItalic"] = "斜体",
+                ["Menu_FormatStrike"] = "取り消し線",
+                ["Menu_FormatCode"] = "インラインコード",
+                ["Menu_FormatLink"] = "リンク"
             }
         };
 

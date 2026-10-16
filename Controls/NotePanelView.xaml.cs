@@ -96,6 +96,11 @@ namespace Kobold.Controls
                 Root.ContextMenu = _state == State.List ? BuildBlankMenu() : null;
             };
 
+            // The source editor's right-click quick-insert menu (spec 6.4):
+            // rebuilt on every opening so the labels and the widget tint are
+            // current (the list's blank-area pattern).
+            _editingBox.ContextMenuOpening += EditingBox_ContextMenuOpening;
+
             Refresh();
         }
 
@@ -379,6 +384,13 @@ namespace Kobold.Controls
             _editingIsNew = false;
             _previewMode = false;
             _state = State.Editing;
+
+            // The box carries its quick-insert menu from here on: WPF's own
+            // text-editor handler only steps aside (letting the opening event
+            // reach us, and opening what we build) for a box that already has a
+            // custom ContextMenu - with none it opens its built-in
+            // Cut/Copy/Paste menu and marks the event handled.
+            _editingBox.ContextMenu = BuildEditorMenu();
             _editingBox.Text = note.Text ?? string.Empty;
             Refresh();
             _editingBox.Focus();
@@ -408,6 +420,7 @@ namespace Kobold.Controls
             _editingIsNew = true;
             _previewMode = false;
             _state = State.Editing;
+            _editingBox.ContextMenu = BuildEditorMenu();   // the same carry, see OpenEditor
             _editingBox.Text = string.Empty;
             Refresh();
             _editingBox.Focus();
@@ -615,6 +628,175 @@ namespace Kobold.Controls
             };
             entry.Click += (s, e) => StartNewNote();
             return new MenuBuilder(_data.Color).AddMenuItem(entry).Build();
+        }
+
+        #endregion
+
+        #region Editor quick-insert menu (T15)
+
+        /// <summary>
+        /// The source box asks for its menu: the editing state refills the
+        /// quick-insert menu the box already carries, every other state leaves
+        /// the box's own menu alone (the list's blank-area pattern, spec 6.4).
+        /// </summary>
+        private void EditingBox_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            if (_state != State.Editing)
+            {
+                _editingBox.ContextMenu = null;
+                return;
+            }
+
+            var menu = _editingBox.ContextMenu;
+            if (menu == null)
+            {
+                // The box carries one from the moment the editor opened
+                // (OpenEditor); only a menu cleared since then lands here.
+                menu = new ContextMenu();
+                _editingBox.ContextMenu = menu;
+            }
+            FillEditorMenu(menu);
+        }
+
+        /// <summary>
+        /// The editor's right-click quick-insert menu (spec 6.4), freshly built.
+        /// The box carries one from the moment the editor opens (see
+        /// <see cref="OpenEditor"/>) and
+        /// <see cref="EditingBox_ContextMenuOpening"/> refills it in place on
+        /// every opening.
+        /// </summary>
+        private ContextMenu BuildEditorMenu()
+        {
+            var menu = new ContextMenu();
+            FillEditorMenu(menu);
+            return menu;
+        }
+
+        /// <summary>
+        /// Fills <paramref name="menu"/> with the editor's entries: the standard
+        /// four clipboard commands (headers localized, the behaviour is WPF's
+        /// own), a separator, the 标题 and 格式 submenus, then the seven flat
+        /// inserts. Every insert entry runs one <see cref="NoteEditorOps"/> op
+        /// over the box, the placeholder words come from the localization table,
+        /// and the widget colour wash comes from the shared
+        /// <see cref="MenuBuilder"/> (no template is touched).
+        ///
+        /// The refill is in place because the instance is the one the box
+        /// already carries: WPF's own text-editor menu handler grabs the box's
+        /// ContextMenu before the opening event reaches this view and opens that
+        /// very instance afterwards, so swapping in a fresh one would leave its
+        /// bookkeeping (and the menu the user sees) behind.
+        /// </summary>
+        private void FillEditorMenu(ContextMenu menu)
+        {
+            menu.Items.Clear();
+            menu.Items.Add(CommandEntry("Menu_Cut", ApplicationCommands.Cut));
+            menu.Items.Add(CommandEntry("Menu_Copy", ApplicationCommands.Copy));
+            menu.Items.Add(CommandEntry("Menu_Paste", ApplicationCommands.Paste));
+            menu.Items.Add(CommandEntry("Menu_SelectAll", ApplicationCommands.SelectAll));
+            menu.Items.Add(new Separator());
+
+            var heading = new MenuItem { Header = Localization.Get("Menu_Heading") };
+            for (int level = 1; level <= 6; level++)
+            {
+                int chosen = level;
+                var entry = new MenuItem { Header = Localization.Format("Menu_InsertHeading", chosen) };
+                entry.Click += (s, e) => ApplyEditorOp(
+                    (text, start, length) => NoteEditorOps.InsertHeading(text, start, length, chosen));
+                heading.Items.Add(entry);
+            }
+            menu.Items.Add(heading);
+
+            var format = new MenuItem { Header = Localization.Get("Menu_Format") };
+            format.Items.Add(InsertEntry("Menu_FormatBold",
+                (text, start, length) => NoteEditorOps.WrapBold(text, start, length, Localization.Get("Note_PlaceholderBold"))));
+            format.Items.Add(InsertEntry("Menu_FormatItalic",
+                (text, start, length) => NoteEditorOps.WrapItalic(text, start, length, Localization.Get("Note_PlaceholderItalic"))));
+            format.Items.Add(InsertEntry("Menu_FormatStrike",
+                (text, start, length) => NoteEditorOps.WrapStrike(text, start, length, Localization.Get("Note_PlaceholderStrike"))));
+            format.Items.Add(InsertEntry("Menu_FormatCode",
+                (text, start, length) => NoteEditorOps.WrapInlineCode(text, start, length, Localization.Get("Note_PlaceholderInlineCode"))));
+            format.Items.Add(InsertEntry("Menu_FormatLink",
+                (text, start, length) => NoteEditorOps.WrapLink(text, start, length, Localization.Get("Note_PlaceholderLink"))));
+            menu.Items.Add(format);
+
+            string firstColumn = Localization.Format("Note_TableColumnFormat", 1);
+            string secondColumn = Localization.Format("Note_TableColumnFormat", 2);
+
+            menu.Items.Add(InsertEntry("Menu_InsertBullets",
+                (text, start, length) => NoteEditorOps.InsertBullet(text, start, length)));
+            menu.Items.Add(InsertEntry("Menu_InsertNumbers",
+                (text, start, length) => NoteEditorOps.InsertNumbered(text, start, length)));
+            menu.Items.Add(InsertEntry("Menu_InsertTasks",
+                (text, start, length) => NoteEditorOps.InsertTask(text, start, length)));
+            menu.Items.Add(InsertEntry("Menu_InsertQuote",
+                (text, start, length) => NoteEditorOps.InsertQuote(text, start, length)));
+            menu.Items.Add(InsertEntry("Menu_InsertCode",
+                (text, start, length) => NoteEditorOps.InsertCodeBlock(text, start, length)));
+            menu.Items.Add(InsertEntry("Menu_InsertTable",
+                (text, start, length) => NoteEditorOps.InsertTable(text, start, length, firstColumn, secondColumn)));
+            menu.Items.Add(InsertEntry("Menu_InsertDivider",
+                (text, start, length) => NoteEditorOps.InsertDivider(text, start, length)));
+
+            MenuBuilder.Prepare(menu, _data.Color);
+        }
+
+        /// <summary>One of the standard four: the header is ours, the behaviour
+        /// is WPF's own routed command aimed at the box (the menu itself takes
+        /// the focus, so the target is pinned rather than inferred).</summary>
+        private MenuItem CommandEntry(string labelKey, ICommand command)
+        {
+            return new MenuItem
+            {
+                Header = Localization.Get(labelKey),
+                Command = command,
+                CommandTarget = _editingBox
+            };
+        }
+
+        /// <summary>One insert entry: its localized label and the op it runs.</summary>
+        private MenuItem InsertEntry(string labelKey, Func<string, int, int, (string, int, int)> op)
+        {
+            var item = new MenuItem { Header = Localization.Get(labelKey) };
+            item.Click += (s, e) => ApplyEditorOp(op);
+            return item;
+        }
+
+        /// <summary>
+        /// Runs one insert op over the source box (spec 6.4): the op reads the
+        /// box's text and selection, and its result replaces the whole text
+        /// through the box's own editing stack - <c>SelectedText</c> over the
+        /// full range, never a raw <c>Text</c> set - so Ctrl+Z rolls one insert
+        /// back as a single step. The replacement rides one change block
+        /// (<c>TextBoxBase.BeginChange</c> / <c>EndChange</c>): WPF records an
+        /// undo unit only while a parent unit is open, so the block is what
+        /// turns the write-back into that one native unit (a bare programmatic
+        /// write registers none and flushes the stack). The op's caret /
+        /// selection follows the block, and the box takes the focus back (the
+        /// menu click moved it away).
+        /// </summary>
+        private void ApplyEditorOp(Func<string, int, int, (string, int, int)> op)
+        {
+            string text = _editingBox.Text ?? string.Empty;
+            var result = op(text, _editingBox.SelectionStart, _editingBox.SelectionLength);
+
+            _editingBox.BeginChange();
+            try
+            {
+                _editingBox.SelectionStart = 0;
+                _editingBox.SelectionLength = text.Length;
+                _editingBox.SelectedText = result.Item1;
+            }
+            finally
+            {
+                _editingBox.EndChange();
+            }
+
+            int start = Math.Min(Math.Max(result.Item2, 0), _editingBox.Text.Length);
+            int length = Math.Min(Math.Max(result.Item3, 0), _editingBox.Text.Length - start);
+            _editingBox.SelectionStart = start;
+            _editingBox.SelectionLength = length;
+            _editingBox.Focus();
         }
 
         #endregion

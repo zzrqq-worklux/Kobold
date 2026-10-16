@@ -594,6 +594,29 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: cancelling a new note notifies the host",
                     NoteCancellingANewNoteNotifiesTheHost);
 
+                // Task T15 pins: the source box's right-click quick-insert
+                // menu - the standard four as COMMAND BINDINGS (read, never
+                // invoked: the checks must not touch the system clipboard),
+                // the heading / format submenus, the seven flat inserts, the
+                // one-replacement write-back that still leaves the box's own
+                // Ctrl+Z able to roll an insert back, and the widget tint.
+                failures += TryCheck("note: the source box menu offers the standard four as commands",
+                    NoteEditorMenuOffersTheStandardFour);
+                failures += TryCheck("note: the heading submenu writes a level",
+                    NoteEditorHeadingSubmenuWritesALevel);
+                failures += TryCheck("note: applying the same list twice removes it",
+                    NoteEditorSameListTwiceRemovesIt);
+                failures += TryCheck("note: the table entry lays out the skeleton",
+                    NoteEditorTableEntryLaysOutTheSkeleton);
+                failures += TryCheck("note: wrapping a selection bolds it",
+                    NoteEditorWrappingASelectionBoldsIt);
+                failures += TryCheck("note: an empty selection inserts the placeholder",
+                    NoteEditorEmptySelectionInsertsThePlaceholder);
+                failures += TryCheck("note: an insert is undoable with the box's own undo",
+                    NoteEditorInsertIsUndoableWithTheBoxUndo);
+                failures += TryCheck("note: the editor menu follows the widget colour",
+                    NoteEditorMenuFollowsTheWidgetColour);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -10178,6 +10201,350 @@ namespace Kobold.XamlLoadCheck
                     "the untouched-note cancel notified the host " + notified + " time(s), wanted 1");
             if (NoteState(view) != "List")
                 throw new InvalidOperationException("the cancel left the view in " + NoteState(view));
+        }
+
+        #endregion
+
+        #region Task T15: note editor insert-menu pins
+
+        /// <summary>
+        /// T15 (spec 6.4): the source box's menu opens with the standard four
+        /// clipboard commands - Cut / Copy / Paste / Select All - as COMMAND
+        /// BINDINGS, followed by the separator that starts the insert block.
+        /// The four are read, never invoked: running one would touch the
+        /// system clipboard, which the checks must never do.
+        /// </summary>
+        private static void NoteEditorMenuOffersTheStandardFour()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+
+            var menu = OpenNoteEditorMenu(view);
+            if (menu.Items.Count < 5)
+                throw new InvalidOperationException(
+                    "the editor menu carries " + menu.Items.Count + " entr(ies), wanted the standard four plus a separator");
+
+            var commands = new[]
+            {
+                ApplicationCommands.Cut, ApplicationCommands.Copy,
+                ApplicationCommands.Paste, ApplicationCommands.SelectAll
+            };
+            for (int i = 0; i < commands.Length; i++)
+            {
+                var item = menu.Items[i] as MenuItem;
+                if (item == null)
+                    throw new InvalidOperationException("editor menu entry " + i + " is not a MenuItem");
+                if (!ReferenceEquals(item.Command, commands[i]))
+                    throw new InvalidOperationException("entry " + i + " ('" + item.Header + "') is bound to "
+                        + (item.Command == null ? "<no command>" : item.Command.ToString())
+                        + ", wanted " + commands[i].Name);
+            }
+
+            if (!(menu.Items[4] is Separator))
+                throw new InvalidOperationException("the standard four are not followed by a separator");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4): the 标题 submenu carries the six levels through
+        /// <c>Menu_InsertHeading</c>, and picking level 3 writes the marker on
+        /// the caret's line and parks the caret after it.
+        /// </summary>
+        private static void NoteEditorHeadingSubmenuWritesALevel()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 0;
+            box.SelectionLength = 0;
+
+            var heading = NoteEditorSubmenu(OpenNoteEditorMenu(view), "Menu_Heading");
+            if (heading.Items.Count != 6)
+                throw new InvalidOperationException(
+                    "the heading submenu carries " + heading.Items.Count + " entr(ies), wanted 1-6");
+
+            var level3 = heading.Items[2] as MenuItem;
+            if (level3 == null)
+                throw new InvalidOperationException("the heading submenu's third entry is not a MenuItem");
+            string wantedLabel = Localization.Format("Menu_InsertHeading", 3);
+            if ((level3.Header as string) != wantedLabel)
+                throw new InvalidOperationException(
+                    "the level-3 entry reads '" + level3.Header + "', wanted '" + wantedLabel + "'");
+            level3.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            if (box.Text != "### x")
+                throw new InvalidOperationException(
+                    "the level-3 pick wrote '" + box.Text.Replace("\n", "\\n") + "', wanted '### x'");
+            if (box.SelectionStart != 4 || box.SelectionLength != 0)
+                throw new InvalidOperationException("the level-3 pick left the caret at "
+                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted 4/0");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4 / §3.3): the same list entry twice toggles the marker
+        /// away again - the second pick reads the box the first one wrote.
+        /// </summary>
+        private static void NoteEditorSameListTwiceRemovesIt()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 0;
+            box.SelectionLength = 0;
+
+            ClickNoteEditorEntry(view, "Menu_InsertBullets");
+            if (box.Text != "- x")
+                throw new InvalidOperationException(
+                    "the bullet pick wrote '" + box.Text + "', wanted '- x'");
+
+            ClickNoteEditorEntry(view, "Menu_InsertBullets");
+            if (box.Text != "x")
+                throw new InvalidOperationException(
+                    "the second bullet pick wrote '" + box.Text + "', wanted the original 'x'");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4): the table entry lays the T9 skeleton down after a
+        /// non-empty line (one newline - the ops' own block convention, the
+        /// same one <c>NoteEditorOps.InsertTable</c> pins) and parks the caret
+        /// in the first body cell. The two column words come from the
+        /// three-language <c>Note_TableColumnFormat</c> key.
+        /// </summary>
+        private static void NoteEditorTableEntryLaysOutTheSkeleton()
+        {
+            ThemeManager.Initialize("dark");
+            AssertTableColumnFormat("zh", "列 {0}");
+            AssertTableColumnFormat("en", "Column {0}");
+            AssertTableColumnFormat("ja", "列 {0}");
+
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 1;          // the line end of the fixture
+            box.SelectionLength = 0;
+
+            ClickNoteEditorEntry(view, "Menu_InsertTable");
+
+            string col1 = Localization.Format("Note_TableColumnFormat", 1);
+            string col2 = Localization.Format("Note_TableColumnFormat", 2);
+            string expected = "x\n| " + col1 + " | " + col2 + " |\n| --- | --- |\n|  |  |";
+            if (box.Text != expected)
+                throw new InvalidOperationException("the table pick wrote '"
+                    + box.Text.Replace("\n", "\\n") + "', wanted '" + expected.Replace("\n", "\\n") + "'");
+
+            int caret = expected.IndexOf("|  |  |", StringComparison.Ordinal) + 2;
+            if (box.SelectionStart != caret || box.SelectionLength != 0)
+                throw new InvalidOperationException("the table pick left the caret at "
+                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted " + caret + "/0");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4): a selection is what the wrap family wraps - bold
+        /// puts the markers around the selected character and keeps it
+        /// selected so the next insert still aims at it.
+        /// </summary>
+        private static void NoteEditorWrappingASelectionBoldsIt()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 0;
+            box.SelectionLength = 1;
+
+            ClickNoteEditorEntry(view, "Menu_FormatBold");
+
+            if (box.Text != "**x**")
+                throw new InvalidOperationException(
+                    "the bold pick wrote '" + box.Text + "', wanted '**x**'");
+            if (box.SelectionStart != 2 || box.SelectionLength != 1 || box.SelectedText != "x")
+                throw new InvalidOperationException("the bold pick left the selection at "
+                    + box.SelectionStart + "/" + box.SelectionLength + " ('" + box.SelectedText
+                    + "'), wanted the wrapped 'x'");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4): with an empty selection the wrap family inserts the
+        /// three-language placeholder and selects it, so typing replaces it.
+        /// </summary>
+        private static void NoteEditorEmptySelectionInsertsThePlaceholder()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 1;
+            box.SelectionLength = 0;
+
+            ClickNoteEditorEntry(view, "Menu_FormatBold");
+
+            string placeholder = Localization.Get("Note_PlaceholderBold");
+            if (placeholder == "Note_PlaceholderBold")
+                throw new InvalidOperationException("the localization table has no Note_PlaceholderBold key");
+            if (box.Text != "x**" + placeholder + "**")
+                throw new InvalidOperationException(
+                    "the empty-selection bold wrote '" + box.Text + "', wanted 'x**" + placeholder + "**'");
+            if (box.SelectedText != placeholder)
+                throw new InvalidOperationException(
+                    "the placeholder is not selected ('" + box.SelectedText + "')");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4): every insert must be undoable with the box's OWN
+        /// undo - the write-back is one replacement through the box's editing
+        /// stack inside one change block, never a raw <c>Text</c> set (a bare
+        /// programmatic write registers no unit at all: WPF only records one
+        /// while a parent unit is open, and it flushes the stack otherwise).
+        /// The fixture enters the editor on the note's own text, so the undo's
+        /// own return value is the proof: rolling the insert back lands on the
+        /// fixture, not on an empty box.
+        /// </summary>
+        private static void NoteEditorInsertIsUndoableWithTheBoxUndo()
+        {
+            ThemeManager.Initialize("dark");
+            var view = NoteEditorOn("x", new NoteData());
+            var box = NoteSourceBox(view);
+            box.SelectionStart = 1;
+            box.SelectionLength = 0;
+
+            ClickNoteEditorEntry(view, "Menu_InsertTable");
+            if (box.Text == "x")
+                throw new InvalidOperationException("the table pick wrote nothing");
+            if (!box.CanUndo)
+                throw new InvalidOperationException("the insert never entered the box's own undo stack");
+
+            box.Undo();
+            if (box.Text != "x")
+                throw new InvalidOperationException("the box's own undo left '"
+                    + box.Text.Replace("\n", "\\n") + "', wanted the original 'x'");
+        }
+
+        /// <summary>
+        /// T15 (spec 6.4 / T8): the menu wears the widget colour's wash. The
+        /// shared <see cref="MenuBuilder"/> overrides the overlay brushes on
+        /// the menu itself, so the editor menu is expected to carry the same
+        /// mixed background the other widget menus do.
+        /// </summary>
+        private static void NoteEditorMenuFollowsTheWidgetColour()
+        {
+            ThemeManager.Initialize("dark");
+            string widgetHex = UiTokens.FolderPalette[0];
+            if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
+
+            var data = new NoteData();
+            data.Color = widgetHex;
+            var view = NoteEditorOn("x", data);
+
+            var menu = OpenNoteEditorMenu(view);
+            var tint = menu.Resources[ThemeManager.BrushKeyPrefix + "OverlayBackground"] as SolidColorBrush;
+            if (tint == null)
+                throw new InvalidOperationException("the editor menu carries no OverlayBackground tint");
+            if (tint.Color == ThemeManager.OverlayBackgroundBrush.Color)
+                throw new InvalidOperationException("the editor menu kept the untinted overlay colour");
+
+            Color wanted = Utils.MixColor(ThemeManager.OverlayBackgroundBrush.Color,
+                Utils.HexToColor(widgetHex), UiTokens.MenuTintBackground);
+            if (tint.Color != wanted)
+                throw new InvalidOperationException("the editor menu's wash is " + tint.Color
+                    + ", wanted " + wanted + " (the widget colour mixed into the overlay)");
+        }
+
+        /// <summary>The one-note view sitting in the source editor on the note's
+        /// own text (the T15 fixtures' shared entry, through the real card and
+        /// ✎ clicks). The box is templated first, so it stands the way the app's
+        /// does: WPF's own text-editor menu handler is live on it (it only
+        /// stands down for a box that already carries a custom ContextMenu, and
+        /// a never-measured box would hide that from these pins).</summary>
+        private static NotePanelView NoteEditorOn(string source, NoteData data)
+        {
+            data.Notes.Add(NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0)));
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+            ClickNoteEditButton(view);
+            if (NoteState(view) != "Editing")
+                throw new InvalidOperationException(
+                    "the fixture never reached the editor (" + NoteState(view) + ")");
+            NoteSourceBox(view).ApplyTemplate();
+            return view;
+        }
+
+        /// <summary>
+        /// The source box's insert menu, opened through the box's own
+        /// ContextMenuOpening route: the box rebuilds it per opening, so the
+        /// pin drives the real path rather than a private builder. WPF gives
+        /// the event args no public constructor, so the pin builds the same
+        /// shape through the framework's own non-public one - its second
+        /// argument is <c>opening</c>, so <c>true</c> raises the opening event
+        /// (a <c>false</c> there would raise the closing one instead).
+        /// </summary>
+        private static ContextMenu OpenNoteEditorMenu(NotePanelView view)
+        {
+            var box = NoteSourceBox(view);
+            var args = (ContextMenuEventArgs)Activator.CreateInstance(typeof(ContextMenuEventArgs),
+                BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { box, true }, null);
+            box.RaiseEvent(args);
+            if (box.ContextMenu == null)
+                throw new InvalidOperationException("ContextMenuOpening left the source box without a menu");
+            return box.ContextMenu;
+        }
+
+        /// <summary>One submenu of the editor menu by its header key (the 标题 /
+        /// 格式 parents are reached through their localized headers).</summary>
+        private static MenuItem NoteEditorSubmenu(ContextMenu menu, string headerKey)
+        {
+            string wanted = Localization.Get(headerKey);
+            foreach (object entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && (item.Header as string) == wanted) return item;
+            }
+            throw new InvalidOperationException(
+                "the editor menu has no '" + wanted + "' (" + headerKey + ") submenu");
+        }
+
+        /// <summary>Picks one insert / format entry by its localization key -
+        /// the flat block first, then the two submenus (so a pin names an entry
+        /// the way the design does, not by its position).</summary>
+        private static void ClickNoteEditorEntry(NotePanelView view, string labelKey)
+        {
+            var menu = OpenNoteEditorMenu(view);
+            string wanted = Localization.Get(labelKey);
+            foreach (object entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item == null) continue;
+                if ((item.Header as string) == wanted)
+                {
+                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    return;
+                }
+                foreach (object nested in item.Items)
+                {
+                    var sub = nested as MenuItem;
+                    if (sub != null && (sub.Header as string) == wanted)
+                    {
+                        sub.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                        return;
+                    }
+                }
+            }
+            throw new InvalidOperationException("the editor menu has no entry labelled '" + wanted + "' (" + labelKey + ")");
+        }
+
+        /// <summary>The <c>Note_TableColumnFormat</c> value one language at a
+        /// time (the brief's three forms), with the language put back.</summary>
+        private static void AssertTableColumnFormat(string language, string wanted)
+        {
+            Localization.SetLanguage(language);
+            try
+            {
+                string templated = Localization.Get("Note_TableColumnFormat");
+                if (templated != wanted)
+                    throw new InvalidOperationException(
+                        language + ": the table column key reads '" + templated + "', wanted '" + wanted + "'");
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
         }
 
         #endregion
