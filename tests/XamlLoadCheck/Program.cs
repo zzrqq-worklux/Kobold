@@ -536,6 +536,19 @@ namespace Kobold.XamlLoadCheck
                     RendererHighContrastUsesSystemColours);
                 failures += TryCheck("renderer: the accent follows the widget colour", RendererAccentFollowsWidgetColour);
 
+                // Task T13 pins: the reading state - a card click drills into
+                // the rendered read-only document, the back button and Backspace
+                // return to the list, a task box click writes the source line
+                // back (bumping the note to the top of the list) and repaints,
+                // and a link keeps its url for the browser.
+                failures += TryCheck("note: a card click opens the reading view", NoteCardClickOpensTheReadingView);
+                failures += TryCheck("note: back returns to the list", NoteBackReturnsToTheList);
+                failures += TryCheck("note: Backspace in the reading view goes back", NoteBackspaceInReadingGoesBack);
+                failures += TryCheck("note: toggling a task rewrites the source line and re-renders",
+                    NoteTaskToggleRewritesAndRerenders);
+                failures += TryCheck("note: task toggling keeps the list order", NoteTaskToggleKeepsTheListOrder);
+                failures += TryCheck("note: a reading view link carries its url", NoteReadingLinkCarriesItsUrl);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -9078,6 +9091,309 @@ namespace Kobold.XamlLoadCheck
                 var span = inline as Span;
                 if (span != null) AppendInlineText(text, span.Inlines);
             }
+        }
+
+        #endregion
+
+        #region Task T13: note reading pins
+
+        /// <summary>
+        /// T13 (spec 6.2/6.3): a card click drills into the reading view - the
+        /// list container gives way to the reading one, the state reads
+        /// Reading, and the host is the read-only, document-enabled RichTextBox
+        /// T12's renderer paints into (IsDocumentEnabled keeps the task boxes
+        /// and the hyperlinks clickable).
+        /// </summary>
+        private static void NoteCardClickOpensTheReadingView()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "# Shopping\n\n- milk\n- eggs", new DateTime(2026, 3, 5, 14, 30, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException("the fresh view is in " + NoteState(view) + ", wanted List");
+
+            ClickNoteCard(view, 0);
+
+            if (NoteState(view) != "Reading")
+                throw new InvalidOperationException("the card click left the view in " + NoteState(view));
+            if (NoteListHost(view).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the list container stayed visible in the reading view");
+            if (NoteReadingHost(view).Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the reading container is hidden in the reading view");
+
+            var box = NoteReadingBox(view);
+            if (!box.IsReadOnly)
+                throw new InvalidOperationException("the reading box is editable");
+            if (!box.IsDocumentEnabled)
+                throw new InvalidOperationException(
+                    "the reading box is not document-enabled (links and task boxes would be dead)");
+            if (box.Document == null || box.Document.Blocks.Count == 0)
+                throw new InvalidOperationException("the reading box holds no document block");
+        }
+
+        /// <summary>
+        /// T13 (spec 6.2): the header's back button returns to the list, the
+        /// click is handled and the cards are still there (the list container
+        /// was hidden, never emptied).
+        /// </summary>
+        private static void NoteBackReturnsToTheList()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+            if (NoteState(view) != "Reading")
+                throw new InvalidOperationException("the fixture never reached the reading view");
+
+            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            };
+            NoteBackButton(view).RaiseEvent(args);
+
+            if (!args.Handled)
+                throw new InvalidOperationException("the back click was not handled");
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException("the back button left the view in " + NoteState(view));
+            if (NoteListHost(view).Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the list container is hidden after the back click");
+            if (NoteReadingHost(view).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the reading container stayed visible after the back click");
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException(
+                    "the list carries " + NoteCardCount(view) + " card(s) after the back click, wanted 2");
+        }
+
+        /// <summary>
+        /// T13 (spec 6.2): Backspace in the reading view leaves it. The key is
+        /// raised as the tunnelling PreviewKeyDown on the RichTextBox itself,
+        /// so the view's root handler must catch it before the box's own class
+        /// handling; the same key in the list state stays untouched.
+        /// </summary>
+        private static void NoteBackspaceInReadingGoesBack()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Only note", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+            if (NoteState(view) != "Reading")
+                throw new InvalidOperationException("the fixture never reached the reading view");
+
+            var box = NoteReadingBox(view);
+            var back = RaiseNotePreviewKey(widget, box, Key.Back);
+
+            if (!back.Handled)
+                throw new InvalidOperationException("the reading Backspace was not handled");
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException("Backspace left the view in " + NoteState(view));
+
+            var listKey = RaiseNotePreviewKey(widget, box, Key.Back);
+            if (listKey.Handled)
+                throw new InvalidOperationException("a list-state Backspace was swallowed by the reading handler");
+        }
+
+        /// <summary>
+        /// T13 (spec 5.3): a task box click writes the flipped source line back
+        /// (open to done here), stamps the note's modified time, repaints the
+        /// reading document so the box grows its check, and leaves the stale
+        /// glyph alone (the document was rebuilt, not mutated in place).
+        /// </summary>
+        private static void NoteTaskToggleRewritesAndRerenders()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "- [ ] milk\n- [x] eggs", when);
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var box = NoteReadingBox(view);
+            var before = box.Document;
+            var open = TaskGlyph(ParagraphAt(before, 0));
+            if (!(open.Tag is int) || (int)open.Tag != 0)
+                throw new InvalidOperationException("the first reading glyph tags " + open.Tag + ", wanted line 0");
+            if (open.Child != null)
+                throw new InvalidOperationException("the fixture started with a checked box");
+
+            open.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            });
+
+            string[] lines = (note.Text ?? string.Empty).Split('\n');
+            if (lines.Length != 2 || lines[0] != "- [x] milk" || lines[1] != "- [x] eggs")
+            {
+                throw new InvalidOperationException("the toggle rewrote the source to '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            }
+            if (note.ModifiedAt <= when)
+                throw new InvalidOperationException(
+                    "the toggle did not advance the modified time (" + note.ModifiedAt + ")");
+
+            var after = box.Document;
+            if (ReferenceEquals(after, before))
+                throw new InvalidOperationException("the reading document was not re-rendered");
+            var checkedGlyph = TaskGlyph(ParagraphAt(after, 0));
+            if (!(checkedGlyph.Child is Path))
+                throw new InvalidOperationException("the re-rendered box carries no check mark");
+            if (open.Child != null)
+                throw new InvalidOperationException("the stale glyph flipped instead of the document being repainted");
+        }
+
+        /// <summary>
+        /// T13 (spec 6.2): the toggle makes the note the newest modification
+        /// (ModifiedAt is stamped), so returning to the list puts it on top
+        /// (SortForDisplay) with the other note second. The note is
+        /// heading-led so the card title does not depend on how a leading
+        /// task line reads.
+        /// </summary>
+        private static void NoteTaskToggleKeepsTheListOrder()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "# Alpha\n\n- [ ] task", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "later", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            if (NoteCardLine(view, 0, 0) != "later")
+                throw new InvalidOperationException(
+                    "the fixture order is '" + NoteCardLine(view, 0, 0) + "', wanted 'later'");
+
+            ClickNoteCard(view, 1); // the oldest note
+            var glyph = TaskGlyph(ParagraphAt(NoteReadingBox(view).Document, 1));
+            glyph.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            });
+
+            NoteBackButton(view).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            });
+
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException("the list carries " + NoteCardCount(view) + " card(s)");
+            if (NoteCardLine(view, 0, 0) != "Alpha")
+                throw new InvalidOperationException(
+                    "the toggled note is card '" + NoteCardLine(view, 0, 0) + "', wanted it on top");
+            if (NoteCardLine(view, 1, 0) != "later")
+                throw new InvalidOperationException(
+                    "the other note is card '" + NoteCardLine(view, 1, 0) + "', wanted 'later'");
+        }
+
+        /// <summary>
+        /// T13 (spec 5.2): the reading document keeps each link's target on
+        /// Hyperlink.NavigateUri so the reading view can hand it to the browser.
+        /// The pin reads the target only - raising the click would open one.
+        /// </summary>
+        private static void NoteReadingLinkCarriesItsUrl()
+        {
+            const string url = "https://example.com/note?p=1";
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "see [the site](" + url + ")", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var link = FirstHyperlink(NoteReadingBox(view).Document);
+            if (link.NavigateUri == null)
+                throw new InvalidOperationException("the reading link carries no url");
+            if (link.NavigateUri.AbsoluteUri != url)
+                throw new InvalidOperationException("the reading link carries '"
+                    + link.NavigateUri.AbsoluteUri + "', wanted '" + url + "'");
+        }
+
+        /// <summary>The state the panel shows, read off the private `_state`
+        /// (the T13 pin surface: the enum has no public face).</summary>
+        private static string NoteState(NotePanelView view)
+        {
+            var field = typeof(NotePanelView).GetField("_state",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("_state not found on NotePanelView");
+            object state = field.GetValue(view);
+            return state == null ? "<null>" : state.ToString();
+        }
+
+        /// <summary>Opens a note through the real card click (the reader's
+        /// MouseLeftButtonUp handler), never a reflection call.</summary>
+        private static void ClickNoteCard(NotePanelView view, int index)
+        {
+            NoteCardAt(view, index).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            });
+        }
+
+        private static FrameworkElement NoteNamed(NotePanelView view, string name)
+        {
+            var element = view.FindName(name) as FrameworkElement;
+            if (element == null) throw new InvalidOperationException("NotePanelView has no " + name);
+            return element;
+        }
+
+        private static FrameworkElement NoteListHost(NotePanelView view)
+        {
+            return NoteNamed(view, "ListHost");
+        }
+
+        private static FrameworkElement NoteReadingHost(NotePanelView view)
+        {
+            return NoteNamed(view, "ReadingHost");
+        }
+
+        private static FrameworkElement NoteBackButton(NotePanelView view)
+        {
+            return NoteNamed(view, "ReadingBackButton");
+        }
+
+        private static RichTextBox NoteReadingBox(NotePanelView view)
+        {
+            var named = view.FindName("ReadingBox");
+            if (named == null) throw new InvalidOperationException("NotePanelView has no ReadingBox");
+            var box = named as RichTextBox;
+            if (box == null)
+                throw new InvalidOperationException("ReadingBox is a " + named.GetType().Name + ", not a RichTextBox");
+            return box;
+        }
+
+        /// <summary>
+        /// The T13 reading key input: the same real presentation source the
+        /// existing RaiseKey family builds (EnsureHandle creates the HwndSource),
+        /// raised as the tunnelling PreviewKeyDown on the reading target - the
+        /// box is no TextBox, so the todo helper's signature does not fit.
+        /// Returns the args so the pin can read Handled.
+        /// </summary>
+        private static KeyEventArgs RaiseNotePreviewKey(Window window, FrameworkElement target, Key key)
+        {
+            EnsureRealDpi(window);
+            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            PresentationSource source = System.Windows.Interop.HwndSource.FromHwnd(handle);
+            if (source == null) throw new InvalidOperationException("no presentation source for key input");
+
+            var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+            {
+                RoutedEvent = UIElement.PreviewKeyDownEvent
+            };
+            target.RaiseEvent(args);
+            return args;
         }
 
         #endregion
