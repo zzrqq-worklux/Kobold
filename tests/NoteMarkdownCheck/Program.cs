@@ -69,6 +69,14 @@ namespace Kobold.NoteMarkdownCheck
                 "title: leading blank lines are skipped");
             Check(NoteOps.TitleOf("**粗** 与 [链](https://x)") == "粗 与 链",
                 "title: inline markers are stripped");
+            Check(NoteOps.TitleOf("- [ ] milk\nrest") == "milk",
+                "title: a task line loses its marker");
+            Check(NoteOps.TitleOf("- apples") == "apples" && NoteOps.TitleOf("* apples") == "apples",
+                "title: a bullet line loses its marker");
+            Check(NoteOps.TitleOf("1. first") == "first",
+                "title: a numbered line loses its number");
+            Check(NoteOps.TitleOf("> quoted") == "quoted",
+                "title: a quoted line loses its marker");
         }
 
         private static void Excerpts()

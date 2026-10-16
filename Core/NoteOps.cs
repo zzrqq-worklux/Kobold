@@ -23,8 +23,9 @@ namespace Kobold.Core
         private static readonly char[] MarkerChars = { '*', '_', '~', '`' };
 
         /// <summary>
-        /// The first non-blank line with its heading marker, links and inline
-        /// emphasis markers stripped. A blank note has an empty title.
+        /// The first non-blank line with its block marker (heading, task,
+        /// bullet, number or quote), links and inline emphasis markers
+        /// stripped. A blank note has an empty title.
         /// </summary>
         public static string TitleOf(string text)
         {
@@ -34,7 +35,7 @@ namespace Kobold.Core
             {
                 var line = raw.Trim();
                 if (line.Length == 0) continue;
-                line = HeadingPrefix.Replace(line, string.Empty);
+                line = StripLinePrefix(line);
                 return StripInlineMarkers(line).Trim();
             }
             return string.Empty;
@@ -56,11 +57,7 @@ namespace Kobold.Core
                 var line = raw.Trim();
                 if (line.StartsWith("```", StringComparison.Ordinal)) continue;
 
-                line = TaskPrefix.Replace(line, string.Empty);
-                line = HeadingPrefix.Replace(line, string.Empty);
-                line = ListPrefix.Replace(line, string.Empty);
-                line = NumberPrefix.Replace(line, string.Empty);
-                line = QuotePrefix.Replace(line, string.Empty);
+                line = StripLinePrefix(line);
                 line = StripInlineMarkers(line).Trim();
                 if (line.Length > 0) parts.Add(line);
             }
@@ -147,6 +144,21 @@ namespace Kobold.Core
             char state = line[3];
             if (state != ' ' && state != 'x' && state != 'X') return false;
             return line.Length == 5 || line[5] == ' ';
+        }
+
+        /// <summary>Strips the line-start block markers - a task box, a
+        /// heading, a bullet, a number or a quote - from one already-trimmed
+        /// line. The single step the title and the excerpt share so the two
+        /// cannot drift: the task check runs before the bullet check so
+        /// "- [ ] x" loses the whole task marker, not just "- ".</summary>
+        private static string StripLinePrefix(string line)
+        {
+            line = TaskPrefix.Replace(line, string.Empty);
+            line = HeadingPrefix.Replace(line, string.Empty);
+            line = ListPrefix.Replace(line, string.Empty);
+            line = NumberPrefix.Replace(line, string.Empty);
+            line = QuotePrefix.Replace(line, string.Empty);
+            return line;
         }
 
         /// <summary>Turns "[text](url)" into "text" and drops the characters
