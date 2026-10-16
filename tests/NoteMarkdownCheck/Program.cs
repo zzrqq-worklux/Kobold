@@ -55,6 +55,7 @@ namespace Kobold.NoteMarkdownCheck
             Inlines();
             Progress();
             EditorOps();
+            BlockRanges();
         }
 
         private static void Titles()
@@ -729,6 +730,91 @@ namespace Kobold.NoteMarkdownCheck
                 "editor: a bullet toggles on a non-first line");
             CheckOp(NoteEditorOps.InsertNumbered("a\n- b", 4, 0), "a\n1. b", 5, 0,
                 "editor: a numbered marker replaces a bullet on a non-first line");
+        }
+
+        // ---- NoteBlockRanges pins (T1) -----------------------------------
+
+        private static void BlockRanges()
+        {
+            // Ranges: a block owns the blank run down to the next block, the
+            // last one owns the trailing newline, leading blanks belong to no
+            // range and a blank text has none.
+            Check(Ranges("") == "" && Ranges("   \n\n") == "",
+                "ranges: no blocks yield no ranges");
+            Check(Ranges("# a\n\n- x\n- y") == "(0,2) (2,4)",
+                "ranges: a block spans to the next block");
+            Check(Ranges("\n\n# a") == "(2,3)",
+                "ranges: leading blank lines stay outside");
+            Check(Ranges("a\nb\nc") == "(0,3)",
+                "ranges: a multi-line paragraph is one range");
+            Check(Ranges("> a\n> b\n\nx") == "(0,3) (3,4)",
+                "ranges: a quote owns its blank tail");
+            Check(Ranges("# a\n") == "(0,2)",
+                "ranges: the trailing newline belongs to the last range");
+
+            // The index clamps downwards: a line in the blank run belongs to
+            // the block above it, a line past the end to the last block, a
+            // line before the first block and a blank text to none.
+            Check(Indexes("# a\n\n- x\n- y", 0, 1, 2, 99) == "0,0,1,1"
+                  && Indexes("\n\n# a", 0, 2) == "-1,0"
+                  && Indexes("", 0) == "-1",
+                "ranges: the index clamps downwards");
+
+            // Extract: the range joins with LF and each line loses one
+            // trailing CR, so a CRLF source reads back without its carriage
+            // returns; an empty range reads as empty.
+            Check(NoteBlockRanges.ExtractLines("a\r\nb\r\nc", 1, 2) == "b"
+                  && NoteBlockRanges.ExtractLines("a\r\nb\r\nc", 0, 2) == "a\nb"
+                  && NoteBlockRanges.ExtractLines("a\r\nb\r\nc", 1, 1) == "",
+                "extract: lines are LF-joined with the CR stripped");
+
+            // Replace: the region is spliced at its place, a multi-line
+            // replacement grows the text and the lines around it stay put.
+            Check(NoteBlockRanges.ReplaceLines("a\nb\nc", 1, 2, "x") == "a\nx\nc"
+                  && NoteBlockRanges.ReplaceLines("a\nb\nc", 1, 2, "x\ny") == "a\nx\ny\nc",
+                "replace: a region splices in place");
+
+            // Replace: an empty replacement deletes the region instead of
+            // writing an empty line.
+            Check(NoteBlockRanges.ReplaceLines("a\nb\nc", 1, 2, "") == "a\nc"
+                  && NoteBlockRanges.ReplaceLines("a\nb\nc", 0, 1, "") == "b\nc"
+                  && NoteBlockRanges.ReplaceLines("a\nb\nc", 0, 3, "") == "",
+                "replace: an empty replacement removes the region");
+
+            Check(NoteBlockRanges.ReplaceLines("", 0, 0, "a") == "a"
+                  && NoteBlockRanges.ReplaceLines("", 0, 0, "a\nb") == "a\nb",
+                "replace: inserting into empty text");
+
+            // Only the spliced region is rewritten: the surrounding lines
+            // keep their own terminators.
+            Check(NoteBlockRanges.ReplaceLines("a\r\nb\r\nc", 0, 1, "a") == "a\nb\r\nc",
+                "replace: untouched lines keep their CRLF");
+
+            Check(NoteBlockRanges.ReplaceLines("a\nb", -5, 99, "z") == "z"
+                  && NoteBlockRanges.ReplaceLines("a\nb", 3, 1, "z") == "a\nb\nz",
+                "replace: out-of-range clamps");
+
+            var spliced = NoteBlockRanges.ReplaceLines("a\nb\nc", 1, 2, "x");
+            Check(NoteBlockRanges.ReplaceLines(spliced, 1, 2, "x") == spliced,
+                "replace: repeating a splice is idempotent");
+
+            Check(NoteBlockRanges.LineCount("") == 0 && NoteBlockRanges.LineCount("a") == 1
+                  && NoteBlockRanges.LineCount("a\nb") == 2 && NoteBlockRanges.LineCount("a\n") == 2,
+                "line count: counts the empty text as zero");
+        }
+
+        /// <summary>The ranges as "(start,end)" runs, for the exact-string
+        /// pins above.</summary>
+        private static string Ranges(string text)
+        {
+            return string.Join(" ", NoteBlockRanges.RangesOf(text)
+                .Select(r => "(" + r.Start + "," + r.End + ")"));
+        }
+
+        /// <summary>The range indexes of the given lines, comma separated.</summary>
+        private static string Indexes(string text, params int[] lines)
+        {
+            return string.Join(",", lines.Select(l => NoteBlockRanges.RangeIndexAtLine(text, l).ToString()));
         }
 
         private static void CheckOp((string, int, int) result, string text, int selStart, int selLength, string what)
