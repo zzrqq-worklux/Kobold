@@ -17,9 +17,11 @@ namespace Kobold.Core
     /// edit table and apply it in one pass; the caret / selection endpoints are
     /// remapped through the same table (<c>p' = p + sum of deltas whose edit is
     /// at or before p</c>, a caret inside a removed span landing after the
-    /// edit). The line prefix family matches the markdown parser's own shapes
-    /// (<c>^#{1,6}\s+</c>, <c>^- \[( |x|X)\]\s?</c>, <c>^[-*]\s</c>,
-    /// <c>^\d+\.\s</c>, <c>^>\s?</c>).
+    /// edit). The line prefix family is kept in step with the parser's own
+    /// line grammar, but spacers are space or tab and never a line terminator
+    /// (<c>^#{1,6}[ \t]+</c>, <c>^- \[( |x|X)\](?:[ \t]|$)</c>,
+    /// <c>^[-*](?:[ \t]|$)</c>, <c>^\d+\.(?:[ \t]|$)</c>,
+    /// <c>^>(?:[ \t]|$)</c>), so a prefix match can never eat a <c>\r</c>.
     /// </summary>
     public static class NoteEditorOps
     {
@@ -33,12 +35,15 @@ namespace Kobold.Core
             public string Insert;
         }
 
-        // The line prefix family, kept in step with MarkdownParser (T7).
-        private static readonly Regex HeadingPrefix = new Regex(@"^#{1,6}\s+", RegexOptions.Compiled);
-        private static readonly Regex TaskPrefix = new Regex(@"^- \[( |x|X)\]\s?", RegexOptions.Compiled);
-        private static readonly Regex BulletPrefix = new Regex(@"^[-*]\s", RegexOptions.Compiled);
-        private static readonly Regex NumberPrefix = new Regex(@"^\d+\.\s", RegexOptions.Compiled);
-        private static readonly Regex QuotePrefix = new Regex(@"^>\s?", RegexOptions.Compiled);
+        // The line prefix family, kept in step with MarkdownParser (T7): the
+        // spacer is a space or tab (never a \r), and the marker-only forms
+        // ("-", "*", ">", "1.", "- [x]") are recognized when the line has
+        // nothing after them.
+        private static readonly Regex HeadingPrefix = new Regex(@"^#{1,6}[ \t]+", RegexOptions.Compiled);
+        private static readonly Regex TaskPrefix = new Regex(@"^- \[( |x|X)\](?:[ \t]|$)", RegexOptions.Compiled);
+        private static readonly Regex BulletPrefix = new Regex(@"^[-*](?:[ \t]|$)", RegexOptions.Compiled);
+        private static readonly Regex NumberPrefix = new Regex(@"^\d+\.(?:[ \t]|$)", RegexOptions.Compiled);
+        private static readonly Regex QuotePrefix = new Regex(@"^>(?:[ \t]|$)", RegexOptions.Compiled);
 
         // List-family kinds, used so a task line is never mistaken for a
         // bullet (its "- " opening would otherwise match one).
@@ -236,9 +241,12 @@ namespace Kobold.Core
         }
 
         /// <summary>Inserts a block at the current line: a blank line is
-        /// replaced by it, a non-empty line gets a newline then the block.
-        /// The caret is <paramref name="caretInBlock"/> characters into the
-        /// block. The selection's start only picks the anchor line.</summary>
+        /// replaced by it, a non-empty line gets a newline then the block. The
+        /// anchor and the split use the line's content end, so the document's
+        /// own <c>\r\n</c> terminators survive byte-for-byte and the block is
+        /// the only producer of its internal endings. The caret is
+        /// <paramref name="caretInBlock"/> characters into the block; the
+        /// selection's start only picks the anchor line.</summary>
         private static (string, int, int) InsertBlock(
             string text, int selStart, int selLength, string block, int caretInBlock)
         {
@@ -266,7 +274,8 @@ namespace Kobold.Core
         }
 
         /// <summary>Applies an ascending edit table in one pass and remaps the
-        /// selection through it.</summary>
+        /// selection through it. The edits never overlap by construction (one
+        /// per line, inside its own line), so no overlap guard is needed.</summary>
         private static (string, int, int) Apply(string text, List<Edit> edits, int selStart, int selLength)
         {
             edits.Sort(delegate (Edit a, Edit b) { return a.Pos.CompareTo(b.Pos); });
@@ -275,42 +284,28 @@ namespace Kobold.Core
             int cursor = 0;
             foreach (var e in edits)
             {
-                if (e.Pos < cursor) continue; // edits never overlap by construction
                 sb.Append(text, cursor, e.Pos - cursor);
                 sb.Append(e.Insert);
                 cursor = e.Pos + e.RemoveLen;
             }
             sb.Append(text, cursor, text.Length - cursor);
 
-            int start = MapAfter(edits, selStart);
-            int end = selLength == 0 ? start : MapBefore(edits, selStart + selLength);
+            int start = Map(edits, selStart);
+            int end = selLength == 0 ? start : Map(edits, selStart + selLength);
             if (end < start) end = start;
             return (sb.ToString(), start, end - start);
         }
 
-        /// <summary>A caret moved through the edits: every edit at or before it
-        /// shifts it, and a caret inside a removed span lands just after that
-        /// edit's inserted text.</summary>
-        private static int MapAfter(List<Edit> edits, int p)
+        /// <summary>Moves a position through the edits: every edit at or before
+        /// it shifts it, and a position inside a removed span lands just after
+        /// that edit's inserted text (a repeated line prefix clamps to the line
+        /// start, never before it).</summary>
+        private static int Map(List<Edit> edits, int p)
         {
             int shift = 0;
             foreach (var e in edits)
             {
                 if (p < e.Pos) break;
-                if (p <= e.Pos + e.RemoveLen) return e.Pos + shift + e.Insert.Length;
-                shift += e.Insert.Length - e.RemoveLen;
-            }
-            return p + shift;
-        }
-
-        /// <summary>The selection end's mapping: an edit exactly at the end
-        /// stays outside the selection, so the wrapped text is not swallowed.</summary>
-        private static int MapBefore(List<Edit> edits, int p)
-        {
-            int shift = 0;
-            foreach (var e in edits)
-            {
-                if (e.Pos >= p) break;
                 if (p <= e.Pos + e.RemoveLen) return e.Pos + shift + e.Insert.Length;
                 shift += e.Insert.Length - e.RemoveLen;
             }
@@ -328,13 +323,13 @@ namespace Kobold.Core
 
             var lines = new List<int>();
             int start = first;
-            while (true)
+            lines.Add(start);
+            while (start < lastStart)
             {
+                int next = LineBreakEnd(text, LineEnd(text, start));
+                if (next <= start || next > lastStart) break;
+                start = next;
                 lines.Add(start);
-                if (start >= lastStart) break;
-                int end = LineEnd(text, start);
-                if (end >= text.Length || end + 1 > lastStart) break;
-                start = end + 1;
             }
             return lines;
         }
@@ -349,27 +344,52 @@ namespace Kobold.Core
             if (selLength > text.Length - selStart) selLength = text.Length - selStart;
         }
 
+        /// <summary>The first character of the line holding <paramref name="pos"/>.
+        /// A position on a CRLF terminator still belongs to the line before it;
+        /// a lone CR is a break of its own.</summary>
         private static int LineStart(string text, int pos)
         {
             int i = pos < 0 ? 0 : (pos > text.Length ? text.Length : pos);
-            while (i > 0 && text[i - 1] != '\n') i--;
+            while (i > 0)
+            {
+                char c = text[i - 1];
+                if (c == '\n') break;
+                if (c == '\r' && (i >= text.Length || text[i] != '\n')) break;
+                i--;
+            }
             return i;
         }
 
+        /// <summary>The end of the line's content: the first <c>\r</c> or
+        /// <c>\n</c>, or the end of the text. It never includes a terminator.</summary>
         private static int LineEnd(string text, int pos)
         {
             int i = pos < 0 ? 0 : (pos > text.Length ? text.Length : pos);
-            while (i < text.Length && text[i] != '\n') i++;
+            while (i < text.Length && text[i] != '\n' && text[i] != '\r') i++;
             return i;
         }
 
-        /// <summary>The length of <paramref name="re"/> when it matches at the
-        /// line start <paramref name="pos"/>, else zero.</summary>
+        /// <summary>The first character after the line break that starts at
+        /// <paramref name="contentEnd"/> (consuming <c>\r\n</c>, <c>\r</c> or
+        /// <c>\n</c>).</summary>
+        private static int LineBreakEnd(string text, int contentEnd)
+        {
+            int i = contentEnd;
+            if (i < text.Length && text[i] == '\r') i++;
+            if (i < text.Length && text[i] == '\n') i++;
+            return i;
+        }
+
+        /// <summary>The length of <paramref name="re"/> when it matches the
+        /// content of the line starting at <paramref name="pos"/>, else zero.
+        /// The match runs against the line content alone, so an end-of-line
+        /// anchor means this line's end and no terminator can be consumed.</summary>
         private static int PrefixLength(Regex re, string text, int pos)
         {
             int end = LineEnd(text, pos);
-            var m = re.Match(text, pos);
-            return m.Success && m.Index == pos && m.Index + m.Length <= end ? m.Length : 0;
+            if (end <= pos) return 0;
+            var m = re.Match(text.Substring(pos, end - pos));
+            return m.Success && m.Index == 0 ? m.Length : 0;
         }
 
         private static void ListPrefixOf(string text, int pos, out int kind, out int length)

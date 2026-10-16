@@ -668,6 +668,45 @@ namespace Kobold.NoteMarkdownCheck
                 "editor: a bullet on an empty note writes the bare prefix");
             CheckOp(NoteEditorOps.InsertDivider(null, 0, 0), "---", 3, 0,
                 "editor: a null text never throws");
+
+            // Prefix shapes follow the parser's own line grammar (T9 fix).
+            CheckOp(NoteEditorOps.InsertQuote(">x", 0, 0), "> >x", 2, 0,
+                "editor: a gt with no space is not a quote, so the quote op keeps the user's gt");
+            Check(NoteEditorOps.InsertQuote(NoteEditorOps.InsertQuote(">x", 0, 0).Text, 0, 0).Text == ">x",
+                "editor: the gt-with-no-space quote round-trips");
+            CheckOp(NoteEditorOps.InsertTask("- [x]nospace", 0, 0), "- [ ] [x]nospace", 6, 0,
+                "editor: a box with no trailing space is a bullet to parser and editor alike");
+            CheckOp(NoteEditorOps.InsertBullet("-", 0, 0), "", 0, 0,
+                "editor: a lone dash is an empty bullet and toggles off");
+            CheckOp(NoteEditorOps.InsertBullet("*", 0, 0), "", 0, 0,
+                "editor: a lone star is an empty bullet and toggles off");
+            CheckOp(NoteEditorOps.InsertQuote(">", 0, 0), "", 0, 0,
+                "editor: a lone gt is an empty quote and toggles off");
+            CheckOp(NoteEditorOps.InsertNumbered("1.", 0, 0), "", 0, 0,
+                "editor: a lone numbered marker toggles off");
+            CheckOp(NoteEditorOps.InsertTask("- [x]", 0, 0), "", 0, 0,
+                "editor: a bare box at end of line toggles off");
+
+            // CRLF documents: line anchoring stops before the terminator and the
+            // inserted block is the only producer of its own line endings.
+            CheckOp(NoteEditorOps.InsertDivider("abc\r\ndef", 0, 0), "abc\r\n---\r\ndef", 8, 0,
+                "editor: a divider after a non-empty CRLF line keeps every surrounding terminator");
+            CheckOp(NoteEditorOps.InsertDivider("a\r\n\r\nb", 3, 0), "a\r\n---\r\nb", 6, 0,
+                "editor: a divider replacing a blank CRLF line produces no mixed terminators");
+            CheckOp(NoteEditorOps.InsertBullet("-\r\nx", 0, 0), "\r\nx", 0, 0,
+                "editor: toggling a lone marker under CRLF never eats the carriage return");
+            CheckOp(NoteEditorOps.InsertBullet("- a\r\n- b", 0, 0), "a\r\n- b", 0, 0,
+                "editor: a CRLF note keeps its terminators through a toggle");
+            CheckOp(NoteEditorOps.InsertCodeBlock("abc\r\ndef", 0, 0), "abc\r\n```\r\n\r\n```\r\ndef", 10, 0,
+                "editor: a code fence in a CRLF note uses CRLF inside the skeleton");
+
+            // Prefix detection on a non-first line (the anchored-at-startat contract).
+            CheckOp(NoteEditorOps.InsertQuote("> a\n> b", 0, 7), "a\nb", 0, 3,
+                "editor: quote toggles every line of a multi-line selection, non-first lines included");
+            CheckOp(NoteEditorOps.InsertBullet("a\n- b", 4, 0), "a\nb", 2, 0,
+                "editor: a bullet toggles on a non-first line");
+            CheckOp(NoteEditorOps.InsertNumbered("a\n- b", 4, 0), "a\n1. b", 5, 0,
+                "editor: a numbered marker replaces a bullet on a non-first line");
         }
 
         private static void CheckOp((string, int, int) result, string text, int selStart, int selLength, string what)
