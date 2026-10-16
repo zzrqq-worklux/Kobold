@@ -1,4 +1,6 @@
 using System;
+using System.Windows.Controls;
+using System.Windows.Input;
 using Kobold.Core;
 using Kobold.Helpers;
 
@@ -7,9 +9,10 @@ namespace Kobold.Controls
     /// <summary>
     /// The note widget: shared chrome + the note list view. The view is a
     /// renderer over the pure Note* logic and persists its edits through the
-    /// base's OnDataChanged path. Task T10 builds the shell and the view
-    /// skeleton only - the cards, the reading/editing states and the undo
-    /// stack arrive with T11/T13/T14/T15.
+    /// base's OnDataChanged path. Task T10 builds the shell; T11 renders the
+    /// list state (cards, the modified-time order, the row delete and its undo
+    /// stack) - the reading/editing states and the creation flows arrive with
+    /// T13/T14/T15.
     /// </summary>
     public partial class NoteWidget : WidgetWindowBase
     {
@@ -35,6 +38,18 @@ namespace Kobold.Controls
 
         /// <summary>The note list hosted in the chrome's content slot.</summary>
         public NotePanelView PanelView => _view;
+
+        /// <summary>
+        /// Ctrl+Z in the list context walks the undo stack back a step (the
+        /// newest delete); a focused text box keeps its own text undo
+        /// (mirroring <see cref="TodoWidget"/>).
+        /// </summary>
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return;
+            if (Keyboard.FocusedElement is TextBox) return;
+            if (_view != null && _view.TryUndo()) e.Handled = true;
+        }
 
         /// <summary>
         /// The legacy path of <see cref="WidgetWindowBase.GetPanelSize"/> adds

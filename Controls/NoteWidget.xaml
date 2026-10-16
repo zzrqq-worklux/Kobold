@@ -6,6 +6,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="False" ResizeMode="NoResize" ShowInTaskbar="False"
         Width="300" Height="380"
+        PreviewKeyDown="Window_PreviewKeyDown"
         TextOptions.TextFormattingMode="Display">
 
     <!-- The shared shell. NotePanelView is injected into the chrome's

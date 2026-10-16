@@ -499,6 +499,21 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("factory: note data builds the note widget", FactoryNoteDataBuildsNoteWidget);
                 failures += TryCheck("note: the panel minimum fits the shell", NotePanelMinimumFitsTheShell);
 
+                // Task T11 pins: the list state - the cards (title / modified
+                // time / two-line excerpt / task progress), the modified-time
+                // order, the row menu's delete with its multi-step undo (capped
+                // at twenty) and the empty list (add row only, no cards). The
+                // reading/editing states and the creation flows are T13/T14.
+                failures += TryCheck("note: cards show title, time and excerpt", NoteCardsShowTitleTimeAndExcerpt);
+                failures += TryCheck("note: a task note shows its progress", NoteTaskShowsProgress);
+                failures += TryCheck("note: the list orders by modified time", NoteListOrdersByModifiedTime);
+                failures += TryCheck("note: the row menu deletes the note and undo restores it",
+                    NoteRowMenuDeletesAndUndoRestores);
+                failures += TryCheck("note: undo walks back beyond one step", NoteUndoWalksBackBeyondOneStep);
+                failures += TryCheck("note: the stack keeps only the newest twenty",
+                    NoteUndoStackKeepsOnlyTheNewestTwenty);
+                failures += TryCheck("note: an empty list shows only the add row", NoteEmptyListShowsOnlyTheAddRow);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -8258,6 +8273,315 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the note panel minimum is " + min.Item1 + "x" + min.Item2 + ", wanted 260x220");
             }
+        }
+
+        #endregion
+
+        #region Task T11: note list pins
+
+        /// <summary>
+        /// T11: a card carries the title, the modified time ("g") and the
+        /// 80-char excerpt as its stack children; a note with task boxes adds
+        /// the progress line as a fourth. The three fixtures cover a heading +
+        /// body note, a note with tasks and an empty note (empty title and
+        /// excerpt, but a real time).
+        /// </summary>
+        private static void NoteCardsShowTitleTimeAndExcerpt()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 14, 30, 0);
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "# Shopping\n\n- milk\n- eggs", when));
+            data.Notes.Add(NewNote("b", "# Tasks\n\n- [x] a\n- [ ] b", when.AddHours(1)));
+            data.Notes.Add(NewNote("c", string.Empty, when.AddHours(2)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            if (NoteCardCount(view) != 3)
+                throw new InvalidOperationException("the list rendered " + NoteCardCount(view) + " card(s), wanted 3");
+
+            // Newest first (SortForDisplay): c (16:30), b (15:30), a (14:30).
+            AssertNoteCardTexts(view, 0, new[] { string.Empty, when.AddHours(2).ToString("g"), string.Empty });
+            AssertNoteCardTexts(view, 1, new[] { "Tasks", when.AddHours(1).ToString("g"), "Tasks a b", "✓ 1/2" });
+            AssertNoteCardTexts(view, 2, new[] { "Shopping", when.ToString("g"), "Shopping milk eggs" });
+        }
+
+        /// <summary>
+        /// T11: the progress line counts the parser's task boxes - an open and
+        /// a completed box read "✓ 1/2" - and only a note with tasks carries a
+        /// fourth line.
+        /// </summary>
+        private static void NoteTaskShowsProgress()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 14, 30, 0);
+            var data = new NoteData();
+            data.Notes.Add(NewNote("t", "- [x] a\n- [ ] b", when));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var texts = NoteCardTexts(view, 0);
+            if (texts.Count != 4)
+                throw new InvalidOperationException("the task card has " + texts.Count + " line(s), wanted 4");
+            if (texts[3] != "✓ 1/2")
+                throw new InvalidOperationException("the progress line is '" + texts[3] + "', wanted '✓ 1/2'");
+        }
+
+        /// <summary>
+        /// T11: the cards follow SortForDisplay - the newest modification
+        /// first - while the source list keeps its own order.
+        /// </summary>
+        private static void NoteListOrdersByModifiedTime()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Later", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(NewNote("c", "Middle", new DateTime(2026, 3, 5, 10, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            if (NoteCardCount(view) != 3)
+                throw new InvalidOperationException("the list rendered " + NoteCardCount(view) + " card(s), wanted 3");
+            if (NoteCardLine(view, 0, 0) != "Later")
+                throw new InvalidOperationException("the first card is '" + NoteCardLine(view, 0, 0) + "', wanted 'Later'");
+            if (NoteCardLine(view, 1, 0) != "Middle")
+                throw new InvalidOperationException("the second card is '" + NoteCardLine(view, 1, 0) + "', wanted 'Middle'");
+            if (NoteCardLine(view, 2, 0) != "First")
+                throw new InvalidOperationException("the third card is '" + NoteCardLine(view, 2, 0) + "', wanted 'First'");
+
+            if (data.Notes[0].Id != "a" || data.Notes[1].Id != "b" || data.Notes[2].Id != "c")
+                throw new InvalidOperationException("the render re-ordered the source list");
+        }
+
+        /// <summary>
+        /// T11: the card's row menu holds one delete entry; clicking it removes
+        /// that note, rebuilds the list, and the undo puts the note back at its
+        /// original index (the second note here) with the list rebuilt again.
+        /// </summary>
+        private static void NoteRowMenuDeletesAndUndoRestores()
+        {
+            ThemeManager.Initialize("dark");
+            var first = NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0));
+            var second = NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(first);
+            data.Notes.Add(second);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            if (NoteCardLine(view, 0, 0) != "Second")
+                throw new InvalidOperationException("the newest note is not the first card");
+            var card = NoteCardAt(view, 0);
+            if (card.ContextMenu == null)
+                throw new InvalidOperationException("the card carries no row menu");
+            if (card.ContextMenu.Items.Count != 1)
+                throw new InvalidOperationException("the row menu has " + card.ContextMenu.Items.Count + " item(s)");
+            string header = HeaderOf(card.ContextMenu.Items[0]);
+            if (header != Localization.Get("Menu_DeleteItem"))
+                throw new InvalidOperationException("the row menu header is '" + header + "'");
+
+            ClickMenuItem(card, 0); // delete the newest note through its row menu
+
+            if (data.Notes.Count != 1 || data.Notes[0] != first)
+                throw new InvalidOperationException("the menu delete did not remove the newest note");
+            if (NoteCardCount(view) != 1)
+                throw new InvalidOperationException("the card list did not rebuild after the delete");
+
+            if (!InvokeNoteTryUndo(view))
+                throw new InvalidOperationException("TryUndo reported nothing to restore");
+            if (data.Notes.Count != 2 || data.Notes[0] != first || data.Notes[1] != second)
+                throw new InvalidOperationException("the undo did not put the note back at its index");
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException("the card list did not rebuild after the undo");
+        }
+
+        /// <summary>
+        /// T11: the undo stack is multi-step - two deletes walk back newest
+        /// first, each restoring exactly one note in its slot, and the drained
+        /// stack reports false.
+        /// </summary>
+        private static void NoteUndoWalksBackBeyondOneStep()
+        {
+            ThemeManager.Initialize("dark");
+            var a = NewNote("a", "A", new DateTime(2026, 3, 5, 9, 0, 0));
+            var b = NewNote("b", "B", new DateTime(2026, 3, 5, 10, 0, 0));
+            var c = NewNote("c", "C", new DateTime(2026, 3, 5, 11, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(a);
+            data.Notes.Add(b);
+            data.Notes.Add(c);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            InvokeNoteDelete(view, c);
+            InvokeNoteDelete(view, b);
+            if (data.Notes.Count != 1 || data.Notes[0] != a)
+                throw new InvalidOperationException("the fixture deletes did not stick");
+
+            if (!InvokeNoteTryUndo(view))
+                throw new InvalidOperationException("the second delete did not undo");
+            if (data.Notes.Count != 2 || data.Notes[0] != a || data.Notes[1] != b)
+                throw new InvalidOperationException("the first undo restored the wrong note or slot");
+            if (!InvokeNoteTryUndo(view))
+                throw new InvalidOperationException("the first delete did not undo");
+            if (data.Notes.Count != 3 || data.Notes[0] != a || data.Notes[1] != b || data.Notes[2] != c)
+                throw new InvalidOperationException("the second undo did not restore the order");
+            if (InvokeNoteTryUndo(view))
+                throw new InvalidOperationException("the drained stack still reported an undo");
+        }
+
+        /// <summary>
+        /// T11: the stack is capped at twenty - the oldest delete falls off, so
+        /// exactly twenty undos succeed (restoring the newest twenty notes in
+        /// their order) and the twenty-first reports false with the oldest note
+        /// still gone.
+        /// </summary>
+        private static void NoteUndoStackKeepsOnlyTheNewestTwenty()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            var notes = new List<NoteItem>();
+            for (int i = 0; i < 21; i++)
+            {
+                var note = NewNote("n" + i, "Note " + i, new DateTime(2026, 3, 5, 9, 0, 0).AddMinutes(i));
+                notes.Add(note);
+                data.Notes.Add(note);
+            }
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            foreach (var note in notes) InvokeNoteDelete(view, note);
+            if (data.Notes.Count != 0)
+                throw new InvalidOperationException("the fixture deletes left " + data.Notes.Count + " note(s)");
+
+            int undone = 0;
+            while (InvokeNoteTryUndo(view)) undone++;
+            if (undone != 20)
+                throw new InvalidOperationException("the stack yielded " + undone + " undos, wanted 20");
+            if (data.Notes.Count != 20 || data.Notes.Contains(notes[0]))
+                throw new InvalidOperationException(
+                    "the cap did not drop the oldest delete: " + data.Notes.Count + " note(s) came back");
+            for (int i = 0; i < 20; i++)
+            {
+                if (data.Notes[i] != notes[i + 1])
+                    throw new InvalidOperationException("the undo order broke at index " + i);
+            }
+        }
+
+        /// <summary>
+        /// T11: an empty note list renders no card at all - the top add row is
+        /// the panel's only content (no empty-state message).
+        /// </summary>
+        private static void NoteEmptyListShowsOnlyTheAddRow()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new NoteWidget(new NoteData()).PanelView;
+            view.Refresh();
+
+            if (NoteCardCount(view) != 0)
+                throw new InvalidOperationException("an empty list rendered " + NoteCardCount(view) + " card(s)");
+
+            var pill = view.FindName("AddPill") as FrameworkElement;
+            if (pill == null) throw new InvalidOperationException("the add row is missing");
+            if (pill.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the add row is hidden on an empty list: " + pill.Visibility);
+        }
+
+        private static NoteItem NewNote(string id, string text, DateTime modifiedAt)
+        {
+            return new NoteItem { Id = id, Text = text, CreatedAt = modifiedAt, ModifiedAt = modifiedAt };
+        }
+
+        private static Panel NoteItemsPanel(NotePanelView view)
+        {
+            var panel = view.FindName("ItemsPanel") as Panel;
+            if (panel == null) throw new InvalidOperationException("NotePanelView has no ItemsPanel");
+            return panel;
+        }
+
+        private static int NoteCardCount(NotePanelView view)
+        {
+            return NoteItemsPanel(view).Children.Count;
+        }
+
+        private static Border NoteCardAt(NotePanelView view, int index)
+        {
+            var panel = NoteItemsPanel(view);
+            if (panel.Children.Count <= index)
+            {
+                throw new InvalidOperationException(
+                    "note card " + index + " not found (" + panel.Children.Count + " card(s))");
+            }
+            var card = panel.Children[index] as Border;
+            if (card == null) throw new InvalidOperationException("note card " + index + " is not a Border");
+            return card;
+        }
+
+        private static List<string> NoteCardTexts(NotePanelView view, int index)
+        {
+            var stack = NoteCardAt(view, index).Child as StackPanel;
+            if (stack == null) throw new InvalidOperationException("note card " + index + " has no content stack");
+
+            var texts = new List<string>();
+            foreach (var child in stack.Children)
+            {
+                var text = child as TextBlock;
+                if (text == null) throw new InvalidOperationException("note card " + index + " has a non-text child");
+                texts.Add(text.Text);
+            }
+            return texts;
+        }
+
+        private static string NoteCardLine(NotePanelView view, int index, int line)
+        {
+            var texts = NoteCardTexts(view, index);
+            if (texts.Count <= line)
+                throw new InvalidOperationException("note card " + index + " has no line " + line);
+            return texts[line];
+        }
+
+        private static void AssertNoteCardTexts(NotePanelView view, int index, string[] expected)
+        {
+            var actual = NoteCardTexts(view, index);
+            if (actual.Count != expected.Length)
+                throw new InvalidOperationException(
+                    "note card " + index + " has " + actual.Count + " line(s), wanted " + expected.Length);
+            for (int i = 0; i < expected.Length; i++)
+            {
+                if (actual[i] != expected[i])
+                    throw new InvalidOperationException(
+                        "note card " + index + " line " + i + " is '" + actual[i] + "', wanted '" + expected[i] + "'");
+            }
+        }
+
+        /// <summary>
+        /// Calls the view's undo through reflection (T11; the RED run has no
+        /// such method yet; afterwards it is public, reflection keeps the pin
+        /// stable either way - the TodoCalendarView convention).
+        /// </summary>
+        private static bool InvokeNoteTryUndo(NotePanelView view)
+        {
+            var method = typeof(NotePanelView).GetMethod("TryUndo",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (method == null) throw new InvalidOperationException("TryUndo not found on NotePanelView");
+            return (bool)method.Invoke(view, null);
+        }
+
+        /// <summary>Calls the view's private delete (T11; the RED run has no such
+        /// method yet).</summary>
+        private static void InvokeNoteDelete(NotePanelView view, NoteItem note)
+        {
+            var method = typeof(NotePanelView).GetMethod("InvokeDelete",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null) throw new InvalidOperationException("InvokeDelete not found on NotePanelView");
+            method.Invoke(view, new object[] { note });
         }
 
         #endregion

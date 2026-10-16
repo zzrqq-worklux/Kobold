@@ -3,17 +3,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              TextOptions.TextFormattingMode="Display">
 
-    <!-- The note content skeleton (Task T10): the top add row placeholder and
-         the list host. The dynamic parts (cards, states, menus) are built in
-         code by the renderer in T11+. -->
+    <!-- The note content: the top add row and the list host. The cards (and
+         their row menus) are built in code by the renderer; the reading and
+         editing states and the creation flow arrive with T13/T14. -->
     <Grid Margin="12,8,12,10" Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Add row placeholder: the ＋ pill; T11 wires the new-note flow
-             (spec 6.3: create an empty note straight into the editor). -->
+        <!-- Add row placeholder: the ＋ pill; the new-note flow (spec 6.3:
+             create an empty note straight into the editor) lands with T14. -->
         <Border x:Name="AddPill" Grid.Row="0" Height="30" CornerRadius="15" Margin="0,0,0,6"
                 Background="Transparent" BorderThickness="1" Cursor="Hand">
             <TextBlock x:Name="AddPillGlyph" Text="＋" FontSize="14"
