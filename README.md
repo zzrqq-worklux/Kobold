@@ -46,15 +46,16 @@ development base.
 - **Widget kinds** — a new widget is a **folder**, a **todo** or a **note**,
   picked when you create it; all three kinds behave the same on the island, in
   panels, in the context menus and when panels come back after a restart.
-- **Note widget** — a note is a list of cards, newest first: each card shows
-  the note's **title** (its first heading or line), when it was last edited
-  and a two-line excerpt, all derived from the text. Click a card to read it
+- **Note widget** — a note widget is a list of cards, newest first: each card
+  is a note showing its **title** (its first heading or line), when it was last
+  edited, a two-line excerpt derived from the text and a `✓ 2/5`
+  task-progress badge when the note holds task boxes. Click a card to read it
   (the back button or Backspace returns to the list) and **Edit** opens a
   source box with a **Source | Preview** switch. The reading view renders a
   Markdown subset — headings, lists, task boxes, quotes, code blocks, tables,
   dividers, emphasis and links (http/https links open in the browser). The
   task boxes are live: clicking one in the reading view or in the editor's
-  preview ticks it back into the source, and the reading view keeps its scroll
+  preview ticks it back into the source, and each view keeps its scroll
   position. Right-click the source editor for a quick-insert menu (headings;
   bold / italic / strike / inline code / link; lists, task list, quote, code
   block, table, divider), whose insertions the editor's own Ctrl+Z undoes.
@@ -230,7 +231,7 @@ the new version. Settings and stored files are kept.
 | Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
 | Undo a delete or a tick | With no editor focused, Ctrl+Z steps back up to 20 edits |
 | Clear the day's completed todos | Right-click the list or the calendar's blank space → **Clear completed** (greyed out when the day has none) |
-| Create a note | Island `+` entry → **Note**; or the panel's `+` row |
+| Create a note | Island `+` entry (or tray menu) → **Note**; or the panel's `+` row |
 | Read a note | Click a card (Backspace / back returns) |
 | Tick a task in a note | Click the box in the reading or preview view |
 | Insert Markdown fast | Right-click the source editor |
@@ -315,7 +316,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
   keeps the original file aside as `config.json.failed-<timestamp>`. Releases
   older than v1.3.0 do not have that safety net. An unknown kind is kept, not
   dropped: v1.4.0 reads a config with a note in it as an unknown kind and
-  hands it back unchanged.
+  hands it back unchanged, so the note is still there on the way back.
 - Each widget's **panel size is saved with the widget**, so panels come back
   the size you left them. On upgrade the old per-widget columns / max-rows
   settings are converted **once** into an initial panel size (they stay in the
@@ -364,13 +365,14 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **组件类型** — 新建组件时可选「文件夹」「待办」或「笔记」三种类型；三类组件在岛、
   面板、右键菜单与开机恢复中的行为一致。
 - **笔记组件** — 笔记是卡片列表，最近编辑在最上：每张卡片显示**标题**（取第一个标题行
-  或首行）、最后修改时间与两行摘要，全部由正文自动得出。单击卡片进入阅读态（返回按钮或
-  Backspace 回列表），「编辑」打开源码框并带「源码 / 预览」切换。阅读态渲染 Markdown
-  子集——标题、列表、任务框、引用、代码块、表格、分割线、强调与链接（http/https 可在
-  浏览器打开）。任务框可点：阅读态或编辑器预览态点击都会回写源码，阅读态还会保持
-  滚动位置。在源码编辑器中右键是快速插入菜单（标题；粗体 / 斜体 / 删除线 / 行内代码 /
-  链接；列表、任务列表、引用、代码块、表格、分割线），插入用编辑器自带的 Ctrl+Z 撤回。
-  完成即提交，Esc 放弃本次编辑，编辑中清空的笔记离场时丢弃，删除可用 Ctrl+Z 找回。
+  或首行）、最后修改时间与两行摘要（摘要由正文自动得出），有任务框时还显示 `✓ 2/5`
+  完成进度。单击卡片进入阅读态（返回按钮或 Backspace 回列表），「编辑」打开源码框并带
+  「源码 / 预览」切换。阅读态渲染 Markdown 子集——标题、列表、任务框、引用、代码块、
+  表格、分割线、强调与链接（http/https 可在浏览器打开）。任务框可点：阅读态或编辑器
+  预览态点击都会回写源码，并保持各自的滚动位置。在源码编辑器中右键是快速插入菜单
+  （标题；粗体 / 斜体 / 删除线 / 行内代码 / 链接；列表、任务列表、引用、代码块、表格、
+  分割线），插入用编辑器自带的 Ctrl+Z 撤回。完成即提交，Esc 放弃本次编辑，编辑中清空的
+  笔记离场时丢弃，删除可用 Ctrl+Z 找回。
 - **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
   完成的条目划线置底。未完成且日期已过的条目会显示在今天，并带
   「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
@@ -474,7 +476,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
 | 撤回删除或勾选 | 编辑器未聚焦时按 Ctrl+Z，最多连续回退 20 步 |
 | 清理当天已完成 | 在清单或日历空白处右键 →「清理已完成」（当天没有已完成项时置灰） |
-| 新建笔记 | 岛的 `+` 入口 → 选择「笔记」；或面板顶部的 `+` 行 |
+| 新建笔记 | 岛的 `+` 入口（或托盘菜单）→ 选择「笔记」；或面板顶部的 `+` 行 |
 | 阅读笔记 | 单击卡片（Backspace / 返回按钮退回列表） |
 | 勾选笔记中的任务框 | 在阅读态或编辑器预览态点击方框 |
 | 快速插入 Markdown | 在源码编辑器内右键 |

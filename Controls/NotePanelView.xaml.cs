@@ -215,8 +215,11 @@ namespace Kobold.Controls
             Refresh();
             // Every drill-in starts at the top: the scroller keeps its offset
             // across the state flip, so a note opened after a scrolled one must
-            // not start mid-page.
+            // not start mid-page. The reading box then takes the focus, the way
+            // the editor hands it to the source box: Backspace is a tunnelling
+            // handler, so it only reaches the view from a focused descendant.
             ReadingScroller.ScrollToTop();
+            ReadingBox.Focus();
         }
 
         /// <summary>
@@ -610,8 +613,14 @@ namespace Kobold.Controls
         /// </summary>
         private void TogglePreviewTask(int line)
         {
+            // Same capture/restore as the reading view: repainting the preview
+            // replaces the document, which resets the box's own offset, so the
+            // click must not throw the writer back to the top of the preview.
+            double offset = _previewBox.VerticalOffset;
             _editingBox.Text = NoteOps.ToggleTaskAt(_editingBox.Text, line);
             RenderEditorPreview();
+            Dispatcher.BeginInvoke(new Action(() => _previewBox.ScrollToVerticalOffset(offset)),
+                DispatcherPriority.Background);
         }
 
         /// <summary>

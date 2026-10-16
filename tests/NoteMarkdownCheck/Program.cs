@@ -134,6 +134,20 @@ namespace Kobold.NoteMarkdownCheck
             Check(NoteOps.ToggleTaskAt(multi, 1) == "- [ ] a\n- [x] b\n- [ ] c",
                 "toggle: only the target line flips");
 
+            // Quoted tasks render as live boxes (BuildQuote recurses) and the
+            // card counts them, so the toggle must reach one leading "> "
+            // prefix: prefix and spacing survive the round-trip both ways.
+            var quoted = "> - [ ] quoted task";
+            var quotedDone = NoteOps.ToggleTaskAt(quoted, 0);
+            Check(quotedDone == "> - [x] quoted task"
+                  && NoteOps.ToggleTaskAt(quotedDone, 0) == quoted,
+                "toggle: a quoted task flips in place");
+
+            // One level only (spec §4): the parser never nests quotes, so a
+            // doubly-quoted line is not a task and stays alone.
+            Check(NoteOps.ToggleTaskAt("> > - [ ] nested", 0) == "> > - [ ] nested",
+                "toggle: a doubly-quoted task stays literal");
+
             var crlf = "- [ ] a\r\n- [ ] b\r\n";
             Check(NoteOps.ToggleTaskAt(crlf, 1) == "- [ ] a\r\n- [x] b\r\n",
                 "toggle: CRLF line endings survive the rewrite");

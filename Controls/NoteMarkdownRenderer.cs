@@ -560,6 +560,10 @@ namespace Kobold.Controls
                 e.Handled = true;
                 callbacks?.OpenLink?.Invoke(url);
             };
+            // The Click handler marks its own event handled, but a click on a
+            // Hyperlink also raises RequestNavigate; the host owns navigation,
+            // so swallow this too (the renderer never opens a browser).
+            hyperlink.RequestNavigate += (s, e) => e.Handled = true;
 
             var label = format.Copy();
             label.Foreground = ctx.Palette.Accent;

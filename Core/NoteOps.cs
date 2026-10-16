@@ -69,9 +69,12 @@ namespace Kobold.Core
 
         /// <summary>
         /// Flips the task box on the given source line - open to done, done
-        /// (either spelling) to open - and returns the whole text. A line that
-        /// is not a column-zero task, or a line index out of range, changes
-        /// nothing; every other line and every source line ending is kept.
+        /// (either spelling) to open - and returns the whole text. The box is
+        /// recognized at column zero or behind one leading "&gt; " quote prefix
+        /// (the parser renders and counts quoted tasks, so their boxes are live
+        /// too); nested quotes stay literal, matching the parser. A line that is
+        /// not a task, or a line index out of range, changes nothing; every
+        /// other line and every source line ending is kept.
         /// </summary>
         public static string ToggleTaskAt(string text, int lineIndex)
         {
@@ -81,10 +84,11 @@ namespace Kobold.Core
             if (lineIndex < 0 || lineIndex >= lines.Length) return text;
 
             var line = lines[lineIndex];
-            if (!IsTaskLine(line)) return text;
+            int box = TaskBoxStart(line);
+            if (box < 0) return text;
 
-            char next = line[3] == ' ' ? 'x' : ' ';
-            lines[lineIndex] = line.Substring(0, 3) + next + line.Substring(4);
+            char next = line[box + 3] == ' ' ? 'x' : ' ';
+            lines[lineIndex] = line.Substring(0, box + 3) + next + line.Substring(box + 4);
             return string.Join("\n", lines);
         }
 
@@ -135,15 +139,28 @@ namespace Kobold.Core
             }
         }
 
-        /// <summary>A column-zero task: "- [ ]", "- [x]" or "- [X]", with a
-        /// space or the end of the line after the closing bracket.</summary>
-        private static bool IsTaskLine(string line)
+        /// <summary>The index of the line's task box (its "-"), or -1 when the
+        /// line is not a task: column zero, or one leading "&gt; " quote prefix
+        /// (the parser's only quote shape). A doubly-quoted line is not a task
+        /// - quotes never nest.</summary>
+        private static int TaskBoxStart(string line)
         {
-            if (line.Length < 5) return false;
-            if (line[0] != '-' || line[1] != ' ' || line[2] != '[' || line[4] != ']') return false;
-            char state = line[3];
+            if (IsTaskLine(line, 0)) return 0;
+            if (line.Length > 2 && line[0] == '>' && line[1] == ' ' && IsTaskLine(line, 2)) return 2;
+            return -1;
+        }
+
+        /// <summary>A task box at <paramref name="start"/>: "- [ ]", "- [x]" or
+        /// "- [X]", with a space or the end of the line after the closing
+        /// bracket.</summary>
+        private static bool IsTaskLine(string line, int start)
+        {
+            if (line.Length < start + 5) return false;
+            if (line[start] != '-' || line[start + 1] != ' ' || line[start + 2] != '['
+                || line[start + 4] != ']') return false;
+            char state = line[start + 3];
             if (state != ' ' && state != 'x' && state != 'X') return false;
-            return line.Length == 5 || line[5] == ' ';
+            return line.Length == start + 5 || line[start + 5] == ' ';
         }
 
         /// <summary>Strips the line-start block markers - a task box, a

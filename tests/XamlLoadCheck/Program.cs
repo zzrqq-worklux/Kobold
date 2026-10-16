@@ -578,6 +578,14 @@ namespace Kobold.XamlLoadCheck
                     NotePreviewToggleShowsTheParsedText);
                 failures += TryCheck("note: a preview task click rewrites the box text",
                     NotePreviewTaskClickRewritesTheBoxText);
+                // Final review findings 2 and 3 (the preview scroll restore and
+                // the reading-box focus move) have no pin here, deliberately:
+                // both need a shown window. The preview restore rides a deferred
+                // dispatcher op (pumping would run the dormant App.OnStartup op),
+                // and every offscreen visual reports IsVisible=false with no
+                // presentation source, so Focus() cannot take. Pins were written
+                // and removed as unverifiable, never faked; the manual smoke
+                // covers both (see final-fix-report.md).
                 failures += TryCheck("note: Backspace in the editor edits instead of leaving",
                     NoteBackspaceInTheEditorStaysPlainEditing);
 
