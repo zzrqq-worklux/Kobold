@@ -20,6 +20,16 @@ namespace Kobold.Core
 
     /// <summary>
     /// The widget kinds the app knows. Unknown ids simply have no entry.
+    ///
+    /// Adding a kind: (1) its data model in Core/, (2) an entry here
+    /// (Id / NameKey / IconKey / DataType / CreateDefault), (3) its window
+    /// factory in Controls/WidgetWindowFactory, (4) icon renderers mapped in
+    /// IconRendererFactory.CreateByKey, (5) a default size in
+    /// PanelSizeMigration, (6) an AppConfig validation/repair branch, (7) its
+    /// window and view, (8) three-language keys in Localization, (9) checks +
+    /// the Run-Checks matrix + README/CHANGELOG. The registry entry,
+    /// WidgetKind.DataType and the factory registration absorb most of the
+    /// wiring; what stays per-kind is "how much" (sizes, repair, UI), not "how".
     /// </summary>
     public static class WidgetKindRegistry
     {

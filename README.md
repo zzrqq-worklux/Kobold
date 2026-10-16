@@ -43,9 +43,23 @@ development base.
   grid: left/right step to the neighbouring cell across rows, up/down hold
   the column, a short last row falls to its last entry, and an edge stops —
   with nothing selected, the first arrow picks the first entry.
-- **Widget kinds** — a new widget is either a **folder** or a **todo**, picked
-  when you create it; both kinds behave the same on the island, in panels, in
-  the context menus and when panels come back after a restart.
+- **Widget kinds** — a new widget is a **folder**, a **todo** or a **note**,
+  picked when you create it; all three kinds behave the same on the island, in
+  panels, in the context menus and when panels come back after a restart.
+- **Note widget** — a note is a list of cards, newest first: each card shows
+  the note's **title** (its first heading or line), when it was last edited
+  and a two-line excerpt, all derived from the text. Click a card to read it
+  (the back button or Backspace returns to the list) and **Edit** opens a
+  source box with a **Source | Preview** switch. The reading view renders a
+  Markdown subset — headings, lists, task boxes, quotes, code blocks, tables,
+  dividers, emphasis and links (http/https links open in the browser). The
+  task boxes are live: clicking one in the reading view or in the editor's
+  preview ticks it back into the source, and the reading view keeps its scroll
+  position. Right-click the source editor for a quick-insert menu (headings;
+  bold / italic / strike / inline code / link; lists, task list, quote, code
+  block, table, divider), whose insertions the editor's own Ctrl+Z undoes.
+  Finishing commits, Esc drops the edit, a note emptied while editing is
+  discarded on the way out, and Ctrl+Z takes a delete back.
 - **Todo widget** — a month calendar (‹ › change the month, **Today** when
   you are on another month) over the day's list: completed entries are struck
   through and sink to the bottom. An open entry whose date is in the past
@@ -216,6 +230,10 @@ the new version. Settings and stored files are kept.
 | Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
 | Undo a delete or a tick | With no editor focused, Ctrl+Z steps back up to 20 edits |
 | Clear the day's completed todos | Right-click the list or the calendar's blank space → **Clear completed** (greyed out when the day has none) |
+| Create a note | Island `+` entry → **Note**; or the panel's `+` row |
+| Read a note | Click a card (Backspace / back returns) |
+| Tick a task in a note | Click the box in the reading or preview view |
+| Insert Markdown fast | Right-click the source editor |
 | Open settings | Island gear entry (or tray menu) |
 | Hide/show desktop icons | Click the island's desktop entry |
 | Open the Desktop folder | Double-click the island's desktop entry |
@@ -295,7 +313,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 - Widgets are stored in the new `Widgets` format, which older releases cannot
   read: falling back to v1.3.0 or v1.3.1 resets you to default settings but
   keeps the original file aside as `config.json.failed-<timestamp>`. Releases
-  older than v1.3.0 do not have that safety net.
+  older than v1.3.0 do not have that safety net. An unknown kind is kept, not
+  dropped: v1.4.0 reads a config with a note in it as an unknown kind and
+  hands it back unchanged.
 - Each widget's **panel size is saved with the widget**, so panels come back
   the size you left them. On upgrade the old per-widget columns / max-rows
   settings are converted **once** into an initial panel size (they stay in the
@@ -341,8 +361,16 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   多选显示「N 项已选」，没有选择时回落为组件名（浏览时是当前文件夹名）；方向键按网格
   移动选择——左右跨行走到相邻格、上下保持同列，最后一行不满时向下落到最后一项，边界
   停住（未选中任何条目时，第一次方向键选中最前一项）。
-- **组件类型** — 新建组件时可选「文件夹」或「待办」两种类型；两类组件在岛、
-  面板、右键菜单与开机恢复中的行为完全一致。
+- **组件类型** — 新建组件时可选「文件夹」「待办」或「笔记」三种类型；三类组件在岛、
+  面板、右键菜单与开机恢复中的行为一致。
+- **笔记组件** — 笔记是卡片列表，最近编辑在最上：每张卡片显示**标题**（取第一个标题行
+  或首行）、最后修改时间与两行摘要，全部由正文自动得出。单击卡片进入阅读态（返回按钮或
+  Backspace 回列表），「编辑」打开源码框并带「源码 / 预览」切换。阅读态渲染 Markdown
+  子集——标题、列表、任务框、引用、代码块、表格、分割线、强调与链接（http/https 可在
+  浏览器打开）。任务框可点：阅读态或编辑器预览态点击都会回写源码，阅读态还会保持
+  滚动位置。在源码编辑器中右键是快速插入菜单（标题；粗体 / 斜体 / 删除线 / 行内代码 /
+  链接；列表、任务列表、引用、代码块、表格、分割线），插入用编辑器自带的 Ctrl+Z 撤回。
+  完成即提交，Esc 放弃本次编辑，编辑中清空的笔记离场时丢弃，删除可用 Ctrl+Z 找回。
 - **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
   完成的条目划线置底。未完成且日期已过的条目会显示在今天，并带
   「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
@@ -446,6 +474,10 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
 | 撤回删除或勾选 | 编辑器未聚焦时按 Ctrl+Z，最多连续回退 20 步 |
 | 清理当天已完成 | 在清单或日历空白处右键 →「清理已完成」（当天没有已完成项时置灰） |
+| 新建笔记 | 岛的 `+` 入口 → 选择「笔记」；或面板顶部的 `+` 行 |
+| 阅读笔记 | 单击卡片（Backspace / 返回按钮退回列表） |
+| 勾选笔记中的任务框 | 在阅读态或编辑器预览态点击方框 |
+| 快速插入 Markdown | 在源码编辑器内右键 |
 | 打开设置 | 岛的齿轮入口（或托盘菜单） |
 | 隐藏/显示桌面图标 | 单击岛的桌面入口 |
 | 打开桌面文件夹 | 双击岛的桌面入口 |
@@ -517,7 +549,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
   读不出的配置文件会先保留为 `config.json.failed-<时间戳>`，再退回默认设置。
 - 组件以新的 `Widgets` 格式保存，旧版本读不出该格式：回退到 v1.3.0 / v1.3.1
   会以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`；更早的
-  版本没有这一保护。
+  版本没有这一保护。格式里的未知类型不会被丢掉：v1.4.0 读到含笔记的配置会按
+  未知类型原样保留，回到新版本时笔记仍在。
 - 每个组件的**面板尺寸随组件保存**，重启后恢复；升级时旧的组件级「列数 / 最大
   行数」会**一次性换算**为初始面板尺寸（旧值仍保留在配置文件里但不再使用）；
   **图标大小**继续生效。
