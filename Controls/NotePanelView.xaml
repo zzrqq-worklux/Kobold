@@ -81,8 +81,8 @@
 
         <!-- Editing state (T14, spec 6.2): [back (commit) | elastic | [source|
              preview] | done (commit)] over the source box and the rendered
-             preview. The segment labels are literal: the localization table
-             carries no note-editor key yet (a follow-up adds them). -->
+             preview. The segment labels are placeholders: Refresh paints them
+             from the localization table (UI_NoteSourceTab / UI_NotePreviewTab). -->
         <Grid x:Name="EditingHost" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -111,13 +111,13 @@
                     <StackPanel Orientation="Horizontal">
                         <Border x:Name="SourceTab" CornerRadius="10" Padding="9,0" Cursor="Hand"
                                 Background="Transparent" MouseLeftButtonDown="SourceTab_Click">
-                            <TextBlock x:Name="SourceTabText" Text="源码" FontSize="11"
+                            <TextBlock x:Name="SourceTabText" Text="Source" FontSize="11"
                                        Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <Border x:Name="PreviewTab" CornerRadius="10" Padding="9,0" Cursor="Hand"
                                 Background="Transparent" MouseLeftButtonDown="PreviewTab_Click">
-                            <TextBlock x:Name="PreviewTabText" Text="预览" FontSize="11"
+                            <TextBlock x:Name="PreviewTabText" Text="Preview" FontSize="11"
                                        Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
@@ -134,13 +134,13 @@
 
             <!-- The source surface: the note's Markdown itself, in the view's
                  body size, multi-line and wrapping. Most of the editing keys
-                 belong to the box; Esc (handled here) rolls the edit back. -->
+                 belong to the box; Esc is the editing state's own key and the
+                 view-level router answers for both halves. -->
             <TextBox x:Name="_editingBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
                      Background="Transparent" BorderThickness="0" Padding="0"
                      FontSize="{DynamicResource Kobold.Font.Body}"
                      Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                     PreviewKeyDown="EditingBox_PreviewKeyDown"/>
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"/>
 
             <!-- The preview surface: the box text through the T12 renderer. The
                  box is read-only but document-enabled, so its task boxes take

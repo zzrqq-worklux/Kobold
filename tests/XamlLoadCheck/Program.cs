@@ -581,6 +581,19 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: Backspace in the editor edits instead of leaving",
                     NoteBackspaceInTheEditorStaysPlainEditing);
 
+                // Fix round 1 (review findings 1-3): the editor's cancel must
+                // live in both halves (the preview box is the focus target
+                // there), the segment labels must come from the localization
+                // table, and a cancel that drops the session's placeholder must
+                // converge through the host's change notification (a stray
+                // global save may already have written it).
+                failures += TryCheck("note: Esc cancels from the preview half too",
+                    NoteEscCancelsFromThePreviewHalfToo);
+                failures += TryCheck("note: the segment labels follow the localization",
+                    NoteSegmentLabelsFollowTheLocalization);
+                failures += TryCheck("note: cancelling a new note notifies the host",
+                    NoteCancellingANewNoteNotifiesTheHost);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -9986,6 +9999,185 @@ namespace Kobold.XamlLoadCheck
             {
                 RoutedEvent = UIElement.MouseLeftButtonDownEvent
             });
+        }
+
+        /// <summary>The [source|preview] segment's two labels (T14 fix: they must
+        /// resolve through the localization table, never carry literal text).</summary>
+        private static TextBlock NoteSegmentLabel(NotePanelView view, string name)
+        {
+            var label = NoteNamed(view, name) as TextBlock;
+            if (label == null) throw new InvalidOperationException(name + " is not a TextBlock");
+            return label;
+        }
+
+        #endregion
+
+        #region Task T14 fix round 1: editor cancel, labels, notification
+
+        /// <summary>
+        /// T14 fix (finding 1, spec 6.2): Esc cancels the edit from whichever
+        /// half is up - the preview's read-only document is the focus target
+        /// there (the collapsed source box cannot hold focus), so the key
+        /// router must answer for the whole editing state. The source half is
+        /// unaffected (Backspace still edits there).
+        /// </summary>
+        private static void NoteEscCancelsFromThePreviewHalfToo()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+
+            // An existing note: the preview's Esc rolls the typed text back.
+            var note = NewNote("a", "# Head\n\n- [ ] one", when);
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+            ClickNoteEditButton(view);
+            ClickNoteSegment(view, "PreviewTab");
+
+            var preview = NotePreviewBox(view);
+            if (preview.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the fixture is not on the preview half");
+
+            NoteSourceBox(view).Text = "discard me";
+            RaiseNotePreviewKey(widget, preview, Key.Escape);
+
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException(
+                    "Esc on the preview left the view in " + NoteState(view) + ", wanted List");
+            if (note.Text != "# Head\n\n- [ ] one")
+                throw new InvalidOperationException("the preview Esc wrote '" + note.Text + "'");
+            if (note.ModifiedAt != when)
+                throw new InvalidOperationException(
+                    "the preview Esc stamped the modified time to " + note.ModifiedAt);
+
+            // A note created for this session: the preview's Esc drops it.
+            InvokeNoteEdit(view, "StartNewNote");
+            ClickNoteSegment(view, "PreviewTab");
+            if (NoteSourceBox(view).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the source box stayed visible in the preview");
+            RaiseNotePreviewKey(widget, NotePreviewBox(view), Key.Escape);
+
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException(
+                    "the preview Esc left " + data.Notes.Count + " note(s), wanted the original only");
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException(
+                    "the preview Esc left the view in " + NoteState(view) + ", wanted List");
+        }
+
+        /// <summary>
+        /// T14 fix (finding 2): the segment's two labels resolve through
+        /// <see cref="Localization"/> - the en values by default and the zh
+        /// values once the language is switched, never a literal baked into
+        /// the XAML.
+        /// </summary>
+        private static void NoteSegmentLabelsFollowTheLocalization()
+        {
+            ThemeManager.Initialize("dark");
+
+            Localization.SetLanguage("en");
+            try
+            {
+                var data = new NoteData();
+                data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+                var view = new NoteWidget(data).PanelView;
+                view.Refresh();
+                ClickNoteCard(view, 0);
+                ClickNoteEditButton(view);
+
+                AssertSegmentLabels(view, "en");
+
+                Localization.SetLanguage("zh");
+                view.Refresh();          // a language switch repaints the view
+                AssertSegmentLabels(view, "zh");
+
+                string zhSource = NoteSegmentLabel(view, "SourceTabText").Text;
+                Localization.SetLanguage("ja");
+                view.Refresh();
+                AssertSegmentLabels(view, "ja");
+                if (NoteSegmentLabel(view, "SourceTabText").Text == zhSource)
+                    throw new InvalidOperationException(
+                        "the source label stayed '" + zhSource + "' across the language switch");
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        private static void AssertSegmentLabels(NotePanelView view, string language)
+        {
+            string wantedSource = Localization.Get("UI_NoteSourceTab");
+            string wantedPreview = Localization.Get("UI_NotePreviewTab");
+            if (wantedSource == "UI_NoteSourceTab" || wantedPreview == "UI_NotePreviewTab")
+                throw new InvalidOperationException(
+                    "the localization table has no note segment key (" + language + ")");
+
+            string source = NoteSegmentLabel(view, "SourceTabText").Text;
+            string preview = NoteSegmentLabel(view, "PreviewTabText").Text;
+            if (source != wantedSource)
+                throw new InvalidOperationException(
+                    language + ": the source label reads '" + source + "', wanted '" + wantedSource + "'");
+            if (preview != wantedPreview)
+                throw new InvalidOperationException(
+                    language + ": the preview label reads '" + preview + "', wanted '" + wantedPreview + "'");
+        }
+
+        /// <summary>
+        /// T14 fix (finding 3, spec 6.3): a cancel that drops the session's
+        /// placeholder note is a data change and must converge through the
+        /// host's change notification (the usual save path) - a stray global
+        /// save between the add and the cancel may already have written the
+        /// empty note, so an in-memory-only removal would resurrect it on
+        /// restart. The ambient host-notification pattern of this file
+        /// (TodoSplitterDragsTheCalendarHeight) observes the event.
+        /// </summary>
+        private static void NoteCancellingANewNoteNotifiesTheHost()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+
+            int notified = 0;
+            widget.OnDataChanged += () => notified++;
+
+            // Entering the editor and leaving with typed text both bypass the
+            // data (the box is the pending edit) - only the cancel's discard
+            // is a data change.
+            InvokeNoteEdit(view, "StartNewNote");
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException("the fixture never created a note");
+            if (notified != 0)
+                throw new InvalidOperationException("opening the editor already notified the host");
+
+            RaiseNotePreviewKey(widget, NoteSourceBox(view), Key.Escape);
+
+            if (data.Notes.Count != 0)
+                throw new InvalidOperationException(
+                    "the cancel left " + data.Notes.Count + " note(s)");
+            if (notified != 1)
+                throw new InvalidOperationException(
+                    "the cancel notified the host " + notified + " time(s), wanted exactly 1");
+
+            // Cancelling an untouched EXISTING note changes nothing: no write,
+            // so no notification either (Esc must not manufacture a save).
+            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            view.Refresh();
+            ClickNoteCard(view, 0);
+            ClickNoteEditButton(view);
+            RaiseNotePreviewKey(widget, NoteSourceBox(view), Key.Escape);
+
+            if (notified != 1)
+                throw new InvalidOperationException(
+                    "the untouched-note cancel notified the host " + notified + " time(s), wanted 1");
+            if (NoteState(view) != "List")
+                throw new InvalidOperationException("the cancel left the view in " + NoteState(view));
         }
 
         #endregion

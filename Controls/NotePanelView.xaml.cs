@@ -108,6 +108,10 @@ namespace Kobold.Controls
         {
             if (_data == null || _host == null) return;
 
+            // The segment's labels follow the active language, and Refresh is
+            // the language switch's repaint path (also outside the editor).
+            PaintSegmentLabels();
+
             // One state at a time: the reading and the editing containers draw
             // over the list, which stays built so a return is instant and its
             // cards intact.
@@ -222,15 +226,28 @@ namespace Kobold.Controls
             Refresh();
         }
 
-        /// <summary>Backspace leaves the reading view (spec 6.2). The tunnelling
-        /// handler runs before the read-only box's own class handling, so the
-        /// key never reaches the document; in the list state it stays untouched
-        /// (the todo editor's ladder and the host's own keys keep it).</summary>
+        /// <summary>
+        /// The editing state's key router: Esc rolls the edit back from
+        /// whichever half is up. The preview's read-only document is the focus
+        /// target there (the collapsed source box cannot hold focus), so the
+        /// cancel lives on this view-level tunnelling handler rather than on
+        /// the box. Backspace is the reading state's alone - in the editor it
+        /// belongs to the text (spec 6.2).
+        /// </summary>
         private void Root_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (_state != State.Reading || e.Key != Key.Back) return;
-            e.Handled = true;
-            BackToList();
+            if (_state == State.Reading && e.Key == Key.Back)
+            {
+                e.Handled = true;
+                BackToList();
+                return;
+            }
+
+            if (_state == State.Editing && e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                CancelEdit();
+            }
         }
 
         private void ReadingBack_Click(object sender, MouseButtonEventArgs e)
@@ -437,7 +454,11 @@ namespace Kobold.Controls
         /// <summary>
         /// Esc (spec 6.2): the session's edits roll back. The open note keeps
         /// its text and its stamp; a note created for this session has no
-        /// earlier text to restore, so it is dropped.
+        /// earlier text to restore, so it is dropped - and that drop is a data
+        /// change, so it converges through the host's change notification (the
+        /// usual save path). A stray global save between the add and the cancel
+        /// may already have written the placeholder, so an in-memory-only
+        /// removal would resurrect it on restart.
         /// </summary>
         private void CancelEdit()
         {
@@ -446,8 +467,16 @@ namespace Kobold.Controls
             var note = _current;
             bool isNew = _editingIsNew;
             LeaveEditing();
-            if (isNew && note != null) _data.Notes.Remove(note);
-            Refresh();
+
+            if (!isNew || note == null)
+            {
+                // The open note keeps its data: nothing to converge.
+                Refresh();
+                return;
+            }
+
+            _data.Notes.Remove(note);
+            AfterEdit();
         }
 
         /// <summary>Leaves the editing state (list, no open note, no session
@@ -458,15 +487,6 @@ namespace Kobold.Controls
             _current = null;
             _editingIsNew = false;
             _previewMode = false;
-        }
-
-        /// <summary>Esc rolls the edit back; every other key belongs to the box
-        /// (Backspace edits - only the reading state leaves on it).</summary>
-        private void EditingBox_PreviewKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key != Key.Escape) return;
-            e.Handled = true;
-            CancelEdit();
         }
 
         private void EditingBack_Click(object sender, MouseButtonEventArgs e)
@@ -499,13 +519,20 @@ namespace Kobold.Controls
             SetPreview(true);
         }
 
-        /// <summary>The [source|preview] segment: one text, two paint targets -
-        /// the box keeps the text either way (spec 6.2).</summary>
+        /// <summary>The [source|preview] segment (spec 6.2): one text, two paint
+        /// targets - the box keeps the text either way. Coming back to the
+        /// source half restores the caret: the segment click moved the focus
+        /// away, and typing must not need a second click.</summary>
         private void SetPreview(bool preview)
         {
             _previewMode = preview;
             ApplyEditingSurface();
-            if (preview) RenderEditorPreview();
+            if (preview)
+            {
+                RenderEditorPreview();
+                return;
+            }
+            _editingBox.Focus();
         }
 
         /// <summary>
@@ -529,6 +556,15 @@ namespace Kobold.Controls
             PreviewTab.Background = _previewMode ? ThemeManager.SurfaceHoverBrush : Brushes.Transparent;
             SourceTabText.Foreground = _previewMode ? ThemeManager.SecondaryTextBrush : ThemeManager.TextBrush;
             PreviewTabText.Foreground = _previewMode ? ThemeManager.TextBrush : ThemeManager.SecondaryTextBrush;
+        }
+
+        /// <summary>The segment's two labels off the localization table (spec
+        /// 6.2; all three dictionaries carry the keys). Painted on every
+        /// Refresh, so a language switch follows even outside the editor.</summary>
+        private void PaintSegmentLabels()
+        {
+            SourceTabText.Text = Localization.Get("UI_NoteSourceTab");
+            PreviewTabText.Text = Localization.Get("UI_NotePreviewTab");
         }
 
         /// <summary>
