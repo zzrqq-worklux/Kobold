@@ -8476,17 +8476,45 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T11: an empty note list renders no card at all - the top add row is
-        /// the panel's only content (no empty-state message).
+        /// T11 (fix round 1): an empty note list carries no card at all - the
+        /// top add row is the panel's only content (no empty-state message).
+        /// The pin reaches that state through the real delete path: two notes
+        /// render two cards, each row menu deletes one, and the list is then
+        /// empty. The two-card premise is what gives the pin teeth against a
+        /// renderer that paints no cards (the T10 skeleton).
         /// </summary>
         private static void NoteEmptyListShowsOnlyTheAddRow()
         {
             ThemeManager.Initialize("dark");
-            var view = new NoteWidget(new NoteData()).PanelView;
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
             view.Refresh();
 
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException(
+                    "the two-note fixture rendered " + NoteCardCount(view) + " card(s), wanted 2");
+
+            // Empty the list through the row menus, re-fetching the card each
+            // time (every delete rebuilds the cards).
+            int[] remaining = { 1, 0 };
+            for (int i = 0; i < remaining.Length; i++)
+            {
+                var card = NoteCardAt(view, 0);
+                if (card.ContextMenu == null)
+                    throw new InvalidOperationException("the card carries no row menu");
+                ClickMenuItem(card, 0);
+                if (data.Notes.Count != remaining[i])
+                {
+                    throw new InvalidOperationException(
+                        "the row-menu delete left " + data.Notes.Count + " note(s), wanted " + remaining[i]);
+                }
+            }
+
             if (NoteCardCount(view) != 0)
-                throw new InvalidOperationException("an empty list rendered " + NoteCardCount(view) + " card(s)");
+                throw new InvalidOperationException("the emptied list still rendered " + NoteCardCount(view) + " card(s)");
 
             var pill = view.FindName("AddPill") as FrameworkElement;
             if (pill == null) throw new InvalidOperationException("the add row is missing");
