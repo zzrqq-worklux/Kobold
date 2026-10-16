@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Helpers;
+using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
@@ -20,8 +21,8 @@ namespace Kobold.Controls
     /// task progress, the rendered document) and never invents its own text
     /// rules. The list state (cards, the modified-time order, the row delete
     /// with its undo stack) landed with T11; the reading state and the task
-    /// box write-back are T13; the editing state and the creation flows are
-    /// T14/T15.
+    /// box write-back are T13; the editing state, the [source|preview] segment
+    /// and the creation flow are T14 (the source box's insert menu is T15).
     /// </summary>
     public partial class NotePanelView : UserControl
     {
@@ -61,6 +62,13 @@ namespace Kobold.Controls
         private State _state = State.List;
         private NoteItem _current;
 
+        // The editing state (T14): whether this session created the open note
+        // (Esc then has no earlier text to restore, so the note goes) and which
+        // half of the [source|preview] segment paints. The box text itself is
+        // the pending edit - it is only read at the commit.
+        private bool _editingIsNew;
+        private bool _previewMode;
+
         // The multi-step undo stack (Ctrl+Z in the list context): every delete
         // rides it with the index it came from; the newest 20 survive.
         private readonly List<NoteRemoval> _removals = new List<NoteRemoval>();
@@ -78,6 +86,16 @@ namespace Kobold.Controls
         {
             _data = data ?? new NoteData();
             _host = host;
+
+            // The create entry lives on the list's blank space: the cards carry
+            // their own row menus (the nearest ContextMenu wins) and only the
+            // list state offers the blank menu, so the reader and the editor
+            // keep their own surfaces (the todo day-area pattern).
+            Root.ContextMenuOpening += (s, e) =>
+            {
+                Root.ContextMenu = _state == State.List ? BuildBlankMenu() : null;
+            };
+
             Refresh();
         }
 
@@ -90,15 +108,26 @@ namespace Kobold.Controls
         {
             if (_data == null || _host == null) return;
 
-            // One state at a time: the reading container draws over the list,
-            // which stays built so a return is instant and its cards intact.
+            // One state at a time: the reading and the editing containers draw
+            // over the list, which stays built so a return is instant and its
+            // cards intact.
             bool reading = _state == State.Reading;
-            ListHost.Visibility = reading ? Visibility.Collapsed : Visibility.Visible;
+            bool editing = _state == State.Editing;
+            ListHost.Visibility = _state == State.List ? Visibility.Visible : Visibility.Collapsed;
             ReadingHost.Visibility = reading ? Visibility.Visible : Visibility.Collapsed;
+            EditingHost.Visibility = editing ? Visibility.Visible : Visibility.Collapsed;
 
             if (reading)
             {
                 RenderReading();
+                return;
+            }
+            if (editing)
+            {
+                // The editor's own surface only: the box text is the user's
+                // pending edit and is never rewritten off the data here (a
+                // theme switch or a widget update repaints through this path).
+                RenderEditing();
                 return;
             }
             RebuildList();
@@ -303,6 +332,253 @@ namespace Kobold.Controls
             var brush = new SolidColorBrush(Utils.HexToColor(_data.Color));
             brush.Freeze();
             return brush;
+        }
+
+        #endregion
+
+        #region Editing state (T14)
+
+        /// <summary>
+        /// The reading header's ✎ (spec 6.2): the open note's source opens in
+        /// the editor. Nothing is open (or the note is gone) → nothing.
+        /// </summary>
+        private void ReadingEdit_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (_current == null) return;
+            OpenEditor(_current);
+        }
+
+        /// <summary>
+        /// Opens the source editor on a note: its own text lands in the box,
+        /// the pending-edit flags reset and the surface repaints. Every entry
+        /// (the reading header's ✎) starts on the source half - the mode is a
+        /// session choice, not stored state.
+        /// </summary>
+        private void OpenEditor(NoteItem note)
+        {
+            if (note == null) return;
+            _current = note;
+            _editingIsNew = false;
+            _previewMode = false;
+            _state = State.Editing;
+            _editingBox.Text = note.Text ?? string.Empty;
+            Refresh();
+            _editingBox.Focus();
+        }
+
+        /// <summary>
+        /// The creation flow (spec 6.3), shared by the ＋ row and the list's
+        /// blank menu: a fresh empty note joins the data and the editor opens
+        /// on it. The note only lives through the edit - an empty commit (and
+        /// Esc) drops it again, so empty notes never accumulate.
+        /// </summary>
+        private void StartNewNote()
+        {
+            if (_data == null) return;
+
+            var now = DateTime.Now;
+            var note = new NoteItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                Text = string.Empty,
+                CreatedAt = now,
+                ModifiedAt = now
+            };
+            _data.Notes.Add(note);
+
+            _current = note;
+            _editingIsNew = true;
+            _previewMode = false;
+            _state = State.Editing;
+            _editingBox.Text = string.Empty;
+            Refresh();
+            _editingBox.Focus();
+        }
+
+        /// <summary>
+        /// Settles the open editor (spec 6.2/6.3): the box text trimmed empty
+        /// drops the note (one created for this session and an existing note
+        /// emptied by hand follow the same rule), otherwise a changed text is
+        /// written back with a fresh modified stamp. Leaving without a change
+        /// writes nothing. Idempotent, so the header's two commit buttons, the
+        /// panel's collapse and the window's closing may all call it.
+        /// </summary>
+        public void CommitPendingEdit()
+        {
+            if (_state != State.Editing) return;
+
+            var note = _current;
+            string text = _editingBox.Text ?? string.Empty;
+            LeaveEditing();
+
+            if (note == null) return;
+
+            if (text.Trim().Length == 0)
+            {
+                _data.Notes.Remove(note);
+                AfterEdit();
+                return;
+            }
+
+            if (note.Text != text)
+            {
+                note.Text = text;
+                note.ModifiedAt = DateTime.Now;
+                AfterEdit();
+                return;
+            }
+
+            // Nothing changed: no write, no stamp - just the list. The order
+            // is the proof (the note keeps its old slot).
+            Refresh();
+        }
+
+        /// <summary>
+        /// Esc (spec 6.2): the session's edits roll back. The open note keeps
+        /// its text and its stamp; a note created for this session has no
+        /// earlier text to restore, so it is dropped.
+        /// </summary>
+        private void CancelEdit()
+        {
+            if (_state != State.Editing) return;
+
+            var note = _current;
+            bool isNew = _editingIsNew;
+            LeaveEditing();
+            if (isNew && note != null) _data.Notes.Remove(note);
+            Refresh();
+        }
+
+        /// <summary>Leaves the editing state (list, no open note, no session
+        /// flags); what happens to the note itself is the caller's business.</summary>
+        private void LeaveEditing()
+        {
+            _state = State.List;
+            _current = null;
+            _editingIsNew = false;
+            _previewMode = false;
+        }
+
+        /// <summary>Esc rolls the edit back; every other key belongs to the box
+        /// (Backspace edits - only the reading state leaves on it).</summary>
+        private void EditingBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Escape) return;
+            e.Handled = true;
+            CancelEdit();
+        }
+
+        private void EditingBack_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            CommitPendingEdit();
+        }
+
+        private void EditingDone_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            CommitPendingEdit();
+        }
+
+        private void AddPill_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            StartNewNote();
+        }
+
+        private void SourceTab_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            SetPreview(false);
+        }
+
+        private void PreviewTab_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            SetPreview(true);
+        }
+
+        /// <summary>The [source|preview] segment: one text, two paint targets -
+        /// the box keeps the text either way (spec 6.2).</summary>
+        private void SetPreview(bool preview)
+        {
+            _previewMode = preview;
+            ApplyEditingSurface();
+            if (preview) RenderEditorPreview();
+        }
+
+        /// <summary>
+        /// Repaints the editor's own surface (not the text): the segment's
+        /// active half and the preview document when the preview is up.
+        /// </summary>
+        private void RenderEditing()
+        {
+            ApplyEditingSurface();
+            if (_previewMode) RenderEditorPreview();
+        }
+
+        /// <summary>Which half of the segment paints: the active one takes the
+        /// hover wash and the primary ink, the other stays flat and muted.</summary>
+        private void ApplyEditingSurface()
+        {
+            _editingBox.Visibility = _previewMode ? Visibility.Collapsed : Visibility.Visible;
+            _previewBox.Visibility = _previewMode ? Visibility.Visible : Visibility.Collapsed;
+
+            SourceTab.Background = _previewMode ? Brushes.Transparent : ThemeManager.SurfaceHoverBrush;
+            PreviewTab.Background = _previewMode ? ThemeManager.SurfaceHoverBrush : Brushes.Transparent;
+            SourceTabText.Foreground = _previewMode ? ThemeManager.SecondaryTextBrush : ThemeManager.TextBrush;
+            PreviewTabText.Foreground = _previewMode ? ThemeManager.TextBrush : ThemeManager.SecondaryTextBrush;
+        }
+
+        /// <summary>
+        /// Paints the preview from the BOX text - the single source of both
+        /// halves: the T12 renderer's AST, the live theme's style and the
+        /// callbacks routing the task boxes back into the box (spec 6.2).
+        /// </summary>
+        private void RenderEditorPreview()
+        {
+            _previewBox.Document = NoteMarkdownRenderer.Build(
+                MarkdownParser.Parse(_editingBox.Text ?? string.Empty),
+                BuildRenderStyle(), PreviewCallbacks());
+        }
+
+        /// <summary>The renderer's outbound actions for the editor preview.</summary>
+        private NoteRenderCallbacks PreviewCallbacks()
+        {
+            return new NoteRenderCallbacks
+            {
+                ToggleTaskLine = TogglePreviewTask,
+                OpenLink = OpenLink
+            };
+        }
+
+        /// <summary>
+        /// A task box was clicked in the preview (spec 6.2/5.3): the source line
+        /// flips in the BOX text (recomputed from it, per the design's note) and
+        /// the preview repaints from the fresh text. The note's data stays
+        /// untouched - the commit is what lands the edit.
+        /// </summary>
+        private void TogglePreviewTask(int line)
+        {
+            _editingBox.Text = NoteOps.ToggleTaskAt(_editingBox.Text, line);
+            RenderEditorPreview();
+        }
+
+        /// <summary>
+        /// The list's blank-area menu (spec 6.3): the one create entry, which
+        /// runs the ＋ row's flow. Built per right-click so it always reflects
+        /// the current language (the todo day-area pattern); the cards carry
+        /// their own row menus and take precedence.
+        /// </summary>
+        private ContextMenu BuildBlankMenu()
+        {
+            var entry = new MenuItem
+            {
+                Header = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"))
+            };
+            entry.Click += (s, e) => StartNewNote();
+            return new MenuBuilder(_data.Color).AddMenuItem(entry).Build();
         }
 
         #endregion

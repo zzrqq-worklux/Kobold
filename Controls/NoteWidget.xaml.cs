@@ -11,8 +11,9 @@ namespace Kobold.Controls
     /// renderer over the pure Note* logic and persists its edits through the
     /// base's OnDataChanged path. Task T10 builds the shell; T11 renders the
     /// list state (cards, the modified-time order, the row delete and its undo
-    /// stack) - the reading/editing states and the creation flows arrive with
-    /// T13/T14/T15.
+    /// stack); T13 reads (the rendered document and the task boxes); T14 edits
+    /// (the source box, the preview, the creation flow and the commit paths);
+    /// the editor's insert menu is T15.
     /// </summary>
     public partial class NoteWidget : WidgetWindowBase
     {
@@ -34,6 +35,10 @@ namespace Kobold.Controls
             _view = new NotePanelView();
             NoteChrome.ContentHost.Content = _view;
             _view.Attach(data, this);
+
+            // The pending edit settles before the window goes (spec 6.3): a
+            // closed/collapsed panel must never lose half-typed text.
+            Closing += (s, e) => _view?.CommitPendingEdit();
         }
 
         /// <summary>The note list hosted in the chrome's content slot.</summary>
@@ -59,6 +64,19 @@ namespace Kobold.Controls
         protected override (double width, double height) GetContentSize()
         {
             return (CONTENT_WIDTH, CONTENT_HEIGHT);
+        }
+
+        /// <summary>
+        /// The panel is collapsing: the pending edit is settled first (spec
+        /// 6.3 - 收起面板不丢字). <see cref="WidgetWindowBase.HidePanel"/> is not
+        /// virtual and its fade hides the window only once the animation
+        /// completes, so the commit rides this hook, which the base calls
+        /// synchronously at the top of the collapse, before the fade.
+        /// </summary>
+        protected override void OnPanelHidden()
+        {
+            _view?.CommitPendingEdit();
+            base.OnPanelHidden();
         }
 
         /// <summary>The note panel's minimum (spec 6.5): the base's defaults are folder/todo only.</summary>
