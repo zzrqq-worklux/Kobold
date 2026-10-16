@@ -628,6 +628,20 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: the editor menu follows the widget colour",
                     NoteEditorMenuFollowsTheWidgetColour);
 
+                // Task T3 pins: the new surface component's rendered state (the
+                // additive migration off NotePanelView) - Attach paints the
+                // read-only document with its task boxes and links live and the
+                // three editing panes collapsed, a task click writes the source
+                // line back through the host notification, a link keeps its url
+                // and Repaint rebuilds the document off the live theme.
+                failures += TryCheck("surface: attaching renders the document",
+                    SurfaceAttachRendersTheDocument);
+                failures += TryCheck("surface: a task click rewrites the source line and re-renders",
+                    SurfaceTaskClickRewritesAndRerenders);
+                failures += TryCheck("surface: a link carries its url", SurfaceLinkCarriesItsUrl);
+                failures += TryCheck("surface: repaint re-renders the reading document",
+                    SurfaceRepaintRerendersTheDocument);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -10679,6 +10693,152 @@ namespace Kobold.XamlLoadCheck
             {
                 Localization.SetLanguage("en");
             }
+        }
+
+        #endregion
+
+        #region Task T3: note surface pins
+
+        /// <summary>
+        /// T3 (spec 4.1): Attach binds the note and paints the rendered state -
+        /// the single read-only document box is visible with one block per
+        /// top-level markdown block, while the three editing panes (the before
+        /// / after renders and the source box) stay collapsed until T4 enters a
+        /// block.
+        /// </summary>
+        private static void SurfaceAttachRendersTheDocument()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the reading box is hidden after Attach");
+            string[] panes = { "BeforeBox", "EditBox", "AfterBox" };
+            foreach (string pane in panes)
+            {
+                if (SurfaceNamed(surface, pane).Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException(pane + " is visible in the rendered state");
+            }
+
+            var box = SurfaceReadingBox(surface);
+            int blocks = box.Document == null ? -1 : box.Document.Blocks.Count;
+            if (blocks != 3)
+                throw new InvalidOperationException("the rendered document holds " + blocks + " block(s), wanted 3");
+        }
+
+        /// <summary>
+        /// T3 (spec 4.1/5.3): a task box click writes the flipped source line
+        /// back, stamps the modified time, notifies the host exactly once and
+        /// re-renders so the fresh glyph carries its check; the stale glyph is
+        /// left alone (the document was rebuilt, not mutated in place).
+        /// </summary>
+        private static void SurfaceTaskClickRewritesAndRerenders()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", when);
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            var box = SurfaceReadingBox(surface);
+            var before = box.Document;
+            var open = TaskGlyph(ParagraphAt(before, 2));
+            if (open.Child != null)
+                throw new InvalidOperationException("the fixture started with a checked box");
+
+            open.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            });
+
+            if (!(note.Text ?? string.Empty).Contains("[x]"))
+            {
+                throw new InvalidOperationException("the toggle left the source as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            }
+            if (note.ModifiedAt < when)
+                throw new InvalidOperationException("the toggle rolled the modified time back (" + note.ModifiedAt + ")");
+            if (changed != 1)
+                throw new InvalidOperationException("the toggle notified the host " + changed + " time(s), wanted 1");
+
+            var after = box.Document;
+            if (ReferenceEquals(after, before))
+                throw new InvalidOperationException("the surface was not re-rendered after the toggle");
+            if (!(TaskGlyph(ParagraphAt(after, 2)).Child is Path))
+                throw new InvalidOperationException("the re-rendered box carries no check mark");
+        }
+
+        /// <summary>
+        /// T3 (spec 4.1/5.2): the rendered link keeps its target on
+        /// Hyperlink.NavigateUri so the surface can hand it to the browser; the
+        /// pin reads the target only - raising the click would open one.
+        /// </summary>
+        private static void SurfaceLinkCarriesItsUrl()
+        {
+            const string url = "https://example.com/surface?p=1";
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "see [the site](" + url + ")", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            var link = FirstHyperlink(SurfaceReadingBox(surface).Document);
+            if (link.NavigateUri == null)
+                throw new InvalidOperationException("the rendered link carries no url");
+            if (link.NavigateUri.AbsoluteUri != url)
+                throw new InvalidOperationException("the rendered link carries '"
+                    + link.NavigateUri.AbsoluteUri + "', wanted '" + url + "'");
+        }
+
+        /// <summary>
+        /// T3 (spec 4.1): Repaint is the theme/language repaint path - it
+        /// rebuilds the rendered document off the live theme while leaving the
+        /// note itself untouched (the editing guard arrives with T4).
+        /// </summary>
+        private static void SurfaceRepaintRerendersTheDocument()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\npara", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            var before = SurfaceReadingBox(surface).Document;
+
+            ThemeManager.Initialize("light");
+            surface.Repaint();
+
+            var after = SurfaceReadingBox(surface).Document;
+            if (after == null || after.Blocks.Count == 0)
+                throw new InvalidOperationException("Repaint left the rendered document empty");
+            if (ReferenceEquals(after, before))
+                throw new InvalidOperationException("Repaint did not rebuild the rendered document");
+        }
+
+        /// <summary>
+        /// T3: a surface attached to one note of a widget's data - the new
+        /// component's own entry, no host window or panel needed.
+        /// </summary>
+        private static NoteSurfaceView NewSurface(NoteData data, NoteItem note)
+        {
+            var surface = new NoteSurfaceView();
+            surface.Attach(data, note);
+            return surface;
+        }
+
+        private static FrameworkElement SurfaceNamed(NoteSurfaceView surface, string name)
+        {
+            var element = surface.FindName(name) as FrameworkElement;
+            if (element == null) throw new InvalidOperationException("NoteSurfaceView has no " + name);
+            return element;
+        }
+
+        private static RichTextBox SurfaceReadingBox(NoteSurfaceView surface)
+        {
+            var named = surface.FindName("ReadingBox");
+            if (named == null) throw new InvalidOperationException("NoteSurfaceView has no ReadingBox");
+            var box = named as RichTextBox;
+            if (box == null)
+                throw new InvalidOperationException("ReadingBox is a " + named.GetType().Name + ", not a RichTextBox");
+            return box;
         }
 
         #endregion

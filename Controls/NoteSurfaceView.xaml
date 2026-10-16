@@ -1,0 +1,63 @@
+<UserControl x:Class="Kobold.Controls.NoteSurfaceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             TextOptions.TextFormattingMode="Display">
+
+    <!-- The note surface: the rendered state (T3) ⇄ the block-editing state
+         (T4), plus the source box's quick-insert menu (T5). Rendered, the one
+         read-only document box fills the surface; in edit, the before render /
+         the block's source / the after render stack in place over one shared
+         scroller. -->
+    <Grid x:Name="SurfaceRoot" Background="Transparent">
+
+        <!-- The single scroll region both states share: the block-edit splice
+             keeps the offset the rendered state captures and restores
+             (spec 4.1/4.3). The top padding leaves the floating ‹ room. -->
+        <ScrollViewer x:Name="SurfaceScroller"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      PanningMode="VerticalOnly" Padding="0,24,0,0" Background="Transparent">
+            <StackPanel x:Name="SurfaceStack">
+
+                <!-- Rendered state: the whole note through the T12 renderer,
+                     read-only but document-enabled so its task boxes and links
+                     take the clicks (spec 4.1/5.2/5.3). Its inner scroller
+                     stays disabled so this outer one owns the offset. -->
+                <RichTextBox x:Name="ReadingBox" IsReadOnly="True" IsDocumentEnabled="True"
+                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                             Background="Transparent" BorderThickness="0" Padding="0"/>
+
+                <!-- Block-editing state (T4): the render before the edited
+                     block. Static - its callbacks are empty, so a task box or
+                     link inside it never writes while a block is edited. -->
+                <RichTextBox x:Name="BeforeBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
+                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                             Background="Transparent" BorderThickness="0" Padding="0"/>
+
+                <!-- The edited block's own source: the note's Markdown, in the
+                     view's body size, multi-line and wrapping (the old source
+                     box's carry). -->
+                <TextBox x:Name="EditBox" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap"
+                         Background="Transparent" BorderThickness="0" Padding="0"
+                         FontSize="{DynamicResource Kobold.Font.Body}"
+                         Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                         VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"/>
+
+                <!-- Block-editing state (T4): the render after the edited
+                     block, static like the before render. -->
+                <RichTextBox x:Name="AfterBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
+                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                             Background="Transparent" BorderThickness="0" Padding="0"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- The expanded face's only chrome (spec 3.3): the floating ‹ at the
+             top-left, over the content - the collapse seam. -->
+        <Border x:Name="CollapseButton" Width="22" Height="22" CornerRadius="6"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Background="Transparent" Cursor="Hand"
+                MouseLeftButtonDown="CollapseButton_Click">
+            <TextBlock Text="‹" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+    </Grid>
+</UserControl>
