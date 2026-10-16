@@ -736,3 +736,34 @@
 - **占位符扫描**：无 TBD；尺寸初值（300×380 / 260×220）与滚动保持的冒烟移交均已显式写明。
 - **类型一致性**：`NoteOps.TaskProgressOf` 仅在 T8 定义并在 T11 消费（T6 不预引）；`NoteRenderCallbacks.ToggleTaskLine` 贯穿 T12→T13→T14；`WidgetWindowFactory.Create` T2 定义/T10 扩表；editor op 返回三元组在 T9/T15 同名使用。
 - **风险**：① 解析器边缘由逐构造 pin 锁定；② `TextBox.SelectedText` 整段替换的原生撤回若 pin 红，T15 已给"逐行最小编辑"回退路径；③ 面板收起提交的接线依赖基类 `HidePanel` 是否 virtual——T14 已给双路径与验证 pin。
+
+---
+
+## 执行记录（2026-10-15 ~ 10-16）
+
+**任务审查（先审后交，逐任务；全部子代理按用户指示统一 deepseek-v4.1-flash）**
+
+- T1 转换器注册表化 → 审查 clean → `6a50f86`。
+- T2 窗口工厂 → 审查 clean（2 minor）→ `271f823`。
+- T3 图标分发收口 → 审查 clean（1 minor；一次派发被服务器重启中断后重试）→ `210098c`。
+- T4 笔记图标 → 审查 clean（4 minor）→ `88e7b74`。
+- T5 NoteData 接线 → 审查 Needs fixes（Important：`UI_WidgetKindNote` 派生键缺失，菜单泄漏原文 key）→ 裁定补键 + `UI_DefaultNoteName` 归一 "My Note" 惯例 → 修复 `7436d1b` → 复审 clean → `513e24c`。
+- T6 NoteOps + NoteMarkdownCheck 工程（矩阵 31 → 32 行）→ 审查 clean（3 minor）→ `e35028f`。
+- T7 块级解析 → 实现子代理报告 brief-vs-spec 冲突（`>>` 嵌套引用）→ 裁定 spec 胜（引用单层、`>>` 字面）→ 修复 `68bc40c` → 审查 clean → `f91c71a`。
+- T8 行内解析 + 表格 + TaskProgressOf → 审查 clean（2 条 T7 pin 按新语义合规重钉，逐条留档）→ `4ed21ba`。
+- T9 快速插入纯函数 → 审查 Needs fixes（Important ×2：CRLF 块插入损坏；前缀正则比解析器松/紧）→ 裁定语义一致优先 → 修复 `aa0afcc`（155 pins）→ 复审 clean → `470836a`。
+- T10 组件壳 → 审查 clean（6 minor）→ `2dd8bf1`。
+- T11 列表态 + 撤回栈 → 审查 Needs fixes（Important，plan-mandated：空列表 pin 无红相）→ 加固为可红形状并做真红运行（T10 快照检出）→ `47edbef` → 复审 clean → `6d2cd90`。
+- T12 Markdown 渲染器 → 审查 clean（5 minor；闭 AST 全覆盖经独立核验）→ `8c30b49`。
+- T13 阅读态 → 审查 clean（5 minor）；其越界观察（TitleOf 不剥前缀）→ 裁定立 B1。
+- B1 标题剥前缀（共享 helper 防漂移）→ 审查 clean → `9d5efb8`。
+- T14 编辑态：两次派发被服务器重启中断（592 行红 pin 半成品保留）→ 第三次续用成功 → 审查 Needs fixes（Important ×3：预览半边 Esc 失效；段标签硬编码中文；CancelEdit 不移交通知）→ 裁定修复（暂存集修订纳入 Localization.cs）→ 修复 `01c0c36` → 复审 clean → `99875a0`。
+- T15 快速插入菜单：一次派发中断（半成品保留）→ 续用成功；实现中修掉继承半成品的两个真缺陷（ContextMenuEventArgs 参数反置、WPF 内置编辑器事件拦截）→ 审查 clean（7 minor；两处修复经独立 WPF 探针实证）→ `1ca2cb2`。
+- T16 文档 + 触点清单入注册表注释 → 审查 clean（7 minor）→ `1623211`。
+
+**终版矩阵**：`1623211` 时 `Run-Checks.ps1 -Group all` **32/32 全绿**（29 控制台自检含新 NoteMarkdownCheck + installer 60 例 + config-pin）；**整支终审**（`70f9d47..1623211`，22 提交、394KB 包）结论 **With fixes**——无 Critical；registry 收口对称、folder/todo 零回归、未知 kind 数据安全成立。
+**终审修复波**（唯一一次，`2199ddb`）：①引文内任务框从"可点但无操作"改为真回写（`ToggleTaskAt` 认一层 `> ` 前缀，`> >` 仍字面）；②预览态点击任务保持滚动（补齐 §5.3；README/CHANGELOG 覆盖两界面）；③`OpenNote` 补 `ReadingBox.Focus()`（Backspace 返回真路径）；④链接 `RequestNavigate` 防双开；⑤文档措辞单 6 项。复审 **全部 ADDRESSED**、无新增 Critical/Important；预览滚动与焦点两项因离屏不可验证如实不设 pin（冒烟覆盖）。修复波新增 1 条 Minor（过期注释）→ 裁定 park（真实但仅注释，随下次触碰清理）。**修复后终版矩阵复跑：`2199ddb` 32/32 全绿**。
+
+**基础设施备注**：本会话服务器重启多次打断子代理派发——沿用"保留半成品 + 续用/RED 重建 + 独立审查"预案消化（T14/T15 各一条半成品均高质量续用；T3/T9 审查派发中断后重试成功）；全过程裁定均入 SDD ledger（`.superpowers/sdd/2026-10-15-note-widget/progress.md` 的 Ruling 行）。
+
+**手动冒烟（用户，部署后）**：spec §9.3 十条 + 本轮补充观察项：①引文内任务框点击回写；②阅读/预览点击任务均保持滚动；③阅读态 Backspace 返回（焦点路径）；④链接单击只开一次浏览器；⑤段标签与菜单随语言切换（zh/en/ja）；⑥收起面板/关机不丢编辑中文本；⑦文件夹/待办回归抽查。
