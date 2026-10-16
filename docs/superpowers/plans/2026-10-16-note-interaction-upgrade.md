@@ -222,11 +222,13 @@
   Repaint 复用）、`_throttle`（`DispatcherTimer`，400ms，tick = `CommitRegion()`）、`_editEntryText`
   （入场时 EditBox 文本，**提交守卫**：框文本未变则零接管）。
 - 核心逻辑：
-  - **点块进入（`ReadingBox.MouseLeftButtonUp` 挂接）**：`e.Handled` 为真 → 跳过（任务 glyph 已自处理）；
-    从 `e.OriginalSource` 上溯：命中 `Hyperlink` → 跳过；读到 `NoteMarkdownRenderer.SourceLineProperty`
-    （或任务 glyph 的 `Tag`）→ 该行 `TryBeginEditAt(line)`；**选择非空（拖选后松手）→ 跳过**；
-    无命中 → 不动作（块级兜底由 `RangeIndexAtLine` 的夹取实现）；
-  - `TryBeginEditAt(line)`：`RangesOf` + `RangeIndexAtLine` 取范围（<0 → false）→ 记 `_editStart/_editEnd`
+  - **点块进入（`SurfaceRoot` 的 `MouseLeftButtonUp` 冒泡挂接，覆盖阅读盒与前/后段）**：`e.Handled` 为真 →
+    跳过（任务 glyph 已自处理）；从 `e.OriginalSource` 上溯：命中 `Hyperlink` → 跳过；读到
+    `NoteMarkdownRenderer.SourceLineProperty`（或任务 glyph 的 `Tag`）→ 该行 `TryBeginEditAt(line)`；
+    **选择非空（拖选后松手，判定命中所在 RTB 的 `Selection.IsEmpty`）→ 跳过**；无命中（含编辑框自身）→
+    不动作（块级兜底由 `RangeIndexAtLine` 的夹取实现）；
+  - `TryBeginEditAt(line)`：**编辑中调用 = 先提交当前区域**（`CommitRegion()`；spec §4.3/§4.4 的
+    「提交当前块 + 切换编辑该块」）→ `RangesOf` + `RangeIndexAtLine` 取范围（<0 → false）→ 记 `_editStart/_editEnd`
     → `EditBox.Text = ExtractLines(note.Text, start, end)`、`_editEntryText = EditBox.Text`
     → `MarkdownParser.Parse(note.Text)` 切块：`BeforeBox.Document = Build(blocks[0..i), …, null)`、
     `AfterBox.Document = Build(blocks[(i+1)..], …, null)`（**静态渲染：回调为空**）
