@@ -9,6 +9,7 @@ using IO = System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -513,6 +514,27 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: the stack keeps only the newest twenty",
                     NoteUndoStackKeepsOnlyTheNewestTwenty);
                 failures += TryCheck("note: an empty list shows only the add row", NoteEmptyListShowsOnlyTheAddRow);
+
+                // Task T12 pins: the AST renders into a FlowDocument - the
+                // heading size ladder, paragraphs with their source line
+                // breaks, the emphasis family on Runs, monospace code spans,
+                // the task glyph (Tag = source line, click routes the line),
+                // table cells with their column alignment, a link click that
+                // routes the URL and is marked handled (never a browser), the
+                // high-contrast system fallback and the widget-coloured accent.
+                failures += TryCheck("renderer: headings step down in size", RendererHeadingsStepDown);
+                failures += TryCheck("renderer: a paragraph keeps its source line breaks",
+                    RendererParagraphKeepsLineBreaks);
+                failures += TryCheck("renderer: strong runs are bold, em are italic, strike strikes",
+                    RendererEmphasisRuns);
+                failures += TryCheck("renderer: inline code is monospace on its own background",
+                    RendererInlineCodeIsMonospace);
+                failures += TryCheck("renderer: a task glyph carries its source line", RendererTaskGlyphCarriesItsLine);
+                failures += TryCheck("renderer: the table renders aligned cells", RendererTableRendersAlignedCells);
+                failures += TryCheck("renderer: a link routes its url on click", RendererLinkRoutesUrlOnClick);
+                failures += TryCheck("renderer: high contrast swaps to system colours",
+                    RendererHighContrastUsesSystemColours);
+                failures += TryCheck("renderer: the accent follows the widget colour", RendererAccentFollowsWidgetColour);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -8610,6 +8632,452 @@ namespace Kobold.XamlLoadCheck
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (method == null) throw new InvalidOperationException("InvokeDelete not found on NotePanelView");
             method.Invoke(view, new object[] { note });
+        }
+
+        #endregion
+
+        #region Task T12: renderer pins
+
+        /// <summary>
+        /// T12: the style the reading view will build - theme tokens plus the
+        /// widget colour, injected here (a fixture palette entry, so an accent
+        /// that ignores the widget colour fails). No hex literals: every colour
+        /// comes from <see cref="UiTokens"/>, <see cref="ThemeManager"/> or a
+        /// named system brush.
+        /// </summary>
+        private static NoteRenderStyle NewRenderStyle(string widgetHex = null)
+        {
+            ThemeManager.Initialize("dark");
+            return new NoteRenderStyle
+            {
+                Text = ThemeManager.TextBrush,
+                Muted = ThemeManager.MutedTextBrush,
+                Accent = new SolidColorBrush(Utils.HexToColor(widgetHex ?? UiTokens.DefaultFolderColor)),
+                CodeBackground = new SolidColorBrush(Utils.HexToColor(UiTokens.Dark.ControlBackground)),
+                Divider = ThemeManager.BorderBrush,
+                HighContrast = false,
+                BodyFont = new FontFamily("Segoe UI"),
+                BaseFontSize = UiTokens.FontBody
+            };
+        }
+
+        private static FlowDocument RenderDocument(string source, NoteRenderStyle style,
+            NoteRenderCallbacks callbacks = null)
+        {
+            return NoteMarkdownRenderer.Build(MarkdownParser.Parse(source), style, callbacks);
+        }
+
+        /// <summary>
+        /// T12: H1..H6 step down by the design's ladder (Base times
+        /// 1.6/1.4/1.25/1.12/1.05/1.0) and never dip below the body size.
+        /// </summary>
+        private static void RendererHeadingsStepDown()
+        {
+            var style = NewRenderStyle();
+            var doc = RenderDocument("# one\n## two\n### three\n#### four\n##### five\n###### six", style);
+
+            if (doc.Blocks.Count != 6)
+                throw new InvalidOperationException("the six headings produced " + doc.Blocks.Count + " block(s)");
+
+            double[] scale = { 1.6, 1.4, 1.25, 1.12, 1.05, 1.0 };
+            double previous = double.MaxValue;
+            for (int i = 0; i < scale.Length; i++)
+            {
+                var heading = ParagraphAt(doc, i);
+                double wanted = style.BaseFontSize * scale[i];
+                if (Math.Abs(heading.FontSize - wanted) > 0.001)
+                    throw new InvalidOperationException(
+                        "H" + (i + 1) + " renders at " + heading.FontSize + ", wanted " + wanted);
+                if (heading.FontSize < style.BaseFontSize)
+                    throw new InvalidOperationException("H" + (i + 1) + " is smaller than the body size");
+                if (heading.FontSize >= previous)
+                    throw new InvalidOperationException("H" + (i + 1) + " does not step down from H" + i);
+                previous = heading.FontSize;
+            }
+        }
+
+        /// <summary>
+        /// T12: a paragraph keeps its source line breaks as <see cref="LineBreak"/>
+        /// inlines (the Chinese-note deviation: three lines, two breaks, no
+        /// space joining).
+        /// </summary>
+        private static void RendererParagraphKeepsLineBreaks()
+        {
+            var doc = RenderDocument("one\ntwo\nthree", NewRenderStyle());
+            var paragraph = FirstParagraph(doc);
+
+            int breaks = 0;
+            foreach (var inline in paragraph.Inlines)
+            {
+                if (inline is LineBreak) breaks++;
+            }
+            if (breaks != 2)
+                throw new InvalidOperationException("the three-line paragraph has " + breaks + " line break(s), wanted 2");
+
+            string text = InlineText(paragraph.Inlines);
+            if (text != "one\ntwo\nthree")
+                throw new InvalidOperationException("the paragraph reads '" + text.Replace("\n", "\\n") + "'");
+        }
+
+        /// <summary>T12: the emphasis family lands on Run properties.</summary>
+        private static void RendererEmphasisRuns()
+        {
+            var doc = RenderDocument("**bold** *italic* ~~struck~~", NewRenderStyle());
+            var paragraph = FirstParagraph(doc);
+
+            var bold = RunWithText(paragraph, "bold");
+            if (bold.FontWeight != FontWeights.Bold)
+                throw new InvalidOperationException("the strong run weighs " + bold.FontWeight);
+
+            var italic = RunWithText(paragraph, "italic");
+            if (italic.FontStyle != FontStyles.Italic)
+                throw new InvalidOperationException("the em run styles " + italic.FontStyle);
+
+            var struck = RunWithText(paragraph, "struck");
+            if (struck.TextDecorations == null || struck.TextDecorations.Count == 0
+                || struck.TextDecorations[0].Location != TextDecorationLocation.Strikethrough)
+                throw new InvalidOperationException("the strike run carries no strikethrough decoration");
+        }
+
+        /// <summary>
+        /// T12: a code span is monospace on the style's code band, and the
+        /// surrounding text stays body-font so the span really is its own run.
+        /// </summary>
+        private static void RendererInlineCodeIsMonospace()
+        {
+            var style = NewRenderStyle();
+            var doc = RenderDocument("before `code` after", style);
+            var paragraph = FirstParagraph(doc);
+
+            var code = RunWithText(paragraph, "code");
+            if (code.FontFamily == null
+                || code.FontFamily.Source.IndexOf("Consolas", StringComparison.OrdinalIgnoreCase) < 0)
+                throw new InvalidOperationException("the code span font is '"
+                    + (code.FontFamily == null ? "<null>" : code.FontFamily.Source) + "'");
+
+            var background = code.Background as SolidColorBrush;
+            var wanted = style.CodeBackground as SolidColorBrush;
+            if (background == null || wanted == null)
+                throw new InvalidOperationException("the code span has no background");
+            if (background.Color != wanted.Color)
+                throw new InvalidOperationException(
+                    "the code span background is " + background.Color + ", wanted " + wanted.Color);
+
+            string text = InlineText(paragraph.Inlines);
+            if (text != "before code after")
+                throw new InvalidOperationException("the inline code paragraph reads '" + text + "'");
+        }
+
+        /// <summary>
+        /// T12: every task glyph is tagged with its absolute source line, the
+        /// completed one grows a check mark the open one does not have, and a
+        /// glyph click routes exactly that line (the callback set is optional:
+        /// a bare render must stay silent).
+        /// </summary>
+        private static void RendererTaskGlyphCarriesItsLine()
+        {
+            var style = NewRenderStyle();
+            var doc = RenderDocument("- [ ] open\n- [x] done", style);
+
+            if (doc.Blocks.Count != 2)
+                throw new InvalidOperationException("the two task lines produced " + doc.Blocks.Count + " block(s)");
+
+            var openParagraph = ParagraphAt(doc, 0);
+            var doneParagraph = ParagraphAt(doc, 1);
+            var openBadge = TaskGlyph(openParagraph);
+            var doneBadge = TaskGlyph(doneParagraph);
+
+            if (!(openBadge.Tag is int) || (int)openBadge.Tag != 0)
+                throw new InvalidOperationException("the open glyph tags " + openBadge.Tag + ", wanted line 0");
+            if (!(doneBadge.Tag is int) || (int)doneBadge.Tag != 1)
+                throw new InvalidOperationException("the done glyph tags " + doneBadge.Tag + ", wanted line 1");
+
+            if (openBadge.Child != null)
+                throw new InvalidOperationException("the open box already carries a mark");
+            if (!(doneBadge.Child is Path))
+                throw new InvalidOperationException("the completed box carries no check mark");
+
+            if (InlineText(openParagraph.Inlines) != "open")
+                throw new InvalidOperationException("the open task reads '" + InlineText(openParagraph.Inlines) + "'");
+            if (InlineText(doneParagraph.Inlines) != "done")
+                throw new InvalidOperationException("the done task reads '" + InlineText(doneParagraph.Inlines) + "'");
+
+            int toggled = -1;
+            var callbacks = new NoteRenderCallbacks { ToggleTaskLine = line => { toggled = line; } };
+            var clickDoc = RenderDocument("- [ ] open\n- [x] done", style, callbacks);
+            var clickBadge = TaskGlyph(ParagraphAt(clickDoc, 1));
+            var upArgs = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            };
+            clickBadge.RaiseEvent(upArgs);
+            if (toggled != 1)
+                throw new InvalidOperationException("the glyph click reported line " + toggled + ", wanted 1");
+            if (!upArgs.Handled)
+                throw new InvalidOperationException("the glyph click was not handled");
+
+            // No callback set: the same click must not throw.
+            var bare = NoteMarkdownRenderer.Build(MarkdownParser.Parse("- [ ] open"), style, null);
+            TaskGlyph(ParagraphAt(bare, 0)).RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                });
+        }
+
+        /// <summary>
+        /// T12: the table carries one equal star column per alignment, a header
+        /// row plus the body, and every cell aligns to its column's
+        /// <see cref="MdAlign"/> (`---` and `:---` read left, `---:` right,
+        /// `:---:` centre). The header is bold and underlined.
+        /// </summary>
+        private static void RendererTableRendersAlignedCells()
+        {
+            var doc = RenderDocument("| a | b | c | d |\n|---|:---|---:|:---:|\n| 1 | 2 | 3 | 4 |", NewRenderStyle());
+
+            var table = BlockAt(doc.Blocks, 0) as Table;
+            if (table == null)
+                throw new InvalidOperationException("the table parsed to a " + BlockAt(doc.Blocks, 0).GetType().Name);
+
+            if (table.Columns.Count != 4)
+                throw new InvalidOperationException("the table has " + table.Columns.Count + " column(s), wanted 4");
+            for (int c = 0; c < table.Columns.Count; c++)
+            {
+                if (table.Columns[c].Width != new GridLength(1, GridUnitType.Star))
+                    throw new InvalidOperationException(
+                        "column " + c + " is " + table.Columns[c].Width + ", wanted an equal star");
+            }
+
+            if (table.RowGroups.Count != 1)
+                throw new InvalidOperationException("the table has " + table.RowGroups.Count + " row group(s), wanted 1");
+            var rows = table.RowGroups[0].Rows;
+            if (rows.Count != 2)
+                throw new InvalidOperationException(
+                    "the table has " + rows.Count + " row(s), wanted a header plus one body row");
+            for (int r = 0; r < rows.Count; r++)
+            {
+                if (rows[r].Cells.Count != 4)
+                    throw new InvalidOperationException("row " + r + " has " + rows[r].Cells.Count + " cell(s), wanted 4");
+            }
+
+            TextAlignment[] wanted =
+            {
+                TextAlignment.Left, TextAlignment.Left, TextAlignment.Right, TextAlignment.Center
+            };
+            for (int r = 0; r < rows.Count; r++)
+            {
+                for (int c = 0; c < wanted.Length; c++)
+                {
+                    if (rows[r].Cells[c].TextAlignment != wanted[c])
+                        throw new InvalidOperationException("row " + r + " cell " + c + " aligns "
+                            + rows[r].Cells[c].TextAlignment + ", wanted " + wanted[c]);
+                }
+            }
+
+            var headerCell = rows[0].Cells[0];
+            var headerText = BlockAt(headerCell.Blocks, 0) as Paragraph;
+            if (headerText == null || headerText.FontWeight != FontWeights.Bold)
+                throw new InvalidOperationException("the header row is not bold");
+            if (headerCell.BorderThickness.Bottom <= 0 || headerCell.BorderBrush == null)
+                throw new InvalidOperationException("the header row has no bottom rule");
+            if (InlineText(headerText.Inlines) != "a")
+                throw new InvalidOperationException("the header cell reads '" + InlineText(headerText.Inlines) + "'");
+        }
+
+        /// <summary>
+        /// T12: a link carries its target, its label and a click that routes the
+        /// URL to the callbacks and marks the event handled - the pin raises the
+        /// click itself, so a handler that forgets <c>Handled</c> would be the
+        /// only thing that could reach a browser.
+        /// </summary>
+        private static void RendererLinkRoutesUrlOnClick()
+        {
+            const string url = "https://example.com/a?b=1";
+            string recorded = null;
+            var callbacks = new NoteRenderCallbacks { OpenLink = target => { recorded = target; } };
+            var doc = RenderDocument("see [the site](" + url + ")", NewRenderStyle(), callbacks);
+
+            var link = FirstHyperlink(doc);
+            if (link.NavigateUri == null || link.NavigateUri.AbsoluteUri != url)
+                throw new InvalidOperationException("the link target is '"
+                    + (link.NavigateUri == null ? "<null>" : link.NavigateUri.AbsoluteUri) + "'");
+            if (InlineText(link.Inlines) != "the site")
+                throw new InvalidOperationException("the link label reads '" + InlineText(link.Inlines) + "'");
+
+            var args = new RoutedEventArgs(Hyperlink.ClickEvent, link);
+            link.RaiseEvent(args);
+
+            if (recorded != url)
+                throw new InvalidOperationException("the click routed '" + recorded + "', wanted '" + url + "'");
+            if (!args.Handled)
+                throw new InvalidOperationException("the click was not handled (a browser would open)");
+
+            // No callbacks at all: the same click must stay silent.
+            var bare = RenderDocument("[x](https://example.com/bare)", NewRenderStyle());
+            var bareLink = FirstHyperlink(bare);
+            bareLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent, bareLink));
+        }
+
+        /// <summary>
+        /// T12: with <see cref="NoteRenderStyle.HighContrast"/> on, the style's
+        /// own brushes are ignored for the system roles - here a marker colour
+        /// no system palette uses proves the paragraph ink and the task box
+        /// really swap.
+        /// </summary>
+        private static void RendererHighContrastUsesSystemColours()
+        {
+            var style = NewRenderStyle();
+            style.HighContrast = true;
+            style.Text = Brushes.Magenta;
+
+            var doc = RenderDocument("plain text", style);
+            var foreground = FirstParagraph(doc).Foreground as SolidColorBrush;
+            if (foreground == null)
+                throw new InvalidOperationException("the high-contrast paragraph carries no brush");
+            if (foreground.Color != SystemColors.WindowTextColor)
+                throw new InvalidOperationException("the high-contrast paragraph ink is " + foreground.Color
+                    + ", wanted the system window text colour");
+
+            var taskDoc = RenderDocument("- [ ] a", style);
+            var border = TaskGlyph(ParagraphAt(taskDoc, 0)).BorderBrush as SolidColorBrush;
+            if (border == null || border.Color != SystemColors.HighlightColor)
+                throw new InvalidOperationException("the high-contrast task box wears '"
+                    + (border == null ? "<null>" : border.Color.ToString()) + "', wanted the system highlight colour");
+        }
+
+        /// <summary>
+        /// T12: the accent follows the widget colour - the task box, its check
+        /// and a link all wear <c>Utils.HexToColor(data.Color)</c>, not the
+        /// default token.
+        /// </summary>
+        private static void RendererAccentFollowsWidgetColour()
+        {
+            string widgetHex = UiTokens.FolderPalette[0];
+            if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
+
+            var style = NewRenderStyle(widgetHex);
+            Color wanted = Utils.HexToColor(widgetHex);
+
+            var badge = TaskGlyph(ParagraphAt(RenderDocument("- [x] done", style), 0));
+            var border = badge.BorderBrush as SolidColorBrush;
+            if (border == null || border.Color != wanted)
+                throw new InvalidOperationException("the task box wears '"
+                    + (border == null ? "<null>" : border.Color.ToString()) + "', wanted " + wanted);
+
+            var check = badge.Child as Path;
+            var stroke = check == null ? null : check.Stroke as SolidColorBrush;
+            if (stroke == null || stroke.Color != wanted)
+                throw new InvalidOperationException("the check mark ink is '"
+                    + (stroke == null ? "<null>" : stroke.Color.ToString()) + "', wanted " + wanted);
+
+            var link = FirstHyperlink(RenderDocument("[x](https://example.com)", style));
+            var linkInk = link.Foreground as SolidColorBrush;
+            if (linkInk == null || linkInk.Color != wanted)
+                throw new InvalidOperationException("the link ink is '"
+                    + (linkInk == null ? "<null>" : linkInk.Color.ToString()) + "', wanted " + wanted);
+        }
+
+        private static Paragraph ParagraphAt(FlowDocument doc, int index)
+        {
+            if (doc.Blocks.Count <= index)
+                throw new InvalidOperationException(
+                    "the document has no block " + index + " (" + doc.Blocks.Count + " block(s))");
+            var paragraph = BlockAt(doc.Blocks, index) as Paragraph;
+            if (paragraph == null)
+                throw new InvalidOperationException(
+                    "block " + index + " is a " + BlockAt(doc.Blocks, index).GetType().Name + ", not a paragraph");
+            return paragraph;
+        }
+
+        /// <summary>Blocks by position: a FlowDocument block collection has no
+        /// indexer, so walk it (the collection is live and ordered).</summary>
+        private static Block BlockAt(BlockCollection blocks, int index)
+        {
+            foreach (var block in blocks)
+            {
+                if (index == 0) return block;
+                index--;
+            }
+            throw new InvalidOperationException("the collection holds no block at that position");
+        }
+
+        private static Paragraph FirstParagraph(FlowDocument doc)
+        {
+            return ParagraphAt(doc, 0);
+        }
+
+        /// <summary>The task glyph of a task paragraph: the inline UI host whose
+        /// child is a Border tagged with its source line.</summary>
+        private static Border TaskGlyph(Paragraph paragraph)
+        {
+            foreach (var inline in paragraph.Inlines)
+            {
+                var container = inline as InlineUIContainer;
+                if (container == null) continue;
+                var badge = container.Child as Border;
+                if (badge != null && badge.Tag is int) return badge;
+            }
+            throw new InvalidOperationException("the paragraph carries no task glyph");
+        }
+
+        private static Run RunWithText(Paragraph paragraph, string text)
+        {
+            foreach (var inline in paragraph.Inlines)
+            {
+                var run = inline as Run;
+                if (run != null && run.Text == text) return run;
+            }
+            throw new InvalidOperationException("no run in the paragraph reads '" + text + "'");
+        }
+
+        private static Hyperlink FirstHyperlink(FlowDocument doc)
+        {
+            foreach (var block in doc.Blocks)
+            {
+                var paragraph = block as Paragraph;
+                if (paragraph == null) continue;
+                var link = FindHyperlink(paragraph.Inlines);
+                if (link != null) return link;
+            }
+            throw new InvalidOperationException("the document holds no hyperlink");
+        }
+
+        private static Hyperlink FindHyperlink(IEnumerable<Inline> inlines)
+        {
+            foreach (var inline in inlines)
+            {
+                var link = inline as Hyperlink;
+                if (link != null) return link;
+
+                var span = inline as Span;
+                if (span != null)
+                {
+                    var nested = FindHyperlink(span.Inlines);
+                    if (nested != null) return nested;
+                }
+            }
+            return null;
+        }
+
+        private static string InlineText(IEnumerable<Inline> inlines)
+        {
+            var text = new StringBuilder();
+            AppendInlineText(text, inlines);
+            return text.ToString();
+        }
+
+        private static void AppendInlineText(StringBuilder text, IEnumerable<Inline> inlines)
+        {
+            foreach (var inline in inlines)
+            {
+                var run = inline as Run;
+                if (run != null) { text.Append(run.Text); continue; }
+                if (inline is LineBreak) { text.Append('\n'); continue; }
+
+                var span = inline as Span;
+                if (span != null) AppendInlineText(text, span.Inlines);
+            }
         }
 
         #endregion
