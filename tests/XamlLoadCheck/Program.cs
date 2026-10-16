@@ -101,6 +101,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryLoad("TodoWidget [high contrast]", () => LoadTodo("high contrast"));
                 failures += TryLoad("TodoWidget with items [dark]", LoadTodoWithItems);
 
+                // Task T10: the note host must load its chrome + the panel
+                // view skeleton under every theme, with and without notes.
+                failures += TryLoad("NoteWidget [dark]", () => LoadNote("dark"));
+                failures += TryLoad("NoteWidget [light]", () => LoadNote("light"));
+                failures += TryLoad("NoteWidget [high contrast]", () => LoadNote("high contrast"));
+                failures += TryLoad("NoteWidget with notes [dark]", LoadNoteWithNotes);
+
                 // Regression pins for the drag-anchor defect the manual smoke
                 // found (see report): a forwarded move must never move the
                 // window before its start event, and the chrome must raise the
@@ -485,6 +492,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("factory: todo data builds the todo widget", FactoryTodoDataBuildsTodoWidget);
                 failures += TryCheck("factory: an unknown kind has no window", FactoryUnknownKindHasNoWindow);
 
+                // Task T10 pins: the note kind builds through the factory (the
+                // island's new-widget menu reaches it via the kind registry and
+                // WidgetMenuBuilder's kinds loop), and its panel minimum fits
+                // the chrome header + one card + the add row (spec 6.5).
+                failures += TryCheck("factory: note data builds the note widget", FactoryNoteDataBuildsNoteWidget);
+                failures += TryCheck("note: the panel minimum fits the shell", NotePanelMinimumFitsTheShell);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -584,6 +598,54 @@ namespace Kobold.XamlLoadCheck
 
             var widget = new TodoWidget(data);
             widget.CalendarView.Refresh();
+            return widget;
+        }
+
+        /// <summary>
+        /// Task T10: builds a Note host the way WidgetManager does - its data
+        /// first, then the window (chrome + NotePanelView) under the requested
+        /// theme. The skeleton view must render empty data without throwing.
+        /// </summary>
+        private static NoteWidget LoadNote(string theme)
+        {
+            if (theme == "dark") ThemeManager.Initialize("dark");
+            else if (theme == "light") ThemeManager.Initialize("light");
+            else ThemeManager.Initialize(ThemeManager.IsDarkTheme ? "dark" : "light");
+
+            var widget = new NoteWidget(new NoteData());
+            var view = widget.PanelView;
+            if (view == null) throw new InvalidOperationException("NoteWidget exposes no panel view");
+
+            view.Refresh();
+            return widget;
+        }
+
+        /// <summary>
+        /// Task T10: the same host carrying one note with text. The skeleton
+        /// must keep the handed-over data (the cards themselves arrive with
+        /// T11) and load it without a live window.
+        /// </summary>
+        private static NoteWidget LoadNoteWithNotes()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new NoteData();
+            data.Notes.Add(new NoteItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                Text = "# Shopping\n\n- milk\n- eggs",
+                CreatedAt = DateTime.Today,
+                ModifiedAt = DateTime.Today
+            });
+
+            var widget = new NoteWidget(data);
+            widget.PanelView.Refresh();
+
+            var carried = widget.Data as NoteData;
+            if (carried == null || carried.Notes.Count != 1)
+            {
+                throw new InvalidOperationException("the note host did not carry its data");
+            }
             return widget;
         }
 
@@ -8167,6 +8229,34 @@ namespace Kobold.XamlLoadCheck
             if (WidgetWindowFactory.Create(null) != null)
             {
                 throw new InvalidOperationException("null data built a window");
+            }
+        }
+
+        /// <summary>Task T10: note data builds the note window through the factory.</summary>
+        private static void FactoryNoteDataBuildsNoteWidget()
+        {
+            if (!(WidgetWindowFactory.Create(new NoteData()) is NoteWidget))
+            {
+                throw new InvalidOperationException("note data did not build a NoteWidget");
+            }
+        }
+
+        /// <summary>
+        /// Task T10 (spec 6.5): the note panel's minimum fits the chrome header
+        /// plus one card and the add row. Read through the base's protected
+        /// hook, the same reflection the resize checks use.
+        /// </summary>
+        private static void NotePanelMinimumFitsTheShell()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new NoteWidget(new NoteData());
+
+            var result = PrivateBaseMethod("GetMinPanelSize").Invoke(widget, null);
+            var min = ((double, double))result;
+            if (min.Item1 != 260 || min.Item2 != 220)
+            {
+                throw new InvalidOperationException(
+                    "the note panel minimum is " + min.Item1 + "x" + min.Item2 + ", wanted 260x220");
             }
         }
 

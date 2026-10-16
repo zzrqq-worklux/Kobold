@@ -16,6 +16,7 @@ namespace Kobold.Controls
         {
             { "folder", data => new FolderWidget((FolderData)data) },
             { "todo", data => new TodoWidget((TodoData)data) },
+            { "note", data => new NoteWidget((NoteData)data) },
         };
 
         public static IWidgetWindow Create(WidgetData data)

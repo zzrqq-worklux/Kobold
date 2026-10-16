@@ -1,0 +1,31 @@
+<UserControl x:Class="Kobold.Controls.NotePanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             TextOptions.TextFormattingMode="Display">
+
+    <!-- The note content skeleton (Task T10): the top add row placeholder and
+         the list host. The dynamic parts (cards, states, menus) are built in
+         code by the renderer in T11+. -->
+    <Grid Margin="12,8,12,10" Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Add row placeholder: the ＋ pill; T11 wires the new-note flow
+             (spec 6.3: create an empty note straight into the editor). -->
+        <Border x:Name="AddPill" Grid.Row="0" Height="30" CornerRadius="15" Margin="0,0,0,6"
+                Background="Transparent" BorderThickness="1" Cursor="Hand">
+            <TextBlock x:Name="AddPillGlyph" Text="＋" FontSize="14"
+                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- List host: the note cards are built here by the renderer. -->
+        <ScrollViewer x:Name="ItemsScroller" Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      PanningMode="VerticalOnly" Background="Transparent">
+            <StackPanel x:Name="ItemsPanel"/>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
