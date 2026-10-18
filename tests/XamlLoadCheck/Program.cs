@@ -679,6 +679,30 @@ namespace Kobold.XamlLoadCheck
                     SurfaceRepaintDuringEditKeepsTheBoxText);
                 failures += TryCheck("surface: two splices converge", SurfaceTwoSplicesConverge);
 
+                // Task T5 pins: the insert menu carried onto the surface's own
+                // source box - the same four command BINDINGS (read, never
+                // invoked), the heading / format submenus, the seven flat
+                // inserts, the one-replacement write-back that still leaves the
+                // box's own Ctrl+Z able to roll an insert back, and the widget
+                // tint. The old panel's T15 pins stay put for now (T6 retires
+                // them).
+                failures += TryCheck("surface menu: the standard four are commands",
+                    SurfaceMenuOffersTheStandardFour);
+                failures += TryCheck("surface menu: the heading submenu writes a level",
+                    SurfaceMenuHeadingSubmenuWritesALevel);
+                failures += TryCheck("surface menu: the same list twice removes it",
+                    SurfaceMenuSameListTwiceRemovesIt);
+                failures += TryCheck("surface menu: the table entry lays out the skeleton",
+                    SurfaceMenuTableEntryLaysOutTheSkeleton);
+                failures += TryCheck("surface menu: wrapping a selection bolds it",
+                    SurfaceMenuWrappingASelectionBoldsIt);
+                failures += TryCheck("surface menu: an empty selection inserts the placeholder",
+                    SurfaceMenuEmptySelectionInsertsThePlaceholder);
+                failures += TryCheck("surface menu: an insert is undoable with the box's own undo",
+                    SurfaceMenuInsertIsUndoableWithTheBoxUndo);
+                failures += TryCheck("surface menu: the menu follows the widget colour",
+                    SurfaceMenuFollowsTheWidgetColour);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -11475,6 +11499,350 @@ namespace Kobold.XamlLoadCheck
             {
                 RoutedEvent = UIElement.MouseLeftButtonUpEvent
             });
+        }
+
+        #endregion
+
+        #region Task T5: note surface insert-menu pins
+
+        /// <summary>
+        /// T5 (spec 6.4): the surface's source box opens with the standard four
+        /// clipboard commands - Cut / Copy / Paste / Select All - as COMMAND
+        /// BINDINGS, followed by the separator that starts the insert block.
+        /// The four are read, never invoked: running one would touch the system
+        /// clipboard, which the checks must never do. This pin enters through
+        /// the block edit (TryBeginEditAt), so the menu's carry is pinned on
+        /// that entry too.
+        /// </summary>
+        private static void SurfaceMenuOffersTheStandardFour()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceBlockEditorOn("x", new NoteData());
+
+            var menu = OpenSurfaceEditorMenu(surface);
+            if (menu.Items.Count < 5)
+                throw new InvalidOperationException(
+                    "the surface menu carries " + menu.Items.Count
+                    + " entr(ies), wanted the standard four plus a separator");
+
+            var commands = new[]
+            {
+                ApplicationCommands.Cut, ApplicationCommands.Copy,
+                ApplicationCommands.Paste, ApplicationCommands.SelectAll
+            };
+            for (int i = 0; i < commands.Length; i++)
+            {
+                var item = menu.Items[i] as MenuItem;
+                if (item == null)
+                    throw new InvalidOperationException("surface menu entry " + i + " is not a MenuItem");
+                if (!ReferenceEquals(item.Command, commands[i]))
+                    throw new InvalidOperationException("entry " + i + " ('" + item.Header + "') is bound to "
+                        + (item.Command == null ? "<no command>" : item.Command.ToString())
+                        + ", wanted " + commands[i].Name);
+            }
+
+            if (!(menu.Items[4] is Separator))
+                throw new InvalidOperationException("the standard four are not followed by a separator");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4): the 标题 submenu carries the six levels through
+        /// <c>Menu_InsertHeading</c>, and picking level 3 writes the marker on
+        /// the caret's line and parks the caret after it. This pin enters
+        /// through the whole-text edit (BeginEditWhole), the new-note entry.
+        /// </summary>
+        private static void SurfaceMenuHeadingSubmenuWritesALevel()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 0;
+            box.SelectionLength = 0;
+
+            var heading = SurfaceEditorSubmenu(OpenSurfaceEditorMenu(surface), "Menu_Heading");
+            if (heading.Items.Count != 6)
+                throw new InvalidOperationException(
+                    "the heading submenu carries " + heading.Items.Count + " entr(ies), wanted 1-6");
+
+            var level3 = heading.Items[2] as MenuItem;
+            if (level3 == null)
+                throw new InvalidOperationException("the heading submenu's third entry is not a MenuItem");
+            string wantedLabel = Localization.Format("Menu_InsertHeading", 3);
+            if ((level3.Header as string) != wantedLabel)
+                throw new InvalidOperationException(
+                    "the level-3 entry reads '" + level3.Header + "', wanted '" + wantedLabel + "'");
+            level3.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            if (box.Text != "### x")
+                throw new InvalidOperationException(
+                    "the level-3 pick wrote '" + box.Text.Replace("\n", "\\n") + "', wanted '### x'");
+            if (box.SelectionStart != 4 || box.SelectionLength != 0)
+                throw new InvalidOperationException("the level-3 pick left the caret at "
+                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted 4/0");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4 / §3.3): the same list entry twice toggles the marker
+        /// away again - the second pick reads the box the first one wrote.
+        /// </summary>
+        private static void SurfaceMenuSameListTwiceRemovesIt()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 0;
+            box.SelectionLength = 0;
+
+            ClickSurfaceEditorEntry(surface, "Menu_InsertBullets");
+            if (box.Text != "- x")
+                throw new InvalidOperationException(
+                    "the bullet pick wrote '" + box.Text + "', wanted '- x'");
+
+            ClickSurfaceEditorEntry(surface, "Menu_InsertBullets");
+            if (box.Text != "x")
+                throw new InvalidOperationException(
+                    "the second bullet pick wrote '" + box.Text + "', wanted the original 'x'");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4): the table entry lays the T9 skeleton down after a
+        /// non-empty line (one newline - the ops' own block convention, the
+        /// same one <c>NoteEditorOps.InsertTable</c> pins) and parks the caret
+        /// in the first body cell. The two column words come from the
+        /// three-language <c>Note_TableColumnFormat</c> key.
+        /// </summary>
+        private static void SurfaceMenuTableEntryLaysOutTheSkeleton()
+        {
+            ThemeManager.Initialize("dark");
+            AssertTableColumnFormat("zh", "列 {0}");
+            AssertTableColumnFormat("en", "Column {0}");
+            AssertTableColumnFormat("ja", "列 {0}");
+
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 1;          // the line end of the fixture
+            box.SelectionLength = 0;
+
+            ClickSurfaceEditorEntry(surface, "Menu_InsertTable");
+
+            string col1 = Localization.Format("Note_TableColumnFormat", 1);
+            string col2 = Localization.Format("Note_TableColumnFormat", 2);
+            string expected = "x\n| " + col1 + " | " + col2 + " |\n| --- | --- |\n|  |  |";
+            if (box.Text != expected)
+                throw new InvalidOperationException("the table pick wrote '"
+                    + box.Text.Replace("\n", "\\n") + "', wanted '" + expected.Replace("\n", "\\n") + "'");
+
+            int caret = expected.IndexOf("|  |  |", StringComparison.Ordinal) + 2;
+            if (box.SelectionStart != caret || box.SelectionLength != 0)
+                throw new InvalidOperationException("the table pick left the caret at "
+                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted " + caret + "/0");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4): a selection is what the wrap family wraps - bold puts
+        /// the markers around the selected character and keeps it selected so
+        /// the next insert still aims at it.
+        /// </summary>
+        private static void SurfaceMenuWrappingASelectionBoldsIt()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 0;
+            box.SelectionLength = 1;
+
+            ClickSurfaceEditorEntry(surface, "Menu_FormatBold");
+
+            if (box.Text != "**x**")
+                throw new InvalidOperationException(
+                    "the bold pick wrote '" + box.Text + "', wanted '**x**'");
+            if (box.SelectionStart != 2 || box.SelectionLength != 1 || box.SelectedText != "x")
+                throw new InvalidOperationException("the bold pick left the selection at "
+                    + box.SelectionStart + "/" + box.SelectionLength + " ('" + box.SelectedText
+                    + "'), wanted the wrapped 'x'");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4): with an empty selection the wrap family inserts the
+        /// three-language placeholder and selects it, so typing replaces it.
+        /// </summary>
+        private static void SurfaceMenuEmptySelectionInsertsThePlaceholder()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 1;
+            box.SelectionLength = 0;
+
+            ClickSurfaceEditorEntry(surface, "Menu_FormatBold");
+
+            string placeholder = Localization.Get("Note_PlaceholderBold");
+            if (placeholder == "Note_PlaceholderBold")
+                throw new InvalidOperationException("the localization table has no Note_PlaceholderBold key");
+            if (box.Text != "x**" + placeholder + "**")
+                throw new InvalidOperationException(
+                    "the empty-selection bold wrote '" + box.Text + "', wanted 'x**" + placeholder + "**'");
+            if (box.SelectedText != placeholder)
+                throw new InvalidOperationException(
+                    "the placeholder is not selected ('" + box.SelectedText + "')");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4): every insert must be undoable with the box's OWN undo
+        /// - the write-back is one replacement through the box's editing stack
+        /// inside one change block, never a raw <c>Text</c> set (a bare
+        /// programmatic write registers no unit at all: WPF only records one
+        /// while a parent unit is open, and it flushes the stack otherwise).
+        /// The fixture enters the edit on the note's own text, so the undo's own
+        /// return value is the proof: rolling the insert back lands on the
+        /// fixture, not on an empty box.
+        /// </summary>
+        private static void SurfaceMenuInsertIsUndoableWithTheBoxUndo()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = SurfaceEditorOn("x", new NoteData());
+            var box = SurfaceEditBox(surface);
+            box.SelectionStart = 1;
+            box.SelectionLength = 0;
+
+            ClickSurfaceEditorEntry(surface, "Menu_InsertTable");
+            if (box.Text == "x")
+                throw new InvalidOperationException("the table pick wrote nothing");
+            if (!box.CanUndo)
+                throw new InvalidOperationException("the insert never entered the box's own undo stack");
+
+            box.Undo();
+            if (box.Text != "x")
+                throw new InvalidOperationException("the box's own undo left '"
+                    + box.Text.Replace("\n", "\\n") + "', wanted the original 'x'");
+        }
+
+        /// <summary>
+        /// T5 (spec 6.4 / T8): the menu wears the widget colour's wash. The
+        /// shared <see cref="MenuBuilder"/> overrides the overlay brushes on the
+        /// menu itself, so the surface menu is expected to carry the same mixed
+        /// background the other widget menus do.
+        /// </summary>
+        private static void SurfaceMenuFollowsTheWidgetColour()
+        {
+            ThemeManager.Initialize("dark");
+            string widgetHex = UiTokens.FolderPalette[0];
+            if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
+
+            var data = new NoteData();
+            data.Color = widgetHex;
+            var surface = SurfaceEditorOn("x", data);
+
+            var menu = OpenSurfaceEditorMenu(surface);
+            var tint = menu.Resources[ThemeManager.BrushKeyPrefix + "OverlayBackground"] as SolidColorBrush;
+            if (tint == null)
+                throw new InvalidOperationException("the surface menu carries no OverlayBackground tint");
+            if (tint.Color == ThemeManager.OverlayBackgroundBrush.Color)
+                throw new InvalidOperationException("the surface menu kept the untinted overlay colour");
+
+            Color wanted = Utils.MixColor(ThemeManager.OverlayBackgroundBrush.Color,
+                Utils.HexToColor(widgetHex), UiTokens.MenuTintBackground);
+            if (tint.Color != wanted)
+                throw new InvalidOperationException("the surface menu's wash is " + tint.Color
+                    + ", wanted " + wanted + " (the widget colour mixed into the overlay)");
+        }
+
+        /// <summary>The surface sitting in the whole-text edit on the note's own
+        /// text (BeginEditWhole, the new-note entry), already carrying its
+        /// insert menu.</summary>
+        private static NoteSurfaceView SurfaceEditorOn(string source, NoteData data)
+        {
+            var note = NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(data, note);
+            surface.BeginEditWhole();
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("BeginEditWhole never entered the edit");
+            // Templated the way the app's box stands (the off-screen runner
+            // never lays the control out), so the box's own editing stack is
+            // live for the undo pin.
+            SurfaceEditBox(surface).ApplyTemplate();
+            return surface;
+        }
+
+        /// <summary>The surface sitting in a block edit on the note's own text
+        /// (TryBeginEditAt, the line-click entry), already carrying its insert
+        /// menu.</summary>
+        private static NoteSurfaceView SurfaceBlockEditorOn(string source, NoteData data)
+        {
+            var note = NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(data, note);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the block did not enter edit");
+            return surface;
+        }
+
+        /// <summary>
+        /// The surface's insert menu, opened through the box's own
+        /// ContextMenuOpening route. The carry is checked first - the box must
+        /// already own one the moment the edit opened, because WPF's own
+        /// text-editor handler only stands aside for a box that carries a custom
+        /// ContextMenu - and then the box rebuilds it per opening, so the pin
+        /// drives the real path rather than a private builder. WPF gives the
+        /// event args no public constructor, so the pin builds the same shape
+        /// through the framework's own non-public one - its second argument is
+        /// <c>opening</c>, so <c>true</c> raises the opening event.
+        /// </summary>
+        private static ContextMenu OpenSurfaceEditorMenu(NoteSurfaceView surface)
+        {
+            var box = SurfaceEditBox(surface);
+            if (box.ContextMenu == null)
+                throw new InvalidOperationException(
+                    "the source box carries no menu from the moment the edit opened");
+            var args = (ContextMenuEventArgs)Activator.CreateInstance(typeof(ContextMenuEventArgs),
+                BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { box, true }, null);
+            box.RaiseEvent(args);
+            if (box.ContextMenu == null)
+                throw new InvalidOperationException("ContextMenuOpening left the source box without a menu");
+            return box.ContextMenu;
+        }
+
+        /// <summary>One submenu of the surface menu by its header key (the 标题 /
+        /// 格式 parents are reached through their localized headers).</summary>
+        private static MenuItem SurfaceEditorSubmenu(ContextMenu menu, string headerKey)
+        {
+            string wanted = Localization.Get(headerKey);
+            foreach (object entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && (item.Header as string) == wanted) return item;
+            }
+            throw new InvalidOperationException(
+                "the surface menu has no '" + wanted + "' (" + headerKey + ") submenu");
+        }
+
+        /// <summary>Picks one insert / format entry by its localization key -
+        /// the flat block first, then the two submenus (so a pin names an entry
+        /// the way the design does, not by its position).</summary>
+        private static void ClickSurfaceEditorEntry(NoteSurfaceView surface, string labelKey)
+        {
+            var menu = OpenSurfaceEditorMenu(surface);
+            string wanted = Localization.Get(labelKey);
+            foreach (object entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item == null) continue;
+                if ((item.Header as string) == wanted)
+                {
+                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                    return;
+                }
+                foreach (object nested in item.Items)
+                {
+                    var sub = nested as MenuItem;
+                    if (sub != null && (sub.Header as string) == wanted)
+                    {
+                        sub.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                        return;
+                    }
+                }
+            }
+            throw new InvalidOperationException("the surface menu has no entry labelled '" + wanted + "' (" + labelKey + ")");
         }
 
         #endregion
