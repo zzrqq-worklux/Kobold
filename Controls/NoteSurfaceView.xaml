@@ -8,7 +8,8 @@
          read-only document box fills the surface; in edit, the before render /
          the block's source / the after render stack in place over one shared
          scroller. -->
-    <Grid x:Name="SurfaceRoot" Background="Transparent">
+    <Grid x:Name="SurfaceRoot" Background="Transparent"
+          MouseLeftButtonUp="SurfaceRoot_MouseLeftButtonUp">
 
         <!-- The single scroll region both states share: the block-edit splice
              keeps the offset the rendered state captures and restores
@@ -40,7 +41,8 @@
                          Background="Transparent" BorderThickness="0" Padding="0"
                          FontSize="{DynamicResource Kobold.Font.Body}"
                          Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                         VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"/>
+                         VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                         TextChanged="EditBox_TextChanged"/>
 
                 <!-- Block-editing state (T4): the render after the edited
                      block, static like the before render. -->

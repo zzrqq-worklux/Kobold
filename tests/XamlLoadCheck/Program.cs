@@ -642,6 +642,43 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("surface: repaint re-renders the reading document",
                     SurfaceRepaintRerendersTheDocument);
 
+                // Task T4 pins: the block-editing state - clicking a rendered
+                // line splices its block into the three panes (the before
+                // render / the source box / the after render), the box's type
+                // follows the block, typing splices back through the 400ms
+                // throttle and leaving re-renders the whole note.
+                failures += TryCheck("surface: entering edit at a line swaps in the three panes",
+                    SurfaceEnteringEditSwapsInThePanes);
+                failures += TryCheck("surface: the caret lands on the clicked line",
+                    SurfaceCaretLandsOnTheClickedLine);
+                failures += TryCheck("surface: a block-typed edit box matches the rendering",
+                    SurfaceEditBoxMatchesTheBlockType);
+                failures += TryCheck("surface: typing schedules the throttle",
+                    SurfaceTypingSchedulesTheThrottle);
+                failures += TryCheck("surface: the throttle tick commits the region",
+                    SurfaceThrottleTickCommitsTheRegion);
+                failures += TryCheck("surface: flush commits without leaving",
+                    SurfaceFlushCommitsWithoutLeaving);
+                failures += TryCheck("surface: leaving the edit splices and re-renders",
+                    SurfaceLeavingTheEditSplicesAndRerenders);
+                failures += TryCheck("surface: leaving without changes keeps text and time",
+                    SurfaceLeavingWithoutChangesKeepsTextAndTime);
+                failures += TryCheck("surface: entering edit on an empty note fails",
+                    SurfaceEnteringEditOnAnEmptyNoteFails);
+                failures += TryCheck("surface: clicking a tagged line enters its edit",
+                    SurfaceClickingATaggedLineEntersItsEdit);
+                failures += TryCheck("surface: clicking another block switches the edit",
+                    SurfaceClickingAnotherBlockSwitchesTheEdit);
+                failures += TryCheck("surface: an already-handled click does not enter the edit",
+                    SurfaceHandledClickDoesNotEnterTheEdit);
+                failures += TryCheck("surface: begin whole-text edit covers the full text",
+                    SurfaceBeginWholeTextEditCoversTheFullText);
+                failures += TryCheck("surface: the before and after panes are inert",
+                    SurfaceBeforeAndAfterPanesAreInert);
+                failures += TryCheck("surface: repaint during edit keeps the box text",
+                    SurfaceRepaintDuringEditKeepsTheBoxText);
+                failures += TryCheck("surface: two splices converge", SurfaceTwoSplicesConverge);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -10839,6 +10876,605 @@ namespace Kobold.XamlLoadCheck
             if (box == null)
                 throw new InvalidOperationException("ReadingBox is a " + named.GetType().Name + ", not a RichTextBox");
             return box;
+        }
+
+        #endregion
+
+        #region Task T4: note surface edit pins
+
+        /// <summary>The block-edit fixture: a heading, a two-line paragraph
+        /// (source lines 2 and 3) and a task. The parser's ranges own the blank
+        /// run between blocks (spec 5.4), so the paragraph's region is [2,5) and
+        /// its box text keeps the trailing blank line.</summary>
+        private const string SurfaceEditFixture = "# h\n\none\ntwo\n\n- x";
+
+        /// <summary>
+        /// T4 (spec 4.2/4.3): a line click enters the block edit - the target
+        /// block's source range lands in the box, the panes before/after it
+        /// render statically (no callbacks) and the reading box gives way.
+        /// </summary>
+        private static void SurfaceEnteringEditSwapsInThePanes()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", SurfaceEditFixture, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(3))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("IsEditing stayed false after TryBeginEditAt(3)");
+
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo\n")
+            {
+                throw new InvalidOperationException("the edit box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo\\n'");
+            }
+
+            int before = SurfaceBeforeBox(surface).Document.Blocks.Count;
+            int after = SurfaceAfterBox(surface).Document.Blocks.Count;
+            if (before != 1)
+                throw new InvalidOperationException("the before pane rendered " + before + " block(s), wanted 1");
+            if (after != 1)
+                throw new InvalidOperationException("the after pane rendered " + after + " block(s), wanted 1");
+
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the reading box stayed visible in edit");
+            string[] panes = { "BeforeBox", "EditBox", "AfterBox" };
+            foreach (string pane in panes)
+            {
+                if (SurfaceNamed(surface, pane).Visibility != Visibility.Visible)
+                    throw new InvalidOperationException(pane + " is hidden while editing");
+            }
+        }
+
+        /// <summary>
+        /// T4 (spec 4.2): the caret lands on the line that was clicked, not at
+        /// the top - line 3 sits one line into the [2,5) region.
+        /// </summary>
+        private static void SurfaceCaretLandsOnTheClickedLine()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", SurfaceEditFixture, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(3))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+
+            LayoutSurface(surface);
+            var edit = SurfaceEditBox(surface);
+            int line = edit.GetLineIndexFromCharacterIndex(edit.CaretIndex);
+            if (line != 1)
+                throw new InvalidOperationException("the caret sits on edit line " + line + ", wanted 1");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.2/4.3): the source box wears the edited block's own type -
+        /// a heading its ladder size and weight, a fenced block the renderer's
+        /// monospace family, a paragraph the plain body size.
+        /// </summary>
+        private static void SurfaceEditBoxMatchesTheBlockType()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+
+            var heading = NewSurface(new NoteData(), NewNote("h", "# Head\n\ntail", when));
+            if (!heading.TryBeginEditAt(0))
+                throw new InvalidOperationException("the heading block did not enter edit");
+            var headingBox = SurfaceEditBox(heading);
+            double wanted = NoteMarkdownRenderer.HeadingFontSize(1, UiTokens.FontBody);
+            if (Math.Abs(headingBox.FontSize - wanted) > 0.01)
+            {
+                throw new InvalidOperationException("the heading box is " + headingBox.FontSize
+                    + "pt, wanted " + wanted);
+            }
+            if (headingBox.FontWeight != FontWeights.SemiBold)
+                throw new InvalidOperationException("the heading box is not semi-bold (" + headingBox.FontWeight + ")");
+
+            var code = NewSurface(new NoteData(), NewNote("c", "pre\n\n```\ncode\n```", when));
+            if (!code.TryBeginEditAt(2))
+                throw new InvalidOperationException("the code block did not enter edit");
+            var codeBox = SurfaceEditBox(code);
+            if (codeBox.FontFamily.Source.IndexOf("Consolas", StringComparison.Ordinal) < 0)
+            {
+                throw new InvalidOperationException("the code box uses '" + codeBox.FontFamily.Source
+                    + "', wanted the monospace family");
+            }
+
+            var body = NewSurface(new NoteData(), NewNote("b", SurfaceEditFixture, when));
+            if (!body.TryBeginEditAt(3))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            var bodyBox = SurfaceEditBox(body);
+            if (Math.Abs(bodyBox.FontSize - UiTokens.FontBody) > 0.01)
+                throw new InvalidOperationException("the body box is " + bodyBox.FontSize
+                    + "pt, wanted " + UiTokens.FontBody);
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3): typing arms the 400ms throttle - the tick is what
+        /// splices, so the data is still untouched right after the keystroke.
+        /// </summary>
+        private static void SurfaceTypingSchedulesTheThrottle()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            if (!SurfaceThrottle(surface).IsEnabled)
+                throw new InvalidOperationException("typing did not start the throttle");
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("the data changed before the tick: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3/5.1): the throttle tick splices the region back into the
+        /// note, stamps the modified time and notifies the host once.
+        /// </summary>
+        private static void SurfaceThrottleTickCommitsTheRegion()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "one\ntwo", when);
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+            InvokeNoteSurface(surface, "Throttle_Tick", null, EventArgs.Empty);
+
+            if (note.Text != "changed")
+                throw new InvalidOperationException("the tick left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (note.ModifiedAt < when)
+                throw new InvalidOperationException("the tick rolled the modified time back (" + note.ModifiedAt + ")");
+            if (changed != 1)
+                throw new InvalidOperationException("the tick notified the host " + changed + " time(s), wanted 1");
+        }
+
+        /// <summary>
+        /// T4 (spec 5.2): Flush splices the pending region at once but keeps the
+        /// edit session (the panel-hide / close path).
+        /// </summary>
+        private static void SurfaceFlushCommitsWithoutLeaving()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+            surface.Flush();
+
+            if (note.Text != "changed")
+                throw new InvalidOperationException("Flush left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("Flush left the edit session");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3): leaving splices the pending region, drops the session
+        /// and renders the whole note again off the fresh data.
+        /// </summary>
+        private static void SurfaceLeavingTheEditSplicesAndRerenders()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+            surface.LeaveEdit();
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the session survived LeaveEdit");
+            if (note.Text != "changed")
+                throw new InvalidOperationException("leaving left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the reading box stayed hidden after leaving");
+            if (SurfaceEditBox(surface).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the edit box stayed visible after leaving");
+
+            string shown = SurfaceDocumentText(SurfaceReadingBox(surface));
+            if (shown.IndexOf("changed", StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException("the re-rendered document reads '" + shown + "'");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3/5.3): entering and leaving without a keystroke touches
+        /// neither the text nor the modified time and notifies nobody (the
+        /// entry-text guard).
+        /// </summary>
+        private static void SurfaceLeavingWithoutChangesKeepsTextAndTime()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "one\ntwo", when);
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            surface.LeaveEdit();
+
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("leaving rewrote the text as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (note.ModifiedAt != when)
+                throw new InvalidOperationException("leaving bumped the modified time (" + note.ModifiedAt + ")");
+            if (changed != 0)
+                throw new InvalidOperationException("leaving notified the host " + changed + " time(s), wanted 0");
+        }
+
+        /// <summary>
+        /// T4 (spec 5.4): an empty note has no block range, so a click can never
+        /// enter a block edit there (the new-note flow uses BeginEditWhole).
+        /// </summary>
+        private static void SurfaceEnteringEditOnAnEmptyNoteFails()
+        {
+            ThemeManager.Initialize("dark");
+            var surface = NewSurface(new NoteData(), NewNote("a", "", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            if (surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("an empty note entered a block edit");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("IsEditing turned true on an empty note");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.2/4.4): a click on a rendered line bubbles to the surface
+        /// root and enters that line's block edit, caret on the clicked line.
+        /// </summary>
+        private static void SurfaceClickingATaggedLineEntersItsEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            ClickTaggedLine(surface, SurfaceReadingBox(surface), 1);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the tagged-line click did not enter the edit");
+            LayoutSurface(surface);
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+            int line = edit.GetLineIndexFromCharacterIndex(edit.CaretIndex);
+            if (line != 1)
+                throw new InvalidOperationException("the caret sits on edit line " + line + ", wanted 1");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.4): clicking another block while editing commits the
+        /// current region first and then opens the clicked one.
+        /// </summary>
+        private static void SurfaceClickingAnotherBlockSwitchesTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo\n\nthree", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the first paragraph did not enter edit");
+            // The region owns the blank run up to the next block (spec 5.4), so
+            // the typed text keeps that separator.
+            SurfaceEditBox(surface).Text = "changed\n";
+
+            // The other block a reader can click while editing is the pane after
+            // the edited block (what is visible), not the collapsed reading box.
+            ClickTaggedLine(surface, SurfaceAfterBox(surface), 3);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the switch dropped the edit session");
+            if (note.Text != "changed\n\nthree")
+                throw new InvalidOperationException("the first region was not committed: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "three")
+                throw new InvalidOperationException("the box now reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'three'");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.2): a task box click is handled by the renderer's glyph, so
+        /// the surface's block handler must leave it alone - the toggle writes
+        /// the line back and no edit session opens.
+        /// </summary>
+        private static void SurfaceHandledClickDoesNotEnterTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            var box = SurfaceReadingBox(surface);
+            var glyph = TaskGlyph(ParagraphAt(box.Document, 2));
+            RaiseLeftClick(glyph);
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the handled glyph click opened an edit");
+            if (!(note.Text ?? string.Empty).Contains("[x]"))
+                throw new InvalidOperationException("the glyph click did not toggle the task: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+
+            // The off-screen runner cannot hand the root a bubbling click on a
+            // hidden route (see ClickTaggedLine), so the guard is also pinned on
+            // its own: the very event the renderer marks handled must be ignored
+            // even when a tagged line sits under it.
+            var handled = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                Source = SpanWithLine(box.Document, 2),
+                Handled = true
+            };
+            InvokeNoteSurface(surface, "SurfaceRoot_MouseLeftButtonUp", null, handled);
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("a handled click reached the block handler");
+        }
+
+        /// <summary>
+        /// T4 (spec 6): the new-note flow opens the whole text as one edit region
+        /// with both surrounding renders empty.
+        /// </summary>
+        private static void SurfaceBeginWholeTextEditCoversTheFullText()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            surface.BeginEditWhole();
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("BeginEditWhole did not enter the edit");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+            int before = SurfaceBeforeBox(surface).Document.Blocks.Count;
+            int after = SurfaceAfterBox(surface).Document.Blocks.Count;
+            if (before != 0 || after != 0)
+                throw new InvalidOperationException("the surrounding panes render " + before + "/" + after + " block(s)");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3): the before/after renders are static - their task boxes
+        /// carry no callback, so a click there writes nothing and the session
+        /// stays put.
+        /// </summary>
+        private static void SurfaceBeforeAndAfterPanesAreInert()
+        {
+            ThemeManager.Initialize("dark");
+            string text = "- [ ] first\n\npara\n\n- [ ] last";
+            var note = NewNote("a", text, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(2))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+
+            var glyph = TaskGlyph(ParagraphAt(SurfaceBeforeBox(surface).Document, 0));
+            RaiseLeftClick(glyph);
+
+            if (note.Text != text)
+                throw new InvalidOperationException("the inert before pane wrote the data: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the inert click left the edit session");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3): a repaint while editing rebuilds the panes' style but
+        /// never touches the typed text or the session.
+        /// </summary>
+        private static void SurfaceRepaintDuringEditKeepsTheBoxText()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", SurfaceEditFixture, new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(3))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            var edit = SurfaceEditBox(surface);
+            edit.Text = "edited";
+            var before = SurfaceBeforeBox(surface).Document;
+
+            ThemeManager.Initialize("light");
+            surface.Repaint();
+
+            if (edit.Text != "edited")
+                throw new InvalidOperationException("the repaint rewrote the box as '"
+                    + edit.Text.Replace("\n", "\\n") + "'");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the repaint dropped the edit session");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the repaint showed the reading box");
+            var after = SurfaceBeforeBox(surface).Document;
+            if (after == null || after.Blocks.Count != 1)
+                throw new InvalidOperationException("the repaint left the before pane without its block");
+            if (ReferenceEquals(after, before))
+                throw new InvalidOperationException("the repaint did not rebuild the before pane");
+        }
+
+        /// <summary>
+        /// T4 (spec 5.2): splicing the same region text twice converges - the
+        /// second call is a no-op and the host is notified once.
+        /// </summary>
+        private static void SurfaceTwoSplicesConverge()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+            surface.Flush();
+            string text = note.Text;
+            DateTime time = note.ModifiedAt;
+
+            surface.Flush();
+
+            if (note.Text != text)
+                throw new InvalidOperationException("the second splice rewrote the note: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (note.ModifiedAt != time)
+                throw new InvalidOperationException("the second splice bumped the modified time");
+            if (changed != 1)
+                throw new InvalidOperationException("the splices notified the host " + changed + " time(s), wanted 1");
+        }
+
+        /// <summary>
+        /// T4: the equivalent of a click on a rendered line. The pin raises the
+        /// event the real input route carries on the innermost content element
+        /// first; the off-screen runner's content elements do not walk a direct
+        /// MouseLeftButtonUp up to the surface root (WPF only re-raises it per
+        /// element along the real mouse route), so when nothing changed the pin
+        /// hands the same tagged span to the root's bubbling handler - the
+        /// production wiring stays that handler.
+        /// </summary>
+        private static void ClickTaggedLine(NoteSurfaceView surface, RichTextBox box, int line)
+        {
+            var span = SpanWithLine(box.Document, line);
+            bool wasEditing = surface.IsEditing;
+            string wasText = SurfaceEditBox(surface).Text;
+
+            ((IInputElement)span).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                Source = span
+            });
+            if (surface.IsEditing != wasEditing || SurfaceEditBox(surface).Text != wasText) return;
+
+            InvokeNoteSurface(surface, "SurfaceRoot_MouseLeftButtonUp", null,
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = span
+                });
+        }
+
+        /// <summary>Lays the surface out at a real width so the boxes carry their
+        /// line metrics (the off-screen runner never does a layout pass).</summary>
+        private static void LayoutSurface(NoteSurfaceView surface)
+        {
+            surface.Measure(new Size(360, double.PositiveInfinity));
+            surface.Arrange(new Rect(0, 0, 360, surface.DesiredSize.Height));
+            surface.UpdateLayout();
+        }
+
+        /// <summary>The first inline span tagged with <paramref name="line"/>,
+        /// recursing into nesting spans like the renderer builds them.</summary>
+        private static Span SpanWithLine(FlowDocument doc, int line)
+        {
+            foreach (var block in doc.Blocks)
+            {
+                var paragraph = block as Paragraph;
+                if (paragraph == null) continue;
+                var span = FindSpanWithLine(paragraph.Inlines, line);
+                if (span != null) return span;
+            }
+            throw new InvalidOperationException("the document holds no span for line " + line);
+        }
+
+        private static Span FindSpanWithLine(IEnumerable<Inline> inlines, int line)
+        {
+            foreach (var inline in inlines)
+            {
+                var span = inline as Span;
+                if (span == null) continue;
+                if (NoteMarkdownRenderer.GetSourceLine(span) == line) return span;
+                var nested = FindSpanWithLine(span.Inlines, line);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        /// <summary>The visible text a rendered box paints (task glyphs skipped).</summary>
+        private static string SurfaceDocumentText(RichTextBox box)
+        {
+            var text = new StringBuilder();
+            foreach (var block in box.Document.Blocks)
+            {
+                var paragraph = block as Paragraph;
+                if (paragraph != null) AppendInlineText(text, paragraph.Inlines);
+            }
+            return text.ToString();
+        }
+
+        private static TextBox SurfaceEditBox(NoteSurfaceView surface)
+        {
+            var named = surface.FindName("EditBox");
+            if (named == null) throw new InvalidOperationException("NoteSurfaceView has no EditBox");
+            var box = named as TextBox;
+            if (box == null)
+                throw new InvalidOperationException("EditBox is a " + named.GetType().Name + ", not a TextBox");
+            return box;
+        }
+
+        private static RichTextBox SurfaceBox(NoteSurfaceView surface, string name)
+        {
+            var named = surface.FindName(name);
+            if (named == null) throw new InvalidOperationException("NoteSurfaceView has no " + name);
+            var box = named as RichTextBox;
+            if (box == null)
+                throw new InvalidOperationException(name + " is a " + named.GetType().Name + ", not a RichTextBox");
+            return box;
+        }
+
+        private static RichTextBox SurfaceBeforeBox(NoteSurfaceView surface)
+        {
+            return SurfaceBox(surface, "BeforeBox");
+        }
+
+        private static RichTextBox SurfaceAfterBox(NoteSurfaceView surface)
+        {
+            return SurfaceBox(surface, "AfterBox");
+        }
+
+        private static System.Windows.Threading.DispatcherTimer SurfaceThrottle(NoteSurfaceView surface)
+        {
+            var field = typeof(NoteSurfaceView).GetField("_throttle",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("NoteSurfaceView has no _throttle");
+            return (System.Windows.Threading.DispatcherTimer)field.GetValue(surface);
+        }
+
+        private static object InvokeNoteSurface(NoteSurfaceView surface, string name, params object[] args)
+        {
+            var type = typeof(NoteSurfaceView);
+            foreach (var method in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (method.Name != name) continue;
+                if (method.GetParameters().Length != (args == null ? 0 : args.Length)) continue;
+                return method.Invoke(surface, args);
+            }
+            throw new InvalidOperationException("NoteSurfaceView has no method " + name);
+        }
+
+        private static void RaiseLeftClick(object source)
+        {
+            var element = source as IInputElement;
+            if (element == null) throw new InvalidOperationException("the click target is not an input element");
+            element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+            });
         }
 
         #endregion
