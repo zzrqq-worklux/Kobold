@@ -13,7 +13,7 @@
 
 **Goal：** 把笔记组件从「列表内手风琴」升级为「home 列表 ⇄ detail 详情」，用标题下拉承担新建 / 回 home / 快速切换；收紧空白点击语义；修复退出编辑后无法重进的 Direct 路由 bug；新增每组件独立的字号档位。
 
-**Architecture：** `NotePanelView` 拆成 `HomeHost`（卡片列表 + 空态）与 `DetailHost`（常驻 `NoteSurfaceView`）；`WidgetChrome` 增加可选标题 `▾` 与 `TitleMenuClicked`；`NoteSurfaceView` 增加文末 AppendZone、字号缩放，并把根点击从 Direct 的 `MouseLeftButtonUp` 改为 Bubble 的 `Mouse.MouseUp`；`NoteData` 增加 `FontScale`，`WidgetMenuBuilder` 增加字号子菜单。
+**Architecture：** `NotePanelView` 拆成 `HomeHost`（卡片列表 + 空态）与 `DetailHost`（常驻 `NoteSurfaceView`）；`WidgetChrome` 增加可选标题 `▾` 与 `TitleMenuClicked`；`NoteSurfaceView` 增加文末 AppendZone、字号缩放，并用 `InputHitTest` 从点击坐标解析 RTB 行号（真实鼠标的 `OriginalSource` 是 RTB）；`NoteData` 增加 `FontScale`，`WidgetMenuBuilder` 增加字号子菜单。
 
 **Tech Stack：** WPF / .NET Framework 4.8 / C# 7.3；控制台自检（`tests/*`，`Run-Checks.ps1` 矩阵 32 行不变）。
 
@@ -40,6 +40,7 @@
 
 ```
 T1 bug 修复（独立，先做）
+T1B 点击光标精确到字符（依赖 T1 的点解析）
 T2 字号数据（独立）
 T3 WidgetChrome 标题 ▾（独立）
 T4 home/detail + 标题下拉 + NoteWidget 接线（依赖 T3）
@@ -58,10 +59,12 @@ T7 文档 + 全量自检 + 执行记录
 - Temporary: `tools/note-click-probe.ps1`（诊断脚本，最终删除 / 不入库）
 
 **Interfaces：**
-- 诊断探针只读，不改变行为；最终代码只把 root 订阅从
-  `UIElement.MouseLeftButtonUpEvent` 改为 `Mouse.MouseUpEvent`。
-- 处理器签名保持 `(object sender, MouseButtonEventArgs e)`；先过滤
-  `e.ChangedButton == MouseButton.Left`。
+- 诊断探针只读，不改变行为；最终代码**保留** root 的
+  `UIElement.MouseLeftButtonUpEvent` + `handledEventsToo: true` 订阅。
+- 新增 `private static object HitAtPoint(RichTextBox, Point)` 与
+  `private static int LineAtPoint(RichTextBox, Point)`；真实鼠标的
+  `OriginalSource` 是 RTB 本身，行号必须用 `InputHitTest` 从坐标解析。
+- 处理器签名保持 `(object sender, MouseButtonEventArgs e)`。
 
 ### Step 1（探针，不提交）
 
@@ -162,141 +165,323 @@ Start-Sleep -Milliseconds 400
 Start-Sleep -Milliseconds 600
 ```
 
-- 读取 `%TEMP%\kobold-note-click-probe.log`，把以下证据写进 ledger：
-  - `MouseLeftButtonUp` 是否在 root 出现（预期：失败点击时**没有**）；
-  - `Mouse.MouseUp` 是否到达 root、`e.Handled`、`OriginalSource` 类型 / 名称；
-  - `taggedLine` 是否为期望行、`selection` / `captured` 状态。
-- 如果探针结果与假设不符，**停下重做假设**，不得直接进入 Step 4。
+- **实际证据（2026-10-19，已写入 ledger）**：
+  - `MouseLeftButtonUp` 与 `Mouse.MouseUp` **都到达 root**；`Handled=True`；
+  - `OriginalSource = RichTextBox#ReadingBox`，不是 `Span` / `Paragraph`；
+  - `Mouse.Captured = null`；普通单击 `selection=False`；`TaggedLine(OriginalSource) = -1`；
+  - 同一击的 `ReadingBox.InputHitTest(point)` 返回 `Paragraph`，
+    `NoteMarkdownRenderer.SourceLine = 0`；`GetPositionFromPoint(point, false)` 为 `null`。
+- 结论：**Direct 路由假设被推翻**；root 订阅正常，问题是真实鼠标的
+  `OriginalSource` 是 RTB，行号必须用点击坐标 `InputHitTest` 解析。
+- 证据日志：`%TEMP%\kobold-note-click-probe.log`（`input=Paragraph inputLine=0`）。
 
 ### Step 3（删除探针）
 
 删除 `ClickProbe` / `Describe` / 两个探针 `AddHandler` 与 `using System.IO;`；
 `git diff` 确认生产代码只剩原订阅。
 
-### Step 4（红：失败 pin + 迁移点击助手）
+### Step 4（红：坐标解析 pin）
 
-- 把 `ClickTaggedLine(NoteSurfaceView, RichTextBox, int)` 改成走 Bubble 事件：
-
-```csharp
-private static void ClickTaggedLine(NoteSurfaceView surface, RichTextBox box, int line)
-{
-    var span = SpanWithLine(box.Document, line);
-    box.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-    {
-        RoutedEvent = Mouse.MouseUpEvent,
-        Source = span,
-        Handled = true
-    });
-}
-```
-
-- 把其余针对 surface root / pane 的 `MouseLeftButtonUpEvent` 合成事件改成
-  `Mouse.MouseUpEvent`（保留 glyph / 链接 / 任务卡自身与卡片 helper 的
-  `MouseLeftButtonUp` 处理器）。先 grep 扫描再逐处迁移：
-  `SurfaceHandledClickOnTaggedLineEntersTheEdit`、`SurfaceHandledGlyphClickDoesNotEnterTheEdit`
-  的第二次 root 补发、`SurfaceClickingChromeWhileEditingLeavesTheEdit`、
-  `SurfaceClickingInsideTheBoxKeepsTheEdit`、`SurfaceScrollbarClickKeepsTheEdit`、
-  `SurfacePaneGlyphClickLeavesTheEdit`、`NoteClickingABlockEntersItsEditAtThatLine`，
-  以及 `10714` / `10746` / `10767` / `10795` / `10829` / `10858` / `10918` 一带
-  所有面向 surface root 的 raise。**不要改** `ClickNoteCard`（卡片 handler 仍是
-  `MouseLeftButtonUp`）与 glyph 自身的 `RaiseLeftClick`。
-- 新增 pin：
+- **不迁移事件类型**；`ClickTaggedLine` 与既有 `MouseLeftButtonUp` 合成事件保持原样。
+- 新增 `LineAtPoint` pin（通过反射调用私有静态方法；方法不存在时运行时失败）：
 
 ```csharp
-private static void SurfaceReentersEditAfterLeavingWithAHandledMouseUp()
+private static void SurfaceLineAtPointResolvesAParagraph()
 {
     ThemeManager.Initialize("dark");
     var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
     var surface = NewSurface(new NoteData(), note);
-
-    if (!surface.TryBeginEditAt(1))
-        throw new InvalidOperationException("the paragraph block did not enter edit");
-    surface.LeaveEdit();
+    LayoutSurface(surface);
 
     var box = SurfaceReadingBox(surface);
     var span = SpanWithLine(box.Document, 1);
-    box.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+    Rect rect = span.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+    var method = typeof(NoteSurfaceView).GetMethod("LineAtPoint",
+        BindingFlags.Static | BindingFlags.NonPublic);
+    if (method == null)
+        throw new InvalidOperationException("NoteSurfaceView has no LineAtPoint");
+    int line = (int)method.Invoke(null, new object[]
     {
-        RoutedEvent = Mouse.MouseUpEvent,
-        Source = span,
-        Handled = true
+        box, new Point(rect.X + Math.Min(2, Math.Max(1, rect.Width / 2)), rect.Y + 2)
     });
 
-    if (!surface.IsEditing)
-        throw new InvalidOperationException("a handled mouse-up after LeaveEdit did not re-enter the edit");
-    if (SurfaceEditBox(surface).Text != "one\ntwo")
-        throw new InvalidOperationException("the re-entered box reads '"
-            + SurfaceEditBox(surface).Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+    if (line != 1)
+        throw new InvalidOperationException("the point resolved to line " + line + ", wanted 1");
 }
 ```
 
-- 新增右键 pin：
-
-```csharp
-private static void SurfaceRightMouseUpDoesNotEnterTheEdit()
-{
-    ThemeManager.Initialize("dark");
-    var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
-    var surface = NewSurface(new NoteData(), note);
-    var box = SurfaceReadingBox(surface);
-    var span = SpanWithLine(box.Document, 1);
-
-    box.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
-    {
-        RoutedEvent = Mouse.MouseUpEvent,
-        Source = span,
-        Handled = true
-    });
-
-    if (surface.IsEditing)
-        throw new InvalidOperationException("a right-button mouse-up opened an edit");
-}
-```
-
+- 可选 pin `SurfaceLineAtPointReturnsMinusOneOnBlank`：点在 `ReadingBox` 末尾之外的
+  空白点 → -1；若离屏布局无法稳定构造空白点，标注冒烟覆盖。
 - 注册到 `RunAll` 的 XamlLoadCheck 笔记组。
 - 运行 `dotnet run --project tests\XamlLoadCheck\XamlLoadCheck.csproj -c Debug --nologo`
-  → 预期新 pin 失败（旧实现只监听 `MouseLeftButtonUp`）。留档失败输出。
+  → 预期新 pin 失败（`LineAtPoint` 不存在）。留档失败输出。
 
 ### Step 5（绿：实现）
 
-- 构造函数替换订阅：
+- **保留**构造函数里的 `UIElement.MouseLeftButtonUpEvent` + `handledEventsToo: true`
+  订阅（探针已证明它能到达 root）；不改事件类型。
+- 在 `SurfaceRoot_MouseLeftButtonUp` 附近新增：
 
 ```csharp
-// MouseLeftButtonUp is a Direct event: once a focused RichTextBox marks its
-// copy handled, the input system stops re-raising it up the tree, so the root
-// never sees it. Mouse.MouseUp is the bubbling event and always reaches us;
-// handledEventsToo keeps the RichTextBox's handled mark from hiding it.
-SurfaceRoot.AddHandler(Mouse.MouseUpEvent,
-    new MouseButtonEventHandler(SurfaceRoot_MouseUp), true);
+/// <summary>
+/// Resolves the element under the click inside a RichTextBox. Real mouse input
+/// reports the box itself as OriginalSource, so the tagged Paragraph/Span has
+/// to be read back through InputHitTest (the probe: source=ReadingBox,
+/// taggedLine=-1, input=Paragraph with SourceLine=0).
+/// </summary>
+private static object HitAtPoint(RichTextBox box, Point point)
+{
+    var input = box.InputHitTest(point) as DependencyObject;
+    if (IsControlHit(input)) return input;
+
+    var pos = box.GetPositionFromPoint(point, true);
+    if (pos != null && IsControlHit(pos.Parent)) return pos.Parent;
+    return input;
+}
+
+/// <summary>The source line under the point, or -1 when it is blank.</summary>
+private static int LineAtPoint(RichTextBox box, Point point)
+{
+    return TaggedLine(HitAtPoint(box, point));
+}
 ```
 
-- 处理器改名并过滤左键：
+- 处理器开头改为：
 
 ```csharp
-private void SurfaceRoot_MouseUp(object sender, MouseButtonEventArgs e)
+private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
 {
-    if (e.ChangedButton != MouseButton.Left) return;
-
     object hit = e.OriginalSource ?? e.Source;
-    // ... existing classification unchanged ...
+    object resolved = hit;
+    var box = hit as RichTextBox;
+    if (box != null)
+    {
+        resolved = HitAtPoint(box, e.GetPosition(box));
+        if (resolved == null) resolved = hit;
+    }
+
+    if (IsInside(hit, EditBox)) return;
+    // AppendZone / CollapseButton checks as they exist ...
+    if (SelectionIsNotEmpty(hit)) return;
+
+    if (IsControlHit(resolved))
+    {
+        if (_editing) LeaveEdit();
+        return;
+    }
+
+    if (IsScrollChrome(hit)) return;
+
+    int line = TaggedLine(resolved);
+    if (line < 0 && !ReferenceEquals(resolved, hit)) line = TaggedLine(hit);
+    if (line < 0)
+    {
+        if (_editing) LeaveEdit();
+        return;
+    }
+
+    if (_editing) { TrySwitchPaneEdit(line); return; }
+    TryBeginEditAt(line);
 }
 ```
 
 - 保留 `EditBox` / `AppendZone`（Task 5） / `IsControlHit` / `IsScrollChrome` /
-  `SelectionIsNotEmpty` / `TaggedLine` / `TrySwitchPaneEdit` 逻辑。
+  `SelectionIsNotEmpty` / `TaggedLine` / `TrySwitchPaneEdit` 逻辑；`LineAtPoint` 供
+  root 与测试共用。
 - 运行 XamlLoadCheck 全绿；`dotnet build Kobold.csproj -c Debug --nologo` 0 警告。
 
 ### Step 6（控制者：修复后真鼠标冒烟）
 
-- 部署修复版（先问用户）；再跑 Step 2 的脚本：Esc 后点同块、点另一块、点空白后再点块。
-- 用户手动复现一次，确认「可以再次进入编辑」。
-- 证据写进 ledger；若失败，回到 Step 1 重新探针，不得宣称修复。
+- 部署修复版（先问用户）。探针已删除，修复版不再写日志；用 `PrintWindow`
+  截图 / 用户肉眼确认点击后出现 Markdown 源码编辑框。
+- 把 `NoteWidget` 移到未被其它置顶组件遮住的区域（`SetWindowPos`），点击已知
+  文本行（探针用的 `(200, 190)` 一带），按 Esc，再点同一块；再点另一块、点空白后
+  点块。完成后把窗口位置恢复。
+- 用户手动复现一次，确认「可以再次进入编辑」；顺带点任务框 / 链接确认不误进编辑。
+- 证据（窗口坐标、点击坐标、截图路径 / 用户确认）写进 ledger；若失败，回到 Step 1
+  重新探针，不得宣称修复。
 
 ### Step 7（暂存 + 提交）
 
 - `git add Controls/NoteSurfaceView.xaml.cs tests/XamlLoadCheck/Program.cs`
-- 提交：`fix(note): re-enter a block edit after a focused mouse-up`
+- 提交：`fix(note): resolve the clicked block from the rich text box point`
 - 注意：探针与脚本不在提交内；`git status` 确认干净。
+
+---
+
+## Task 1B: 点击光标精确到字符（视觉偏移 → 源码行列）
+
+**Files：**
+- Modify: `Core/MarkdownParser.cs`（`MdInline.SourcePositions`）
+- Create: `Core/NoteCaretMap.cs`
+- Modify: `Controls/NoteSurfaceView.xaml.cs`
+- Modify: `tests/NoteMarkdownCheck/Program.cs`
+- Modify: `tests/XamlLoadCheck/Program.cs`
+
+**Interfaces：**
+- Produces：
+  ```csharp
+  // MdInline: one source column per visible character; nested inlines carry their own.
+  public List<int> SourcePositions;
+
+  public static class NoteCaretMap
+  {
+      // visualOffset = 0-based visible-character offset inside the clicked line.
+      // Returns the absolute source line (0-based) and source column (0-based).
+      public static (int Line, int Column) Map(string text, int line, int visualOffset);
+  }
+
+  // NoteSurfaceView
+  public bool TryBeginEditAt(int line, int column = 0);
+  private static bool CaretAtPoint(RichTextBox box, Point point,
+      out int line, out int visualOffset);
+  private void SetCaret(int relativeLine, int relativeColumn);
+  ```
+- 覆盖：段落 / 标题 / 列表 / 任务精确；代码块尽量；表格 / 引用 / 分割线回退 `(line, 0)`。
+
+### Step 1（红：parser source map）
+
+在 `NoteMarkdownCheck` 加 `ParserSourcePositions()` 与 pins：
+
+1. `source: plain text maps every character`：`MarkdownParser.ParseInlines("abc")` →
+   一个 `MdText`，`Text=="abc"`，`SourcePositions == [0,1,2]`。
+2. `source: an escape skips the backslash`：`"a\\*b"` → `Text=="a*b"`，
+   `SourcePositions == [0,2,3]`。
+3. `source: strong carries its inner offsets`：`"**bold** x"` → 一个 `MdStrong`
+   含 `MdText("bold")`，子 `SourcePositions == [2,3,4,5]`；尾部 `MdText(" x")`
+   `SourcePositions == [8,9]`。
+4. `source: a code span excludes its backticks`：``"`co`de"`` → `MdCodeSpan("co")`
+   `[1,2]`；`MdText("de")` `[4,5]`。
+5. `source: a link label excludes the brackets`：`"[label](https://x)"` →
+   `MdLink` `Text=="label"`，`SourcePositions == [1,2,3,4,5]`。
+6. `source: an unpaired marker stays literal`：`"a * b"` → 可见文本 `"a * b"`，
+   positions `[0,1,2,3,4]`。
+- 运行 `dotnet run --project tests\NoteMarkdownCheck\NoteMarkdownCheck.csproj -c Debug --nologo`
+  → 编译失败（`SourcePositions` 不存在）即红。留档。
+
+### Step 2（实现 parser）
+
+- `MdInline` 加 `public List<int> SourcePositions;`（默认 null；不改变 AST 类型）。
+- `ParseInlines(string text)` 改为 `ParseInlines(text, 0)`；新增私有重载
+  `ParseInlines(string text, int sourceBase)`。
+- `literal` 旁维护 `var literalPositions = new List<int>();`，`Flush` 改为：
+  ```csharp
+  private static void Flush(List<MdInline> inlines, StringBuilder literal, List<int> positions)
+  {
+      if (literal.Length == 0) return;
+      inlines.Add(new MdText { Text = literal.ToString(), SourcePositions = new List<int>(positions) });
+      literal.Clear();
+      positions.Clear();
+  }
+  ```
+- 逐分支写位置（`sourceBase` 为当前子串在原行中的起始列）：
+  - 反斜杠转义：`literal.Append(text[i + 1]); literalPositions.Add(sourceBase + i + 1); i += 2;`
+  - 行内代码：`new MdCodeSpan { Text = ..., SourcePositions = Range(sourceBase + i + 1, length) }`
+    （`Range` 返回连续列 `start..start+length-1`）；`i = close + 1`。
+  - 链接（web）：`MdLink.Text` 的每个字符列 = `sourceBase + i + 1 + k`
+    （label 是 `[` 后的原始子串）；`i = end`。
+  - 非 web 链接 / 未配对 marker：按原样字符逐个 append，位置 = `sourceBase + 当前索引`。
+  - `**` / `_` strong：递归 `ParseInlines(text.Substring(i + 2, close - i - 2), sourceBase + i + 2)`；
+    `i = close + 2`。
+  - `~~` strike：递归起点 `sourceBase + i + 2`；`i = close + 2`。
+  - `*` / `_` em：递归起点 `sourceBase + i + 1`；`i = close + 1`。
+  - 普通字符：`literalPositions.Add(sourceBase + i);`
+- 运行 NoteMarkdownCheck → 新 pins 全绿，既有 pins 不回归。
+
+### Step 3（红：NoteCaretMap）
+
+在 `NoteMarkdownCheck` 加 `CaretMap()` 与 pins（全部显式）：
+
+1. `caret: a paragraph offset maps directly`：`"one **two** three"` line 0；
+   visualOffset 6（"two" 的末字符）→ `(0,8)`；visualOffset 4（"t"）→ `(0,6)`。
+2. `caret: a heading skips its marker`：`"# Head"` line 0；visualOffset 2 → `(0,4)`；
+   visualOffset 0 → `(0,2)`。
+3. `caret: a list skips its bullet`：`"- item"` line 0；visualOffset 2 → `(0,4)`。
+4. `caret: a task skips the box`：`"- [ ] task"` line 0；visualOffset 2 → `(0,8)`。
+5. `caret: the line end sits after the last visible character`：`"# Head"` visualOffset 4
+   → `(0,6)`；`""` / blank line → `(line,0)`。
+6. `caret: a heading after a blank line uses the absolute line`：
+   `"# H\n\nbody"` line 2 visualOffset 1 → `(2,1)`。
+7. `caret: code maps to the code body line`：``"```\none\ntwo\n```"``；
+   line 0 visualOffset 5（"two" 的 'o'）→ `(2,1)`（opening fence line 0 + 1 + code line 1，
+   column 1）。
+8. `caret: a table falls back to the line start`：`"| a |\n| --- |"` line 0 offset 2 →
+   `(0,0)`；quote `"> q"` line 0 offset 1 → `(0,0)`。
+- 运行 → 编译失败（`NoteCaretMap` 不存在）即红。留档。
+
+### Step 4（实现 NoteCaretMap）
+
+- 归一化换行（同 parser）：`text.Replace("\r\n","\n").Replace('\r','\n')` 后按 `\n` 切行。
+- `MarkdownParser.Parse(normalized)`；遍历顶层块，按块类型找 line 对应的 inline 列表：
+  - `MdParagraph`：`line - block.Line` 在 `Lines` 范围 → `Lines[index]`，prefix 0。
+  - `MdHeading`：`block.Line == line` → `Inlines`；prefix =
+    `lineText.Length - lineText.TrimStart('#', ' ', '\t').Length`（`#` + 空白）；
+  - `MdListBlock`：找 `item.Line == line` → `item.Inlines`；prefix =
+    `lineText.IndexOf(' ') + 1`（`- ` / `1. `）；
+  - `MdTaskBlock`：`block.Line == line` → `Inlines`；prefix =
+    `lineText.IndexOf(']') + 2`（`- [ ] `）；
+  - `MdCodeBlock`：`block.Line == line` → 在 `block.Text` 中按 `visualOffset` 计 `\n`，
+    返回 `(block.Line + 1 + codeLine, codeColumn)`；越界回退 `(line,0)`；
+  - `MdQuote` / `MdTable` / `MdThematicBreak`：`(line,0)`。
+- 可见 inline 展开：
+  ```csharp
+  private static int VisibleLength(MdInline inline) { ... }
+  private static bool TryMapInline(MdInline inline, int offset, out int column)
+  ```
+  按 `MdText` / `MdCodeSpan` / `MdLink` 的 `Text.Length` 推进；`MdStrong` / `MdEm` /
+  `MdStrike` 递归；找到后取 `SourcePositions[local] + prefix`。`offset == total` 时
+  取最后一个位置 + 1；无可见文本返回 `prefix`。
+- 运行 NoteMarkdownCheck → 全绿。
+
+### Step 5（红：surface caret）
+
+在 `XamlLoadCheck` 加：
+
+1. `surface: the caret lands on the clicked character`：
+   note `"# H\n\none **two** three"`；`TryBeginEditAt(2, 8)` → `EditBox` 文本为该段源码，
+   `EditBox.CaretIndex` 等于 `8`（段落源码从行首开始）。
+2. `surface: a heading caret skips the marker`：note `"# Head\n\nbody"`；
+   `TryBeginEditAt(0, 4)` → `EditBox.CaretIndex == 4`（源码 `# Head`，列 4 是 'a'）。
+3. `surface: a task caret skips the box`：note `"- [ ] task"`；
+   `TryBeginEditAt(0, 8)` → `EditBox.CaretIndex == 8`。
+4. `surface: CaretAtPoint names the visual offset`：布局后取 `SpanWithLine(...,1)` 的字符矩形，
+   反射调用 `CaretAtPoint` → `line == 1`、`visualOffset` 在合理范围内；若离屏
+   `GetPositionFromPoint` 不稳定，改断言 `NoteCaretMap` 纯逻辑 + 冒烟覆盖，并在记录注明。
+- 运行 XamlLoadCheck → 编译失败 / 失败（无 `column` 参数）即红。留档。
+
+### Step 6（实现 surface）
+
+- `TryBeginEditAt(int line, int column = 0)`：`BeginEditAtIndex(index, line - range.Start, column)`。
+- `BeginEditAtIndex(int index, int relativeLine, int relativeColumn)`；
+  `EnterEditingState(relativeLine, relativeColumn)`；`SetCaret` 改为：
+  ```csharp
+  private void SetCaret(int relativeLine, int relativeColumn)
+  {
+      string text = EditBox.Text ?? string.Empty;
+      string[] lines = text.Split('\n');
+      int caret = 0;
+      for (int i = 0; i < relativeLine && i < lines.Length; i++)
+          caret += lines[i].Length + 1;
+      if (relativeColumn > 0 && relativeLine < lines.Length)
+          caret += Math.Min(relativeColumn, lines[relativeLine].Length);
+      if (caret > text.Length) caret = text.Length;
+      EditBox.CaretIndex = caret;
+  }
+  ```
+- `CaretAtPoint(RichTextBox box, Point point, out int line, out int visualOffset)`：
+  - `pos = box.GetPositionFromPoint(point, true)`；从 `pos.Parent` 上溯找带
+    `SourceLine` 的 `Span` / `Paragraph`；`visualOffset = element.ContentStart.GetOffsetToPosition(pos)`；
+  - 找不到 → false。
+- root 处理器：`LineAtPoint` 找到行后，再 `CaretAtPoint` 取 visualOffset；
+  `var mapped = NoteCaretMap.Map(_note.Text, line, visualOffset);`
+  `TryBeginEditAt(mapped.Line, mapped.Column)`；切换块同样带列；映射失败 → 列 0。
+- 保留 `LineAtPoint` 的既有 pin；`TryBeginEditAt(line)` 默认列 0，既有调用不变。
+- 运行 XamlLoadCheck / NoteMarkdownCheck / build 全绿。
+
+### Step 7（暂存 + 提交）
+
+- `git add Core/MarkdownParser.cs Core/NoteCaretMap.cs Controls/NoteSurfaceView.xaml.cs tests/NoteMarkdownCheck/Program.cs tests/XamlLoadCheck/Program.cs`
+- 提交：`feat(note): place the caret at the clicked character`
 
 ---
 
@@ -881,7 +1066,8 @@ private void TitleChevron_MouseLeftButtonUp(object sender, MouseButtonEventArgs 
 
 ### Step 4（绿）
 
-- XamlLoadCheck 全绿（既有 T4/T5/T6 点击 pins 已迁到 `Mouse.MouseUp`）。
+- XamlLoadCheck 全绿（既有 T4/T5/T6 点击 pins 保持 `MouseLeftButtonUp`；T1 的
+  `LineAtPoint` pin 已覆盖坐标解析）。
 - NoteMarkdownCheck / MenuRenderCheck 不回归；build 0 警告。
 
 ### Step 5（暂存 + 提交）

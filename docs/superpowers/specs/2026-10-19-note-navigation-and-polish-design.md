@@ -209,7 +209,46 @@ home                                   detail
 - **滚动**：进入追加会话后 `AppendZone.BringIntoView()`（或 `SurfaceScroller.ScrollToEnd()`），
   保证新编辑框在视口内；滚动失败不影响数据。
 
-### 4.3 块间空白的识别
+### 4.3 点击位置 → 源码光标（精确到字符）
+
+- 目标：点击块内哪个字/字间，进入编辑后光标就落在源码的对应位置，而不是块首。
+- 覆盖：
+  - **段落 / 标题 / 列表项 / 任务行**：必须精确；
+  - **代码块**：尽量精确（按代码正文的可见偏移换算到代码行/列）；
+  - **表格 / 引用 / 分割线**：回退到点击行行首（不设假精度）。
+- 数据底座：`Core/MarkdownParser` 的 `MdInline` 新增
+  `public List<int> SourcePositions`（每个可见字符对应 0 基源码列；嵌套 inline 由子节点各自携带）。
+  这是**新增元数据**，解析结果与既有 pins 不变。
+- 新纯函数 `Core/NoteCaretMap.cs`：
+  ```csharp
+  public static class NoteCaretMap
+  {
+      // visualOffset = 点击行内可见字符的 0 基偏移（不含行首 marker）。
+      // 返回 (sourceLine, sourceColumn)：sourceLine 为整篇源码的 0 基行号，
+      // sourceColumn 为该行源码的 0 基列号。
+      public static (int Line, int Column) Map(string text, int line, int visualOffset);
+  }
+  ```
+  - 段落：直接用该行的 `SourcePositions[visualOffset]`；
+  - 标题 / 列表 / 任务：在 `SourcePositions` 结果上加上行首 marker 前缀长度
+    （`# ` / `- ` / `1. ` / `- [ ] ` 等）；
+  - 行尾 / 空行：落到该行可见文本末尾之后（源码列 = 最后一个位置 + 1；无可见文本 =
+    前缀长度）；
+  - 代码块：`visualOffset` 在 `MdCodeBlock.Text` 内换算成代码行/列，返回
+    `(block.Line + 1 + codeLine, column)`；无法换算时回退 `(line, 0)`；
+  - 表格 / 引用 / 分割线：`(line, 0)`。
+- `NoteSurfaceView`：
+  - 点击时从 `TextPointer` 取**可见字符偏移**：找到带 `SourceLine` 的 `Span` / `Paragraph`，
+    用 `ContentStart.GetOffsetToPosition(pos)`；任务 glyph 占一个内联位置，映射前要扣除
+    或直接由 `SourcePositions` 的文本长度校正。
+  - `TryBeginEditAt(int line, int column = 0)`；切换块时同样带列；
+  - `SetCaret(relativeLine, relativeColumn)` 按「前面行长度 + 1 + 列」定位，
+    越界钳位；
+  - 映射失败 / 表格 / 引用：列 0，保持原来的行级行为。
+- 既有 `LineAtPoint` 保留（行级回归）；新增 `CaretAtPoint` / `NoteCaretMap` 的纯逻辑 pin。
+- 不改变：任务框 / 链接的控件优先分类；空白点击语义；编辑框文本与块范围。
+
+### 4.4 块间空白的识别
 
 - 编辑态下，`SurfaceRoot` 的点击分类按祖先链：
   1. `EditBox` / `AppendZone` → 各自拥有；
@@ -224,49 +263,68 @@ home                                   detail
 
 ## 5. Bug：退出编辑后无法重新进入
 
-### 5.1 已确认的 WPF 事实与根因假设
+### 5.1 真鼠标诊断结论（2026-10-19，已取证）
 
-- `UIElement.MouseLeftButtonUpEvent` 的 `RoutingStrategy` 是 **Direct**，不是 Bubble
-  （本轮已用反射确认；`Mouse.MouseUpEvent` 才是 Bubble）。
-- 上一轮把 root 处理器改成 `AddHandler(..., handledEventsToo: true)` 只解决了
-  「root 收到但事件已 Handled」的情况；当 `ReadingBox` 在聚焦后把它的
-  `MouseLeftButtonUp` 标记 Handled 时，Direct 事件不会再向祖先补发，root 的处理器
-  根本不会被调用。这与「Esc / LeaveEdit 把焦点交回 ReadingBox 后所有块都点不进」
-  的复现面吻合。
-- 这是**假设**，不是修复依据：必须先拿到真鼠标证据。
+- 探针（root 同时观察 `MouseLeftButtonUp` 与 `Mouse.MouseUp`）在真实鼠标下记录到：
+  - **两个事件都到达 root**；`MouseLeftButtonUp` 的 `Handled=True`，`Mouse.MouseUp` 也到；
+  - `OriginalSource = RichTextBox#ReadingBox`（不是 `Span` / `Paragraph`）；
+  - `Mouse.Captured = null`；`TaggedLine(OriginalSource) = -1`；`selection` 在普通单击时为
+    `False`；
+  - 同一击的 `ReadingBox.InputHitTest(point)` 返回 **`Paragraph`**，其
+    `NoteMarkdownRenderer.SourceLine = 0`；`GetPositionFromPoint(point, false)` 在该点
+    返回 `null`。
+- 因此上一轮的 Direct 路由假设**被推翻**：root 订阅本身是好的，`handledEventsToo`
+  也确实生效；真正的原因是 **RichTextBox 在真实鼠标事件里把 `OriginalSource` 报成自己**，
+  祖先链上找不到行号标签。行号必须用点击坐标在 RTB 内做 `InputHitTest` 才能拿到。
+- 该结论同样适用于 BeforeBox / AfterBox（它们也是 RichTextBox）以及任务框 / 链接的
+  命中分类：不能只信 `OriginalSource`。
 
-### 5.2 临时诊断（先于修复）
+### 5.2 诊断方法（已执行，探针不入库）
 
-- 在 `NoteSurfaceView` 加临时探针（仅诊断构建）：
-  - root 同时挂 `UIElement.MouseLeftButtonUpEvent`（Direct）与
-    `Mouse.MouseUpEvent`（Bubble，`handledEventsToo: true`）两个观察处理器；
-  - 每次左键松开写一行日志：时间、事件名、`e.Handled`、`OriginalSource` 的类型 /
-    `x:Name` / 祖先链摘要、`Mouse.Captured` 类型、`_editing`、
-    `TaggedLine(hit)`、`IsControlHit`、`IsScrollChrome`、`SelectionIsNotEmpty`；
-  - 日志写到 `%TEMP%\kobold-note-click-probe.log`，单次会话追加，开头写版本 / 时间；
-  - 探针不改变任何行为（只读 + 写日志）。
-- 诊断步骤：
-  1. 构建并部署探针版（部署前按约定问用户）；
-  2. 用脚本驱动一次真实鼠标：找到 `NoteWidget` 窗口、置前、点块进入编辑、按 Esc、
-     点同一块；脚本把窗口位置 / 点击坐标写入日志；
-  3. 读取日志，确认 `MouseLeftButtonUp` 是否在 root 出现、`Mouse.MouseUp` 是否到达、
-     `OriginalSource` 与命中判定；
-  4. 记录证据后删除探针，不进入最终提交。
+- 临时探针记录：事件名、`Handled`、`ChangedButton`、`OriginalSource` 类型 / `Name`、
+  `Mouse.Captured`、`_editing`、`TaggedLine(hit)`、`IsControlHit`、`IsScrollChrome`、
+  `SelectionIsNotEmpty`、`e.GetPosition(box)`、`GetPositionFromPoint`、
+  `InputHitTest` 与 `TaggedLine(InputHitTest)`。
+- 真实鼠标证据：窗口 `NoteWidget` 被移到 `(50,50)`、点击 `(200,190)`；
+  `%TEMP%\kobold-note-click-probe.log` 记录
+  `source=RichTextBox#ReadingBox ... taggedLine=-1 ... input=Paragraph inputLine=0`。
+- 探针与脚本在修复提交前删除 / 不入库。
 
 ### 5.3 修复
 
-- root 改挂 `Mouse.MouseUpEvent`（Bubble，`handledEventsToo: true`）；处理器先过滤
-  `e.ChangedButton == MouseButton.Left`，其余逻辑沿用现有分类（EditBox / AppendZone /
-  任务框 / 链接 / 滚动条 / 行标签 / 空白）。
-- 不改变 `MouseLeftButtonUp` 在任务框、链接、`‹`（已移除）等控件上的既有语义。
+- **保留**现有 root 订阅 `UIElement.MouseLeftButtonUpEvent` + `handledEventsToo: true`
+  （证据显示它能到达）；不改成 `Mouse.MouseUp`。
+- 新增坐标解析：
+  ```csharp
+  // 在 RTB 内把点击点解析成带行号的元素（真实鼠标的 OriginalSource 是 RTB 本身）。
+  private static object HitAtPoint(RichTextBox box, Point point)
+  {
+      var input = box.InputHitTest(point) as DependencyObject;
+      if (IsControlHit(input)) return input;          // 任务框 / 链接
+      var pos = box.GetPositionFromPoint(point, true); // 文本位置兜底
+      if (pos != null && IsControlHit(pos.Parent)) return pos.Parent;
+      return input;
+  }
+  ```
+- root 处理器先算 `hit = e.OriginalSource ?? e.Source`；若 `hit is RichTextBox box`，
+  用 `HitAtPoint(box, e.GetPosition(box))` 得到 `resolved`，后续
+  `IsControlHit` / `TaggedLine` 都优先用 `resolved`，拿不到时再回退 `hit`。
+  - `IsInside(hit, EditBox)`、`SelectionIsNotEmpty(hit)`、`IsScrollChrome(hit)` 仍用原始
+    `hit` / 其祖先链，保持既有语义。
+  - 任务框 / 链接：`InputHitTest` 先命中控件（或 `GetPositionFromPoint(...).Parent`
+    命中 Hyperlink）时按控件处理，不进入编辑。
+  - `private static int LineAtPoint(RichTextBox box, Point point)` =
+    `TaggedLine(HitAtPoint(box, point))`，供 root 处理器与测试共用。
 - 回归 pin：
-  - 进入编辑 → `LeaveEdit()` → 在 `ReadingBox` 上抛一个 `Handled=true` 的
-    `Mouse.MouseUp`（`Source` = 带行号的 `Span`）→ 断言重新进入编辑且框文本正确；
-  - 同一路径抛右键 `Mouse.MouseUp` → 不进入编辑；
-  - 既有「handled 行点击」「handled glyph」「框内点击保持」「滚动条不退出」
-    pins 迁移到 Bubble 路径后仍绿。
+  - `SurfaceLineAtPointResolvesAParagraph`：布局后取某行 `Span` 的字符矩形，调用
+    `LineAtPoint`（内部静态，测试反射）→ 断言点击行号 = 该 Span 的行号；
+  - `SurfaceLineAtPointReturnsMinusOneOnBlank`：点在文档内容之外的空白 → -1；
+  - `SurfacePointHitKeepsTaskGlyphOutOfTheEdit`：若可离屏构造 glyph 的
+    `InputHitTest` 命中，断言 `IsControlHit` 分类；否则标注冒烟覆盖。
+  - 既有「handled 行点击」「handled glyph」「框内点击保持」「滚动条不退出」pins
+    **不迁移事件类型**，保持 `MouseLeftButtonUp`；只补坐标解析 pin。
 - 修复后部署，用脚本 + 用户手动各做一次真鼠标冒烟：Esc 后点同块、点其它块、
-  点空白后再点块。
+  点空白后再点块；顺带点任务框 / 链接确认不误进编辑。
 
 ---
 
@@ -349,11 +407,15 @@ home                                   detail
 - 删除：`CollapseRequested`、`CollapseButton` 及浮动 `‹`。
 - 新增：
   ```csharp
+  public bool TryBeginEditAt(int line, int column = 0); // 行 + 源码列
   public bool TryBeginAppendEdit(); // 提交当前 + 文末追加空块编辑；整文/追加态返回 false
   ```
+- 私有：`CaretAtPoint(RichTextBox, Point, out int line, out int visualOffset)`；
+  `SetCaret(relativeLine, relativeColumn)`。
 - XAML：`SurfaceStack` 改 `Grid`（`PaneStack` + `AppendZone`）；`SurfaceScroller`
   改为 detail 的唯一滚动区（`VerticalScrollBarVisibility=Auto`，去掉旧 `Padding=0,24`）。
-- root 点击改挂 `Mouse.MouseUpEvent`（Bubble，handledEventsToo），过滤左键。
+- root 点击保持 `MouseLeftButtonUpEvent`（handledEventsToo）；新增 `HitAtPoint` /
+  `LineAtPoint`，真实鼠标的 `OriginalSource` 是 RTB 时按点击坐标解析行号。
 - 字号：`BuildRenderStyle` / `ApplyEditTypography` 读取 `_data.FontScale`。
 - 追加会话字段：`_appendSession`、`_appendPrefix`；`ResetEditState` 清空。
 
@@ -400,6 +462,13 @@ home                                   detail
 - `＋ 新建` 复用 `UI_NewWidgetFormat` + `UI_WidgetKindNote`，不新增 key。
 - 下拉里无笔记时不放占位条目；空列表由 home 提示承担。
 
+### 7.7 `Core/MarkdownParser.cs` / `Core/NoteCaretMap.cs`
+
+- `MdInline` 新增 `public List<int> SourcePositions`（每个可见字符的源码列；
+  嵌套 inline 由子节点携带）。`ParseInlines` 的可见文本与 AST 类型不变。
+- 新 `NoteCaretMap.Map(string text, int line, int visualOffset)` 返回
+  `(int Line, int Column)`；纯逻辑、无 WPF 依赖，逐构造 pin。
+
 ---
 
 ## 8. 测试与验收
@@ -409,6 +478,10 @@ home                                   detail
 - **NoteMarkdownCheck**：
   - `NoteFontScale.Normalize`：0.9/1.0/1.2 原样；NaN/∞/0/负数 → 1.0；
     超出 [0.9,1.2] 夹取；`NoteData.FontScale` 默认 1.0。
+  - 解析器 source map：转义 / 粗体 / 斜体 / 删除线 / 行内代码 / 链接的
+    `SourcePositions` 逐字符等于源码列；可见文本与 AST 类型不变。
+  - `NoteCaretMap.Map`：段落偏移、标题前缀、列表前缀、任务前缀、行尾、空行、
+    粗体内部、行内代码、代码块行/列、表格/引用回退 (line,0)。
   - 既有 NoteOps / NoteBlockRanges pins 零回归。
 - **WidgetKindsCheck**：
   - 新 `NoteData` 的 `FontScale == 1.0`；
@@ -440,10 +513,14 @@ home                                   detail
      `IsEditing == false`、仍 detail、文本已落；渲染态点击同样位置 → 仍 detail。
   10. 渲染态 Esc / Backspace → home；编辑态 Esc → 退出编辑但 detail。
   11. 块点击：detail 渲染点带行号 `Span` → 该块编辑；任务框 / 链接不进入编辑；
-      既有 handled 行点击 pin 迁移到 `Mouse.MouseUp`。
+      既有 handled 行点击 pin 保持 `MouseLeftButtonUp`，另补 `LineAtPoint` 坐标解析 pin
+      （真实鼠标 `OriginalSource` 是 RTB 的回归）。
   12. AppendZone：编辑中点击 `AppendZone` → 追加会话（框空、Before 全块、After 空）；
       输入 `"new"` → 数据以空行分隔追加；空文本 → 数据不变；整文编辑 / 渲染态点击
       → no-op；追加后切块 / 离开 → 已提交。
+  12b. 光标精确：`TryBeginEditAt(line, column)` → `EditBox.CaretIndex` 落在该行该列；
+       段落 / 标题 / 列表 / 任务各一条；行内粗体 / 代码 span 的列映射正确；
+       表格 / 引用回退列 0；`CaretAtPoint` 用字符矩形 pin 至少一条。
   13. 字号：`NoteData.FontScale = 0.9/1.0/1.2` → `ReadingBox.Document.FontSize` 与
       `EditBox.FontSize` 同步；标题字号 = `HeadingFontSize(level, 12*scale)`；
       卡片摘要字号仍 12；编辑中改字号 → 框文本 / 光标保持、仍编辑。
@@ -464,6 +541,8 @@ home                                   detail
 2. 标题下拉：`▾` 打开；动作块 + 笔记列表；当前条勾选；切 3 条笔记；点当前条只关下拉；
    home / detail 的空白右键都弹动作菜单（home 只显示新建，detail 显示新建 + 笔记列表）。
 3. 新建：home / detail / 编辑中三种状态点 `＋` → 旧编辑落盘、新笔记起笔；空稿离场消失。
+3b. 光标：点段落/标题/列表/任务里的某个字或字间 → 进入编辑后光标就在那个源码位置；
+   粗体 / 行内代码里的点击也尽量精确；表格 / 引用落到行首。
 4. 空白：编辑中点块间 / 卡片内边距 / 面板边距 → 渲染回去且仍 detail；渲染态点空白
    → 不收起；`‹ 笔记列表` / Esc / Backspace 才回 home。
 5. AppendZone：编辑中点文末空白 → 新编辑框；输入后空行分隔；什么都不写离开 → 不留空块；
@@ -483,7 +562,7 @@ home                                   detail
 
 | 风险 | 缓解 |
 |---|---|
-| `Mouse.MouseUp` 仍被 RichTextBox 吞掉 / 路由不到 root | 先探针真鼠标取证；Bubble + handledEventsToo；回归 pin + 真鼠标冒烟 |
+| 真实鼠标 `OriginalSource` 是 RTB，行号解析不到 | 先探针真鼠标取证；`InputHitTest` 坐标解析 + 回归 pin + 真鼠标冒烟 |
 | 标题下拉 Popup 在面板边缘 / 多屏 / 高 DPI 下越界 | WPF Popup 自带屏幕避让；宽度/高度按面板自适应；冒烟覆盖 |
 | 标题下拉抢走 Header 拖拽 | 只有 `▾` 处理点击并 Handled；标题文字保持拖拽；文件夹默认不启用 |
 | 详情页切换丢失半成品文本 | 所有切换 / 回 home / 隐藏 / 关闭路径先 `Flush()`；既有节流 + 冲刷点不变 |
@@ -497,11 +576,13 @@ home                                   detail
 ## 10. 交付物
 
 - `Core/NoteFontScale.cs`（新：三档常量 + 归一化）。
+- `Core/NoteCaretMap.cs`（新：点击可见偏移 → 源码行列）。
+- `Core/MarkdownParser.cs`（`MdInline.SourcePositions` 元数据；AST/可见文本不变）。
 - `Core/NoteData.cs`（新增 `FontScale`）。
 - `Core/AppConfig.cs`（`RepairNote` 归一化字号）。
 - `Core/Localization.cs`（7 个三语 key）。
 - `Controls/NotePanelView.xaml(.cs)`（home / detail 重构、标题下拉、空白语义）。
-- `Controls/NoteSurfaceView.xaml(.cs)`（AppendZone、字号、`Mouse.MouseUp` 修复、
+- `Controls/NoteSurfaceView.xaml(.cs)`（AppendZone、字号、`InputHitTest` 坐标解析修复、
   移除浮动 `‹`）。
 - `Controls/NoteWidget.xaml.cs`（标题菜单接线、标题刷新、关闭时关下拉）。
 - `Controls/WidgetChrome.xaml(.cs)`（可选标题菜单 / `▾`）。
@@ -521,4 +602,7 @@ home                                   detail
   §4.1 渲染态任务框 / 链接、§4.2 点哪写哪、§4.3 块编辑态与节流拼接、
   §4.5 空稿丢弃、§5 保存与冲刷、§6 新建流（入口改为标题下拉 / home 右键）、
   §7 退役清单中与本轮不冲突的部分、§8 测试口径。
+- 本 spec 对旧 spec §4.2「光标 = 点中的那一行」升级为「行 + 列」；对
+  「`Core/MarkdownParser.cs` 零改动」的旧护栏做一次**增量修订**：只新增
+  `MdInline.SourcePositions` 元数据与 `NoteCaretMap`，解析结果 / 可见文本 / 既有 pins 不变。
 - 若两者冲突，以本 spec 为准。
