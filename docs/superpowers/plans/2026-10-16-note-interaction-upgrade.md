@@ -470,3 +470,30 @@
   ② 合成事件自 Span 到 RTB 的路由若不通——T4 的点击 pin 已给替代路径（面板集成 pin 同步观察）；
   ③ T6 为最大任务（重写 + 退役 + pins），执行记录里按「红证据 → 实现 → 全绿」留档，审查重点列在任务内；
   ④ 离屏无法验证的焦点/滚动/接缝全部移交冒烟（收尾清单）。
+
+---
+
+## 执行记录（2026-10-16 ~ 10-19）
+
+**任务（SDD：实现 → 暂存快照 → 任务审查 → 修复循环 → 复审通过后提交；子代理统一 deepseek-v4.1-flash，因 opencode-go key 过期经用户授权临时改用 opencode/deepseek-v4.1-flash-free）**
+
+- T1 块范围纯函数 → 审查 clean（3 minor）→ `f248bff`。
+- T2 渲染器行号挂载 → 审查 clean（2 minor；Ruling：接受「段落首行 + 每行 Span」超集挂载，与 spec §4.2 块级兜底一致）→ `133cf8b`。
+- T3 面组件·渲染态 → 审查 clean（5 minor）→ `1f0c9c6`。
+- T4 块编辑态 → 审查 Needs fixes（plan-mandated：RED 证据缺失）→ 红测复证（桩化 14/16 失败 + 两变体覆盖余 2，还原 SHA-256 一致）→ 复审 ADDRESSED → `cd635d9`。
+- T5 插入菜单迁移 → 审查 clean（2 minor；Ruling：brief 的表格骨架双 `\n` 系沿袭笔误，以既有旧 T15 pin 与 `NoteEditorOps` 实际行为（单 `\n`）为准）→ `cb74fe1`。
+- T6 面板重写 + 三态退役 + 键清理 → 审查 clean（9 minor；RED 复证 17/17 新 pins 在旧面板上失败）→ `0fd6995`。
+- T7 文档 → 审查 clean（2 minor）→ `bf79a11`。
+- **整支终审**（`01a8416..bf79a11`）→ **Not merge-ready**：C1 退出保存顺序（≤400ms 击键静默丢失）；I1 编辑增长后 After 段行号标签过期（点错块）；I2 `‹` 在 MouseDown 收起、卡片 MouseUp 展开（同击弹回）；I3 `LeaveEdit` 焦点未归位（键盘退出失效）。
+- **修复波**（单一子代理，全部 findings + 批准 minors + 新增 ConfigSafetyCheck、增长/块首/Down-Up pins）→ 复审 **All findings addressed，无新增 Critical/Important**（1 条当前不可达的潜在 Minor）→ `35e9de8`。
+
+**终版矩阵**：`35e9de8` 时 `Run-Checks.ps1 -Group all` **32/32 全绿**（XamlLoadCheck 56.7s；installer 60 例全过；含新增的 ConfigSafetyCheck pin）。
+
+**基础设施备注**：本轮多次服务器重启与子代理假死；处置 = 半成品保留 + 全新会话接管 + 红测复证（T3/T4/T6/T7）。`Set-Location` 疑似子代理会话挂起诱因——后续派发一律绝对路径（`git -C` / 绝对 `--project`）后不再复发。
+
+**手动冒烟（用户，部署后）**：spec §8.2 十二条，重点新增：
+① `‹` 真鼠标单击只收起一次、不弹回（I2）；
+② Esc 离开编辑后 Backspace/Esc 仍能收起（I3 焦点归位）；
+③ 编辑增长后点下一块进入的是正确的那一块（I1）；
+④ 输入后立刻退出/关机不丢最后一批字（C1）；
+⑤ 主题/语言切换不再把展开的长笔记拉回顶部（T6②）。
