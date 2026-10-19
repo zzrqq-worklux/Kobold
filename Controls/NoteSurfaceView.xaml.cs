@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -97,6 +98,15 @@ namespace Kobold.Controls
             _throttle = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ThrottleMs) };
             _throttle.Tick += Throttle_Tick;
             InitializeComponent();
+
+            // The root click is attached here, not in XAML, and with
+            // handledEventsToo: a focused RichTextBox (the reading box, which
+            // LeaveEdit hands the focus back to) marks its mouse-up handled, and
+            // a plain XAML handler would never see the click that reopens a
+            // block after Esc. The handler classifies the hit chain itself
+            // instead of trusting the frame.
+            SurfaceRoot.AddHandler(UIElement.MouseLeftButtonUpEvent,
+                new MouseButtonEventHandler(SurfaceRoot_MouseLeftButtonUp), true);
 
             // The box refills its quick-insert menu in place on every opening
             // (T5); the menu itself is carried from the moment an edit opens
@@ -377,23 +387,47 @@ namespace Kobold.Controls
 
         /// <summary>
         /// The rendered / editing states' click handler, attached to the root
-        /// so it covers the reading box and the before / after panes: a handled
-        /// click (a task glyph, a link) and a drag-selection release are
-        /// skipped, a click on a tagged line opens its block edit, a click in a
-        /// pane while editing switches to the block it names, and a click with
-        /// no tagged ancestor (the box itself, the chrome) does nothing.
+        /// with handledEventsToo so it covers the reading box and the before /
+        /// after panes even while a focused box swallows the up. The hit chain
+        /// is classified first: a click inside the source box is typing and a
+        /// click inside the ‹ is the collapse seam (both own their clicks); a
+        /// drag-selection release is skipped; a task glyph or a link owns its
+        /// click - while editing it means "outside the edited block", so the
+        /// session commits and renders back, otherwise it is left alone. A
+        /// tagged line opens its block (or switches to it while editing); any
+        /// other hit while editing is the click-away: commit and render back
+        /// without collapsing the card (spec 4.3/4.4).
         /// </summary>
         private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (e.Handled) return;
-
             // The off-screen checks raise the event by hand, so the original
             // source may be unset there; the real input route always fills it.
             object hit = e.OriginalSource ?? e.Source;
+
+            if (IsInside(hit, EditBox)) return;            // typing surface
+            if (IsInside(hit, CollapseButton)) return;     // the ‹ owns its click
+
             if (SelectionIsNotEmpty(hit)) return;
 
+            if (IsControlHit(hit))
+            {
+                // The glyph / link already ran its own handler. While editing
+                // it sits outside the edited block (the panes are inert), so
+                // the click is the click-away; rendered, it owns the gesture.
+                if (_editing) LeaveEdit();
+                return;
+            }
+
+            // The scrollbar / thumb owns its drag: an untagged release there
+            // must not end the edit (the wheel never reaches this path).
+            if (IsScrollChrome(hit)) return;
+
             int line = TaggedLine(hit);
-            if (line < 0) return;
+            if (line < 0)
+            {
+                if (_editing) LeaveEdit(); // chrome / pane blank: commit, stay expanded
+                return;
+            }
 
             // While editing, a click in either static pane names a block of the
             // *entry* document. Resolve it before the splice: the line tags are
@@ -444,26 +478,73 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The source line a hit stands for: the first tagged element up the hit
-        /// chain, or -1 for a link (the renderer owns its click) and for a chain
-        /// with no tag at all.
+        /// The source line a hit stands for: the first element up the hit chain
+        /// that carries one, or -1 when the chain has no line tag at all. A link
+        /// and a task glyph are controls first (see <see cref="IsControlHit"/>),
+        /// so they never reach this walk.
         /// </summary>
         private static int TaggedLine(object hit)
         {
             var element = hit as DependencyObject;
             while (element != null)
             {
-                if (element is Hyperlink) return -1;
-
                 int line = NoteMarkdownRenderer.GetSourceLine(element);
                 if (line >= 0) return line;
-
-                var glyph = element as FrameworkElement;
-                if (glyph != null && glyph.Tag is int) return (int)glyph.Tag;
 
                 element = ParentOf(element);
             }
             return -1;
+        }
+
+        /// <summary>
+        /// True when the hit sits on a control that runs its own click handler:
+        /// a task glyph (the renderer tags its box with the source line) or a
+        /// link. Kept apart from <see cref="TaggedLine"/> so the handler can
+        /// decide between "let the control own it" and "click-away" instead of
+        /// mistaking a link for a tagless blank.
+        /// </summary>
+        private static bool IsControlHit(object hit)
+        {
+            var element = hit as DependencyObject;
+            while (element != null)
+            {
+                if (element is Hyperlink) return true;
+
+                var glyph = element as FrameworkElement;
+                if (glyph != null && glyph.Tag is int) return true;
+
+                element = ParentOf(element);
+            }
+            return false;
+        }
+
+        /// <summary>True when the hit belongs to a scrollbar / its thumb: these
+        /// own their drag, so a release there is not the click-away.</summary>
+        private static bool IsScrollChrome(object hit)
+        {
+            var element = hit as DependencyObject;
+            while (element != null)
+            {
+                if (element is ScrollBar) return true;
+                if (element is Thumb) return true;
+
+                element = ParentOf(element);
+            }
+            return false;
+        }
+
+        /// <summary>True when the hit chain passes through
+        /// <paramref name="target"/> (the source box, the ‹): those own their
+        /// clicks and the surface handler must stay out of them.</summary>
+        private static bool IsInside(object hit, DependencyObject target)
+        {
+            var element = hit as DependencyObject;
+            while (element != null)
+            {
+                if (ReferenceEquals(element, target)) return true;
+                element = ParentOf(element);
+            }
+            return false;
         }
 
         /// <summary>True while the hit sits inside a box with a live drag
@@ -717,8 +798,9 @@ namespace Kobold.Controls
         /// Handled here on the button-up, not the button-down - the card face
         /// behind the collapsed row expands on its own button-up, so collapsing
         /// on the down would let the release immediately re-expand the card.
-        /// The event is marked handled so the surface's click-to-edit handler
-        /// never sees it.
+        /// The event is still marked handled for the host's other listeners;
+        /// the surface's own handler (which now sees handled events) skips the
+        /// ‹ by hit identity instead.
         /// </summary>
         private void CollapseButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {

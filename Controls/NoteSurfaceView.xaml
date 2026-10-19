@@ -8,8 +8,7 @@
          read-only document box fills the surface; in edit, the before render /
          the block's source / the after render stack in place over one shared
          scroller. -->
-    <Grid x:Name="SurfaceRoot" Background="Transparent"
-          MouseLeftButtonUp="SurfaceRoot_MouseLeftButtonUp">
+    <Grid x:Name="SurfaceRoot" Background="Transparent">
 
         <!-- The pane stack both states share. In the note panel this scroller
              is a pass-through inside the list's own scroller, so the host owns

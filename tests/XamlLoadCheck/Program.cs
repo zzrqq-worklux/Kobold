@@ -563,6 +563,8 @@ namespace Kobold.XamlLoadCheck
                     NoteEscLeavesABlockEditWithoutCollapsing);
                 failures += TryCheck("note: clicking a block enters its edit at that line",
                     NoteClickingABlockEntersItsEditAtThatLine);
+                failures += TryCheck("note: clicking the host padding while editing leaves the edit",
+                    NoteClickingHostPaddingWhileEditingLeavesTheEdit);
                 failures += TryCheck("note: a task glyph click toggles without entering the edit",
                     NoteTaskGlyphClickTogglesWithoutEnteringTheEdit);
                 failures += TryCheck("note: the add pill starts a whole-text edit",
@@ -631,6 +633,16 @@ namespace Kobold.XamlLoadCheck
                     SurfaceClickingAfterPaneAfterGrowthOpensTheRightBlock);
                 failures += TryCheck("surface: an already-handled click does not enter the edit",
                     SurfaceHandledClickDoesNotEnterTheEdit);
+                failures += TryCheck("surface: a handled click on a tagged line still enters the edit",
+                    SurfaceHandledClickOnTaggedLineEntersTheEdit);
+                failures += TryCheck("surface: a handled glyph click does not enter the edit",
+                    SurfaceHandledGlyphClickDoesNotEnterTheEdit);
+                failures += TryCheck("surface: clicking the chrome while editing leaves the edit",
+                    SurfaceClickingChromeWhileEditingLeavesTheEdit);
+                failures += TryCheck("surface: clicking inside the box keeps the edit",
+                    SurfaceClickingInsideTheBoxKeepsTheEdit);
+                failures += TryCheck("surface: a scrollbar click keeps the edit",
+                    SurfaceScrollbarClickKeepsTheEdit);
                 failures += TryCheck("surface: begin whole-text edit covers the full text",
                     SurfaceBeginWholeTextEditCoversTheFullText);
                 failures += TryCheck("surface: the before and after panes are inert",
@@ -9807,6 +9819,56 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// Post-smoke fix round 1 (spec 4.3/4.4): the expanded row's host border
+        /// carries a 10,8 padding band, so a click in that band resolves to the
+        /// host itself - inside the card, outside the surface. While editing it
+        /// is the in-card click-away: the block commits and renders back, and the
+        /// card stays expanded (the same host row still owns the surface).
+        /// </summary>
+        private static void NoteClickingHostPaddingWhileEditingLeavesTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "one\ntwo", when);
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            var host = NotePrivate(view, "_surfaceHost") as Border;
+            if (host == null) throw new InvalidOperationException("_surfaceHost is not a Border");
+
+            // The root sees its own direct-event copy: the hit is the host (the
+            // padding band), not one of the surface's descendants.
+            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(
+                Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+                Source = host
+            });
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the host-padding click left the edit open");
+            if (note.Text != "changed")
+                throw new InvalidOperationException("the host-padding click left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (NoteExpandedId(view) != "a")
+                throw new InvalidOperationException(
+                    "the host-padding click collapsed the card (" + NoteExpandedId(view) + ")");
+            if (!ReferenceEquals(NoteHostAt(view, 0), host) || !ReferenceEquals(host.Child, surface))
+                throw new InvalidOperationException("the expanded row no longer hosts the surface");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the surface did not render back after the padding click");
+        }
+
+        /// <summary>
         /// T6 (spec 4.3): a refresh (theme / language / widget update) during an
         /// open block edit repaints the surface but never rewrites the typed text
         /// or drops the session.
@@ -10610,9 +10672,10 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T4 (spec 4.2): a task box click is handled by the renderer's glyph, so
-        /// the surface's block handler must leave it alone - the toggle writes
-        /// the line back and no edit session opens.
+        /// T4 (spec 4.2): a task box click is handled by the renderer's glyph -
+        /// the toggle writes the line back and no edit session opens. This is the
+        /// rendered-state toggle assertion; the root hop with the handled mark is
+        /// pinned once, by SurfaceHandledGlyphClickDoesNotEnterTheEdit.
         /// </summary>
         private static void SurfaceHandledClickDoesNotEnterTheEdit()
         {
@@ -10629,21 +10692,176 @@ namespace Kobold.XamlLoadCheck
             if (!(note.Text ?? string.Empty).Contains("[x]"))
                 throw new InvalidOperationException("the glyph click did not toggle the task: '"
                     + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+        }
 
-            // The off-screen runner cannot hand the root a bubbling click on a
-            // hidden route (see ClickTaggedLine), so the guard is also pinned on
-            // its own: the very event the renderer marks handled must be ignored
-            // even when a tagged line sits under it.
-            var handled = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        /// <summary>
+        /// Post-smoke fix A (spec 4.2/4.4): the reading box marks its mouse-up
+        /// handled once it holds the focus (LeaveEdit hands it back), so the
+        /// surface's root handler is attached with handledEventsToo. The very
+        /// event a focused RichTextBox would swallow must still open the clicked
+        /// block. Raised on the root itself, with the tagged span as its source
+        /// and Handled already set - only a handledEventsToo wiring sees it.
+        /// </summary>
+        private static void SurfaceHandledClickOnTaggedLineEntersTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            var span = SpanWithLine(SurfaceReadingBox(surface).Document, 1);
+
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
             {
                 RoutedEvent = UIElement.MouseLeftButtonUpEvent,
-                Source = SpanWithLine(box.Document, 2),
+                Source = span,
                 Handled = true
+            });
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException(
+                    "a handled click on a tagged line did not enter the edit (the root wiring is not handledEventsToo)");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+        }
+
+        /// <summary>
+        /// Post-smoke fix A (spec 4.2/4.4): the glyph's own handler sets Handled
+        /// and toggles, and the root (seeing handled events now) must not turn
+        /// that same release into an edit. The click route is the glyph's own,
+        /// never a reflection call.
+        /// </summary>
+        private static void SurfaceHandledGlyphClickDoesNotEnterTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            var glyph = TaskGlyph(ParagraphAt(SurfaceReadingBox(surface).Document, 2));
+            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
             };
-            InvokeNoteSurface(surface, "SurfaceRoot_MouseLeftButtonUp", null, handled);
+            glyph.RaiseEvent(args);
+
+            if (!args.Handled)
+                throw new InvalidOperationException("the glyph handler did not mark its click handled");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the handled glyph click opened an edit");
+            if (!(note.Text ?? string.Empty).Contains("[x]"))
+                throw new InvalidOperationException("the glyph click did not toggle the task: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (changed != 1)
+                throw new InvalidOperationException("the glyph click notified the host " + changed + " time(s), wanted 1");
+
+            // MouseLeftButtonUp is a direct event: the input system re-raises it
+            // per element, and the root's copy arrives already handled with the
+            // glyph as its source. Hand that hop to the root - the toggle above
+            // must not turn into an edit.
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(new MouseButtonEventArgs(
+                Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                Source = glyph,
+                Handled = true
+            });
 
             if (surface.IsEditing)
-                throw new InvalidOperationException("a handled click reached the block handler");
+                throw new InvalidOperationException("the handled glyph click reached the block handler");
+        }
+
+        /// <summary>
+        /// Post-smoke fix B (spec 4.3/4.4): with the edit open, a click on the
+        /// card's chrome - the stack / padding, no tagged line under it - commits
+        /// the region and returns to the rendered state, while the card itself
+        /// stays expanded (no collapse request, the reading document is back).
+        /// </summary>
+        private static void SurfaceClickingChromeWhileEditingLeavesTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo\n\nthree", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the first paragraph did not enter edit");
+            SurfaceEditBox(surface).Text = "changed\n";
+
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = SurfaceNamed(surface, "SurfaceStack")
+                });
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("a chrome click left the edit session open");
+            if (note.Text != "changed\n\nthree")
+                throw new InvalidOperationException("the chrome click did not commit the region: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the reading box stayed hidden after the click-away");
+            if (SurfaceEditBox(surface).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the edit box stayed visible after the click-away");
+            var document = SurfaceReadingBox(surface).Document;
+            if (document == null || document.Blocks.Count == 0)
+                throw new InvalidOperationException("the card lost its rendered note after the click-away");
+        }
+
+        /// <summary>
+        /// Post-smoke fix B (spec 4.3/4.4): a click inside the source box is
+        /// typing surface, not click-away - the edit stays open.
+        /// </summary>
+        private static void SurfaceClickingInsideTheBoxKeepsTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = SurfaceEditBox(surface)
+                });
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("a click inside the source box left the edit");
+        }
+
+        /// <summary>
+        /// Fix round 1 (spec 4.3/4.4): the scrollbar and its thumb own their
+        /// drag; their untagged release is not the in-card click-away. Raised as
+        /// the root's handled copy with each chrome element as the hit, the same
+        /// shape the direct-event route carries.
+        /// </summary>
+        private static void SurfaceScrollbarClickKeepsTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+
+            var root = SurfaceNamed(surface, "SurfaceRoot");
+            var chrome = new DependencyObject[] { new ScrollBar(), new Thumb() };
+            foreach (var hit in chrome)
+            {
+                root.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = hit
+                });
+
+                if (!surface.IsEditing)
+                    throw new InvalidOperationException("a " + hit.GetType().Name + " click left the edit");
+            }
         }
 
         /// <summary>
@@ -10671,9 +10889,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T4 (spec 4.3): the before/after renders are static - their task boxes
-        /// carry no callback, so a click there writes nothing and the session
-        /// stays put.
+        /// T4 (spec 4.3) / post-smoke fix B: the before/after renders are static
+        /// - their task boxes carry no callback, so a click there writes nothing.
+        /// The glyph is still a control: while editing it sits outside the edited
+        /// block, so the root treats its release as the click-away - the session
+        /// commits and renders back, data untouched.
         /// </summary>
         private static void SurfaceBeforeAndAfterPanesAreInert()
         {
@@ -10691,8 +10911,22 @@ namespace Kobold.XamlLoadCheck
             if (note.Text != text)
                 throw new InvalidOperationException("the inert before pane wrote the data: '"
                     + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
-            if (!surface.IsEditing)
-                throw new InvalidOperationException("the inert click left the edit session");
+
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = glyph,
+                    Handled = true
+                });
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the pane glyph click did not leave the edit");
+            if (note.Text != text)
+                throw new InvalidOperationException("leaving the edit wrote the inert pane's task: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the reading box stayed hidden after the pane glyph click");
         }
 
         /// <summary>
@@ -10760,13 +10994,15 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T4: the equivalent of a click on a rendered line. The pin raises the
-        /// event the real input route carries on the innermost content element
-        /// first; the off-screen runner's content elements do not walk a direct
-        /// MouseLeftButtonUp up to the surface root (WPF only re-raises it per
-        /// element along the real mouse route), so when nothing changed the pin
-        /// hands the same tagged span to the root's bubbling handler - the
-        /// production wiring stays that handler.
+        /// T4: the equivalent of a click on a rendered line. The pin first raises
+        /// the event on the span, the way a real hit starts; the off-screen
+        /// runner's content elements do not walk a direct MouseLeftButtonUp up to
+        /// the surface root (WPF only re-raises it per element along the real
+        /// mouse route), so it then hands the root its own copy - the span as the
+        /// source and Handled already set, the same shape the focused box
+        /// produces. Raising it on SurfaceRoot means every caller exercises the
+        /// production ctor subscription; deleting that subscription fails the
+        /// pins instead of being masked by a reflection call.
         /// </summary>
         private static void ClickTaggedLine(NoteSurfaceView surface, RichTextBox box, int line)
         {
@@ -10781,11 +11017,12 @@ namespace Kobold.XamlLoadCheck
             });
             if (surface.IsEditing != wasEditing || SurfaceEditBox(surface).Text != wasText) return;
 
-            InvokeNoteSurface(surface, "SurfaceRoot_MouseLeftButtonUp", null,
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
                 new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
                 {
                     RoutedEvent = UIElement.MouseLeftButtonUpEvent,
-                    Source = span
+                    Source = span,
+                    Handled = true
                 });
         }
 

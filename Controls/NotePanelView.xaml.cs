@@ -366,6 +366,10 @@ namespace Kobold.Controls
         /// design's other exit, spec 4.4): a click that belongs to a card face,
         /// to the expanded row's host (the surface and everything it renders,
         /// whatever the hit element) or to the add pill keeps the card open.
+        /// The host's own padding band is inside the card but outside the
+        /// surface, so a click there while editing is the in-card click-away:
+        /// it commits and renders back without collapsing (only the host itself,
+        /// never a descendant, so surface-internal clicks stay untouched).
         /// The hit chain is walked off the visual / logical parents; a chain
         /// that never reaches this root is content too, never the blank space.
         /// </summary>
@@ -373,7 +377,15 @@ namespace Kobold.Controls
         {
             if (e.Handled || _expandedId == null) return;
 
-            var element = (e.OriginalSource ?? e.Source) as DependencyObject;
+            var hit = (e.OriginalSource ?? e.Source) as DependencyObject;
+
+            if (_surface.IsEditing && ReferenceEquals(hit, _surfaceHost))
+            {
+                _surface.LeaveEdit();
+                return;
+            }
+
+            var element = hit;
             while (element != null)
             {
                 if (ReferenceEquals(element, Root))
