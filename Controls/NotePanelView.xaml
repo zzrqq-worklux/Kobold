@@ -4,22 +4,22 @@
              TextOptions.TextFormattingMode="Display"
              PreviewKeyDown="Root_PreviewKeyDown">
 
-    <!-- The note content, the three states of spec 6.2 stacked on one surface:
-         the list (top add row + card host), the reading view (header row + the
-         rendered document) and the editing view (T14). Only one is visible at a
-         time; the cards and the document are built in code. -->
-    <Grid x:Name="Root" Margin="12,8,12,10" Background="Transparent">
+    <!-- The note list, the whole panel: the top add row over the card host.
+         One card at a time expands into the list itself (the panel carries one
+         NoteSurfaceView, mounted in the expanded row's host border), so the list
+         is the only surface the panel has - the rendered and the editing states
+         live inside the expanded card, never over a separate view. -->
+    <Grid x:Name="Root" Margin="12,8,12,10" Background="Transparent"
+          MouseLeftButtonDown="Root_MouseLeftButtonDown">
 
-        <!-- List state: the add row and the card host. Positioned first so the
-             reading container draws over it. -->
         <Grid x:Name="ListHost">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Add row: the ＋ pill creates an empty note straight into the
-                 editor (spec 6.3). -->
+            <!-- Add row: the ＋ pill creates an empty note straight into its
+                 whole-text edit (spec 6.3). -->
             <Border x:Name="AddPill" Grid.Row="0" Height="30" CornerRadius="15" Margin="0,0,0,6"
                     Background="Transparent" BorderThickness="1" Cursor="Hand"
                     MouseLeftButtonDown="AddPill_Click">
@@ -28,127 +28,15 @@
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
 
-            <!-- List host: the note cards are built here by the renderer. -->
+            <!-- List host: the note rows are built here by the renderer - the
+                 card faces and, for the expanded note, the surface's host. Its
+                 inner scrollers are pass-throughs, so this scroller owns the
+                 list's single scroll region. -->
             <ScrollViewer x:Name="ItemsScroller" Grid.Row="1"
                           VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           PanningMode="VerticalOnly" Background="Transparent">
                 <StackPanel x:Name="ItemsPanel"/>
             </ScrollViewer>
-        </Grid>
-
-        <!-- Reading state: [back | elastic | edit] over the rendered document. -->
-        <Grid x:Name="ReadingHost" Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <Grid Grid.Row="0" Height="26">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <Border x:Name="ReadingBackButton" Grid.Column="0" Width="22" Height="22" CornerRadius="6"
-                        Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
-                        MouseLeftButtonDown="ReadingBack_Click">
-                    <TextBlock Text="‹" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-
-                <!-- The edit seam: the ✎ opens the source editor on this note. -->
-                <Border x:Name="ReadingEditButton" Grid.Column="2" Width="22" Height="22" CornerRadius="6"
-                        Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
-                        MouseLeftButtonDown="ReadingEdit_Click">
-                    <TextBlock Text="✎" FontSize="12" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-            </Grid>
-
-            <!-- The document host. The box is read-only but document-enabled:
-                 the task boxes and the hyperlinks inside it take the clicks
-                 (spec 5.2/5.3). Its inner scroller stays disabled so this outer
-                 one owns the offset the reading state restores after a toggle. -->
-            <ScrollViewer x:Name="ReadingScroller" Grid.Row="1"
-                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                          PanningMode="VerticalOnly" Background="Transparent">
-                <RichTextBox x:Name="ReadingBox" IsReadOnly="True" IsDocumentEnabled="True"
-                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                             Background="Transparent" BorderThickness="0" Padding="0"/>
-            </ScrollViewer>
-        </Grid>
-
-        <!-- Editing state (T14, spec 6.2): [back (commit) | elastic | [source|
-             preview] | done (commit)] over the source box and the rendered
-             preview. The segment labels are placeholders: Refresh paints them
-             from the localization table (UI_NoteSourceTab / UI_NotePreviewTab). -->
-        <Grid x:Name="EditingHost" Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <Grid Grid.Row="0" Height="26">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <Border x:Name="EditingBackButton" Grid.Column="0" Width="22" Height="22" CornerRadius="6"
-                        Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
-                        MouseLeftButtonDown="EditingBack_Click">
-                    <TextBlock Text="‹" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-
-                <!-- [source|preview]: one text, two paint targets. The active
-                     half takes the hover wash and the primary ink. -->
-                <Border x:Name="_previewToggle" Grid.Column="2" Height="20" CornerRadius="10"
-                        Background="Transparent" VerticalAlignment="Center" Margin="0,0,6,0">
-                    <StackPanel Orientation="Horizontal">
-                        <Border x:Name="SourceTab" CornerRadius="10" Padding="9,0" Cursor="Hand"
-                                Background="Transparent" MouseLeftButtonDown="SourceTab_Click">
-                            <TextBlock x:Name="SourceTabText" Text="Source" FontSize="11"
-                                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <Border x:Name="PreviewTab" CornerRadius="10" Padding="9,0" Cursor="Hand"
-                                Background="Transparent" MouseLeftButtonDown="PreviewTab_Click">
-                            <TextBlock x:Name="PreviewTabText" Text="Preview" FontSize="11"
-                                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </StackPanel>
-                </Border>
-
-                <Border x:Name="EditingDoneButton" Grid.Column="3" Width="22" Height="22" CornerRadius="6"
-                        Background="Transparent" Cursor="Hand" VerticalAlignment="Center"
-                        MouseLeftButtonDown="EditingDone_Click">
-                    <TextBlock Text="✓" FontSize="12" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Border>
-            </Grid>
-
-            <!-- The source surface: the note's Markdown itself, in the view's
-                 body size, multi-line and wrapping. Most of the editing keys
-                 belong to the box; Esc is the editing state's own key and the
-                 view-level router answers for both halves. -->
-            <TextBox x:Name="_editingBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
-                     Background="Transparent" BorderThickness="0" Padding="0"
-                     FontSize="{DynamicResource Kobold.Font.Body}"
-                     Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"/>
-
-            <!-- The preview surface: the box text through the T12 renderer. The
-                 box is read-only but document-enabled, so its task boxes take
-                 the clicks; its scroller is its own (nothing to restore). -->
-            <RichTextBox x:Name="_previewBox" Grid.Row="1" Visibility="Collapsed"
-                         IsReadOnly="True" IsDocumentEnabled="True"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                         Background="Transparent" BorderThickness="0" Padding="0"/>
         </Grid>
     </Grid>
 </UserControl>

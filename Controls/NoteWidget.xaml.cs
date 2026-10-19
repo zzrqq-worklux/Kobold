@@ -36,9 +36,9 @@ namespace Kobold.Controls
             NoteChrome.ContentHost.Content = _view;
             _view.Attach(data, this);
 
-            // The pending edit settles before the window goes (spec 6.3): a
+            // The pending edit settles before the window goes (spec 5.2): a
             // closed/collapsed panel must never lose half-typed text.
-            Closing += (s, e) => _view?.CommitPendingEdit();
+            Closing += (s, e) => _view?.FlushPendingEdit();
         }
 
         /// <summary>The note list hosted in the chrome's content slot.</summary>
@@ -68,14 +68,14 @@ namespace Kobold.Controls
 
         /// <summary>
         /// The panel is collapsing: the pending edit is settled first (spec
-        /// 6.3 - 收起面板不丢字). <see cref="WidgetWindowBase.HidePanel"/> is not
+        /// 5.2 - 收起面板不丢字). <see cref="WidgetWindowBase.HidePanel"/> is not
         /// virtual and its fade hides the window only once the animation
-        /// completes, so the commit rides this hook, which the base calls
+        /// completes, so the flush rides this hook, which the base calls
         /// synchronously at the top of the collapse, before the fade.
         /// </summary>
         protected override void OnPanelHidden()
         {
-            _view?.CommitPendingEdit();
+            _view?.FlushPendingEdit();
             base.OnPanelHidden();
         }
 

@@ -539,94 +539,50 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("renderer: the heading size helper follows the ladder",
                     RendererHeadingSizeHelperFollowsTheLadder);
 
-                // Task T13 pins: the reading state - a card click drills into
-                // the rendered read-only document, the back button and Backspace
-                // return to the list, a task box click writes the source line
-                // back (bumping the note to the top of the list) and repaints,
-                // and a link keeps its url for the browser.
-                failures += TryCheck("note: a card click opens the reading view", NoteCardClickOpensTheReadingView);
-                failures += TryCheck("note: back returns to the list", NoteBackReturnsToTheList);
-                failures += TryCheck("note: Backspace in the reading view goes back", NoteBackspaceInReadingGoesBack);
+                // Task T6 pins: NotePanelView as an in-place workbench - a card
+                // click expands the surface inside the list (one at a time:
+                // switching cards collapses and flushes the previous one), the
+                // floating ‹ / a rendered Esc / Backspace collapse it back to
+                // the faces, Esc inside a block edit only leaves that block,
+                // the add pill and the blank-area menu open the new note
+                // straight into the whole-text edit, an empty text is discarded
+                // on the way out (through the host notification), hiding the
+                // panel flushes the pending edit and the rendered state keeps
+                // its task / link behaviour.
+                failures += TryCheck("note: a card click expands the surface in place",
+                    NoteCardClickExpandsTheSurfaceInPlace);
+                failures += TryCheck("note: expanding another card collapses the first with its edit flushed",
+                    NoteExpandingAnotherCardFlushesTheFirstEdit);
+                failures += TryCheck("note: the collapse button returns to the face",
+                    NoteCollapseButtonReturnsToTheFace);
+                failures += TryCheck("note: Backspace in the rendered surface collapses",
+                    NoteBackspaceInTheRenderedSurfaceCollapses);
+                failures += TryCheck("note: Esc in the rendered surface collapses",
+                    NoteEscInTheRenderedSurfaceCollapses);
+                failures += TryCheck("note: Esc leaves a block edit without collapsing",
+                    NoteEscLeavesABlockEditWithoutCollapsing);
+                failures += TryCheck("note: clicking a block enters its edit at that line",
+                    NoteClickingABlockEntersItsEditAtThatLine);
+                failures += TryCheck("note: a task glyph click toggles without entering the edit",
+                    NoteTaskGlyphClickTogglesWithoutEnteringTheEdit);
+                failures += TryCheck("note: the add pill starts a whole-text edit",
+                    NoteAddPillStartsAWholeTextEdit);
+                failures += TryCheck("note: the blank-area menu starts the same edit",
+                    NoteBlankAreaMenuStartsTheSameEdit);
+                failures += TryCheck("note: an empty new note is discarded on collapse",
+                    NoteEmptyNewNoteIsDiscardedOnCollapse);
+                failures += TryCheck("note: emptying an existing note discards it on collapse",
+                    NoteEmptyingAnExistingNoteDiscardsItOnCollapse);
+                failures += TryCheck("note: hiding the panel commits and leaves the edit",
+                    NoteHidingThePanelCommitsAndLeavesTheEdit);
+                failures += TryCheck("note: a refresh during an edit keeps the text",
+                    NoteRefreshDuringAnEditKeepsTheText);
+                failures += TryCheck("note: the order follows the latest edit after collapse",
+                    NoteOrderFollowsTheLatestEditAfterCollapse);
                 failures += TryCheck("note: toggling a task rewrites the source line and re-renders",
-                    NoteTaskToggleRewritesAndRerenders);
-                failures += TryCheck("note: task toggling keeps the list order", NoteTaskToggleKeepsTheListOrder);
-                failures += TryCheck("note: a reading view link carries its url", NoteReadingLinkCarriesItsUrl);
-
-                // Task T14 pins: the editing state - the ＋ row and the blank
-                // menu create a note straight into the editor, leaving commits
-                // (changed text stamps the modified time, an untouched one does
-                // not, an empty one drops the note) while Esc rolls back, the
-                // panel collapse and the window closing commit first, the
-                // [source|preview] segment paints the parsed box text (a task
-                // click there rewrites the box, never the data), and Backspace
-                // edits instead of leaving.
-                failures += TryCheck("note: clicking add creates a note and opens its editor",
-                    NoteAddClickCreatesAndOpensEditor);
-                failures += TryCheck("note: the blank-area menu opens the editor too",
-                    NoteBlankMenuOpensTheEditor);
-                failures += TryCheck("note: typing then leaving commits the text and bumps the time",
-                    NoteTypingThenLeavingCommitsAndBumpsTheTime);
-                failures += TryCheck("note: leaving without changes keeps the time",
-                    NoteLeavingWithoutChangesKeepsTheTime);
-                failures += TryCheck("note: Esc cancels the edit", NoteEscCancelsTheEdit);
-                failures += TryCheck("note: an empty new note is discarded on leave",
-                    NoteEmptyNewNoteIsDiscardedOnLeave);
-                failures += TryCheck("note: emptying an existing note discards it",
-                    NoteEmptyingAnExistingNoteDiscardsIt);
-                failures += TryCheck("note: the editor header buttons commit too",
-                    NoteHeaderButtonsCommitTheEdit);
-                failures += TryCheck("note: hiding the panel commits the pending edit",
-                    NoteHidingThePanelCommitsThePendingEdit);
-                failures += TryCheck("note: the preview toggle shows the parsed text",
-                    NotePreviewToggleShowsTheParsedText);
-                failures += TryCheck("note: a preview task click rewrites the box text",
-                    NotePreviewTaskClickRewritesTheBoxText);
-                // Final review findings 2 and 3 (the preview scroll restore and
-                // the reading-box focus move) have no pin here, deliberately:
-                // both need a shown window. The preview restore rides a deferred
-                // dispatcher op (pumping would run the dormant App.OnStartup op),
-                // and every offscreen visual reports IsVisible=false with no
-                // presentation source, so Focus() cannot take. Pins were written
-                // and removed as unverifiable, never faked; the manual smoke
-                // covers both (see final-fix-report.md).
-                failures += TryCheck("note: Backspace in the editor edits instead of leaving",
-                    NoteBackspaceInTheEditorStaysPlainEditing);
-
-                // Fix round 1 (review findings 1-3): the editor's cancel must
-                // live in both halves (the preview box is the focus target
-                // there), the segment labels must come from the localization
-                // table, and a cancel that drops the session's placeholder must
-                // converge through the host's change notification (a stray
-                // global save may already have written it).
-                failures += TryCheck("note: Esc cancels from the preview half too",
-                    NoteEscCancelsFromThePreviewHalfToo);
-                failures += TryCheck("note: the segment labels follow the localization",
-                    NoteSegmentLabelsFollowTheLocalization);
-                failures += TryCheck("note: cancelling a new note notifies the host",
-                    NoteCancellingANewNoteNotifiesTheHost);
-
-                // Task T15 pins: the source box's right-click quick-insert
-                // menu - the standard four as COMMAND BINDINGS (read, never
-                // invoked: the checks must not touch the system clipboard),
-                // the heading / format submenus, the seven flat inserts, the
-                // one-replacement write-back that still leaves the box's own
-                // Ctrl+Z able to roll an insert back, and the widget tint.
-                failures += TryCheck("note: the source box menu offers the standard four as commands",
-                    NoteEditorMenuOffersTheStandardFour);
-                failures += TryCheck("note: the heading submenu writes a level",
-                    NoteEditorHeadingSubmenuWritesALevel);
-                failures += TryCheck("note: applying the same list twice removes it",
-                    NoteEditorSameListTwiceRemovesIt);
-                failures += TryCheck("note: the table entry lays out the skeleton",
-                    NoteEditorTableEntryLaysOutTheSkeleton);
-                failures += TryCheck("note: wrapping a selection bolds it",
-                    NoteEditorWrappingASelectionBoldsIt);
-                failures += TryCheck("note: an empty selection inserts the placeholder",
-                    NoteEditorEmptySelectionInsertsThePlaceholder);
-                failures += TryCheck("note: an insert is undoable with the box's own undo",
-                    NoteEditorInsertIsUndoableWithTheBoxUndo);
-                failures += TryCheck("note: the editor menu follows the widget colour",
-                    NoteEditorMenuFollowsTheWidgetColour);
+                    NoteTaskToggleRewritesAndRerendersInPlace);
+                failures += TryCheck("note: a rendered link carries its url",
+                    NoteRenderedLinkCarriesItsUrl);
 
                 // Task T3 pins: the new surface component's rendered state (the
                 // additive migration off NotePanelView) - Attach paints the
@@ -9372,52 +9328,92 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
-        #region Task T13: note reading pins
+        #region Task T6: note panel workbench pins
 
         /// <summary>
-        /// T13 (spec 6.2/6.3): a card click drills into the reading view - the
-        /// list container gives way to the reading one, the state reads
-        /// Reading, and the host is the read-only, document-enabled RichTextBox
-        /// T12's renderer paints into (IsDocumentEnabled keeps the task boxes
-        /// and the hyperlinks clickable).
+        /// T6 (spec 4.1): a card click expands the surface inside the list - the
+        /// expanded row carries the panel's one surface instance (the host
+        /// Border's Child), its rendered document paints the note and every
+        /// other row keeps its card face.
         /// </summary>
-        private static void NoteCardClickOpensTheReadingView()
+        private static void NoteCardClickExpandsTheSurfaceInPlace()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
-            data.Notes.Add(NewNote("a", "# Shopping\n\n- milk\n- eggs", new DateTime(2026, 3, 5, 14, 30, 0)));
+            data.Notes.Add(NewNote("a", "# Alpha\n\nbody one", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "# Beta\n\nbody two", new DateTime(2026, 3, 5, 11, 0, 0)));
 
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
-
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the fresh view is in " + NoteState(view) + ", wanted List");
+            if (NoteCardLine(view, 0, 0) != "Beta")
+                throw new InvalidOperationException(
+                    "the fixture order is '" + NoteCardLine(view, 0, 0) + "', wanted 'Beta' first");
 
             ClickNoteCard(view, 0);
 
-            if (NoteState(view) != "Reading")
-                throw new InvalidOperationException("the card click left the view in " + NoteState(view));
-            if (NoteListHost(view).Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the list container stayed visible in the reading view");
-            if (NoteReadingHost(view).Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the reading container is hidden in the reading view");
-
-            var box = NoteReadingBox(view);
-            if (!box.IsReadOnly)
-                throw new InvalidOperationException("the reading box is editable");
-            if (!box.IsDocumentEnabled)
+            if (NoteExpandedId(view) != "b")
                 throw new InvalidOperationException(
-                    "the reading box is not document-enabled (links and task boxes would be dead)");
-            if (box.Document == null || box.Document.Blocks.Count == 0)
-                throw new InvalidOperationException("the reading box holds no document block");
+                    "the card click expanded '" + NoteExpandedId(view) + "', wanted 'b'");
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException(
+                    "the expanded list carries " + NoteCardCount(view) + " row(s), wanted 2");
+
+            var surface = NoteSurface(view);
+            if (!ReferenceEquals(NoteHostAt(view, 0).Child, surface))
+                throw new InvalidOperationException("the expanded row's host does not carry the panel's surface");
+            var document = SurfaceReadingBox(surface).Document;
+            if (document == null || document.Blocks.Count == 0)
+                throw new InvalidOperationException("the expanded surface holds no rendered document");
+            if (!(NoteCardAt(view, 1).Child is StackPanel))
+                throw new InvalidOperationException("the second row is not a card face");
         }
 
         /// <summary>
-        /// T13 (spec 6.2): the header's back button returns to the list, the
-        /// click is handled and the cards are still there (the list container
-        /// was hidden, never emptied).
+        /// T6 (spec 4.3): expanding another card settles the open one first - its
+        /// block edit is flushed into the note (the text lands, the modified time
+        /// stamps, the card face below carries the fresh title) while the newly
+        /// clicked note takes the expanded row.
         /// </summary>
-        private static void NoteBackReturnsToTheList()
+        private static void NoteExpandingAnotherCardFlushesTheFirstEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var older = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(older);
+            data.Notes.Add(NewNote("b", "later", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 1);          // the older note
+            if (NoteExpandedId(view) != "a")
+                throw new InvalidOperationException(
+                    "the fixture expanded '" + NoteExpandedId(view) + "', wanted the older note");
+
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            ClickNoteCard(view, 0);          // the newer note's face
+
+            if (older.Text != "changed")
+                throw new InvalidOperationException("the switch left the first note as '"
+                    + (older.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (NoteExpandedId(view) != "b")
+                throw new InvalidOperationException(
+                    "the switch expanded '" + NoteExpandedId(view) + "', wanted 'b'");
+            if (NoteCardLine(view, 0, 0) != "changed")
+                throw new InvalidOperationException(
+                    "the settled note's face reads '" + NoteCardLine(view, 0, 0) + "', wanted 'changed'");
+        }
+
+        /// <summary>
+        /// T6 (spec 3.3/4.1): the floating ‹ collapses the expanded surface back
+        /// to the list - no note is expanded, every row is a card face again and
+        /// the faces keep the modified-time order. The blank list area is the
+        /// design's second exit from the rendered state.
+        /// </summary>
+        private static void NoteCollapseButtonReturnsToTheFace()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -9427,35 +9423,41 @@ namespace Kobold.XamlLoadCheck
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
             ClickNoteCard(view, 0);
-            if (NoteState(view) != "Reading")
-                throw new InvalidOperationException("the fixture never reached the reading view");
+            if (NoteExpandedId(view) != "b")
+                throw new InvalidOperationException(
+                    "the fixture expanded '" + NoteExpandedId(view) + "', wanted the newest note");
 
-            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            ClickNoteCollapse(NoteSurface(view));
+
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("the ‹ left '" + NoteExpandedId(view) + "' expanded");
+            AssertEveryRowIsACardFace(view);
+            if (NoteCardCount(view) != 2)
+                throw new InvalidOperationException("the collapsed list carries " + NoteCardCount(view) + " row(s)");
+            if (NoteCardLine(view, 0, 0) != "Second" || NoteCardLine(view, 1, 0) != "First")
+                throw new InvalidOperationException("the collapsed list lost the modified-time order ("
+                    + NoteCardLine(view, 0, 0) + ", " + NoteCardLine(view, 1, 0) + ")");
+
+            // The second exit of the rendered state: a click on the blank list
+            // area carries neither a card face nor the add pill under the hit.
+            ClickNoteCard(view, 0);
+            if (NoteExpandedId(view) != "b")
+                throw new InvalidOperationException("the fixture never re-expanded the note");
+            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
             {
                 RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            };
-            NoteBackButton(view).RaiseEvent(args);
-
-            if (!args.Handled)
-                throw new InvalidOperationException("the back click was not handled");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the back button left the view in " + NoteState(view));
-            if (NoteListHost(view).Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the list container is hidden after the back click");
-            if (NoteReadingHost(view).Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the reading container stayed visible after the back click");
-            if (NoteCardCount(view) != 2)
-                throw new InvalidOperationException(
-                    "the list carries " + NoteCardCount(view) + " card(s) after the back click, wanted 2");
+            });
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("the blank-area click left the note expanded");
+            AssertEveryRowIsACardFace(view);
         }
 
         /// <summary>
-        /// T13 (spec 6.2): Backspace in the reading view leaves it. The key is
-        /// raised as the tunnelling PreviewKeyDown on the RichTextBox itself,
-        /// so the view's root handler must catch it before the box's own class
-        /// handling; the same key in the list state stays untouched.
+        /// T6 (spec 4.1): Backspace in the rendered surface collapses the card -
+        /// the key is raised as the tunnelling PreviewKeyDown on the surface's own
+        /// document box, so the panel's root handler must catch it before the box.
         /// </summary>
-        private static void NoteBackspaceInReadingGoesBack()
+        private static void NoteBackspaceInTheRenderedSurfaceCollapses()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -9465,33 +9467,88 @@ namespace Kobold.XamlLoadCheck
             var view = widget.PanelView;
             view.Refresh();
             ClickNoteCard(view, 0);
-            if (NoteState(view) != "Reading")
-                throw new InvalidOperationException("the fixture never reached the reading view");
 
-            var box = NoteReadingBox(view);
-            var back = RaiseNotePreviewKey(widget, box, Key.Back);
+            var args = RaiseNotePreviewKey(widget, SurfaceReadingBox(NoteSurface(view)), Key.Back);
 
-            if (!back.Handled)
-                throw new InvalidOperationException("the reading Backspace was not handled");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("Backspace left the view in " + NoteState(view));
+            if (!args.Handled)
+                throw new InvalidOperationException("the rendered Backspace was not handled");
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("Backspace left '" + NoteExpandedId(view) + "' expanded");
+            AssertEveryRowIsACardFace(view);
+            if (NoteCardCount(view) != 1)
+                throw new InvalidOperationException("the collapsed list carries " + NoteCardCount(view) + " row(s)");
+        }
 
-            var listKey = RaiseNotePreviewKey(widget, box, Key.Back);
-            if (listKey.Handled)
-                throw new InvalidOperationException("a list-state Backspace was swallowed by the reading handler");
+        /// <summary>T6 (spec 4.1): Esc in the rendered surface collapses too.</summary>
+        private static void NoteEscInTheRenderedSurfaceCollapses()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Only note", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var args = RaiseNotePreviewKey(widget, SurfaceReadingBox(NoteSurface(view)), Key.Escape);
+
+            if (!args.Handled)
+                throw new InvalidOperationException("the rendered Esc was not handled");
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("Esc left '" + NoteExpandedId(view) + "' expanded");
+            AssertEveryRowIsACardFace(view);
         }
 
         /// <summary>
-        /// T13 (spec 5.3): a task box click writes the flipped source line back
-        /// (open to done here), stamps the note's modified time, repaints the
-        /// reading document so the box grows its check, and leaves the stale
-        /// glyph alone (the document was rebuilt, not mutated in place).
+        /// T6 (spec 4.3): Esc inside a block edit leaves that block alone - the
+        /// typed text is spliced into the note (Esc never loses text) and the
+        /// card stays expanded in the rendered state.
         /// </summary>
-        private static void NoteTaskToggleRewritesAndRerenders()
+        private static void NoteEscLeavesABlockEditWithoutCollapsing()
         {
             ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var note = NewNote("a", "- [ ] milk\n- [x] eggs", when);
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            var args = RaiseNotePreviewKey(widget, SurfaceEditBox(surface), Key.Escape);
+
+            if (!args.Handled)
+                throw new InvalidOperationException("the block edit's Esc was not handled");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("Esc left the block edit session open");
+            if (NoteExpandedId(view) != "a")
+                throw new InvalidOperationException(
+                    "Esc collapsed the note (" + NoteExpandedId(view) + ")");
+            if (note.Text != "changed")
+                throw new InvalidOperationException("Esc left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the surface did not render back after the Esc");
+        }
+
+        /// <summary>
+        /// T6 (spec 4.2): a click on a rendered line of the hosted surface enters
+        /// that block's edit. The trigger is the T4 pins' equivalent path (the
+        /// content element first, the surface root's handler with the tagged span
+        /// as its source when the off-screen runner's content elements do not walk
+        /// the event up).
+        /// </summary>
+        private static void NoteClickingABlockEntersItsEditAtThatLine()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
             var data = new NoteData();
             data.Notes.Add(note);
 
@@ -9499,89 +9556,357 @@ namespace Kobold.XamlLoadCheck
             view.Refresh();
             ClickNoteCard(view, 0);
 
-            var box = NoteReadingBox(view);
-            var before = box.Document;
-            var open = TaskGlyph(ParagraphAt(before, 0));
-            if (!(open.Tag is int) || (int)open.Tag != 0)
-                throw new InvalidOperationException("the first reading glyph tags " + open.Tag + ", wanted line 0");
-            if (open.Child != null)
-                throw new InvalidOperationException("the fixture started with a checked box");
+            var surface = NoteSurface(view);
+            ClickTaggedLine(surface, SurfaceReadingBox(surface), 1);
 
-            open.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonUpEvent
-            });
-
-            string[] lines = (note.Text ?? string.Empty).Split('\n');
-            if (lines.Length != 2 || lines[0] != "- [x] milk" || lines[1] != "- [x] eggs")
-            {
-                throw new InvalidOperationException("the toggle rewrote the source to '"
-                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
-            }
-            if (note.ModifiedAt <= when)
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the tagged-line click did not enter the block edit");
+            LayoutSurface(surface);
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo")
                 throw new InvalidOperationException(
-                    "the toggle did not advance the modified time (" + note.ModifiedAt + ")");
-
-            var after = box.Document;
-            if (ReferenceEquals(after, before))
-                throw new InvalidOperationException("the reading document was not re-rendered");
-            var checkedGlyph = TaskGlyph(ParagraphAt(after, 0));
-            if (!(checkedGlyph.Child is Path))
-                throw new InvalidOperationException("the re-rendered box carries no check mark");
-            if (open.Child != null)
-                throw new InvalidOperationException("the stale glyph flipped instead of the document being repainted");
+                    "the edit box reads '" + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+            int line = edit.GetLineIndexFromCharacterIndex(edit.CaretIndex);
+            if (line != 1)
+                throw new InvalidOperationException("the caret sits on edit line " + line + ", wanted 1");
         }
 
         /// <summary>
-        /// T13 (spec 6.2): the toggle makes the note the newest modification
-        /// (ModifiedAt is stamped), so returning to the list puts it on top
-        /// (SortForDisplay) with the other note second. The note is
-        /// heading-led so the card title does not depend on how a leading
-        /// task line reads.
+        /// T6 (spec 4.4/5.3): a task glyph clicked in the rendered surface flips
+        /// its source line and never opens a block edit (the renderer marks the
+        /// click handled and the surface's own handler skips handled events).
         /// </summary>
-        private static void NoteTaskToggleKeepsTheListOrder()
+        private static void NoteTaskGlyphClickTogglesWithoutEnteringTheEdit()
         {
             ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", new DateTime(2026, 3, 5, 9, 0, 0));
             var data = new NoteData();
-            data.Notes.Add(NewNote("a", "# Alpha\n\n- [ ] task", new DateTime(2026, 3, 5, 9, 0, 0)));
-            data.Notes.Add(NewNote("b", "later", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(note);
 
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
-            if (NoteCardLine(view, 0, 0) != "later")
-                throw new InvalidOperationException(
-                    "the fixture order is '" + NoteCardLine(view, 0, 0) + "', wanted 'later'");
+            ClickNoteCard(view, 0);
 
-            ClickNoteCard(view, 1); // the oldest note
-            var glyph = TaskGlyph(ParagraphAt(NoteReadingBox(view).Document, 1));
-            glyph.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonUpEvent
-            });
+            var surface = NoteSurface(view);
+            var glyph = TaskGlyph(ParagraphAt(SurfaceReadingBox(surface).Document, 2));
+            if (glyph.Child != null)
+                throw new InvalidOperationException("the fixture started with a checked box");
+            RaiseLeftClick(glyph);
 
-            NoteBackButton(view).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-
-            if (NoteCardCount(view) != 2)
-                throw new InvalidOperationException("the list carries " + NoteCardCount(view) + " card(s)");
-            if (NoteCardLine(view, 0, 0) != "Alpha")
-                throw new InvalidOperationException(
-                    "the toggled note is card '" + NoteCardLine(view, 0, 0) + "', wanted it on top");
-            if (NoteCardLine(view, 1, 0) != "later")
-                throw new InvalidOperationException(
-                    "the other note is card '" + NoteCardLine(view, 1, 0) + "', wanted 'later'");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the task click opened a block edit");
+            if (!(note.Text ?? string.Empty).Contains("[x]"))
+                throw new InvalidOperationException("the task click left the source as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
         }
 
         /// <summary>
-        /// T13 (spec 5.2): the reading document keeps each link's target on
-        /// Hyperlink.NavigateUri so the reading view can hand it to the browser.
-        /// The pin reads the target only - raising the click would open one.
+        /// T6 (spec 6): the ＋ row creates an empty note at the head of the data
+        /// and opens it straight into the whole-text edit - the fresh note takes
+        /// the expanded row, the edit box is empty and both surrounding renders
+        /// stay empty. The add writes no notification (the note only lands with
+        /// its first commit or leave).
         /// </summary>
-        private static void NoteReadingLinkCarriesItsUrl()
+        private static void NoteAddPillStartsAWholeTextEdit()
         {
-            const string url = "https://example.com/note?p=1";
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteAdd(view);
+
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException("the add click left " + data.Notes.Count + " note(s), wanted 1");
+            var note = data.Notes[0];
+            if (note.Text != string.Empty)
+                throw new InvalidOperationException("the new note carries '" + note.Text + "', wanted empty");
+            if (string.IsNullOrEmpty(note.Id))
+                throw new InvalidOperationException("the new note has no id");
+            if (note.CreatedAt == default(DateTime) || note.ModifiedAt == default(DateTime))
+                throw new InvalidOperationException("the new note carries no timestamps");
+            if (NoteExpandedId(view) != note.Id)
+                throw new InvalidOperationException(
+                    "the add click expanded '" + NoteExpandedId(view) + "', wanted the fresh note");
+
+            var surface = NoteSurface(view);
+            if (!ReferenceEquals(NoteHostAt(view, 0).Child, surface))
+                throw new InvalidOperationException("the fresh note is not the expanded row");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the new note did not open its whole-text edit");
+            if (SurfaceEditBox(surface).Text != string.Empty)
+                throw new InvalidOperationException("the fresh edit box carries '"
+                    + SurfaceEditBox(surface).Text + "', wanted empty");
+            if (SurfaceBeforeBox(surface).Document.Blocks.Count != 0
+                || SurfaceAfterBox(surface).Document.Blocks.Count != 0)
+                throw new InvalidOperationException("the whole-text edit rendered a surrounding pane");
+        }
+
+        /// <summary>
+        /// T6 (spec 6): the list's blank-area menu carries the one create entry
+        /// (the note kind's label through the existing localization keys) and its
+        /// click runs the same new-note flow as the ＋ row.
+        /// </summary>
+        private static void NoteBlankAreaMenuStartsTheSameEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var menu = InvokeNoteBlankMenu(view);
+            if (menu == null) throw new InvalidOperationException("the empty list has no blank-area menu");
+            if (menu.Items.Count != 1)
+                throw new InvalidOperationException("the blank-area menu has " + menu.Items.Count + " item(s)");
+
+            string header = HeaderOf(menu.Items[0]);
+            string wanted = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
+            if (header != wanted)
+                throw new InvalidOperationException(
+                    "the blank-area menu reads '" + header + "', wanted '" + wanted + "'");
+
+            var entry = menu.Items[0] as MenuItem;
+            if (entry == null) throw new InvalidOperationException("the blank-area entry is not a MenuItem");
+            entry.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException(
+                    "the blank-area menu left " + data.Notes.Count + " note(s), wanted 1");
+            if (NoteExpandedId(view) != data.Notes[0].Id)
+                throw new InvalidOperationException(
+                    "the blank-area menu expanded '" + NoteExpandedId(view) + "', wanted the fresh note");
+
+            var surface = NoteSurface(view);
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the menu-opened note is not being edited");
+            if (SurfaceEditBox(surface).Text != string.Empty)
+                throw new InvalidOperationException("the menu-opened edit box is not empty");
+        }
+
+        /// <summary>
+        /// T6 (spec 4.5): a note created by the ＋ row and left blank is dropped
+        /// again on the collapse - the data loses it, the collapse notifies the
+        /// host (the removal must converge through the usual save path) and the
+        /// list keeps only the add row.
+        /// </summary>
+        private static void NoteEmptyNewNoteIsDiscardedOnCollapse()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+
+            int notified = 0;
+            widget.OnDataChanged += () => notified++;
+
+            ClickNoteAdd(view);
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException("the fixture never created a note");
+
+            ClickNoteCollapse(NoteSurface(view));
+
+            if (data.Notes.Count != 0)
+                throw new InvalidOperationException(
+                    "the empty note survived the collapse (" + data.Notes.Count + " note(s))");
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("the discarded note stayed expanded");
+            if (NoteCardCount(view) != 0)
+                throw new InvalidOperationException("the emptied list rendered " + NoteCardCount(view) + " row(s)");
+            if (notified < 1)
+                throw new InvalidOperationException("the discard never notified the host");
+        }
+
+        /// <summary>
+        /// T6 (spec 4.5): clearing an existing note's text (whitespace counts as
+        /// nothing) drops that note on the collapse too - only that one, and the
+        /// removal notifies the host.
+        /// </summary>
+        private static void NoteEmptyingAnExistingNoteDiscardsItOnCollapse()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+
+            int notified = 0;
+            widget.OnDataChanged += () => notified++;
+
+            ClickNoteCard(view, 1);          // the older note (card 0 is "Second")
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not enter the block edit");
+            SurfaceEditBox(surface).Text = "   ";
+
+            ClickNoteCollapse(surface);
+
+            if (data.Notes.Count != 1 || data.Notes[0].Id != "b")
+                throw new InvalidOperationException(
+                    "the emptied note survived (" + data.Notes.Count + " note(s) left)");
+            if (NoteCardCount(view) != 1)
+                throw new InvalidOperationException("the list carries " + NoteCardCount(view) + " row(s), wanted 1");
+            if (notified < 1)
+                throw new InvalidOperationException("the discard never notified the host");
+        }
+
+        /// <summary>
+        /// T6 (spec 5.2): hiding the panel flushes the pending edit before the
+        /// window goes away - the half-typed note is in the data, not lost, and
+        /// the block edit session is closed (the expanded state survives for the
+        /// panel's next opening). The open flag is set reflectively (the base's
+        /// own field), so the check never shows a window.
+        /// </summary>
+        private static void NoteHidingThePanelCommitsAndLeavesTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+
+            EnsureRealDpi(widget);
+            SetPrivateBaseField(widget, "_isExpanded", true);
+
+            ClickNoteAdd(view);
+            var surface = NoteSurface(view);
+            SurfaceEditBox(surface).Text = "half a thought";
+            widget.HidePanel();
+
+            if (data.Notes.Count != 1)
+                throw new InvalidOperationException(
+                    "the collapse left " + data.Notes.Count + " note(s), wanted 1");
+            if (data.Notes[0].Text != "half a thought")
+                throw new InvalidOperationException(
+                    "the collapse lost the edit ('" + data.Notes[0].Text + "')");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the collapse left the block edit open");
+            if (NoteExpandedId(view) != data.Notes[0].Id)
+                throw new InvalidOperationException(
+                    "the collapse dropped the expanded note (" + NoteExpandedId(view) + ")");
+        }
+
+        /// <summary>
+        /// T6 (spec 4.3): a refresh (theme / language / widget update) during an
+        /// open block edit repaints the surface but never rewrites the typed text
+        /// or drops the session.
+        /// </summary>
+        private static void NoteRefreshDuringAnEditKeepsTheText()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            var edit = SurfaceEditBox(surface);
+            edit.Text = "typed";
+
+            view.Refresh();
+
+            if (edit.Text != "typed")
+                throw new InvalidOperationException(
+                    "the refresh rewrote the edit box as '" + edit.Text.Replace("\n", "\\n") + "'");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the refresh dropped the block edit session");
+            if (NoteExpandedId(view) != "a")
+                throw new InvalidOperationException("the refresh collapsed the note");
+        }
+
+        /// <summary>
+        /// T6 (spec 4.5): the flushed edit stamps the note's modified time, so the
+        /// collapse rebuilds the list with that note on top (SortForDisplay) and
+        /// its face carries the fresh title.
+        /// </summary>
+        private static void NoteOrderFollowsTheLatestEditAfterCollapse()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            if (NoteCardLine(view, 0, 0) != "Beta")
+                throw new InvalidOperationException(
+                    "the fixture order is '" + NoteCardLine(view, 0, 0) + "', wanted 'Beta' first");
+
+            ClickNoteCard(view, 1);          // the older note
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not enter the block edit");
+            SurfaceEditBox(surface).Text = "Zulu";
+
+            ClickNoteCollapse(surface);
+
+            if (NoteExpandedId(view) != null)
+                throw new InvalidOperationException("the collapse left a note expanded");
+            if (NoteCardLine(view, 0, 0) != "Zulu")
+                throw new InvalidOperationException(
+                    "the edited note is card '" + NoteCardLine(view, 0, 0) + "', wanted it on top");
+            if (NoteCardLine(view, 1, 0) != "Beta")
+                throw new InvalidOperationException(
+                    "the untouched note is card '" + NoteCardLine(view, 1, 0) + "', wanted 'Beta'");
+        }
+
+        /// <summary>
+        /// T6 (spec 5.3): a task box clicked in the expanded, rendered surface
+        /// writes the flipped source line back, stamps the modified time and
+        /// re-renders the document - the stale glyph stays alone (the document was
+        /// rebuilt, not mutated in place).
+        /// </summary>
+        private static void NoteTaskToggleRewritesAndRerendersInPlace()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "# H\n\npara\n\n- [ ] t", when);
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var box = SurfaceReadingBox(NoteSurface(view));
+            var before = box.Document;
+            var glyph = TaskGlyph(ParagraphAt(before, 2));
+            if (glyph.Child != null)
+                throw new InvalidOperationException("the fixture started with a checked box");
+            RaiseLeftClick(glyph);
+
+            if (!(note.Text ?? string.Empty).Contains("[x]"))
+                throw new InvalidOperationException("the toggle left the source as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (note.ModifiedAt < when)
+                throw new InvalidOperationException(
+                    "the toggle rolled the modified time back (" + note.ModifiedAt + ")");
+
+            var after = box.Document;
+            if (ReferenceEquals(after, before))
+                throw new InvalidOperationException("the rendered document was not rebuilt");
+            if (!(TaskGlyph(ParagraphAt(after, 2)).Child is Path))
+                throw new InvalidOperationException("the rebuilt document carries no check mark");
+        }
+
+        /// <summary>
+        /// T6 (spec 5.2): the expanded surface's rendered document keeps each
+        /// link's target on Hyperlink.NavigateUri so the click can hand it to the
+        /// browser. The pin reads the target only - raising the click would open
+        /// one.
+        /// </summary>
+        private static void NoteRenderedLinkCarriesItsUrl()
+        {
+            const string url = "https://example.com/panel?p=1";
             ThemeManager.Initialize("dark");
             var data = new NoteData();
             data.Notes.Add(NewNote("a", "see [the site](" + url + ")", new DateTime(2026, 3, 5, 9, 0, 0)));
@@ -9590,26 +9915,15 @@ namespace Kobold.XamlLoadCheck
             view.Refresh();
             ClickNoteCard(view, 0);
 
-            var link = FirstHyperlink(NoteReadingBox(view).Document);
+            var link = FirstHyperlink(SurfaceReadingBox(NoteSurface(view)).Document);
             if (link.NavigateUri == null)
-                throw new InvalidOperationException("the reading link carries no url");
+                throw new InvalidOperationException("the rendered link carries no url");
             if (link.NavigateUri.AbsoluteUri != url)
-                throw new InvalidOperationException("the reading link carries '"
+                throw new InvalidOperationException("the rendered link carries '"
                     + link.NavigateUri.AbsoluteUri + "', wanted '" + url + "'");
         }
 
-        /// <summary>The state the panel shows, read off the private `_state`
-        /// (the T13 pin surface: the enum has no public face).</summary>
-        private static string NoteState(NotePanelView view)
-        {
-            var field = typeof(NotePanelView).GetField("_state",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field == null) throw new InvalidOperationException("_state not found on NotePanelView");
-            object state = field.GetValue(view);
-            return state == null ? "<null>" : state.ToString();
-        }
-
-        /// <summary>Opens a note through the real card click (the reader's
+        /// <summary>Opens a note through the real card click (the card face's
         /// MouseLeftButtonUp handler), never a reflection call.</summary>
         private static void ClickNoteCard(NotePanelView view, int index)
         {
@@ -9626,37 +9940,74 @@ namespace Kobold.XamlLoadCheck
             return element;
         }
 
-        private static FrameworkElement NoteListHost(NotePanelView view)
+        /// <summary>The panel's one surface instance, off the private `_surface`
+        /// field (T6).</summary>
+        private static NoteSurfaceView NoteSurface(NotePanelView view)
         {
-            return NoteNamed(view, "ListHost");
+            var surface = NotePrivate(view, "_surface") as NoteSurfaceView;
+            if (surface == null) throw new InvalidOperationException("_surface is not a NoteSurfaceView");
+            return surface;
         }
 
-        private static FrameworkElement NoteReadingHost(NotePanelView view)
+        /// <summary>The expanded note's id, off the private `_expandedId` field
+        /// (T6): the one-expanded-at-a-time pin surface.</summary>
+        private static string NoteExpandedId(NotePanelView view)
         {
-            return NoteNamed(view, "ReadingHost");
+            return NotePrivate(view, "_expandedId") as string;
         }
 
-        private static FrameworkElement NoteBackButton(NotePanelView view)
+        private static object NotePrivate(NotePanelView view, string name)
         {
-            return NoteNamed(view, "ReadingBackButton");
+            var field = typeof(NotePanelView).GetField(name,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException(name + " not found on NotePanelView");
+            return field.GetValue(view);
         }
 
-        private static RichTextBox NoteReadingBox(NotePanelView view)
+        /// <summary>The ItemsPanel child at a display index (T6: the expanded
+        /// row's host and the card faces share the list).</summary>
+        private static Border NoteHostAt(NotePanelView view, int index)
         {
-            var named = view.FindName("ReadingBox");
-            if (named == null) throw new InvalidOperationException("NotePanelView has no ReadingBox");
-            var box = named as RichTextBox;
-            if (box == null)
-                throw new InvalidOperationException("ReadingBox is a " + named.GetType().Name + ", not a RichTextBox");
-            return box;
+            var panel = NoteItemsPanel(view);
+            if (panel.Children.Count <= index)
+                throw new InvalidOperationException(
+                    "row " + index + " not found (" + panel.Children.Count + " row(s))");
+            var row = panel.Children[index] as Border;
+            if (row == null) throw new InvalidOperationException("row " + index + " is not a Border");
+            return row;
+        }
+
+        /// <summary>The floating ‹ of the expanded surface, clicked the way the
+        /// mouse does (the real handler, never a reflection call).</summary>
+        private static void ClickNoteCollapse(NoteSurfaceView surface)
+        {
+            var button = surface.FindName("CollapseButton") as FrameworkElement;
+            if (button == null) throw new InvalidOperationException("the surface has no CollapseButton");
+            button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            });
+        }
+
+        /// <summary>Every row of the list is a card face (no surface host among
+        /// them): the collapsed state's proof.</summary>
+        private static void AssertEveryRowIsACardFace(NotePanelView view)
+        {
+            var panel = NoteItemsPanel(view);
+            for (int i = 0; i < panel.Children.Count; i++)
+            {
+                var row = panel.Children[i] as Border;
+                if (row == null || !(row.Child is StackPanel))
+                    throw new InvalidOperationException("row " + i + " is not a card face");
+            }
         }
 
         /// <summary>
-        /// The T13 reading key input: the same real presentation source the
-        /// existing RaiseKey family builds (EnsureHandle creates the HwndSource),
-        /// raised as the tunnelling PreviewKeyDown on the reading target - the
-        /// box is no TextBox, so the todo helper's signature does not fit.
-        /// Returns the args so the pin can read Handled.
+        /// The T6 reading key input: the same real presentation source the T13
+        /// reading pins built (EnsureHandle creates the HwndSource), raised as the
+        /// tunnelling PreviewKeyDown on the surface's own box - the document box
+        /// is no TextBox, so the todo helper's signature does not fit. Returns the
+        /// args so the pin can read Handled.
         /// </summary>
         private static KeyEventArgs RaiseNotePreviewKey(Window window, FrameworkElement target, Key key)
         {
@@ -9675,523 +10026,21 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
-        #region Task T14: note editor pins
+        #region Task T6: note list helpers kept from the retired editor pins
 
-        /// <summary>
-        /// T14 (spec 6.3): the ＋ row creates an empty note and opens the
-        /// editor on it - the data grows by one (a fresh id and both stamps),
-        /// the state reads Editing over the editor container, and the source
-        /// box is the empty, multi-line, wrapping text surface of the design.
-        /// </summary>
-        private static void NoteAddClickCreatesAndOpensEditor()
+        /// <summary>The ＋ row's left click: the real pill handler runs the same
+        /// new-note flow the blank-area menu does.</summary>
+        private static void ClickNoteAdd(NotePanelView view)
         {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the fresh view is in " + NoteState(view) + ", wanted List");
-
-            ClickNoteAdd(view);
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the add click left " + data.Notes.Count + " note(s), wanted 1");
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException(
-                    "the add click left the view in " + NoteState(view) + ", wanted Editing");
-            if (NoteEditingHost(view).Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the editing container is hidden after the add click");
-            if (NoteListHost(view).Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the list container stayed visible in the editing state");
-
-            var note = data.Notes[0];
-            if (note.Text != string.Empty)
-                throw new InvalidOperationException("the new note carries '" + note.Text + "', wanted empty");
-            if (string.IsNullOrEmpty(note.Id))
-                throw new InvalidOperationException("the new note has no id");
-            if (note.CreatedAt == default(DateTime) || note.ModifiedAt == default(DateTime))
-                throw new InvalidOperationException("the new note carries no timestamps");
-
-            var box = NoteSourceBox(view);
-            if (box.Text != string.Empty)
-                throw new InvalidOperationException("the fresh editor carries '" + box.Text + "', wanted empty");
-            if (!box.AcceptsReturn)
-                throw new InvalidOperationException("the source box does not keep the returns of a many-line note");
-            if (box.TextWrapping != TextWrapping.Wrap)
-                throw new InvalidOperationException("the source box does not wrap");
-            if (box.Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the source box is not the visible surface of the editor");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): the list's blank area carries a one-entry create
-        /// menu (the note kind's label through the existing localization keys)
-        /// and its click runs the same new-note flow as the ＋ row.
-        /// </summary>
-        private static void NoteBlankMenuOpensTheEditor()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-
-            var menu = InvokeNoteBlankMenu(view);
-            if (menu == null) throw new InvalidOperationException("the list's blank area has no menu");
-            if (menu.Items.Count != 1)
-                throw new InvalidOperationException("the blank-area menu has " + menu.Items.Count + " item(s)");
-
-            string wanted = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
-            string header = HeaderOf(menu.Items[0]);
-            if (header != wanted)
-                throw new InvalidOperationException(
-                    "the blank-area menu reads '" + header + "', wanted '" + wanted + "'");
-
-            var entry = menu.Items[0] as MenuItem;
-            if (entry == null) throw new InvalidOperationException("the blank-area entry is not a MenuItem");
-            entry.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the blank-area menu left " + data.Notes.Count + " note(s), wanted 1");
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException(
-                    "the blank-area menu left the view in " + NoteState(view) + ", wanted Editing");
-            if (NoteSourceBox(view).Text != string.Empty)
-                throw new InvalidOperationException("the menu-opened editor is not empty");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): the reading header's ✎ opens the editor on the open
-        /// note (its source text in the box); leaving with typed text writes
-        /// the text back, stamps the modified time (never moving it back) and
-        /// puts the note on top of the list (SortForDisplay).
-        /// </summary>
-        private static void NoteTypingThenLeavingCommitsAndBumpsTheTime()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var note = NewNote("a", "First", when);
-            var data = new NoteData();
-            data.Notes.Add(note);
-            data.Notes.Add(NewNote("b", "Later", new DateTime(2026, 3, 5, 11, 0, 0)));
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            if (NoteCardLine(view, 0, 0) != "Later")
-                throw new InvalidOperationException(
-                    "the fixture order is '" + NoteCardLine(view, 0, 0) + "', wanted 'Later' first");
-
-            ClickNoteCard(view, 1);   // the older note
-            ClickNoteEditButton(view);
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException(
-                    "the edit button left the view in " + NoteState(view) + ", wanted Editing");
-
-            var box = NoteSourceBox(view);
-            if (box.Text != "First")
-                throw new InvalidOperationException(
-                    "the editor opened with '" + box.Text + "', wanted the note's own source");
-
-            box.Text = "# Edited\n\n- [ ] one";
-            InvokeNoteEdit(view, "CommitPendingEdit");
-
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException(
-                    "the commit left the view in " + NoteState(view) + ", wanted List");
-            if (note.Text != "# Edited\n\n- [ ] one")
-                throw new InvalidOperationException("the commit wrote '" + note.Text + "'");
-            if (note.ModifiedAt < when)
-                throw new InvalidOperationException(
-                    "the commit moved the modified time back to " + note.ModifiedAt);
-            if (NoteCardCount(view) != 2)
-                throw new InvalidOperationException(
-                    "the list carries " + NoteCardCount(view) + " card(s) after the commit");
-            if (NoteCardLine(view, 0, 0) != "Edited")
-                throw new InvalidOperationException(
-                    "the edited note is card '" + NoteCardLine(view, 0, 0) + "', wanted it on top");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): an editor left without a keystroke writes nothing
-        /// back - the text and the modified time both stay as they were (the
-        /// list order proves it: the untouched note keeps its old slot).
-        /// </summary>
-        private static void NoteLeavingWithoutChangesKeepsTheTime()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var note = NewNote("a", "First", when);
-            var data = new NoteData();
-            data.Notes.Add(note);
-            data.Notes.Add(NewNote("b", "Later", new DateTime(2026, 3, 5, 11, 0, 0)));
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 1);
-            ClickNoteEditButton(view);
-            InvokeNoteEdit(view, "CommitPendingEdit");
-
-            if (note.Text != "First")
-                throw new InvalidOperationException("the untouched commit wrote '" + note.Text + "'");
-            if (note.ModifiedAt != when)
-                throw new InvalidOperationException(
-                    "the untouched commit stamped the modified time to " + note.ModifiedAt);
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the commit left the view in " + NoteState(view));
-            if (NoteCardLine(view, 0, 0) != "Later")
-                throw new InvalidOperationException(
-                    "the untouched note jumped to card '" + NoteCardLine(view, 0, 0) + "'");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): Esc rolls the editor back - the typed text never
-        /// reaches an existing note (text and modified time intact) and a note
-        /// created for this session has nowhere to roll back to, so it is
-        /// dropped.
-        /// </summary>
-        private static void NoteEscCancelsTheEdit()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var note = NewNote("a", "First", when);
-            var data = new NoteData();
-            data.Notes.Add(note);
-
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-
-            var box = NoteSourceBox(view);
-            box.Text = "Second thoughts";
-            RaiseNotePreviewKey(widget, box, Key.Escape);
-
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("Esc left the view in " + NoteState(view) + ", wanted List");
-            if (note.Text != "First")
-                throw new InvalidOperationException("Esc wrote the discarded text '" + note.Text + "'");
-            if (note.ModifiedAt != when)
-                throw new InvalidOperationException("Esc stamped the modified time to " + note.ModifiedAt);
-            if (NoteCardCount(view) != 1)
-                throw new InvalidOperationException(
-                    "the canceled edit left " + NoteCardCount(view) + " card(s)");
-
-            InvokeNoteEdit(view, "StartNewNote");   // the new-note flow
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException("the new note did not open its editor");
-            RaiseNotePreviewKey(widget, NoteSourceBox(view), Key.Escape);
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the canceled new note survived (" + data.Notes.Count + " note(s))");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("Esc left the view in " + NoteState(view));
-        }
-
-        /// <summary>
-        /// T14 (spec 6.3): a note created by the ＋ row and left empty is
-        /// dropped again - the data loses it, the state returns to the list
-        /// and the list keeps only the add row.
-        /// </summary>
-        private static void NoteEmptyNewNoteIsDiscardedOnLeave()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteAdd(view);
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException("the fixture never created a note");
-
-            InvokeNoteEdit(view, "CommitPendingEdit");
-
-            if (data.Notes.Count != 0)
-                throw new InvalidOperationException(
-                    "the empty note survived the leave (" + data.Notes.Count + " note(s))");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the discard left the view in " + NoteState(view));
-            if (NoteCardCount(view) != 0)
-                throw new InvalidOperationException("the emptied list rendered " + NoteCardCount(view) + " card(s)");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): clearing an existing note's text (whitespace counts
-        /// as nothing) drops that note on leave too, and only that one.
-        /// </summary>
-        private static void NoteEmptyingAnExistingNoteDiscardsIt()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var data = new NoteData();
-            data.Notes.Add(NewNote("a", "First", when));
-            data.Notes.Add(NewNote("b", "Second", when.AddHours(2)));
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 1);   // the older note (card 0 is "Second")
-            ClickNoteEditButton(view);
-            NoteSourceBox(view).Text = "   ";
-            InvokeNoteEdit(view, "CommitPendingEdit");
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the emptied note survived (" + data.Notes.Count + " note(s), wanted 1)");
-            if (data.Notes[0].Id != "b")
-                throw new InvalidOperationException("the wrong note was dropped (" + data.Notes[0].Id + ")");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the discard left the view in " + NoteState(view));
-            if (NoteCardCount(view) != 1)
-                throw new InvalidOperationException(
-                    "the list carries " + NoteCardCount(view) + " card(s), wanted 1");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): both commit buttons of the editor header write the
-        /// box text back - the back arrow and the done mark lead to the same
-        /// list state.
-        /// </summary>
-        private static void NoteHeaderButtonsCommitTheEdit()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var first = NewNote("a", "First", when);
-            var data = new NoteData();
-            data.Notes.Add(first);
-            data.Notes.Add(NewNote("b", "Second", when.AddHours(2)));
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-
-            ClickNoteCard(view, 1);   // the older note
-            ClickNoteEditButton(view);
-            NoteSourceBox(view).Text = "First, done";
-            ClickNoteHeaderButton(view, "EditingDoneButton");
-
-            if (first.Text != "First, done")
-                throw new InvalidOperationException("the done mark committed '" + first.Text + "'");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the done mark left the view in " + NoteState(view));
-
-            ClickNoteCard(view, 0);   // the just-edited note is the newest now
-            ClickNoteEditButton(view);
-            NoteSourceBox(view).Text = "First, again";
-            ClickNoteHeaderButton(view, "EditingBackButton");
-
-            if (first.Text != "First, again")
-                throw new InvalidOperationException("the back arrow committed '" + first.Text + "'");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the back arrow left the view in " + NoteState(view));
-        }
-
-        /// <summary>
-        /// T14 (spec 6.3): collapsing the panel commits the pending edit before
-        /// the window goes away - the half-typed note is in the data, not lost.
-        /// The open flag is set reflectively (ShowPanel's own flag), so the
-        /// check never shows a window.
-        /// </summary>
-        private static void NoteHidingThePanelCommitsThePendingEdit()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-
-            EnsureRealDpi(widget);
-            SetPrivateBaseField(widget, "_isExpanded", true);
-
-            InvokeNoteEdit(view, "StartNewNote");
-            NoteSourceBox(view).Text = "half a thought";
-            widget.HidePanel();
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the collapse left " + data.Notes.Count + " note(s), wanted 1");
-            if (data.Notes[0].Text != "half a thought")
-                throw new InvalidOperationException(
-                    "the collapse lost the edit ('" + data.Notes[0].Text + "')");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException(
-                    "the collapse left the view in " + NoteState(view) + ", wanted List");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2): the [source|preview] segment paints the box text
-        /// through the T12 renderer - the preview document appears while the
-        /// source box hides, and flipping back leaves the source text exactly
-        /// as it was typed (one text, two views).
-        /// </summary>
-        private static void NotePreviewToggleShowsTheParsedText()
-        {
-            const string source = "# Head\n\n- [ ] one";
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-            data.Notes.Add(NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0)));
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-
-            var box = NoteSourceBox(view);
-            var preview = NotePreviewBox(view);
-            if (NotePreviewToggle(view).Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the segmented toggle is not in the editor header");
-            if (box.Visibility != Visibility.Visible || preview.Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the editor does not start on the source");
-
-            ClickNoteSegment(view, "PreviewTab");
-
-            if (box.Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the source box stayed visible in the preview");
-            if (preview.Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the preview document did not appear");
-            var doc = preview.Document;
-            if (doc == null || doc.Blocks.Count == 0)
-                throw new InvalidOperationException("the preview holds no document block");
-            RunWithText(ParagraphAt(doc, 0), "Head");   // the heading parsed
-            var glyph = TaskGlyph(ParagraphAt(doc, 1)); // and the task box
-            if (!(glyph.Tag is int) || (int)glyph.Tag != 2)
-                throw new InvalidOperationException(
-                    "the preview glyph tags " + glyph.Tag + ", wanted source line 2");
-
-            ClickNoteSegment(view, "SourceTab");
-
-            if (box.Visibility != Visibility.Visible || preview.Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the source box did not come back");
-            if (box.Text != source)
-                throw new InvalidOperationException(
-                    "the toggle lost the source text: '" + box.Text.Replace("\n", "\\n") + "'");
-        }
-
-        /// <summary>
-        /// T14 (spec 6.2/6.3): a task box clicked in the preview rewrites the
-        /// BOX text (the note's data stays untouched until the commit) and the
-        /// preview repaints from the fresh text.
-        /// </summary>
-        private static void NotePreviewTaskClickRewritesTheBoxText()
-        {
-            const string source = "# Head\n\n- [ ] one";
-            ThemeManager.Initialize("dark");
-            var note = NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0));
-            var data = new NoteData();
-            data.Notes.Add(note);
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-            ClickNoteSegment(view, "PreviewTab");
-
-            var glyph = TaskGlyph(ParagraphAt(NotePreviewBox(view).Document, 1));
-            if (glyph.Child != null)
-                throw new InvalidOperationException("the fixture started with a checked box");
-            glyph.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            NoteNamed(view, "AddPill").RaiseEvent(new MouseButtonEventArgs(
+                Mouse.PrimaryDevice, 0, MouseButton.Left)
             {
-                RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
             });
-
-            var box = NoteSourceBox(view);
-            string[] lines = box.Text.Split('\n');
-            if (lines.Length != 3 || lines[2] != "- [x] one")
-                throw new InvalidOperationException(
-                    "the preview click wrote '" + box.Text.Replace("\n", "\\n") + "' to the box");
-            if (note.Text != source)
-                throw new InvalidOperationException(
-                    "the preview click reached the data before the commit ('" + note.Text.Replace("\n", "\\n") + "')");
-
-            var repainted = TaskGlyph(ParagraphAt(NotePreviewBox(view).Document, 1));
-            if (repainted.Child == null)
-                throw new InvalidOperationException("the preview did not repaint the checked box");
         }
 
-        /// <summary>
-        /// T14 (spec 6.2): Backspace belongs to the text while the editor is
-        /// open - it must edit, never leave (the reading view's Backspace
-        /// handler is scoped to Reading).
-        /// </summary>
-        private static void NoteBackspaceInTheEditorStaysPlainEditing()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
-
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-
-            var box = NoteSourceBox(view);
-            RaiseNotePreviewKey(widget, box, Key.Back);
-
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException(
-                    "Backspace left the editor (" + NoteState(view) + ")");
-            if (box.Text != "First")
-                throw new InvalidOperationException("the editor text moved to '" + box.Text + "'");
-        }
-
-        /// <summary>The editor container (T14).</summary>
-        private static FrameworkElement NoteEditingHost(NotePanelView view)
-        {
-            return NoteNamed(view, "EditingHost");
-        }
-
-        /// <summary>The source editor off the private `_editingBox` field (T14;
-        /// the RED run has no such field yet).</summary>
-        private static TextBox NoteSourceBox(NotePanelView view)
-        {
-            var box = NoteField(view, "_editingBox") as TextBox;
-            if (box == null) throw new InvalidOperationException("_editingBox is not a TextBox");
-            return box;
-        }
-
-        /// <summary>The preview document off the private `_previewBox` field (T14).</summary>
-        private static RichTextBox NotePreviewBox(NotePanelView view)
-        {
-            var box = NoteField(view, "_previewBox") as RichTextBox;
-            if (box == null) throw new InvalidOperationException("_previewBox is not a RichTextBox");
-            return box;
-        }
-
-        /// <summary>The [source|preview] segmented control (T14).</summary>
-        private static Border NotePreviewToggle(NotePanelView view)
-        {
-            var toggle = NoteField(view, "_previewToggle") as Border;
-            if (toggle == null) throw new InvalidOperationException("_previewToggle is not a Border");
-            return toggle;
-        }
-
-        private static object NoteField(NotePanelView view, string name)
-        {
-            var field = typeof(NotePanelView).GetField(name,
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field == null) throw new InvalidOperationException(name + " not found on NotePanelView");
-            return field.GetValue(view);
-        }
-
-        /// <summary>
-        /// Calls one of the view's editing methods through reflection (T14; the
-        /// RED run has no such method yet) - the note counterpart of
-        /// InvokeViewEdit, so the pin survives the method's own visibility.
-        /// </summary>
-        private static void InvokeNoteEdit(NotePanelView view, string method)
-        {
-            var found = typeof(NotePanelView).GetMethod(method,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (found == null) throw new InvalidOperationException(method + " not found on NotePanelView");
-            found.Invoke(view, null);
-        }
-
-        /// <summary>Builds the list's blank-area menu through reflection (T14;
-        /// the RED run has no such method yet).</summary>
+        /// <summary>Builds the list's blank-area menu through its private builder
+        /// (the real ContextMenuOpening route only opens what it returns).</summary>
         private static ContextMenu InvokeNoteBlankMenu(NotePanelView view)
         {
             var method = typeof(NotePanelView).GetMethod("BuildBlankMenu",
@@ -10200,543 +10049,9 @@ namespace Kobold.XamlLoadCheck
             return (ContextMenu)method.Invoke(view, null);
         }
 
-        /// <summary>The ＋ row's left click (the real pill handler).</summary>
-        private static void ClickNoteAdd(NotePanelView view)
-        {
-            ClickNoteLeft(view, "AddPill");
-        }
-
-        /// <summary>The reading header's ✎: the seam into the editor.</summary>
-        private static void ClickNoteEditButton(NotePanelView view)
-        {
-            ClickNoteLeft(view, "ReadingEditButton");
-        }
-
-        /// <summary>One editor-header button (the back arrow / the done mark).</summary>
-        private static void ClickNoteHeaderButton(NotePanelView view, string name)
-        {
-            ClickNoteLeft(view, name);
-        }
-
-        /// <summary>One segment of the [source|preview] control.</summary>
-        private static void ClickNoteSegment(NotePanelView view, string name)
-        {
-            ClickNoteLeft(view, name);
-        }
-
-        private static void ClickNoteLeft(NotePanelView view, string name)
-        {
-            NoteNamed(view, name).RaiseEvent(new MouseButtonEventArgs(
-                Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-        }
-
-        /// <summary>The [source|preview] segment's two labels (T14 fix: they must
-        /// resolve through the localization table, never carry literal text).</summary>
-        private static TextBlock NoteSegmentLabel(NotePanelView view, string name)
-        {
-            var label = NoteNamed(view, name) as TextBlock;
-            if (label == null) throw new InvalidOperationException(name + " is not a TextBlock");
-            return label;
-        }
-
         #endregion
 
-        #region Task T14 fix round 1: editor cancel, labels, notification
-
-        /// <summary>
-        /// T14 fix (finding 1, spec 6.2): Esc cancels the edit from whichever
-        /// half is up - the preview's read-only document is the focus target
-        /// there (the collapsed source box cannot hold focus), so the key
-        /// router must answer for the whole editing state. The source half is
-        /// unaffected (Backspace still edits there).
-        /// </summary>
-        private static void NoteEscCancelsFromThePreviewHalfToo()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-
-            // An existing note: the preview's Esc rolls the typed text back.
-            var note = NewNote("a", "# Head\n\n- [ ] one", when);
-            var data = new NoteData();
-            data.Notes.Add(note);
-
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-            ClickNoteSegment(view, "PreviewTab");
-
-            var preview = NotePreviewBox(view);
-            if (preview.Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the fixture is not on the preview half");
-
-            NoteSourceBox(view).Text = "discard me";
-            RaiseNotePreviewKey(widget, preview, Key.Escape);
-
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException(
-                    "Esc on the preview left the view in " + NoteState(view) + ", wanted List");
-            if (note.Text != "# Head\n\n- [ ] one")
-                throw new InvalidOperationException("the preview Esc wrote '" + note.Text + "'");
-            if (note.ModifiedAt != when)
-                throw new InvalidOperationException(
-                    "the preview Esc stamped the modified time to " + note.ModifiedAt);
-
-            // A note created for this session: the preview's Esc drops it.
-            InvokeNoteEdit(view, "StartNewNote");
-            ClickNoteSegment(view, "PreviewTab");
-            if (NoteSourceBox(view).Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("the source box stayed visible in the preview");
-            RaiseNotePreviewKey(widget, NotePreviewBox(view), Key.Escape);
-
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException(
-                    "the preview Esc left " + data.Notes.Count + " note(s), wanted the original only");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException(
-                    "the preview Esc left the view in " + NoteState(view) + ", wanted List");
-        }
-
-        /// <summary>
-        /// T14 fix (finding 2): the segment's two labels resolve through
-        /// <see cref="Localization"/> - the en values by default and the zh
-        /// values once the language is switched, never a literal baked into
-        /// the XAML.
-        /// </summary>
-        private static void NoteSegmentLabelsFollowTheLocalization()
-        {
-            ThemeManager.Initialize("dark");
-
-            Localization.SetLanguage("en");
-            try
-            {
-                var data = new NoteData();
-                data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
-                var view = new NoteWidget(data).PanelView;
-                view.Refresh();
-                ClickNoteCard(view, 0);
-                ClickNoteEditButton(view);
-
-                AssertSegmentLabels(view, "en");
-
-                Localization.SetLanguage("zh");
-                view.Refresh();          // a language switch repaints the view
-                AssertSegmentLabels(view, "zh");
-
-                string zhSource = NoteSegmentLabel(view, "SourceTabText").Text;
-                Localization.SetLanguage("ja");
-                view.Refresh();
-                AssertSegmentLabels(view, "ja");
-                if (NoteSegmentLabel(view, "SourceTabText").Text == zhSource)
-                    throw new InvalidOperationException(
-                        "the source label stayed '" + zhSource + "' across the language switch");
-            }
-            finally
-            {
-                Localization.SetLanguage("en");
-            }
-        }
-
-        private static void AssertSegmentLabels(NotePanelView view, string language)
-        {
-            string wantedSource = Localization.Get("UI_NoteSourceTab");
-            string wantedPreview = Localization.Get("UI_NotePreviewTab");
-            if (wantedSource == "UI_NoteSourceTab" || wantedPreview == "UI_NotePreviewTab")
-                throw new InvalidOperationException(
-                    "the localization table has no note segment key (" + language + ")");
-
-            string source = NoteSegmentLabel(view, "SourceTabText").Text;
-            string preview = NoteSegmentLabel(view, "PreviewTabText").Text;
-            if (source != wantedSource)
-                throw new InvalidOperationException(
-                    language + ": the source label reads '" + source + "', wanted '" + wantedSource + "'");
-            if (preview != wantedPreview)
-                throw new InvalidOperationException(
-                    language + ": the preview label reads '" + preview + "', wanted '" + wantedPreview + "'");
-        }
-
-        /// <summary>
-        /// T14 fix (finding 3, spec 6.3): a cancel that drops the session's
-        /// placeholder note is a data change and must converge through the
-        /// host's change notification (the usual save path) - a stray global
-        /// save between the add and the cancel may already have written the
-        /// empty note, so an in-memory-only removal would resurrect it on
-        /// restart. The ambient host-notification pattern of this file
-        /// (TodoSplitterDragsTheCalendarHeight) observes the event.
-        /// </summary>
-        private static void NoteCancellingANewNoteNotifiesTheHost()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-
-            int notified = 0;
-            widget.OnDataChanged += () => notified++;
-
-            // Entering the editor and leaving with typed text both bypass the
-            // data (the box is the pending edit) - only the cancel's discard
-            // is a data change.
-            InvokeNoteEdit(view, "StartNewNote");
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException("the fixture never created a note");
-            if (notified != 0)
-                throw new InvalidOperationException("opening the editor already notified the host");
-
-            RaiseNotePreviewKey(widget, NoteSourceBox(view), Key.Escape);
-
-            if (data.Notes.Count != 0)
-                throw new InvalidOperationException(
-                    "the cancel left " + data.Notes.Count + " note(s)");
-            if (notified != 1)
-                throw new InvalidOperationException(
-                    "the cancel notified the host " + notified + " time(s), wanted exactly 1");
-
-            // Cancelling an untouched EXISTING note changes nothing: no write,
-            // so no notification either (Esc must not manufacture a save).
-            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-            RaiseNotePreviewKey(widget, NoteSourceBox(view), Key.Escape);
-
-            if (notified != 1)
-                throw new InvalidOperationException(
-                    "the untouched-note cancel notified the host " + notified + " time(s), wanted 1");
-            if (NoteState(view) != "List")
-                throw new InvalidOperationException("the cancel left the view in " + NoteState(view));
-        }
-
-        #endregion
-
-        #region Task T15: note editor insert-menu pins
-
-        /// <summary>
-        /// T15 (spec 6.4): the source box's menu opens with the standard four
-        /// clipboard commands - Cut / Copy / Paste / Select All - as COMMAND
-        /// BINDINGS, followed by the separator that starts the insert block.
-        /// The four are read, never invoked: running one would touch the
-        /// system clipboard, which the checks must never do.
-        /// </summary>
-        private static void NoteEditorMenuOffersTheStandardFour()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-
-            var menu = OpenNoteEditorMenu(view);
-            if (menu.Items.Count < 5)
-                throw new InvalidOperationException(
-                    "the editor menu carries " + menu.Items.Count + " entr(ies), wanted the standard four plus a separator");
-
-            var commands = new[]
-            {
-                ApplicationCommands.Cut, ApplicationCommands.Copy,
-                ApplicationCommands.Paste, ApplicationCommands.SelectAll
-            };
-            for (int i = 0; i < commands.Length; i++)
-            {
-                var item = menu.Items[i] as MenuItem;
-                if (item == null)
-                    throw new InvalidOperationException("editor menu entry " + i + " is not a MenuItem");
-                if (!ReferenceEquals(item.Command, commands[i]))
-                    throw new InvalidOperationException("entry " + i + " ('" + item.Header + "') is bound to "
-                        + (item.Command == null ? "<no command>" : item.Command.ToString())
-                        + ", wanted " + commands[i].Name);
-            }
-
-            if (!(menu.Items[4] is Separator))
-                throw new InvalidOperationException("the standard four are not followed by a separator");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4): the 标题 submenu carries the six levels through
-        /// <c>Menu_InsertHeading</c>, and picking level 3 writes the marker on
-        /// the caret's line and parks the caret after it.
-        /// </summary>
-        private static void NoteEditorHeadingSubmenuWritesALevel()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 0;
-            box.SelectionLength = 0;
-
-            var heading = NoteEditorSubmenu(OpenNoteEditorMenu(view), "Menu_Heading");
-            if (heading.Items.Count != 6)
-                throw new InvalidOperationException(
-                    "the heading submenu carries " + heading.Items.Count + " entr(ies), wanted 1-6");
-
-            var level3 = heading.Items[2] as MenuItem;
-            if (level3 == null)
-                throw new InvalidOperationException("the heading submenu's third entry is not a MenuItem");
-            string wantedLabel = Localization.Format("Menu_InsertHeading", 3);
-            if ((level3.Header as string) != wantedLabel)
-                throw new InvalidOperationException(
-                    "the level-3 entry reads '" + level3.Header + "', wanted '" + wantedLabel + "'");
-            level3.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-
-            if (box.Text != "### x")
-                throw new InvalidOperationException(
-                    "the level-3 pick wrote '" + box.Text.Replace("\n", "\\n") + "', wanted '### x'");
-            if (box.SelectionStart != 4 || box.SelectionLength != 0)
-                throw new InvalidOperationException("the level-3 pick left the caret at "
-                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted 4/0");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4 / §3.3): the same list entry twice toggles the marker
-        /// away again - the second pick reads the box the first one wrote.
-        /// </summary>
-        private static void NoteEditorSameListTwiceRemovesIt()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 0;
-            box.SelectionLength = 0;
-
-            ClickNoteEditorEntry(view, "Menu_InsertBullets");
-            if (box.Text != "- x")
-                throw new InvalidOperationException(
-                    "the bullet pick wrote '" + box.Text + "', wanted '- x'");
-
-            ClickNoteEditorEntry(view, "Menu_InsertBullets");
-            if (box.Text != "x")
-                throw new InvalidOperationException(
-                    "the second bullet pick wrote '" + box.Text + "', wanted the original 'x'");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4): the table entry lays the T9 skeleton down after a
-        /// non-empty line (one newline - the ops' own block convention, the
-        /// same one <c>NoteEditorOps.InsertTable</c> pins) and parks the caret
-        /// in the first body cell. The two column words come from the
-        /// three-language <c>Note_TableColumnFormat</c> key.
-        /// </summary>
-        private static void NoteEditorTableEntryLaysOutTheSkeleton()
-        {
-            ThemeManager.Initialize("dark");
-            AssertTableColumnFormat("zh", "列 {0}");
-            AssertTableColumnFormat("en", "Column {0}");
-            AssertTableColumnFormat("ja", "列 {0}");
-
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 1;          // the line end of the fixture
-            box.SelectionLength = 0;
-
-            ClickNoteEditorEntry(view, "Menu_InsertTable");
-
-            string col1 = Localization.Format("Note_TableColumnFormat", 1);
-            string col2 = Localization.Format("Note_TableColumnFormat", 2);
-            string expected = "x\n| " + col1 + " | " + col2 + " |\n| --- | --- |\n|  |  |";
-            if (box.Text != expected)
-                throw new InvalidOperationException("the table pick wrote '"
-                    + box.Text.Replace("\n", "\\n") + "', wanted '" + expected.Replace("\n", "\\n") + "'");
-
-            int caret = expected.IndexOf("|  |  |", StringComparison.Ordinal) + 2;
-            if (box.SelectionStart != caret || box.SelectionLength != 0)
-                throw new InvalidOperationException("the table pick left the caret at "
-                    + box.SelectionStart + "/" + box.SelectionLength + ", wanted " + caret + "/0");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4): a selection is what the wrap family wraps - bold
-        /// puts the markers around the selected character and keeps it
-        /// selected so the next insert still aims at it.
-        /// </summary>
-        private static void NoteEditorWrappingASelectionBoldsIt()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 0;
-            box.SelectionLength = 1;
-
-            ClickNoteEditorEntry(view, "Menu_FormatBold");
-
-            if (box.Text != "**x**")
-                throw new InvalidOperationException(
-                    "the bold pick wrote '" + box.Text + "', wanted '**x**'");
-            if (box.SelectionStart != 2 || box.SelectionLength != 1 || box.SelectedText != "x")
-                throw new InvalidOperationException("the bold pick left the selection at "
-                    + box.SelectionStart + "/" + box.SelectionLength + " ('" + box.SelectedText
-                    + "'), wanted the wrapped 'x'");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4): with an empty selection the wrap family inserts the
-        /// three-language placeholder and selects it, so typing replaces it.
-        /// </summary>
-        private static void NoteEditorEmptySelectionInsertsThePlaceholder()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 1;
-            box.SelectionLength = 0;
-
-            ClickNoteEditorEntry(view, "Menu_FormatBold");
-
-            string placeholder = Localization.Get("Note_PlaceholderBold");
-            if (placeholder == "Note_PlaceholderBold")
-                throw new InvalidOperationException("the localization table has no Note_PlaceholderBold key");
-            if (box.Text != "x**" + placeholder + "**")
-                throw new InvalidOperationException(
-                    "the empty-selection bold wrote '" + box.Text + "', wanted 'x**" + placeholder + "**'");
-            if (box.SelectedText != placeholder)
-                throw new InvalidOperationException(
-                    "the placeholder is not selected ('" + box.SelectedText + "')");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4): every insert must be undoable with the box's OWN
-        /// undo - the write-back is one replacement through the box's editing
-        /// stack inside one change block, never a raw <c>Text</c> set (a bare
-        /// programmatic write registers no unit at all: WPF only records one
-        /// while a parent unit is open, and it flushes the stack otherwise).
-        /// The fixture enters the editor on the note's own text, so the undo's
-        /// own return value is the proof: rolling the insert back lands on the
-        /// fixture, not on an empty box.
-        /// </summary>
-        private static void NoteEditorInsertIsUndoableWithTheBoxUndo()
-        {
-            ThemeManager.Initialize("dark");
-            var view = NoteEditorOn("x", new NoteData());
-            var box = NoteSourceBox(view);
-            box.SelectionStart = 1;
-            box.SelectionLength = 0;
-
-            ClickNoteEditorEntry(view, "Menu_InsertTable");
-            if (box.Text == "x")
-                throw new InvalidOperationException("the table pick wrote nothing");
-            if (!box.CanUndo)
-                throw new InvalidOperationException("the insert never entered the box's own undo stack");
-
-            box.Undo();
-            if (box.Text != "x")
-                throw new InvalidOperationException("the box's own undo left '"
-                    + box.Text.Replace("\n", "\\n") + "', wanted the original 'x'");
-        }
-
-        /// <summary>
-        /// T15 (spec 6.4 / T8): the menu wears the widget colour's wash. The
-        /// shared <see cref="MenuBuilder"/> overrides the overlay brushes on
-        /// the menu itself, so the editor menu is expected to carry the same
-        /// mixed background the other widget menus do.
-        /// </summary>
-        private static void NoteEditorMenuFollowsTheWidgetColour()
-        {
-            ThemeManager.Initialize("dark");
-            string widgetHex = UiTokens.FolderPalette[0];
-            if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
-
-            var data = new NoteData();
-            data.Color = widgetHex;
-            var view = NoteEditorOn("x", data);
-
-            var menu = OpenNoteEditorMenu(view);
-            var tint = menu.Resources[ThemeManager.BrushKeyPrefix + "OverlayBackground"] as SolidColorBrush;
-            if (tint == null)
-                throw new InvalidOperationException("the editor menu carries no OverlayBackground tint");
-            if (tint.Color == ThemeManager.OverlayBackgroundBrush.Color)
-                throw new InvalidOperationException("the editor menu kept the untinted overlay colour");
-
-            Color wanted = Utils.MixColor(ThemeManager.OverlayBackgroundBrush.Color,
-                Utils.HexToColor(widgetHex), UiTokens.MenuTintBackground);
-            if (tint.Color != wanted)
-                throw new InvalidOperationException("the editor menu's wash is " + tint.Color
-                    + ", wanted " + wanted + " (the widget colour mixed into the overlay)");
-        }
-
-        /// <summary>The one-note view sitting in the source editor on the note's
-        /// own text (the T15 fixtures' shared entry, through the real card and
-        /// ✎ clicks). The box is templated first, so it stands the way the app's
-        /// does: WPF's own text-editor menu handler is live on it (it only
-        /// stands down for a box that already carries a custom ContextMenu, and
-        /// a never-measured box would hide that from these pins).</summary>
-        private static NotePanelView NoteEditorOn(string source, NoteData data)
-        {
-            data.Notes.Add(NewNote("a", source, new DateTime(2026, 3, 5, 9, 0, 0)));
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-            ClickNoteEditButton(view);
-            if (NoteState(view) != "Editing")
-                throw new InvalidOperationException(
-                    "the fixture never reached the editor (" + NoteState(view) + ")");
-            NoteSourceBox(view).ApplyTemplate();
-            return view;
-        }
-
-        /// <summary>
-        /// The source box's insert menu, opened through the box's own
-        /// ContextMenuOpening route: the box rebuilds it per opening, so the
-        /// pin drives the real path rather than a private builder. WPF gives
-        /// the event args no public constructor, so the pin builds the same
-        /// shape through the framework's own non-public one - its second
-        /// argument is <c>opening</c>, so <c>true</c> raises the opening event
-        /// (a <c>false</c> there would raise the closing one instead).
-        /// </summary>
-        private static ContextMenu OpenNoteEditorMenu(NotePanelView view)
-        {
-            var box = NoteSourceBox(view);
-            var args = (ContextMenuEventArgs)Activator.CreateInstance(typeof(ContextMenuEventArgs),
-                BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { box, true }, null);
-            box.RaiseEvent(args);
-            if (box.ContextMenu == null)
-                throw new InvalidOperationException("ContextMenuOpening left the source box without a menu");
-            return box.ContextMenu;
-        }
-
-        /// <summary>One submenu of the editor menu by its header key (the 标题 /
-        /// 格式 parents are reached through their localized headers).</summary>
-        private static MenuItem NoteEditorSubmenu(ContextMenu menu, string headerKey)
-        {
-            string wanted = Localization.Get(headerKey);
-            foreach (object entry in menu.Items)
-            {
-                var item = entry as MenuItem;
-                if (item != null && (item.Header as string) == wanted) return item;
-            }
-            throw new InvalidOperationException(
-                "the editor menu has no '" + wanted + "' (" + headerKey + ") submenu");
-        }
-
-        /// <summary>Picks one insert / format entry by its localization key -
-        /// the flat block first, then the two submenus (so a pin names an entry
-        /// the way the design does, not by its position).</summary>
-        private static void ClickNoteEditorEntry(NotePanelView view, string labelKey)
-        {
-            var menu = OpenNoteEditorMenu(view);
-            string wanted = Localization.Get(labelKey);
-            foreach (object entry in menu.Items)
-            {
-                var item = entry as MenuItem;
-                if (item == null) continue;
-                if ((item.Header as string) == wanted)
-                {
-                    item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-                    return;
-                }
-                foreach (object nested in item.Items)
-                {
-                    var sub = nested as MenuItem;
-                    if (sub != null && (sub.Header as string) == wanted)
-                    {
-                        sub.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-                        return;
-                    }
-                }
-            }
-            throw new InvalidOperationException("the editor menu has no entry labelled '" + wanted + "' (" + labelKey + ")");
-        }
+        #region Task T6: note key helpers kept from the retired editor pins
 
         /// <summary>The <c>Note_TableColumnFormat</c> value one language at a
         /// time (the brief's three forms), with the language put back.</summary>
