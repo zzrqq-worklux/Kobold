@@ -206,6 +206,28 @@ namespace Kobold.ConfigSafetyCheck
             Check(!File.ReadAllText(main8).Contains("\"en\""),
                 "no new debounced writes start after BeginClosing");
 
+            // --- Flush-then-save ordering: the note widget's close-time flush
+            // splices its pending edit and then asks for a synchronous save
+            // (WidgetManager.SaveConfigNow / SaveConfigIfLoaded). That save must
+            // still land after BeginClosing, where the debounced path is gone -
+            // this is the logoff ordering the note interaction upgrade needs.
+
+            string dir10 = NewCase("case10");
+            string main10 = Path.Combine(dir10, "config.json");
+            var cfg10 = AppConfig.Load(main10, main10 + ".backup");
+            cfg10.Language = "ja";
+            cfg10.BeginClosing();
+            cfg10.Language = "en"; // the edit flushed by the widget's Closing
+            cfg10.Save();          // NoteWidget.Closing's SaveConfigIfLoaded
+            Check(File.ReadAllText(main10).Contains("\"en\""),
+                "a synchronous flush-then-save still lands after BeginClosing");
+
+            cfg10.Language = "fr";
+            cfg10.SaveDebounced(50);
+            System.Threading.Thread.Sleep(300);
+            Check(!File.ReadAllText(main10).Contains("\"fr\""),
+                "the closing state still refuses debounced writes after that flush");
+
             // --- Saved configs carry an explicit "Folders": null: it sends
             // ≤1.3.0 down their evidence + default path, and our own reader
             // accepts it when the Widgets array is present.

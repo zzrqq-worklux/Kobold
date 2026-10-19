@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
@@ -13,7 +12,7 @@ namespace Kobold.Controls
 {
     /// <summary>
     /// The note widget's content: the list, with one card at a time expanded in
-    /// place (spec 6.2). The panel carries a single <see cref="NoteSurfaceView"/>
+    /// place (design §6.2). The panel carries a single <see cref="NoteSurfaceView"/>
     /// for its whole life - a plain Border host, whose Child is set once and
     /// never re-parented, is mounted in the expanded row and re-attached per
     /// note, so the rendered state and the block edit live inside a card rather
@@ -51,6 +50,11 @@ namespace Kobold.Controls
         /// one card is expanded at a time.</summary>
         private string _expandedId;
 
+        /// <summary>The note id last mounted in the surface host; a rebuild
+        /// for the same note (theme/language switch, another note's delete)
+        /// must not reset its scroll position.</summary>
+        private string _mountedNoteId;
+
         /// <summary>The note surface, built once and carried by the expanded
         /// row's host (its single instance keeps the surface's session and
         /// document alive across a collapse).</summary>
@@ -85,7 +89,7 @@ namespace Kobold.Controls
             // collapse, and every write-back (the block splice, a task toggle)
             // is a data change the host persists. The notification is the whole
             // handler - the list is rebuilt on the collapse, never mid-edit.
-            _surface.CollapseRequested = CollapseExpanded;
+            _surface.CollapseRequested = () => CollapseExpanded();
             _surface.DataChanged = () => _host?.NotifyDataChanged();
         }
 
@@ -168,7 +172,7 @@ namespace Kobold.Controls
         private void InvokeDelete(NoteItem note)
         {
             if (note == null) return;
-            if (note.Id == _expandedId) CollapseExpanded();
+            if (note.Id == _expandedId) CollapseExpanded(rebuild: false);
 
             int index = _data.Notes.IndexOf(note);
             if (index < 0) return;
@@ -191,7 +195,7 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Rebuilds the rows in display order (spec 6.2): the expanded note's
+        /// Rebuilds the rows in display order (design §6.2): the expanded note's
         /// row is the surface's host - re-attached so the surface renders the
         /// note - and every other row is its card face. An empty list adds
         /// nothing: the top add row is then the panel's only content.
@@ -218,6 +222,7 @@ namespace Kobold.Controls
                 // The expanded note is gone (deleted, undone away or discarded
                 // as blank): the list is the plain one again.
                 _expandedId = null;
+                _mountedNoteId = null;
                 return;
             }
 
@@ -225,12 +230,16 @@ namespace Kobold.Controls
             // (and its box text) belongs to the user - see Refresh.
             if (_surface.IsEditing) return;
 
+            // A new expansion starts the note at the top; a rebuild of the same
+            // mount (theme / language switch, another note's delete) leaves the
+            // reader where they were - the inner scroller is a pass-through and
+            // the list's scroller owns the offset. Collapsing still rebuilds
+            // without preserving the offset (unchanged).
+            bool newExpansion = expanded.Id != _mountedNoteId;
             _surface.Attach(_data, expanded);
+            _mountedNoteId = expanded.Id;
+            if (!newExpansion) return;
 
-            // The surface's instance is reused, so its scroller keeps the last
-            // note's offset: every mount starts the note at the top. The inner
-            // scrollers are pass-throughs inside this list's scroller, so the
-            // expanded row is pulled into the list's own view here.
             var scroller = _surface.FindName("SurfaceScroller") as ScrollViewer;
             if (scroller != null) scroller.ScrollToTop();
             _surfaceHost.BringIntoView();
@@ -246,7 +255,7 @@ namespace Kobold.Controls
         private void Expand(NoteItem note)
         {
             if (note == null) return;
-            if (_expandedId != null) CollapseExpanded();
+            if (_expandedId != null) CollapseExpanded(rebuild: false);
 
             _expandedId = note.Id;
             RebuildList();
@@ -257,13 +266,16 @@ namespace Kobold.Controls
         /// Collapses the expanded card back to its face (spec 3.3/4.1): the open
         /// block settles, a blank text drops its note, and the list rebuilds in
         /// display order. Idempotent, so the surface's ‹, the keys and a click
-        /// on the blank area may all call it.
+        /// on the blank area may all call it. <paramref name="rebuild"/> is
+        /// false when the caller immediately rebuilds for its own next step
+        /// (expand / create / delete), so the list is never built twice.
         /// </summary>
-        private void CollapseExpanded()
+        private void CollapseExpanded(bool rebuild = true)
         {
             SettleExpandedEdit();
             _expandedId = null;
-            RebuildList();
+            _mountedNoteId = null;
+            if (rebuild) RebuildList();
         }
 
         /// <summary>
@@ -305,7 +317,7 @@ namespace Kobold.Controls
         private void StartNewNote()
         {
             if (_data == null) return;
-            if (_expandedId != null) CollapseExpanded();
+            if (_expandedId != null) CollapseExpanded(rebuild: false);
 
             var now = DateTime.Now;
             var note = new NoteItem
@@ -370,7 +382,7 @@ namespace Kobold.Controls
                     return;
                 }
                 if (ReferenceEquals(element, AddPill) || IsCardRow(element)) return;
-                element = ParentOf(element);
+                element = NoteSurfaceView.ParentOf(element);
             }
         }
 
@@ -380,20 +392,6 @@ namespace Kobold.Controls
         {
             var border = element as Border;
             return border != null && ReferenceEquals(border.Parent, ItemsPanel);
-        }
-
-        /// <summary>The hit chain's next step: a text element's parent, a
-        /// framework content element's parent, otherwise the visual tree.</summary>
-        private static DependencyObject ParentOf(DependencyObject element)
-        {
-            var text = element as TextElement;
-            if (text != null) return text.Parent;
-
-            var content = element as FrameworkContentElement;
-            if (content != null) return content.Parent;
-
-            if (element is Visual) return VisualTreeHelper.GetParent(element);
-            return LogicalTreeHelper.GetParent(element);
         }
 
         private void AddPill_Click(object sender, MouseButtonEventArgs e)

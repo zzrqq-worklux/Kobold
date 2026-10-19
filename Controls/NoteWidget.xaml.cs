@@ -9,11 +9,10 @@ namespace Kobold.Controls
     /// <summary>
     /// The note widget: shared chrome + the note list view. The view is a
     /// renderer over the pure Note* logic and persists its edits through the
-    /// base's OnDataChanged path. Task T10 builds the shell; T11 renders the
-    /// list state (cards, the modified-time order, the row delete and its undo
-    /// stack); T13 reads (the rendered document and the task boxes); T14 edits
-    /// (the source box, the preview, the creation flow and the commit paths);
-    /// the editor's insert menu is T15.
+    /// base's OnDataChanged path. The shipped workbench expands one card in
+    /// place: the rendered document (with its task boxes), a click-to-edit
+    /// block splice inside that card, the add flow and the editor's insert
+    /// menu all live in <see cref="NotePanelView"/> and its one surface.
     /// </summary>
     public partial class NoteWidget : WidgetWindowBase
     {
@@ -37,8 +36,17 @@ namespace Kobold.Controls
             _view.Attach(data, this);
 
             // The pending edit settles before the window goes (spec 5.2): a
-            // closed/collapsed panel must never lose half-typed text.
-            Closing += (s, e) => _view?.FlushPendingEdit();
+            // closed/collapsed panel must never lose half-typed text. The
+            // flush's own change notification only arms the debounce, so the
+            // close path lands a synchronous save as well - on a Windows
+            // session end the config is already closing and a debounced write
+            // would be dropped, and on tray exit the process may go before the
+            // timer fires.
+            Closing += (s, e) =>
+            {
+                _view?.FlushPendingEdit();
+                WidgetManager.SaveConfigIfLoaded();
+            };
         }
 
         /// <summary>The note list hosted in the chrome's content slot.</summary>

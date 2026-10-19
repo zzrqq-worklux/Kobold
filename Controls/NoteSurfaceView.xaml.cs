@@ -14,18 +14,17 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// The note surface: the rendered state ⇄ the block-editing state (T4),
-    /// plus the source box's quick-insert menu (T5) - one expanded card's
-    /// content in the note list. Rendered, a single read-only,
-    /// document-enabled RichTextBox paints the whole note through
-    /// <see cref="NoteMarkdownRenderer"/>: its task boxes write the flipped
-    /// source line back (spec 4.1/5.3) and its links keep their target for the
-    /// browser. A click on a rendered line swaps that line's block into the
-    /// three-pane splice (the before render / the source box / the after
-    /// render, spec 4.3): the box types through a 400ms throttle straight back
-    /// into the note and leaving renders the whole note again.
-    /// <see cref="NotePanelView"/> keeps its own three states until T6 retires
-    /// them, so the two surfaces deliberately duplicate code for now.
+    /// The note surface: the rendered state ⇄ the block-editing state, plus the
+    /// source box's quick-insert menu - one expanded card's content in the note
+    /// list. Rendered, a single read-only, document-enabled RichTextBox paints
+    /// the whole note through <see cref="NoteMarkdownRenderer"/>: its task boxes
+    /// write the flipped source line back (spec 4.1/5.3) and its links keep
+    /// their target for the browser. A click on a rendered line swaps that
+    /// line's block into the three-pane splice (the before render / the source
+    /// box / the after render, spec 4.3): the box types through a 400ms
+    /// throttle straight back into the note and leaving renders the whole note
+    /// again. <see cref="NotePanelView"/> owns one instance for its whole life
+    /// and mounts it in the expanded row (the shipped workbench design).
     /// </summary>
     public partial class NoteSurfaceView : UserControl
     {
@@ -71,6 +70,17 @@ namespace Kobold.Controls
         /// Repaint re-applies the box's type from it.</summary>
         private MdBlock _editBlock;
 
+        /// <summary>The document text the session entered with: the before /
+        /// after panes were painted from it, so their line tags still name its
+        /// blocks. A pane click resolves against this snapshot, never against
+        /// the edited document, whose line numbers have moved (spec 4.3).</summary>
+        private string _entryText;
+
+        /// <summary>The edited block's index in <see cref="_entryText"/> (-1
+        /// for a whole-text edit): the anchor the after pane's block indices
+        /// are counted from.</summary>
+        private int _entryIndex = -1;
+
         /// <summary>The AST before / after the edited block, captured on entry
         /// so a repaint reuses them (spec 4.3).</summary>
         private List<MdBlock> _beforeBlocks = new List<MdBlock>();
@@ -94,7 +104,7 @@ namespace Kobold.Controls
             EditBox.ContextMenuOpening += EditBox_ContextMenuOpening;
         }
 
-        /// <summary>True while a block edit session is open (T6's seam).</summary>
+        /// <summary>True while a block edit session is open (the surface's editing seam).</summary>
         public bool IsEditing
         {
             get { return _editing; }
@@ -167,16 +177,36 @@ namespace Kobold.Controls
             if (index < 0) return false;
 
             var ranges = NoteBlockRanges.RangesOf(text);
+            if (index >= ranges.Count) return false;
+            return BeginEditAtIndex(index, line - ranges[index].Start);
+        }
+
+        /// <summary>
+        /// Opens the block at <paramref name="index"/> of the current text with
+        /// the caret <paramref name="relativeLine"/> lines into it: the one
+        /// entry both the line click and a pane switch land on. The session's
+        /// entry snapshot is refreshed here, so the panes this entry paints are
+        /// the ones a later pane click resolves against.
+        /// </summary>
+        private bool BeginEditAtIndex(int index, int relativeLine)
+        {
+            if (_note == null) return false;
+
+            string text = _note.Text ?? string.Empty;
+            var ranges = NoteBlockRanges.RangesOf(text);
             var blocks = MarkdownParser.Parse(text);
-            if (index >= ranges.Count || index >= blocks.Count) return false;
+            if (index < 0 || index >= ranges.Count || index >= blocks.Count) return false;
 
             _editStart = ranges[index].Start;
             _editEnd = ranges[index].End;
             _editBlock = blocks[index];
             _beforeBlocks = blocks.GetRange(0, index);
             _afterBlocks = blocks.GetRange(index + 1, blocks.Count - index - 1);
+            _entryText = text;
+            _entryIndex = index;
 
-            EnterEditingState(line - _editStart);
+            if (relativeLine < 0) relativeLine = 0;
+            EnterEditingState(relativeLine);
             return true;
         }
 
@@ -197,6 +227,8 @@ namespace Kobold.Controls
             _editBlock = null;
             _beforeBlocks = new List<MdBlock>();
             _afterBlocks = new List<MdBlock>();
+            _entryText = text;
+            _entryIndex = -1;
 
             EnterEditingState(0);
         }
@@ -209,13 +241,15 @@ namespace Kobold.Controls
         {
             if (!_editing) return;
 
-            double offset = SurfaceScroller.VerticalOffset;
             Flush();
             _editing = false;
             ShowRendered();
             RenderReading();
-            Dispatcher.BeginInvoke(new Action(() => SurfaceScroller.ScrollToVerticalOffset(offset)),
-                DispatcherPriority.Background);
+
+            // Leaving is a return to the rendered document, so its box takes
+            // the focus: the panel's Esc / Backspace router is a tunnelling
+            // handler and only sees keys from a focused descendant.
+            FocusReading();
         }
 
         /// <summary>
@@ -342,12 +376,12 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The rendered state's click-to-edit (spec 4.2/4.4), attached to the
-        /// root so it covers the reading box and the before / after panes: a
-        /// handled click (a task glyph, a link) and a drag-selection release
-        /// are skipped, a click on a tagged line enters its block edit and a
-        /// click with no tagged ancestor (the box itself, the chrome) does
-        /// nothing.
+        /// The rendered / editing states' click handler, attached to the root
+        /// so it covers the reading box and the before / after panes: a handled
+        /// click (a task glyph, a link) and a drag-selection release are
+        /// skipped, a click on a tagged line opens its block edit, a click in a
+        /// pane while editing switches to the block it names, and a click with
+        /// no tagged ancestor (the box itself, the chrome) does nothing.
         /// </summary>
         private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
@@ -361,7 +395,52 @@ namespace Kobold.Controls
             int line = TaggedLine(hit);
             if (line < 0) return;
 
+            // While editing, a click in either static pane names a block of the
+            // *entry* document. Resolve it before the splice: the line tags are
+            // stale the moment the edited region changes height (spec 4.3).
+            if (_editing)
+            {
+                TrySwitchPaneEdit(line);
+                return;
+            }
+
             TryBeginEditAt(line);
+        }
+
+        /// <summary>
+        /// A click on the before / after pane while a block is edited (spec
+        /// 4.3/4.4): the click names a block in the entry document, the splice
+        /// commits, and the edit reopens on the same block by identity - the
+        /// before pane's block index is unchanged, while the after pane's block
+        /// sits behind however many top-level blocks the edit produced. That
+        /// count is read off the spliced text (the block total less the entry
+        /// snapshot's after blocks), never off the raw line count: consecutive
+        /// lines parse as one paragraph, so a growing edit can produce fewer
+        /// blocks than lines. Resolving the identity first is what keeps a
+        /// click after a growing edit from landing on the first block of the
+        /// edit itself. The panes tile the entry document around the edited
+        /// block, so the clicked entry line alone says which pane it came from.
+        /// </summary>
+        private bool TrySwitchPaneEdit(int line)
+        {
+            if (_entryText == null || _entryIndex < 0) return false;
+
+            var entryRanges = NoteBlockRanges.RangesOf(_entryText);
+            int entryIndex = NoteBlockRanges.RangeIndexAtLine(_entryText, line);
+            if (entryIndex < 0 || entryIndex >= entryRanges.Count) return false;
+            if (entryIndex == _entryIndex) return false; // the edited block is in the box
+
+            bool afterPane = entryIndex > _entryIndex;
+            int relative = line - entryRanges[entryIndex].Start;
+            int after = entryIndex - _entryIndex - 1;
+            if (afterPane && (after < 0 || after >= _afterBlocks.Count)) return false;
+
+            CommitRegion();
+
+            int target = afterPane
+                ? MarkdownParser.Parse(_note.Text ?? string.Empty).Count - _afterBlocks.Count + after
+                : entryIndex;
+            return BeginEditAtIndex(target, relative);
         }
 
         /// <summary>
@@ -403,8 +482,10 @@ namespace Kobold.Controls
         }
 
         /// <summary>The hit chain's next step: a text element's parent, a
-        /// framework content element's parent, otherwise the visual tree.</summary>
-        private static DependencyObject ParentOf(DependencyObject element)
+        /// framework content element's parent, otherwise the visual tree. The
+        /// note panel's blank-area click walks the same chain, so this is the
+        /// one shared helper.</summary>
+        internal static DependencyObject ParentOf(DependencyObject element)
         {
             var text = element as TextElement;
             if (text != null) return text.Parent;
@@ -454,6 +535,8 @@ namespace Kobold.Controls
             _editEnd = -1;
             _editEntryText = null;
             _editBlock = null;
+            _entryText = null;
+            _entryIndex = -1;
             _beforeBlocks = new List<MdBlock>();
             _afterBlocks = new List<MdBlock>();
             EditBox.Text = string.Empty;
@@ -629,7 +712,15 @@ namespace Kobold.Controls
 
         #endregion
 
-        private void CollapseButton_Click(object sender, MouseButtonEventArgs e)
+        /// <summary>
+        /// The floating ‹ (spec 3.3): the host collapses the expanded card.
+        /// Handled here on the button-up, not the button-down - the card face
+        /// behind the collapsed row expands on its own button-up, so collapsing
+        /// on the down would let the release immediately re-expand the card.
+        /// The event is marked handled so the surface's click-to-edit handler
+        /// never sees it.
+        /// </summary>
+        private void CollapseButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
             CollapseRequested?.Invoke();
@@ -670,22 +761,20 @@ namespace Kobold.Controls
         /// <summary>
         /// A task box was clicked (spec 4.1/5.3): the source line flips, the
         /// note becomes the newest modification, the host is notified and the
-        /// document repaints. The scroll offset is read before the repaint and
-        /// restored once the fresh document is laid out, so a click deep in a
-        /// note does not throw the reader back to the top (a surface that never
-        /// scrolled - every off-screen check - restores 0 harmlessly).
+        /// document repaints. The fresh document then takes the focus back: the
+        /// glyph that was clicked belonged to the old document. The host's list
+        /// scroller owns the scroll offset in the workbench (the surface's own
+        /// scroller is a pass-through there), so the surface restores nothing.
         /// </summary>
         private void ToggleTask(int line)
         {
             if (_note == null) return;
 
-            double offset = SurfaceScroller.VerticalOffset;
             _note.Text = NoteOps.ToggleTaskAt(_note.Text, line);
             _note.ModifiedAt = DateTime.Now;
             DataChanged?.Invoke();
             RenderReading();
-            Dispatcher.BeginInvoke(new Action(() => SurfaceScroller.ScrollToVerticalOffset(offset)),
-                DispatcherPriority.Background);
+            FocusReading();
         }
 
         /// <summary>

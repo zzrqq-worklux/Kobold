@@ -623,8 +623,12 @@ namespace Kobold.XamlLoadCheck
                     SurfaceEnteringEditOnAnEmptyNoteFails);
                 failures += TryCheck("surface: clicking a tagged line enters its edit",
                     SurfaceClickingATaggedLineEntersItsEdit);
+                failures += TryCheck("surface: clicking a block's first line opens that block",
+                    SurfaceClickingABlocksFirstLineOpensThatBlock);
                 failures += TryCheck("surface: clicking another block switches the edit",
                     SurfaceClickingAnotherBlockSwitchesTheEdit);
+                failures += TryCheck("surface: an after-pane click survives a grown edit",
+                    SurfaceClickingAfterPaneAfterGrowthOpensTheRightBlock);
                 failures += TryCheck("surface: an already-handled click does not enter the edit",
                     SurfaceHandledClickDoesNotEnterTheEdit);
                 failures += TryCheck("surface: begin whole-text edit covers the full text",
@@ -9427,6 +9431,18 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the fixture expanded '" + NoteExpandedId(view) + "', wanted the newest note");
 
+            // The collapse must wait for the button-up: a button-down alone is
+            // no longer enough (the old behaviour collapsed the card on the
+            // down, so the release landed on the face and re-expanded it).
+            var collapse = NoteSurface(view).FindName("CollapseButton") as FrameworkElement;
+            if (collapse == null) throw new InvalidOperationException("the surface has no CollapseButton");
+            collapse.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            });
+            if (NoteExpandedId(view) != "b")
+                throw new InvalidOperationException("the button-down collapsed the card before the release");
+
             ClickNoteCollapse(NoteSurface(view));
 
             if (NoteExpandedId(view) != null)
@@ -9978,7 +9994,10 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>The floating ‹ of the expanded surface, clicked the way the
-        /// mouse does (the real handler, never a reflection call).</summary>
+        /// mouse does (the real handler, never a reflection call): a full
+        /// down/up pair on the button. The collapse fires on the up, so the
+        /// card face that replaces the surface never sees a release to expand
+        /// again.</summary>
         private static void ClickNoteCollapse(NoteSurfaceView surface)
         {
             var button = surface.FindName("CollapseButton") as FrameworkElement;
@@ -9986,6 +10005,10 @@ namespace Kobold.XamlLoadCheck
             button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
             {
                 RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            });
+            button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonUpEvent
             });
         }
 
@@ -10051,7 +10074,7 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
-        #region Task T6: note key helpers kept from the retired editor pins
+        #region Task T5: note key helpers shared with the surface menu pins
 
         /// <summary>The <c>Note_TableColumnFormat</c> value one language at a
         /// time (the brief's three forms), with the language put back.</summary>
@@ -10498,6 +10521,28 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// T4 (spec 8.1 #5): a click on a block's first line opens exactly that
+        /// block - the caret lands at its start, not at the note's start.
+        /// </summary>
+        private static void SurfaceClickingABlocksFirstLineOpensThatBlock()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# one\n\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            ClickTaggedLine(surface, SurfaceReadingBox(surface), 2);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the second block's first line did not enter the edit");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "two")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted 'two'");
+            if (edit.CaretIndex != 0)
+                throw new InvalidOperationException("the caret sits at " + edit.CaretIndex + ", wanted 0");
+        }
+
+        /// <summary>
         /// T4 (spec 4.4): clicking another block while editing commits the
         /// current region first and then opens the clicked one.
         /// </summary>
@@ -10526,6 +10571,42 @@ namespace Kobold.XamlLoadCheck
             if (edit.Text != "three")
                 throw new InvalidOperationException("the box now reads '"
                     + edit.Text.Replace("\n", "\\n") + "', wanted 'three'");
+        }
+
+        /// <summary>
+        /// T4 (spec 4.3/4.4, final-review I1): the after pane was painted from
+        /// the entry document and keeps those line tags while the edit grows the
+        /// region. The click must resolve to the block it names - here the
+        /// fourth paragraph "d", which after the splice sits behind the three
+        /// blocks the edited region produced, rather than landing inside the
+        /// edit. The trailing newline keeps the separator the region owns
+        /// (spec 5.4) so "c" stays a block of its own.
+        /// </summary>
+        private static void SurfaceClickingAfterPaneAfterGrowthOpensTheRightBlock()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "a\n\nb\n\nc\n\nd", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(2))
+                throw new InvalidOperationException("the second paragraph did not enter edit");
+            SurfaceEditBox(surface).Text = "b\n\nx\n\ny\n";
+
+            // The after pane still paints the entry blocks "c" (line 4) and
+            // "d" (line 6); click the fourth paragraph.
+            ClickTaggedLine(surface, SurfaceAfterBox(surface), 6);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the switch dropped the edit session");
+            if (note.Text != "a\n\nb\n\nx\n\ny\n\nc\n\nd")
+                throw new InvalidOperationException("the grown region was not committed: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "d")
+            {
+                throw new InvalidOperationException("the after-pane click opened '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted the fourth paragraph 'd'");
+            }
         }
 
         /// <summary>

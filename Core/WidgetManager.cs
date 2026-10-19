@@ -415,6 +415,29 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Lands a save synchronously, for a path that cannot wait for the
+        /// debounce (a window close during tray exit or a Windows session end).
+        /// <see cref="AppConfig.Save"/> is atomic and keeps the backup; it also
+        /// writes while the config is in its closing state, where
+        /// <see cref="AppConfig.SaveDebounced"/> deliberately drops the write.
+        /// </summary>
+        public void SaveConfigNow()
+        {
+            _config.Save();
+        }
+
+        /// <summary>
+        /// The same synchronous save, but only when the singleton already
+        /// exists: exit paths must never construct a manager (and load the
+        /// user's real config) just to save it.
+        /// </summary>
+        public static void SaveConfigIfLoaded()
+        {
+            var instance = _instance;
+            if (instance != null) instance.SaveConfigNow();
+        }
+
+        /// <summary>
         /// Sets language and updates UI
         /// </summary>
         public void SetLanguage(string lang)
@@ -460,7 +483,9 @@ namespace Kobold.Core
             _fullscreenWatcher = null;
             _trimTimer.Stop();
 
-            // Ensure config is saved before exit
+            // Ensure config is saved before exit. This first write covers the
+            // state as of the exit request; the writes must not be the last
+            // word, because the close handlers below flush pending note edits.
             _config.Save();
             
             foreach (var widget in _widgets.ToList())
@@ -468,6 +493,13 @@ namespace Kobold.Core
                 if (widget is Window window) window.Close();
             }
             _widgets.Clear();
+
+            // The close handlers just spliced their pending edits into the
+            // data and asked for a debounced save, which will never fire once
+            // this process is gone (and is dropped outright during a Windows
+            // session end). Land those edits synchronously - the second write
+            // is what makes the final keystrokes survive a tray exit.
+            _config.Save();
         }
     }
 }

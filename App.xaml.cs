@@ -166,6 +166,11 @@ namespace Kobold
                 try { WidgetManager.Instance.RestoreDesktopIconsOnExit(); } catch { }
                 try { ThemeManager.StopSystemPreferenceWatch(); } catch { }
 
+                // Last chance for a synchronous write: every window has closed
+                // by now, so a note's close-time splice is already in the data.
+                // The save is a no-op if the manager was never built.
+                try { WidgetManager.SaveConfigIfLoaded(); } catch { }
+
                 try { _mutex?.ReleaseMutex(); }
                 catch (Exception ex) { Debug.WriteLine($"[Kobold] ReleaseMutex failed: {ex.Message}"); }
             }
