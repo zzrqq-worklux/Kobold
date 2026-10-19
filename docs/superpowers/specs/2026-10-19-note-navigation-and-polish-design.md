@@ -197,8 +197,9 @@ home                                   detail
     After 段为空，EditBox 为空、正文排版。
   - 提交时：若 EditBox 文本为空 → 数据保持 `_appendPrefix`（不产生空块）；
     否则 `note.Text = _appendPrefix + Separator + EditBox.Text`。
-  - `Separator`：前缀为空 → `""`；前缀以 `\n\n` 结尾 → `""`；前缀以 `\n` 结尾 →
-    `"\n"`；否则 → `"\n\n"`。保证新块与上一个块之间有一个空行。
+  - `Separator`：前缀为空 → `""`；前缀以 `\n\n` 或 `\r\n\r\n` 结尾 → `""`；
+    前缀以 `\r\n` 结尾 → `"\r\n"`；前缀以 `\n` 结尾 → `"\n"`；否则 → `"\n\n"`。
+    保证新块与上一个块之间有一个空行，CRLF 源不产生双空行或混用换行。
   - 每次提交幂等：同一 `_appendPrefix` + 同一文本重复提交结果不变；`ModifiedAt`
     只在文本真变时更新；`DataChanged` 只在真变时发一次。
   - 追加会话中切换到另一块 / 离开编辑 / 切笔记 / 面板隐藏：先按上述规则提交，
