@@ -397,19 +397,28 @@ namespace Kobold.Controls
         /// tagged line opens its block (or switches to it while editing); any
         /// other hit while editing is the click-away: commit and render back
         /// without collapsing the card (spec 4.3/4.4).
+        ///
+        /// A real mouse release reports the box itself as its original source
+        /// (the probe: source=ReadingBox, taggedLine=-1), so the tagged element
+        /// under the pointer is read back from the click point; the untagging
+        /// checks (the source box, a selection, the scroll chrome) still run on
+        /// the raw hit.
         /// </summary>
         private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             // The off-screen checks raise the event by hand, so the original
             // source may be unset there; the real input route always fills it.
             object hit = e.OriginalSource ?? e.Source;
+            var hitBox = hit as RichTextBox;
+            Point point = hitBox != null ? e.GetPosition(hitBox) : default(Point);
+            object resolved = hitBox != null ? HitAtPoint(hitBox, point) : hit;
 
             if (IsInside(hit, EditBox)) return;            // typing surface
             if (IsInside(hit, CollapseButton)) return;     // the ‹ owns its click
 
             if (SelectionIsNotEmpty(hit)) return;
 
-            if (IsControlHit(hit))
+            if (IsControlHit(resolved))
             {
                 // The glyph / link already ran its own handler. While editing
                 // it sits outside the edited block (the panes are inert), so
@@ -422,7 +431,10 @@ namespace Kobold.Controls
             // must not end the edit (the wheel never reaches this path).
             if (IsScrollChrome(hit)) return;
 
-            int line = TaggedLine(hit);
+            // The box path goes through the same helper the point pin calls, so
+            // that pin guards the production wiring; a synthetic event whose
+            // source already carries the tag keeps the plain walk.
+            int line = hitBox != null ? LineAtPoint(hitBox, point) : TaggedLine(resolved);
             if (line < 0)
             {
                 if (_editing) LeaveEdit(); // chrome / pane blank: commit, stay expanded
@@ -439,6 +451,36 @@ namespace Kobold.Controls
             }
 
             TryBeginEditAt(line);
+        }
+
+        /// <summary>
+        /// Resolves the element under the click inside a RichTextBox. Real mouse
+        /// input reports the box itself as OriginalSource, so the tagged
+        /// Paragraph/Span has to be read back from the point (the probe:
+        /// source=ReadingBox, taggedLine=-1). The text position is preferred
+        /// because it names the exact line: a hit test can stop at the box or at
+        /// the whole paragraph, and an off-screen box answers null outright.
+        /// A task glyph wins through the hit test (it is a visual); a link is
+        /// the <see cref="Run"/> under the pointer, which the caller's
+        /// <see cref="IsControlHit"/> ancestor walk recognises as a Hyperlink.
+        /// </summary>
+        private static object HitAtPoint(RichTextBox box, Point point)
+        {
+            var input = box.InputHitTest(point) as DependencyObject;
+            if (IsControlHit(input)) return input;
+
+            // The text position names the exact line; the raw hit test often
+            // stops at the whole paragraph, and an off-screen box answers null.
+            var pos = box.GetPositionFromPoint(point, true);
+            if (pos != null && pos.Parent != null) return pos.Parent;
+            return input;
+        }
+
+        /// <summary>The snapped source line under the point, or -1 when both the
+        /// control hit test and the text pointer fail.</summary>
+        private static int LineAtPoint(RichTextBox box, Point point)
+        {
+            return TaggedLine(HitAtPoint(box, point));
         }
 
         /// <summary>

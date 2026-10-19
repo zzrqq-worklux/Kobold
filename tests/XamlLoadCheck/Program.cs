@@ -635,6 +635,8 @@ namespace Kobold.XamlLoadCheck
                     SurfaceHandledClickDoesNotEnterTheEdit);
                 failures += TryCheck("surface: a handled click on a tagged line still enters the edit",
                     SurfaceHandledClickOnTaggedLineEntersTheEdit);
+                failures += TryCheck("surface: a click point inside the paragraph resolves its line",
+                    SurfaceLineAtPointResolvesAParagraph);
                 failures += TryCheck("surface: a handled glyph click does not enter the edit",
                     SurfaceHandledGlyphClickDoesNotEnterTheEdit);
                 failures += TryCheck("surface: clicking the chrome while editing leaves the edit",
@@ -10723,6 +10725,45 @@ namespace Kobold.XamlLoadCheck
             if (edit.Text != "one\ntwo")
                 throw new InvalidOperationException("the box reads '"
                     + edit.Text.Replace("\n", "\\n") + "', wanted 'one\\ntwo'");
+        }
+
+        /// <summary>
+        /// Real-mouse regression (spec 4.2): a real mouse release reports the
+        /// reading box itself as OriginalSource, so the tagged span is never on
+        /// the hit chain - the WPF hit test that produced the event stopped at
+        /// the box. The surface therefore resolves the clicked line from the
+        /// point. Layout the surface for real, take the line-1 span's own
+        /// character rect and hand that point to <c>LineAtPoint</c>: a box
+        /// without the point resolution answers -1 (its OriginalSource walk
+        /// finds no tag on the box) and this pin fails.
+        /// </summary>
+        private static void SurfaceLineAtPointResolvesAParagraph()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            LayoutSurface(surface);
+
+            var box = SurfaceReadingBox(surface);
+            var span = SpanWithLine(box.Document, 1);
+            Rect rect = span.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            if (rect.IsEmpty)
+                throw new InvalidOperationException(
+                    "the line-1 span has no character rect after layout (the pin has no stable point)");
+
+            var method = typeof(NoteSurfaceView).GetMethod("LineAtPoint",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException("NoteSurfaceView has no LineAtPoint");
+            // The off-screen char rect is degenerate in X (width 0), so a nudge
+            // past its left edge is all that is needed; Y + 2 lands inside the
+            // line box, which is what must resolve to the line.
+            var point = new Point(rect.X + 1, rect.Y + 2);
+            int line = (int)method.Invoke(null, new object[] { box, point });
+
+            if (line != 1)
+                throw new InvalidOperationException("the point " + point.X.ToString("0") + ","
+                    + point.Y.ToString("0") + " resolved to line " + line + ", wanted 1");
         }
 
         /// <summary>
