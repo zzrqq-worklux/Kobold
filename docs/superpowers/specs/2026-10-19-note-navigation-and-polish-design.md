@@ -239,8 +239,9 @@ home                                   detail
   - 表格 / 引用 / 分割线：`(line, 0)`。
 - `NoteSurfaceView`：
   - 点击时从 `TextPointer` 取**可见字符偏移**：找到带 `SourceLine` 的 `Span` / `Paragraph`，
-    用 `ContentStart.GetOffsetToPosition(pos)`；任务 glyph 占一个内联位置，映射前要扣除
-    或直接由 `SourcePositions` 的文本长度校正。
+    用 `new TextRange(element.ContentStart, pos).Text` 的字符数，并扣除
+    `InlineUIContainer` 的 `\uFFFC` 占位符。**不要用 `GetOffsetToPosition`**：它数的是
+    内联元素边界符号，不是可见字符（实测 `Span("abc")` 的 ContentStart→ContentEnd = 5）。
   - `TryBeginEditAt(int line, int column = 0)`；切换块时同样带列；
   - `SetCaret(relativeLine, relativeColumn)` 按「前面行长度 + 1 + 列」定位，
     越界钳位；

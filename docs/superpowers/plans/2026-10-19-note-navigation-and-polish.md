@@ -444,9 +444,16 @@ private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e
    `TryBeginEditAt(0, 4)` → `EditBox.CaretIndex == 4`（源码 `# Head`，列 4 是 'a'）。
 3. `surface: a task caret skips the box`：note `"- [ ] task"`；
    `TryBeginEditAt(0, 8)` → `EditBox.CaretIndex == 8`。
-4. `surface: CaretAtPoint names the visual offset`：布局后取 `SpanWithLine(...,1)` 的字符矩形，
-   反射调用 `CaretAtPoint` → `line == 1`、`visualOffset` 在合理范围内；若离屏
-   `GetPositionFromPoint` 不稳定，改断言 `NoteCaretMap` 纯逻辑 + 冒烟覆盖，并在记录注明。
+4. `surface: CaretAtPoint names the visual offset`：布局后取 `SpanWithLine(...,1)` 里
+   **第一个 `Run`** 的 `ContentStart.GetPositionAtOffset(2)`（该 Run 的第三个字符）的字符矩形，
+   反射调用 `CaretAtPoint` → `line == 1`、`visualOffset == 2`。不要用 `Span.ContentStart`
+   的 symbol offset（会多数元素边界）。若离屏 `GetPositionFromPoint` 不稳定，改断言
+   `NoteCaretMap` 纯逻辑 + 冒烟覆盖，并在记录注明。
+5. `surface: CaretAtPoint subtracts a task glyph`：note `"- [ ] task"`；布局后取任务
+   Paragraph 里文本 `Run("task")` 的首字符矩形 → `CaretAtPoint` 的 `visualOffset == 0`
+   （`\uFFFC` 不计入可见字符）。
+6. `surface: CaretAtPoint counts formatted-line characters`：note `"one **two** three"`；
+   取 `Run("two")` 的第三个字符矩形 → `visualOffset == 6`（"one " + "tw" 的可见字符数）。
 - 运行 XamlLoadCheck → 编译失败 / 失败（无 `column` 参数）即红。留档。
 
 ### Step 6（实现 surface）
@@ -470,7 +477,10 @@ private void SurfaceRoot_MouseLeftButtonUp(object sender, MouseButtonEventArgs e
   ```
 - `CaretAtPoint(RichTextBox box, Point point, out int line, out int visualOffset)`：
   - `pos = box.GetPositionFromPoint(point, true)`；从 `pos.Parent` 上溯找带
-    `SourceLine` 的 `Span` / `Paragraph`；`visualOffset = element.ContentStart.GetOffsetToPosition(pos)`；
+    `SourceLine` 的 `Span` / `Paragraph`；
+  - `visualOffset = new TextRange(element.ContentStart, pos).Text` 中**非 `\uFFFC`**
+    字符的数量（`InlineUIContainer` 只贡献一个占位符，不是可见字符）；**不要用
+    `GetOffsetToPosition`**（它数元素边界符号，`Span("abc")` 会得到 5）；
   - 找不到 → false。
 - root 处理器：`LineAtPoint` 找到行后，再 `CaretAtPoint` 取 visualOffset；
   `var mapped = NoteCaretMap.Map(_note.Text, line, visualOffset);`
