@@ -375,8 +375,9 @@ namespace Kobold.Controls
         /// </summary>
         private void ApplyEditTypography(MdBlock block)
         {
+            double baseSize = BaseFontSize();
             EditBox.FontFamily = BodyFont;
-            EditBox.FontSize = UiTokens.FontBody;
+            EditBox.FontSize = baseSize;
             EditBox.FontWeight = FontWeights.Normal;
             EditBox.Foreground = ThemeManager.TextBrush;
             EditBox.Padding = new Thickness(0);
@@ -384,7 +385,7 @@ namespace Kobold.Controls
             var heading = block as MdHeading;
             if (heading != null)
             {
-                EditBox.FontSize = NoteMarkdownRenderer.HeadingFontSize(heading.Level, UiTokens.FontBody);
+                EditBox.FontSize = NoteMarkdownRenderer.HeadingFontSize(heading.Level, baseSize);
                 EditBox.FontWeight = FontWeights.SemiBold;
                 return;
             }
@@ -1141,8 +1142,19 @@ namespace Kobold.Controls
                 Divider = ThemeManager.BorderBrush,
                 HighContrast = ThemeManager.IsHighContrast,
                 BodyFont = BodyFont,
-                BaseFontSize = UiTokens.FontBody
+                BaseFontSize = BaseFontSize()
             };
+        }
+
+        /// <summary>
+        /// The document's body size off the widget's own font step (spec 6.2):
+        /// the UI body token times the normalized scale. Both the rendered
+        /// document and the inline edit box read this one base, so entering an
+        /// edit never jumps the type; the home cards keep their fixed sizes.
+        /// </summary>
+        private double BaseFontSize()
+        {
+            return UiTokens.FontBody * NoteFontScale.Normalize(_data == null ? 1.0 : _data.FontScale);
         }
 
         /// <summary>The widget colour as a frozen brush (the same read the old

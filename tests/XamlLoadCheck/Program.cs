@@ -732,6 +732,23 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("surface menu: the menu follows the widget colour",
                     SurfaceMenuFollowsTheWidgetColour);
 
+                // Task 6 pins: the note's own font step scales the rendered
+                // document and the inline edit box (the heading ladder off the
+                // same base), a scale change during an edit only repaints, the
+                // home cards keep their fixed 14 / 11 / 12 type, and the widget
+                // menu carries the three-step 字号 submenu before the separator
+                // (the folder menu has none).
+                failures += TryCheck("surface: the font scale scales the document and the edit box",
+                    SurfaceFontScaleScalesTheDocumentAndTheEditBox);
+                failures += TryCheck("surface: changing the font scale during an edit keeps the text and caret",
+                    SurfaceScaleChangeDuringEditKeepsTextAndCaret);
+                failures += TryCheck("note: the card text does not follow the font scale",
+                    NoteCardIgnoresTheFontScale);
+                failures += TryCheck("menu: the note font submenu checks the current step",
+                    NoteFontMenuChecksAndWrites);
+                failures += TryCheck("menu: the folder menu has no note font submenu",
+                    FolderMenuHasNoNoteFontSubmenu);
+
                 Console.WriteLine();
                 if (failures == 0)
                 {
@@ -12755,6 +12772,210 @@ namespace Kobold.XamlLoadCheck
                 }
             }
             throw new InvalidOperationException("the surface menu has no entry labelled '" + wanted + "' (" + labelKey + ")");
+        }
+
+        #endregion
+
+        #region Task 6: note font scale pins
+
+        /// <summary>
+        /// Task 6 (spec 6.2): the widget's font step scales the whole rendered
+        /// document off one base - the FlowDocument's own body size and the
+        /// heading ladder derived from it - and the inline edit box opens on
+        /// that same base, so entering an edit never jumps the type.
+        /// </summary>
+        private static void SurfaceFontScaleScalesTheDocumentAndTheEditBox()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { FontScale = NoteFontScale.Large };
+            var note = NewNote("a", "# H\n\nbody", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(data, note);
+            double baseSize = UiTokens.FontBody * NoteFontScale.Large;
+
+            var reading = SurfaceReadingBox(surface);
+            if (reading.Document == null)
+                throw new InvalidOperationException("the rendered document is null");
+            if (Math.Abs(reading.Document.FontSize - baseSize) > 0.01)
+                throw new InvalidOperationException("the rendered document is "
+                    + reading.Document.FontSize + "pt, wanted " + baseSize);
+
+            double heading = ParagraphAt(reading.Document, 0).FontSize;
+            double wantedHeading = NoteMarkdownRenderer.HeadingFontSize(1, baseSize);
+            if (Math.Abs(heading - wantedHeading) > 0.01)
+                throw new InvalidOperationException("the heading is " + heading
+                    + "pt, wanted " + wantedHeading);
+
+            if (!surface.TryBeginEditAt(2))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            var edit = SurfaceEditBox(surface);
+            if (Math.Abs(edit.FontSize - baseSize) > 0.01)
+                throw new InvalidOperationException("the edit box is " + edit.FontSize
+                    + "pt, wanted " + baseSize);
+        }
+
+        /// <summary>
+        /// Task 6 (spec 6.2): changing the step while a block is being edited
+        /// only repaints - Repaint re-applies the panes and the box's type but
+        /// never rewrites the typed text, drops the session or moves the caret.
+        /// </summary>
+        private static void SurfaceScaleChangeDuringEditKeepsTextAndCaret()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { FontScale = NoteFontScale.Large };
+            var note = NewNote("a", "# H\n\nbody", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(data, note);
+
+            if (!surface.TryBeginEditAt(2))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            var edit = SurfaceEditBox(surface);
+            edit.Text = "typed";
+            edit.CaretIndex = 2;
+
+            data.FontScale = NoteFontScale.Small;
+            surface.Repaint();
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the scale change closed the edit session");
+            if (edit.Text != "typed")
+                throw new InvalidOperationException("the scale change rewrote the box text to '"
+                    + edit.Text.Replace("\n", "\\n") + "'");
+            if (edit.CaretIndex != 2)
+                throw new InvalidOperationException("the scale change moved the caret to "
+                    + edit.CaretIndex);
+            double wanted = UiTokens.FontBody * NoteFontScale.Small;
+            if (Math.Abs(edit.FontSize - wanted) > 0.01)
+                throw new InvalidOperationException("the edit box is " + edit.FontSize
+                    + "pt, wanted " + wanted);
+        }
+
+        /// <summary>
+        /// Task 6 (spec 6.2): the home card keeps its own type - the title stays
+        /// 14 semibold, the time and the two-line excerpt keep 11 / 12 - no
+        /// matter which step the widget renders its document with.
+        /// </summary>
+        private static void NoteCardIgnoresTheFontScale()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { FontScale = NoteFontScale.Large };
+            data.Notes.Add(NewNote("a", "# Title\n\nbody", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var stack = NoteCardAt(view, 0).Child as StackPanel;
+            if (stack == null) throw new InvalidOperationException("note card 0 has no content stack");
+            double[] wanted = { 14, 11, 12 };
+            if (stack.Children.Count < wanted.Length)
+                throw new InvalidOperationException("the card has " + stack.Children.Count + " line(s)");
+            for (int i = 0; i < wanted.Length; i++)
+            {
+                var text = stack.Children[i] as TextBlock;
+                if (text == null)
+                    throw new InvalidOperationException("card line " + i + " is not a TextBlock");
+                if (Math.Abs(text.FontSize - wanted[i]) > 0.01)
+                    throw new InvalidOperationException("card line " + i + " is "
+                        + text.FontSize + "pt, wanted " + wanted[i]);
+            }
+        }
+
+        /// <summary>
+        /// Task 6 (spec 6.3): the note menu's 字号 submenu lists the three
+        /// localized steps in order, checks the current one (medium by default)
+        /// and sits before the delete separator. A pick writes the data, trails
+        /// exactly one change notification through the widget, re-renders the
+        /// detail at the new size and is checked when the menu is rebuilt.
+        /// </summary>
+        private static void NoteFontMenuChecksAndWrites()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("en");
+            try
+            {
+                var data = new NoteData { Name = "Notebook" };
+                data.Notes.Add(NewNote("a", "# H\n\nbody", new DateTime(2026, 3, 5, 9, 0, 0)));
+                var widget = new NoteWidget(data);
+                var view = widget.PanelView;
+                view.Refresh();
+                ClickNoteCard(view, 0);
+
+                var menu = WidgetMenuBuilder.Build(widget, null);
+                var submenu = FindMenuByHeader(menu, Localization.Get("Menu_NoteFontSize"));
+                if (submenu == null)
+                    throw new InvalidOperationException("the 字号 submenu is missing from the note menu");
+
+                string[] keys = { "Note_FontSmall", "Note_FontMedium", "Note_FontLarge" };
+                if (submenu.Items.Count != keys.Length)
+                    throw new InvalidOperationException("the 字号 submenu has "
+                        + submenu.Items.Count + " item(s), wanted " + keys.Length);
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    var item = submenu.Items[i] as MenuItem;
+                    if (item == null || (item.Header as string) != Localization.Get(keys[i]))
+                        throw new InvalidOperationException("font entry " + i + " is '"
+                            + (item == null ? "<not a MenuItem>" : item.Header as string)
+                            + "', wanted '" + Localization.Get(keys[i]) + "'");
+                    bool wanted = i == 1; // the default step is medium
+                    if (item.IsChecked != wanted)
+                        throw new InvalidOperationException("font entry " + i + " check state is "
+                            + item.IsChecked + ", wanted " + wanted);
+                }
+
+                int fontIndex = menu.Items.IndexOf(submenu);
+                int separator = -1;
+                for (int i = 0; i < menu.Items.Count; i++)
+                {
+                    if (menu.Items[i] is Separator) { separator = i; break; }
+                }
+                if (separator < 0 || fontIndex > separator)
+                    throw new InvalidOperationException("the 字号 submenu sits at "
+                        + fontIndex + ", after the delete separator at " + separator);
+
+                int changed = 0;
+                widget.OnDataChanged += () => changed++;
+                ((MenuItem)submenu.Items[2]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+                if (Math.Abs(data.FontScale - NoteFontScale.Large) > 0.001)
+                    throw new InvalidOperationException("the large pick left FontScale at "
+                        + data.FontScale);
+                if (changed != 1)
+                    throw new InvalidOperationException("the pick notified the host "
+                        + changed + " time(s), wanted 1");
+
+                double wantedSize = UiTokens.FontBody * NoteFontScale.Large;
+                var document = SurfaceReadingBox(NoteSurface(view)).Document;
+                if (document == null || Math.Abs(document.FontSize - wantedSize) > 0.01)
+                    throw new InvalidOperationException("the re-rendered document is "
+                        + (document == null ? "<null>" : document.FontSize.ToString())
+                        + "pt, wanted " + wantedSize);
+
+                var reopened = WidgetMenuBuilder.Build(widget, null);
+                var reopenedMenu = FindMenuByHeader(reopened, Localization.Get("Menu_NoteFontSize"));
+                if (reopenedMenu == null)
+                    throw new InvalidOperationException("the rebuilt note menu lost the 字号 submenu");
+                if (!((MenuItem)reopenedMenu.Items[2]).IsChecked ||
+                    ((MenuItem)reopenedMenu.Items[1]).IsChecked)
+                    throw new InvalidOperationException(
+                        "reopening the menu does not reflect the stored large step");
+            }
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
+        }
+
+        /// <summary>
+        /// Task 6 (spec 6.3): the folder menu keeps its own appendix only - no
+        /// note 字号 submenu leaks into another kind's menu.
+        /// </summary>
+        private static void FolderMenuHasNoNoteFontSubmenu()
+        {
+            ThemeManager.Initialize("dark");
+            Localization.SetLanguage("en");
+
+            var widget = new FolderWidget(new FolderData());
+            var menu = WidgetMenuBuilder.Build(widget, null);
+            if (FindMenuByHeader(menu, Localization.Get("Menu_NoteFontSize")) != null)
+                throw new InvalidOperationException("the folder menu carries the note 字号 submenu");
         }
 
         #endregion

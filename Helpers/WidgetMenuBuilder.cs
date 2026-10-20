@@ -10,9 +10,10 @@ namespace Kobold.Helpers
     /// <summary>
     /// Builds the common widget menu (show/hide, rename, colour, lock, pin,
     /// delete) plus the kind-specific appendices (folder: the item-size
-    /// picker; todo: the holiday region). The folder layout entries (columns /
-    /// max rows) are retired: the panel adapts its own column count and
-    /// spacing. The icon size stays a user choice - a folder-only appendix
+    /// picker; todo: the holiday region; note: the font scale). The folder
+    /// layout entries (columns / max rows) are retired: the panel adapts its
+    /// own column count and spacing. The icon size stays a user choice - a
+    /// folder-only appendix
     /// whose scale feeds the folder rendering. Hosts are widget windows, so
     /// the shared window operations are reached through
     /// <see cref="WidgetWindowBase"/>.
@@ -37,6 +38,7 @@ namespace Kobold.Helpers
 
             if (host.Data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
             if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
+            if (host.Data is NoteData noteData) menu.AddMenuItem(CreateNoteFontMenu(host, noteData));
 
             var built = menu.AddSeparator()
                 .AddItem("Menu_Delete", () => Delete(host))
@@ -221,6 +223,44 @@ namespace Kobold.Helpers
                 regionItem.Items.Add(item);
             }
             return regionItem;
+        }
+
+        #endregion
+
+        #region Kind-specific appendices (note)
+
+        /// <summary>
+        /// Task 6: the note widget's 字号 three-step picker (小 / 中 / 大 =
+        /// 0.9 / 1.0 / 1.2 of <see cref="UiTokens.FontBody"/>). The checked
+        /// entry follows the data's normalized scale (0.001 tolerance); a pick
+        /// writes <see cref="NoteData.FontScale"/> and re-renders through the
+        /// widget's usual change path (repaint + persist), so the document and
+        /// the inline edit box rescale together while the home cards keep
+        /// their own type.
+        /// </summary>
+        private static MenuItem CreateNoteFontMenu(IWidgetWindow host, NoteData data)
+        {
+            var root = new MenuItem { Header = Localization.Get("Menu_NoteFontSize") };
+            AddFontEntry(root, host, data, "Note_FontSmall", NoteFontScale.Small);
+            AddFontEntry(root, host, data, "Note_FontMedium", NoteFontScale.Medium);
+            AddFontEntry(root, host, data, "Note_FontLarge", NoteFontScale.Large);
+            return root;
+        }
+
+        private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData data,
+            string key, double scale)
+        {
+            var item = new MenuItem
+            {
+                Header = Localization.Get(key),
+                IsChecked = Math.Abs(NoteFontScale.Normalize(data.FontScale) - scale) < 0.001
+            };
+            item.Click += (s, e) =>
+            {
+                data.FontScale = scale;
+                DataChanged(host);
+            };
+            root.Items.Add(item);
         }
 
         #endregion
