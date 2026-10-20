@@ -58,6 +58,7 @@ namespace Kobold.NoteMarkdownCheck
             Progress();
             EditorOps();
             BlockRanges();
+            NoteFontScales();
         }
 
         private static void Titles()
@@ -910,6 +911,44 @@ namespace Kobold.NoteMarkdownCheck
             Check(NoteBlockRanges.LineCount("") == 0 && NoteBlockRanges.LineCount("a") == 1
                   && NoteBlockRanges.LineCount("a\nb") == 2 && NoteBlockRanges.LineCount("a\n") == 2,
                 "line count: counts the empty text as zero");
+        }
+
+        // ---- NoteFontScale pins (task 2) ---------------------------------
+
+        /// <summary>
+        /// The note body's three size steps and their normalization: each step
+        /// maps to itself, invalid input falls back to medium and anything
+        /// off the range clamps to its nearest end.
+        /// </summary>
+        private static void NoteFontScales()
+        {
+            Check(Nearly(NoteFontScale.Normalize(0.9), NoteFontScale.Small)
+                  && Nearly(NoteFontScale.Normalize(1.0), NoteFontScale.Medium)
+                  && Nearly(NoteFontScale.Normalize(1.2), NoteFontScale.Large),
+                "font: the three steps normalize to themselves");
+
+            Check(Nearly(NoteFontScale.Normalize(double.NaN), 1.0)
+                  && Nearly(NoteFontScale.Normalize(double.PositiveInfinity), 1.0)
+                  && Nearly(NoteFontScale.Normalize(double.NegativeInfinity), 1.0)
+                  && Nearly(NoteFontScale.Normalize(0), 1.0)
+                  && Nearly(NoteFontScale.Normalize(-1), 1.0),
+                "font: invalid values fall back to medium");
+
+            Check(Nearly(NoteFontScale.Normalize(0.5), 0.9)
+                  && Nearly(NoteFontScale.Normalize(2.0), 1.2),
+                "font: out-of-range values clamp");
+
+            Check(Nearly(new NoteData().FontScale, 1.0),
+                "font: a fresh note data starts at medium");
+
+            Check(Nearly(new NoteData { FontScale = 0.5 }.FontScale, 0.9),
+                "font: the note setter normalizes a hand-set value");
+        }
+
+        /// <summary>A tolerant equality for the font-scale doubles.</summary>
+        private static bool Nearly(double value, double expected)
+        {
+            return Math.Abs(value - expected) < 1e-9;
         }
 
         /// <summary>The ranges as "(start,end)" runs, for the exact-string

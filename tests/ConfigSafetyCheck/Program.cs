@@ -245,6 +245,29 @@ namespace Kobold.ConfigSafetyCheck
                 "the saved config reloads from the main file alone");
             Check(Directory.GetFiles(dir9, "*.failed-*").Length == 0,
                 "our own Folders null raises no evidence copies");
+
+            // --- Note font scale survives an atomic save: the note's size step
+            // lands in a complete main file and reads back after a reload.
+
+            string dir11 = NewCase("case11");
+            string main11 = Path.Combine(dir11, "config.json");
+            var cfg11 = AppConfig.Load(main11, main11 + ".backup"); // valid: has bound paths
+            cfg11.Widgets.Add(new NoteData { Id = "n1", FontScale = 1.2 });
+            cfg11.Save();
+
+            Check(JsonConvert.DeserializeObject<AppConfig>(File.ReadAllText(main11)) != null,
+                "note font scale: the saved config is complete JSON");
+            Check(!File.Exists(main11 + ".tmp") && !File.Exists(main11 + ".backup.tmp"),
+                "note font scale: the atomic save leaves no temp file behind");
+
+            var reloaded11 = AppConfig.Load(main11, main11 + ".backup");
+            NoteData note11 = null;
+            foreach (var widget in reloaded11.Widgets)
+            {
+                if (widget is NoteData found) { note11 = found; break; }
+            }
+            Check(note11 != null && Math.Abs(note11.FontScale - 1.2) < 1e-9,
+                "note font scale: the saved scale reads back after a reload");
         }
     }
 }

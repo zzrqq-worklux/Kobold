@@ -11,6 +11,15 @@ namespace Kobold.Core
     {
         public List<NoteItem> Notes { get; set; }
 
+        private double _fontScale = NoteFontScale.Medium;
+
+        /// <summary>The body-size multiplier (0.9 / 1.0 / 1.2); invalid values normalize.</summary>
+        public double FontScale
+        {
+            get { return _fontScale; }
+            set { _fontScale = NoteFontScale.Normalize(value); }
+        }
+
         public NoteData()
         {
             Id = Guid.NewGuid().ToString();

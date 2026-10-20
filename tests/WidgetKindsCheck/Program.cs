@@ -70,6 +70,7 @@ namespace Kobold.WidgetKindsCheck
             TodoRepairNormalizes();
             NoteRoundTrips();
             NoteRepairNormalizes();
+            NoteFontScaleSurvivesConfig();
             NoteNullListIsCorrupt();
             WidgetKindRegistryChecks();
             RegisteredTypeDrivesTheLoad();
@@ -567,6 +568,65 @@ namespace Kobold.WidgetKindsCheck
             Check(second != null && second.CreatedAt == new DateTime(2026, 10, 15, 9, 30, 0)
                   && second.ModifiedAt == new DateTime(2026, 10, 15, 10, 0, 0),
                 "note: repair leaves the timestamps alone");
+        }
+
+        /// <summary>
+        /// The note widget's font scale through the config: a stored step
+        /// comes back unchanged, a missing field reads as medium, a
+        /// hand-edited out-of-range value is normalized on load, and the value
+        /// survives a save and reload.
+        /// </summary>
+        private static void NoteFontScaleSurvivesConfig()
+        {
+            string dir = NewCase("note-font-scale");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n1"", ""FontScale"": 1.2, ""Notes"": [] } ] }");
+            var cfg = AppConfig.Load(main, backup);
+            var note = cfg.Widgets.Count == 1 ? cfg.Widgets[0] as NoteData : null;
+            Check(note != null && Nearly(note.FontScale, 1.2),
+                "font: a stored large scale loads");
+
+            string missingDir = NewCase("note-font-scale-missing");
+            string missingMain = Path.Combine(missingDir, "config.json");
+            File.WriteAllText(missingMain,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n2"", ""Notes"": [] } ] }");
+            var missingCfg = AppConfig.Load(missingMain, missingMain + ".backup");
+            var missing = missingCfg.Widgets.Count == 1 ? missingCfg.Widgets[0] as NoteData : null;
+            Check(missing != null && Nearly(missing.FontScale, 1.0),
+                "font: a config without the field reads as medium");
+
+            string zeroDir = NewCase("note-font-scale-zero");
+            string zeroMain = Path.Combine(zeroDir, "config.json");
+            File.WriteAllText(zeroMain,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n3"", ""FontScale"": 0, ""Notes"": [] } ] }");
+            var zeroCfg = AppConfig.Load(zeroMain, zeroMain + ".backup");
+            var zero = zeroCfg.Widgets.Count == 1 ? zeroCfg.Widgets[0] as NoteData : null;
+            Check(zero != null && Nearly(zero.FontScale, 1.0),
+                "font: a zero scale is repaired to medium");
+
+            string hugeDir = NewCase("note-font-scale-huge");
+            string hugeMain = Path.Combine(hugeDir, "config.json");
+            File.WriteAllText(hugeMain,
+                @"{ ""Widgets"": [ { ""Kind"": ""note"", ""Id"": ""n4"", ""FontScale"": 99, ""Notes"": [] } ] }");
+            var hugeCfg = AppConfig.Load(hugeMain, hugeMain + ".backup");
+            var huge = hugeCfg.Widgets.Count == 1 ? hugeCfg.Widgets[0] as NoteData : null;
+            Check(huge != null && Nearly(huge.FontScale, 1.2),
+                "font: an oversized scale is repaired to large");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var rt = reloaded.Widgets.Count == 1 ? reloaded.Widgets[0] as NoteData : null;
+            Check(rt != null && Nearly(rt.FontScale, 1.2),
+                "font: the scale survives a save and reload");
+        }
+
+        /// <summary>A tolerant equality for the font-scale doubles.</summary>
+        private static bool Nearly(double value, double expected)
+        {
+            return Math.Abs(value - expected) < 1e-9;
         }
 
         private static void NoteNullListIsCorrupt()

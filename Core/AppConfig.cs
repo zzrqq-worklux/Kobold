@@ -280,6 +280,10 @@ namespace Kobold.Core
 
         private static void RepairNote(NoteData note)
         {
+            // A hand-edited or absent scale normalizes the same way the
+            // property's setter does, so the UI never reads a broken value.
+            note.FontScale = NoteFontScale.Normalize(note.FontScale);
+
             // Timestamps are deliberately left alone: note times are not
             // date-normalized the way todo dates are.
             foreach (var item in note.Notes)
