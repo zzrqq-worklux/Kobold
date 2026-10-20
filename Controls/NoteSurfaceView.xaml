@@ -10,12 +10,11 @@
          scroller. -->
     <Grid x:Name="SurfaceRoot" Background="Transparent">
 
-        <!-- The pane stack both states share. In the note panel this scroller
-             is a pass-through inside the list's own scroller, so the host owns
-             the scrolling; the top padding leaves the floating ‹ room. -->
+        <!-- The pane stack both states share - the detail page's only scroll
+             region (the panel's home is a separate host). -->
         <ScrollViewer x:Name="SurfaceScroller"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      PanningMode="VerticalOnly" Padding="0,24,0,0" Background="Transparent">
+                      PanningMode="VerticalOnly" Background="Transparent">
             <StackPanel x:Name="SurfaceStack">
 
                 <!-- Rendered state: the whole note through the T12 renderer,
@@ -50,17 +49,5 @@
                              Background="Transparent" BorderThickness="0" Padding="0"/>
             </StackPanel>
         </ScrollViewer>
-
-        <!-- The expanded face's only chrome (spec 3.3): the floating ‹ at the
-             top-left, over the content - the collapse seam. It fires on the
-             button-up so the card face that replaces it cannot expand again off
-             the same release. -->
-        <Border x:Name="CollapseButton" Width="22" Height="22" CornerRadius="6"
-                HorizontalAlignment="Left" VerticalAlignment="Top"
-                Background="Transparent" Cursor="Hand"
-                MouseLeftButtonUp="CollapseButton_MouseLeftButtonUp">
-            <TextBlock Text="‹" FontSize="14" Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
     </Grid>
 </UserControl>

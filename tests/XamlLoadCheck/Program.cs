@@ -506,15 +506,15 @@ namespace Kobold.XamlLoadCheck
                 // Task T10 pins: the note kind builds through the factory (the
                 // island's new-widget menu reaches it via the kind registry and
                 // WidgetMenuBuilder's kinds loop), and its panel minimum fits
-                // the chrome header + one card + the add row (spec 6.5).
+                // the chrome header + one card (spec 6.5).
                 failures += TryCheck("factory: note data builds the note widget", FactoryNoteDataBuildsNoteWidget);
                 failures += TryCheck("note: the panel minimum fits the shell", NotePanelMinimumFitsTheShell);
 
                 // Task T11 pins: the list state - the cards (title / modified
                 // time / two-line excerpt / task progress), the modified-time
                 // order, the row menu's delete with its multi-step undo (capped
-                // at twenty) and the empty list (add row only, no cards). The
-                // reading/editing states and the creation flows are T13/T14.
+                // at twenty) and the home's empty state (no add row any more:
+                // the title menu owns the create entry).
                 failures += TryCheck("note: cards show title, time and excerpt", NoteCardsShowTitleTimeAndExcerpt);
                 failures += TryCheck("note: a task note shows its progress", NoteTaskShowsProgress);
                 failures += TryCheck("note: the list orders by modified time", NoteListOrdersByModifiedTime);
@@ -523,7 +523,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: undo walks back beyond one step", NoteUndoWalksBackBeyondOneStep);
                 failures += TryCheck("note: the stack keeps only the newest twenty",
                     NoteUndoStackKeepsOnlyTheNewestTwenty);
-                failures += TryCheck("note: an empty list shows only the add row", NoteEmptyListShowsOnlyTheAddRow);
+                failures += TryCheck("note: home shows the cards and the empty state",
+                    NoteHomeShowsCardsAndTheEmptyState);
 
                 // Task T12 pins: the AST renders into a FlowDocument - the
                 // heading size ladder, paragraphs with their source line
@@ -549,48 +550,50 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("renderer: the heading size helper follows the ladder",
                     RendererHeadingSizeHelperFollowsTheLadder);
 
-                // Task T6 pins: NotePanelView as an in-place workbench - a card
-                // click expands the surface inside the list (one at a time:
-                // switching cards collapses and flushes the previous one), the
-                // floating ‹ / a rendered Esc / Backspace collapse it back to
-                // the faces, Esc inside a block edit only leaves that block,
-                // the add pill and the blank-area menu open the new note
-                // straight into the whole-text edit, an empty text is discarded
-                // on the way out (through the host notification), hiding the
-                // panel flushes the pending edit and the rendered state keeps
-                // its task / link behaviour.
-                failures += TryCheck("note: a card click expands the surface in place",
-                    NoteCardClickExpandsTheSurfaceInPlace);
-                failures += TryCheck("note: expanding another card collapses the first with its edit flushed",
-                    NoteExpandingAnotherCardFlushesTheFirstEdit);
-                failures += TryCheck("note: the collapse button returns to the face",
-                    NoteCollapseButtonReturnsToTheFace);
-                failures += TryCheck("note: Backspace in the rendered surface collapses",
-                    NoteBackspaceInTheRenderedSurfaceCollapses);
-                failures += TryCheck("note: Esc in the rendered surface collapses",
-                    NoteEscInTheRenderedSurfaceCollapses);
-                failures += TryCheck("note: Esc leaves a block edit without collapsing",
-                    NoteEscLeavesABlockEditWithoutCollapsing);
+                // Task T6 / T4 pins: NotePanelView as a home list ⇄ detail page
+                // pair - a card click opens the detail (the surface's permanent
+                // host), the title follows the state, the title menu owns the
+                // create / home / quick-switch entries, blank clicks only leave
+                // an edit (never the detail), Esc / Backspace return home from
+                // the rendered detail only, and the blank menu follows the
+                // state. An empty text is discarded on the way home (through
+                // the host notification), hiding the panel flushes the pending
+                // edit and the rendered state keeps its task / link behaviour.
+                failures += TryCheck("note: a card click opens the detail", NoteCardClickOpensTheDetail);
+                failures += TryCheck("note: the title follows home and detail", NoteTitleFollowsHomeAndDetail);
+                failures += TryCheck("note: the widget enables the title menu", NoteWidgetEnablesTheTitleMenu);
+                failures += TryCheck("note: the title menu groups actions and notes",
+                    NoteTitleMenuGroupsActionsAndNotes);
+                failures += TryCheck("note: the title menu switches notes", NoteTitleMenuSwitchesNotes);
+                failures += TryCheck("note: the title menu starts a new note", NoteTitleMenuStartsANewNote);
+                failures += TryCheck("note: the title menu returns home", NoteTitleMenuReturnsHome);
+                failures += TryCheck("note: opening the title menu keeps the edit",
+                    NoteOpeningTheTitleMenuKeepsTheEdit);
+                failures += TryCheck("note: Esc leaves a block edit without closing the detail",
+                    NoteEscLeavesABlockEditWithoutClosingTheDetail);
                 failures += TryCheck("note: clicking a block enters its edit at that line",
                     NoteClickingABlockEntersItsEditAtThatLine);
-                failures += TryCheck("note: clicking the host padding while editing leaves the edit",
-                    NoteClickingHostPaddingWhileEditingLeavesTheEdit);
                 failures += TryCheck("note: a task glyph click toggles without entering the edit",
                     NoteTaskGlyphClickTogglesWithoutEnteringTheEdit);
-                failures += TryCheck("note: the add pill starts a whole-text edit",
-                    NoteAddPillStartsAWholeTextEdit);
+                failures += TryCheck("note: rendered blank clicks no longer collapse",
+                    NoteRenderedBlankClicksNoLongerCollapse);
+                failures += TryCheck("note: blank clicks leave the edit but stay in the detail",
+                    NoteBlankClicksLeaveTheEditButStayInTheDetail);
+                failures += TryCheck("note: Esc and Backspace return home only in the rendered detail",
+                    NoteEscAndBackspaceReturnHomeOnlyInTheRenderedDetail);
+                failures += TryCheck("note: the blank menu follows the state", NoteBlankMenuFollowsTheState);
                 failures += TryCheck("note: the blank-area menu starts the same edit",
                     NoteBlankAreaMenuStartsTheSameEdit);
-                failures += TryCheck("note: an empty new note is discarded on collapse",
-                    NoteEmptyNewNoteIsDiscardedOnCollapse);
-                failures += TryCheck("note: emptying an existing note discards it on collapse",
-                    NoteEmptyingAnExistingNoteDiscardsItOnCollapse);
+                failures += TryCheck("note: an empty new note is discarded on the way home",
+                    NoteEmptyNewNoteIsDiscardedOnTheWayHome);
+                failures += TryCheck("note: emptying an existing note discards it on the way home",
+                    NoteEmptyingAnExistingNoteDiscardsItOnTheWayHome);
                 failures += TryCheck("note: hiding the panel commits and leaves the edit",
                     NoteHidingThePanelCommitsAndLeavesTheEdit);
                 failures += TryCheck("note: a refresh during an edit keeps the text",
                     NoteRefreshDuringAnEditKeepsTheText);
-                failures += TryCheck("note: the order follows the latest edit after collapse",
-                    NoteOrderFollowsTheLatestEditAfterCollapse);
+                failures += TryCheck("note: the order follows the latest edit after going home",
+                    NoteOrderFollowsTheLatestEditAfterGoingHome);
                 failures += TryCheck("note: toggling a task rewrites the source line and re-renders",
                     NoteTaskToggleRewritesAndRerendersInPlace);
                 failures += TryCheck("note: a rendered link carries its url",
@@ -8562,8 +8565,8 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Task T10 (spec 6.5): the note panel's minimum fits the chrome header
-        /// plus one card and the add row. Read through the base's protected
-        /// hook, the same reflection the resize checks use.
+        /// plus one card. Read through the base's protected hook, the same
+        /// reflection the resize checks use.
         /// </summary>
         private static void NotePanelMinimumFitsTheShell()
         {
@@ -8780,50 +8783,65 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T11 (fix round 1): an empty note list carries no card at all - the
-        /// top add row is the panel's only content (no empty-state message).
-        /// The pin reaches that state through the real delete path: two notes
-        /// render two cards, each row menu deletes one, and the list is then
-        /// empty. The two-card premise is what gives the pin teeth against a
-        /// renderer that paints no cards (the T10 skeleton).
+        /// T4 (spec 3.1): the home is the card list plus its centered empty
+        /// state - no add row any more (the title menu owns the create entry).
+        /// An empty data set shows the localized hint over an empty list; two
+        /// notes fill the list in display order and hide the hint. The hint
+        /// follows the live language (the panel rebuild sets it again).
         /// </summary>
-        private static void NoteEmptyListShowsOnlyTheAddRow()
+        private static void NoteHomeShowsCardsAndTheEmptyState()
         {
             ThemeManager.Initialize("dark");
-            var data = new NoteData();
+            var data = new NoteData { Name = "Notebook" };
+            var view = new NoteWidget(data).PanelView;
+
+            var empty = NoteNamed(view, "EmptyState") as TextBlock;
+            if (empty == null) throw new InvalidOperationException("the home has no EmptyState text");
+            if (empty.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the empty home hides its empty state");
+            if (empty.Text != Localization.Get("UI_NoteEmptyHome"))
+                throw new InvalidOperationException(
+                    "the empty state reads '" + empty.Text + "', wanted the UI_NoteEmptyHome text");
+            if (NoteCardCount(view) != 0)
+                throw new InvalidOperationException("the empty home rendered " + NoteCardCount(view) + " card(s)");
+            if (view.FindName("AddPill") != null)
+                throw new InvalidOperationException("the home still carries the retired AddPill row");
+            if (NoteNamed(view, "HomeHost").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the empty home hides the home host");
+            if (NoteNamed(view, "DetailHost").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the empty home shows the detail host");
+
             data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
             data.Notes.Add(NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0)));
-
-            var view = new NoteWidget(data).PanelView;
             view.Refresh();
 
             if (NoteCardCount(view) != 2)
                 throw new InvalidOperationException(
                     "the two-note fixture rendered " + NoteCardCount(view) + " card(s), wanted 2");
+            if (empty.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the filled home still shows the empty state");
+            if (NoteCardLine(view, 0, 0) != "Second" || NoteCardLine(view, 1, 0) != "First")
+                throw new InvalidOperationException("the home lost the modified-time order ("
+                    + NoteCardLine(view, 0, 0) + ", " + NoteCardLine(view, 1, 0) + ")");
 
-            // Empty the list through the row menus, re-fetching the card each
-            // time (every delete rebuilds the cards).
-            int[] remaining = { 1, 0 };
-            for (int i = 0; i < remaining.Length; i++)
+            // The hint is rebuilt with the home, so a language switch lands too.
+            Localization.SetLanguage("zh");
+            try
             {
-                var card = NoteCardAt(view, 0);
-                if (card.ContextMenu == null)
-                    throw new InvalidOperationException("the card carries no row menu");
-                ClickMenuItem(card, 0);
-                if (data.Notes.Count != remaining[i])
-                {
+                data.Notes.Clear();
+                view.Refresh();
+                if (empty.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("the emptied home hides the empty state");
+                if (empty.Text != Localization.Get("UI_NoteEmptyHome"))
                     throw new InvalidOperationException(
-                        "the row-menu delete left " + data.Notes.Count + " note(s), wanted " + remaining[i]);
-                }
+                        "the switched empty state reads '" + empty.Text + "'");
+                if (empty.Text == "No notes yet — open the title menu to create one.")
+                    throw new InvalidOperationException("the empty state stayed English after the switch");
             }
-
-            if (NoteCardCount(view) != 0)
-                throw new InvalidOperationException("the emptied list still rendered " + NoteCardCount(view) + " card(s)");
-
-            var pill = view.FindName("AddPill") as FrameworkElement;
-            if (pill == null) throw new InvalidOperationException("the add row is missing");
-            if (pill.Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the add row is hidden on an empty list: " + pill.Visibility);
+            finally
+            {
+                Localization.SetLanguage("en");
+            }
         }
 
         private static NoteItem NewNote(string id, string text, DateTime modifiedAt)
@@ -9487,18 +9505,18 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
-        #region Task T6: note panel workbench pins
+        #region Task T4: note home / detail navigation pins
 
         /// <summary>
-        /// T6 (spec 4.1): a card click expands the surface inside the list - the
-        /// expanded row carries the panel's one surface instance (the host
-        /// Border's Child), its rendered document paints the note and every
-        /// other row keeps its card face.
+        /// T4 (spec 3.1): a card click opens that note's detail page - the home
+        /// host (the cards) collapses, the detail host shows the panel's one
+        /// surface with the rendered document, the expanded id names the note
+        /// and the chrome title switches to its title.
         /// </summary>
-        private static void NoteCardClickExpandsTheSurfaceInPlace()
+        private static void NoteCardClickOpensTheDetail()
         {
             ThemeManager.Initialize("dark");
-            var data = new NoteData();
+            var data = new NoteData { Name = "Notebook" };
             data.Notes.Add(NewNote("a", "# Alpha\n\nbody one", new DateTime(2026, 3, 5, 9, 0, 0)));
             data.Notes.Add(NewNote("b", "# Beta\n\nbody two", new DateTime(2026, 3, 5, 11, 0, 0)));
 
@@ -9512,171 +9530,427 @@ namespace Kobold.XamlLoadCheck
 
             if (NoteExpandedId(view) != "b")
                 throw new InvalidOperationException(
-                    "the card click expanded '" + NoteExpandedId(view) + "', wanted 'b'");
-            if (NoteCardCount(view) != 2)
-                throw new InvalidOperationException(
-                    "the expanded list carries " + NoteCardCount(view) + " row(s), wanted 2");
+                    "the card click opened '" + NoteExpandedId(view) + "', wanted 'b'");
+            if (view.IsHome)
+                throw new InvalidOperationException("the card click left the panel home");
+            if (NoteNamed(view, "HomeHost").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the detail still shows the home host");
+            if (NoteNamed(view, "DetailHost").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the detail host is hidden");
 
+            var host = NoteHost(view);
+            if (!ReferenceEquals(host.Parent, NoteNamed(view, "DetailHost")))
+                throw new InvalidOperationException("the surface host is not the detail host's child");
             var surface = NoteSurface(view);
-            if (!ReferenceEquals(NoteHostAt(view, 0).Child, surface))
-                throw new InvalidOperationException("the expanded row's host does not carry the panel's surface");
+            if (!ReferenceEquals(host.Child, surface))
+                throw new InvalidOperationException("the detail host does not carry the panel's surface");
+
             var document = SurfaceReadingBox(surface).Document;
             if (document == null || document.Blocks.Count == 0)
-                throw new InvalidOperationException("the expanded surface holds no rendered document");
-            if (!(NoteCardAt(view, 1).Child is StackPanel))
-                throw new InvalidOperationException("the second row is not a card face");
+                throw new InvalidOperationException("the detail holds no rendered document");
+            if (view.ChromeTitle != "Beta")
+                throw new InvalidOperationException(
+                    "the detail title reads '" + view.ChromeTitle + "', wanted 'Beta'");
         }
 
         /// <summary>
-        /// T6 (spec 4.3): expanding another card settles the open one first - its
-        /// block edit is flushed into the note (the text lands, the modified time
-        /// stamps, the card face below carries the fresh title) while the newly
-        /// clicked note takes the expanded row.
+        /// T4 (spec 3.2): the title follows the state - the widget name at home,
+        /// the note's own title in the detail, the untitled key for a blank
+        /// note, and a committed edit renames it at once. The widget's chrome
+        /// carries the same text (home clears the tooltip, the detail fills it).
         /// </summary>
-        private static void NoteExpandingAnotherCardFlushesTheFirstEdit()
+        private static void NoteTitleFollowsHomeAndDetail()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("c", "   ", new DateTime(2026, 3, 5, 10, 0, 0)));
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            var chrome = NoteChrome(widget);
+            view.Refresh();
+
+            if (view.ChromeTitle != "Notebook")
+                throw new InvalidOperationException(
+                    "the home title reads '" + view.ChromeTitle + "', wanted 'Notebook'");
+            if (chrome.Title != "Notebook")
+                throw new InvalidOperationException(
+                    "the chrome title reads '" + chrome.Title + "', wanted 'Notebook'");
+            if (chrome.TitleText.ToolTip != null)
+                throw new InvalidOperationException("the home keeps a tooltip on the title");
+
+            ClickNoteCard(view, 1);          // Alpha (card 0 is the blank note)
+            if (view.ChromeTitle != "Alpha")
+                throw new InvalidOperationException(
+                    "the detail title reads '" + view.ChromeTitle + "', wanted 'Alpha'");
+            if (chrome.Title != "Alpha")
+                throw new InvalidOperationException(
+                    "the chrome title reads '" + chrome.Title + "', wanted 'Alpha'");
+            if (!object.Equals(chrome.TitleText.ToolTip, "Alpha"))
+                throw new InvalidOperationException(
+                    "the detail tooltip reads '" + chrome.TitleText.ToolTip + "', wanted 'Alpha'");
+
+            ClickTitleMenuPart(view, "NoteMenuHome");
+            ClickNoteCard(view, 0);          // the blank note
+            string untitled = Localization.Get("UI_NoteUntitled");
+            if (view.ChromeTitle != untitled)
+                throw new InvalidOperationException(
+                    "the blank note title reads '" + view.ChromeTitle + "', wanted '" + untitled + "'");
+
+            ClickTitleMenuPart(view, "NoteMenuHome");
+            if (view.ChromeTitle != "Notebook")
+                throw new InvalidOperationException("the home title did not come back");
+
+            ClickNoteCard(view, 0);          // Alpha is now the only note
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "Renamed";
+            var args = RaiseNotePreviewKey(widget, SurfaceEditBox(surface), Key.Escape);
+            if (!args.Handled)
+                throw new InvalidOperationException("the commit Esc was not handled");
+
+            if (view.ChromeTitle != "Renamed")
+                throw new InvalidOperationException(
+                    "the committed title reads '" + view.ChromeTitle + "', wanted 'Renamed'");
+            if (chrome.Title != "Renamed")
+                throw new InvalidOperationException(
+                    "the chrome title reads '" + chrome.Title + "', wanted 'Renamed'");
+            if (view.IsHome)
+                throw new InvalidOperationException("the commit Esc left the detail");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.2): the note kind is the one that enables the chrome's
+        /// title dropdown - the widget turns the flag on and the chevron is
+        /// visible (folder / todo leave it off).
+        /// </summary>
+        private static void NoteWidgetEnablesTheTitleMenu()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new NoteWidget(new NoteData());
+            var chrome = NoteChrome(widget);
+
+            if (!chrome.TitleMenuEnabled)
+                throw new InvalidOperationException("the note widget did not enable the title menu");
+            var chevron = chrome.FindName("TitleChevron") as FrameworkElement;
+            if (chevron == null) throw new InvalidOperationException("WidgetChrome has no TitleChevron");
+            if (chevron.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the enabled title chevron is not visible");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.2): the dropdown is an action block over a title-only
+        /// note list - new always, home only in the detail, the entries in
+        /// modified-time order, the current one checked and highlighted, and an
+        /// empty title spelled through the untitled key.
+        /// </summary>
+        private static void NoteTitleMenuGroupsActionsAndNotes()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(NewNote("c", "   ", new DateTime(2026, 3, 5, 10, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var homeMenu = view.BuildTitleMenuContent();
+            if (homeMenu == null)
+                throw new InvalidOperationException("BuildTitleMenuContent returned null");
+            if (!"NoteTitleMenu".Equals(homeMenu.Tag as string))
+                throw new InvalidOperationException(
+                    "the title menu root is tagged '" + homeMenu.Tag + "', wanted 'NoteTitleMenu'");
+            TitleMenuPart(homeMenu, "NoteMenuNew");
+            if (TitleMenuContains(homeMenu, "NoteMenuHome"))
+                throw new InvalidOperationException("the home title menu shows the home action");
+
+            var homeEntries = NoteMenuEntries(homeMenu);
+            AssertNoteMenuOrder(homeEntries, "b", "c", "a");
+            foreach (var entry in homeEntries)
+            {
+                if (NoteMenuCheck(entry).Text != string.Empty)
+                    throw new InvalidOperationException("the home title menu already checks an entry");
+            }
+
+            ClickNoteCard(view, 0);          // Beta
+            var detailMenu = view.BuildTitleMenuContent();
+            TitleMenuPart(detailMenu, "NoteMenuNew");
+            TitleMenuPart(detailMenu, "NoteMenuHome");
+
+            var detailEntries = NoteMenuEntries(detailMenu);
+            AssertNoteMenuOrder(detailEntries, "b", "c", "a");
+
+            int checks = 0;
+            foreach (var entry in detailEntries)
+            {
+                bool current = "b" == (entry.Tag as string);
+                string check = NoteMenuCheck(entry).Text;
+                if (current)
+                {
+                    checks++;
+                    if (check != "✓")
+                        throw new InvalidOperationException("the current entry carries no check mark");
+                    if (!ReferenceEquals(entry.Background, ThemeManager.SurfaceHoverBrush))
+                        throw new InvalidOperationException("the current entry carries no highlight");
+                }
+                else if (check != string.Empty)
+                {
+                    throw new InvalidOperationException(
+                        "the entry '" + entry.Tag + "' carries a stray check mark");
+                }
+            }
+            if (checks != 1)
+                throw new InvalidOperationException("the detail title menu checks " + checks + " entries");
+
+            var blank = FindTagged(detailMenu, "c") as Button;
+            if (blank == null) throw new InvalidOperationException("the untitled entry is missing");
+            if (NoteMenuTitle(blank) != Localization.Get("UI_NoteUntitled"))
+                throw new InvalidOperationException(
+                    "the untitled entry reads '" + NoteMenuTitle(blank) + "'");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.2): picking another note commits the open edit, opens the
+        /// target in its rendered state and leaves no session behind.
+        /// </summary>
+        private static void NoteTitleMenuSwitchesNotes()
         {
             ThemeManager.Initialize("dark");
             var older = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
             var data = new NoteData();
             data.Notes.Add(older);
-            data.Notes.Add(NewNote("b", "later", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
 
-            var view = new NoteWidget(data).PanelView;
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
             view.Refresh();
             ClickNoteCard(view, 1);          // the older note
             if (NoteExpandedId(view) != "a")
                 throw new InvalidOperationException(
-                    "the fixture expanded '" + NoteExpandedId(view) + "', wanted the older note");
+                    "the fixture opened '" + NoteExpandedId(view) + "', wanted the older note");
 
             var surface = NoteSurface(view);
             if (!surface.TryBeginEditAt(0))
                 throw new InvalidOperationException("the note's paragraph did not enter the block edit");
             SurfaceEditBox(surface).Text = "changed";
 
-            ClickNoteCard(view, 0);          // the newer note's face
+            // The real entry wiring (close, then OpenNote), picked by Tag.
+            ClickTitleMenuEntry(view, "b");
 
             if (older.Text != "changed")
                 throw new InvalidOperationException("the switch left the first note as '"
                     + (older.Text ?? string.Empty).Replace("\n", "\\n") + "'");
             if (NoteExpandedId(view) != "b")
                 throw new InvalidOperationException(
-                    "the switch expanded '" + NoteExpandedId(view) + "', wanted 'b'");
-            if (NoteCardLine(view, 0, 0) != "changed")
+                    "the switch opened '" + NoteExpandedId(view) + "', wanted 'b'");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the switch left the first edit session open");
+            if (view.IsHome)
+                throw new InvalidOperationException("the switch dropped back to the home");
+            var document = SurfaceReadingBox(surface).Document;
+            if (document == null || document.Blocks.Count == 0)
+                throw new InvalidOperationException("the target note holds no rendered document");
+            if (view.ChromeTitle != "Beta")
                 throw new InvalidOperationException(
-                    "the settled note's face reads '" + NoteCardLine(view, 0, 0) + "', wanted 'changed'");
+                    "the switched title reads '" + view.ChromeTitle + "', wanted 'Beta'");
+
+            // Picking the current note is a no-op: the entry closes the menu
+            // but the detail stays on the same rendered note.
+            ClickTitleMenuEntry(view, "b");
+            if (NoteExpandedId(view) != "b")
+                throw new InvalidOperationException("re-picking the current note switched away");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("re-picking the current note opened an edit");
+            if (older.Text != "changed")
+                throw new InvalidOperationException("re-picking the current note rewrote the first note");
         }
 
         /// <summary>
-        /// T6 (spec 3.3/4.1): the floating ‹ collapses the expanded surface back
-        /// to the list - no note is expanded, every row is a card face again and
-        /// the faces keep the modified-time order. The blank list area is the
-        /// design's second exit from the rendered state.
+        /// T4 (spec 3.2): the new action commits the open edit, puts a fresh
+        /// note at the head of the data and opens it as one empty whole-text
+        /// edit in the detail.
         /// </summary>
-        private static void NoteCollapseButtonReturnsToTheFace()
+        private static void NoteTitleMenuStartsANewNote()
         {
             ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
             var data = new NoteData();
-            data.Notes.Add(NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
-            data.Notes.Add(NewNote("b", "Second", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(note);
 
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
             ClickNoteCard(view, 0);
-            if (NoteExpandedId(view) != "b")
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "typed";
+
+            ClickTitleMenuPart(view, "NoteMenuNew");
+
+            if (note.Text != "typed")
+                throw new InvalidOperationException("the new action lost the open edit ('"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (data.Notes.Count != 2)
+                throw new InvalidOperationException("the new action left " + data.Notes.Count + " note(s)");
+            var fresh = data.Notes[0];
+            if (fresh == note)
+                throw new InvalidOperationException("the new note did not take the head of the data");
+            if (fresh.Text != string.Empty)
+                throw new InvalidOperationException("the fresh note carries '" + fresh.Text + "'");
+            if (NoteExpandedId(view) != fresh.Id)
                 throw new InvalidOperationException(
-                    "the fixture expanded '" + NoteExpandedId(view) + "', wanted the newest note");
+                    "the new action opened '" + NoteExpandedId(view) + "', wanted the fresh note");
+            if (view.IsHome)
+                throw new InvalidOperationException("the new action left the panel home");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the fresh note did not open its whole-text edit");
+            if (SurfaceEditBox(surface).Text != string.Empty)
+                throw new InvalidOperationException("the fresh edit box carries '"
+                    + SurfaceEditBox(surface).Text + "', wanted empty");
+            if (view.ChromeTitle != Localization.Get("UI_NoteUntitled"))
+                throw new InvalidOperationException(
+                    "the fresh note title reads '" + view.ChromeTitle + "'");
+        }
 
-            // The collapse must wait for the button-up: a button-down alone is
-            // no longer enough (the old behaviour collapsed the card on the
-            // down, so the release landed on the face and re-expanded it).
-            var collapse = NoteSurface(view).FindName("CollapseButton") as FrameworkElement;
-            if (collapse == null) throw new InvalidOperationException("the surface has no CollapseButton");
-            collapse.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-            if (NoteExpandedId(view) != "b")
-                throw new InvalidOperationException("the button-down collapsed the card before the release");
+        /// <summary>
+        /// T4 (spec 3.2/4.5): the home action commits the open edit and rebuilds
+        /// the card list in modified-time order; a blank note travelling the
+        /// same route is dropped and the drop notifies the host.
+        /// </summary>
+        private static void NoteTitleMenuReturnsHome()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
 
-            ClickNoteCollapse(NoteSurface(view));
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
 
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("the ‹ left '" + NoteExpandedId(view) + "' expanded");
-            AssertEveryRowIsACardFace(view);
-            if (NoteCardCount(view) != 2)
-                throw new InvalidOperationException("the collapsed list carries " + NoteCardCount(view) + " row(s)");
-            if (NoteCardLine(view, 0, 0) != "Second" || NoteCardLine(view, 1, 0) != "First")
-                throw new InvalidOperationException("the collapsed list lost the modified-time order ("
+            int notified = 0;
+            widget.OnDataChanged += () => notified++;
+
+            ClickNoteCard(view, 1);          // Alpha
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not enter the block edit");
+            SurfaceEditBox(surface).Text = "Zulu";
+
+            ClickTitleMenuPart(view, "NoteMenuHome");
+
+            if (data.Notes.Count != 2 || data.Notes[0].Text != "Zulu")
+                throw new InvalidOperationException("the home action lost the open edit");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the home action left the detail open");
+            if (NoteNamed(view, "HomeHost").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the home host stayed hidden");
+            if (NoteNamed(view, "DetailHost").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the detail host stayed visible");
+            if (view.ChromeTitle != "Notebook")
+                throw new InvalidOperationException(
+                    "the home title reads '" + view.ChromeTitle + "', wanted 'Notebook'");
+            if (NoteCardLine(view, 0, 0) != "Zulu" || NoteCardLine(view, 1, 0) != "Beta")
+                throw new InvalidOperationException("the home cards lost the modified-time order ("
                     + NoteCardLine(view, 0, 0) + ", " + NoteCardLine(view, 1, 0) + ")");
 
-            // The second exit of the rendered state: a click on the blank list
-            // area carries neither a card face nor the add pill under the hit.
-            ClickNoteCard(view, 0);
-            if (NoteExpandedId(view) != "b")
-                throw new InvalidOperationException("the fixture never re-expanded the note");
-            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("the blank-area click left the note expanded");
-            AssertEveryRowIsACardFace(view);
+            // A blank note leaves through the same action: dropped + notified.
+            ClickTitleMenuPart(view, "NoteMenuNew");
+            if (data.Notes.Count != 3)
+                throw new InvalidOperationException("the fixture never created the blank note");
+            ClickTitleMenuPart(view, "NoteMenuHome");
+
+            if (data.Notes.Count != 2)
+                throw new InvalidOperationException(
+                    "the blank note survived the home action (" + data.Notes.Count + " note(s))");
+            if (notified < 1)
+                throw new InvalidOperationException("the blank-note drop never notified the host");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the blank note's home action left the detail open");
         }
 
         /// <summary>
-        /// T6 (spec 4.1): Backspace in the rendered surface collapses the card -
-        /// the key is raised as the tunnelling PreviewKeyDown on the surface's own
-        /// document box, so the panel's root handler must catch it before the box.
+        /// T4 (spec 3.2): building or opening the title menu never commits the
+        /// open edit - the session and its typed text survive until an entry is
+        /// really chosen. While the popup is open, the window-level Esc closes
+        /// it (the popup never takes focus) without ending the edit; closing is
+        /// idempotent. Off-screen the Popup cannot be shown, so its real
+        /// open/focus behaviour stays on the smoke list (no fake pin), but the
+        /// open flag and the Esc route are exercised whenever it holds.
         /// </summary>
-        private static void NoteBackspaceInTheRenderedSurfaceCollapses()
+        private static void NoteOpeningTheTitleMenuKeepsTheEdit()
         {
             ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
             var data = new NoteData();
-            data.Notes.Add(NewNote("a", "Only note", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(note);
 
             var widget = new NoteWidget(data);
             var view = widget.PanelView;
             view.Refresh();
             ClickNoteCard(view, 0);
 
-            var args = RaiseNotePreviewKey(widget, SurfaceReadingBox(NoteSurface(view)), Key.Back);
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not enter the block edit");
+            SurfaceEditBox(surface).Text = "draft";
 
-            if (!args.Handled)
-                throw new InvalidOperationException("the rendered Backspace was not handled");
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("Backspace left '" + NoteExpandedId(view) + "' expanded");
-            AssertEveryRowIsACardFace(view);
-            if (NoteCardCount(view) != 1)
-                throw new InvalidOperationException("the collapsed list carries " + NoteCardCount(view) + " row(s)");
-        }
+            if (view.IsTitleMenuOpen)
+                throw new InvalidOperationException("the title dropdown is open before it was toggled");
 
-        /// <summary>T6 (spec 4.1): Esc in the rendered surface collapses too.</summary>
-        private static void NoteEscInTheRenderedSurfaceCollapses()
-        {
-            ThemeManager.Initialize("dark");
-            var data = new NoteData();
-            data.Notes.Add(NewNote("a", "Only note", new DateTime(2026, 3, 5, 9, 0, 0)));
+            var content = view.BuildTitleMenuContent();
+            if (content == null) throw new InvalidOperationException("the title menu content is null");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("building the title menu ended the edit");
+            if (SurfaceEditBox(surface).Text != "draft")
+                throw new InvalidOperationException("building the title menu rewrote the edit box");
+            if (view.IsTitleMenuOpen)
+                throw new InvalidOperationException("building the title menu opened the dropdown");
 
-            var widget = new NoteWidget(data);
-            var view = widget.PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
+            view.ToggleTitleMenu(NoteNamed(view, "Root"));
+            if (!view.IsTitleMenuOpen)
+                throw new InvalidOperationException("ToggleTitleMenu did not mark the dropdown open");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("opening the title menu ended the edit");
+            if (SurfaceEditBox(surface).Text != "draft")
+                throw new InvalidOperationException("opening the title menu rewrote the edit box");
 
-            var args = RaiseNotePreviewKey(widget, SurfaceReadingBox(NoteSurface(view)), Key.Escape);
+            // Raised on the window itself: the window's tunnelling handler is
+            // the focus-independent Esc path, and it must run before the
+            // panel's router (which would leave the edit).
+            var esc = RaiseNotePreviewKey(widget, widget, Key.Escape);
+            if (!esc.Handled)
+                throw new InvalidOperationException("the open title menu's Esc was not handled");
+            if (view.IsTitleMenuOpen)
+                throw new InvalidOperationException("the open title menu survived Esc");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the menu Esc ended the edit");
+            if (SurfaceEditBox(surface).Text != "draft")
+                throw new InvalidOperationException("the menu Esc rewrote the edit box");
 
-            if (!args.Handled)
-                throw new InvalidOperationException("the rendered Esc was not handled");
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("Esc left '" + NoteExpandedId(view) + "' expanded");
-            AssertEveryRowIsACardFace(view);
+            view.CloseTitleMenu();
+            if (view.IsTitleMenuOpen)
+                throw new InvalidOperationException("CloseTitleMenu left the dropdown open");
+            view.CloseTitleMenu();                 // idempotent
+            if (view.IsTitleMenuOpen)
+                throw new InvalidOperationException("CloseTitleMenu is not idempotent");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("closing the title menu ended the edit");
+            if (SurfaceEditBox(surface).Text != "draft")
+                throw new InvalidOperationException("closing the title menu rewrote the edit box");
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("the title menu committed the draft");
         }
 
         /// <summary>
-        /// T6 (spec 4.3): Esc inside a block edit leaves that block alone - the
-        /// typed text is spliced into the note (Esc never loses text) and the
-        /// card stays expanded in the rendered state.
+        /// T4 (spec 3.3/4.1): Esc inside a block edit leaves that block alone -
+        /// the typed text is spliced into the note (Esc never loses text) and
+        /// the detail stays open in the rendered state.
         /// </summary>
-        private static void NoteEscLeavesABlockEditWithoutCollapsing()
+        private static void NoteEscLeavesABlockEditWithoutClosingTheDetail()
         {
             ThemeManager.Initialize("dark");
             var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
@@ -9699,9 +9973,8 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the block edit's Esc was not handled");
             if (surface.IsEditing)
                 throw new InvalidOperationException("Esc left the block edit session open");
-            if (NoteExpandedId(view) != "a")
-                throw new InvalidOperationException(
-                    "Esc collapsed the note (" + NoteExpandedId(view) + ")");
+            if (view.IsHome)
+                throw new InvalidOperationException("Esc closed the detail");
             if (note.Text != "changed")
                 throw new InvalidOperationException("Esc left the note as '"
                     + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
@@ -9710,11 +9983,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 4.2): a click on a rendered line of the hosted surface enters
-        /// that block's edit. The trigger is the T4 pins' equivalent path (the
-        /// content element first, the surface root's handler with the tagged span
-        /// as its source when the off-screen runner's content elements do not walk
-        /// the event up).
+        /// T4 (spec 4.2): a click on a rendered line of the detail's surface
+        /// enters that block's edit. The trigger is the T4 pins' equivalent path
+        /// (the content element first, the surface root's handler with the
+        /// tagged span as its source when the off-screen runner's content
+        /// elements do not walk the event up).
         /// </summary>
         private static void NoteClickingABlockEntersItsEditAtThatLine()
         {
@@ -9743,9 +10016,9 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 4.4/5.3): a task glyph clicked in the rendered surface flips
+        /// T4 (spec 4.4/5.3): a task glyph clicked in the rendered detail flips
         /// its source line and never opens a block edit (the renderer marks the
-        /// click handled and the surface's own handler skips handled events).
+        /// click handled and the surface's own handler skips it).
         /// </summary>
         private static void NoteTaskGlyphClickTogglesWithoutEnteringTheEdit()
         {
@@ -9772,51 +10045,195 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 6): the ＋ row creates an empty note at the head of the data
-        /// and opens it straight into the whole-text edit - the fresh note takes
-        /// the expanded row, the edit box is empty and both surrounding renders
-        /// stay empty. The add writes no notification (the note only lands with
-        /// its first commit or leave).
+        /// T4 (spec 3.3, user decision 7): in the rendered detail a click on the
+        /// blank space - the surface host's padding band or the panel root's own
+        /// margin - changes nothing: the detail never collapses on a blank
+        /// click (the title menu / Esc / Backspace own the way home).
         /// </summary>
-        private static void NoteAddPillStartsAWholeTextEdit()
+        private static void NoteRenderedBlankClicksNoLongerCollapse()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
+            data.Notes.Add(NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0)));
 
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
-            ClickNoteAdd(view);
+            ClickNoteCard(view, 0);
 
-            if (data.Notes.Count != 1)
-                throw new InvalidOperationException("the add click left " + data.Notes.Count + " note(s), wanted 1");
-            var note = data.Notes[0];
-            if (note.Text != string.Empty)
-                throw new InvalidOperationException("the new note carries '" + note.Text + "', wanted empty");
-            if (string.IsNullOrEmpty(note.Id))
-                throw new InvalidOperationException("the new note has no id");
-            if (note.CreatedAt == default(DateTime) || note.ModifiedAt == default(DateTime))
-                throw new InvalidOperationException("the new note carries no timestamps");
-            if (NoteExpandedId(view) != note.Id)
+            ClickNoteHost(view);
+            if (view.IsHome)
+                throw new InvalidOperationException("the host-padding click collapsed the detail");
+
+            ClickNoteRoot(view);
+            if (view.IsHome)
+                throw new InvalidOperationException("the root-margin click collapsed the detail");
+            if (NoteExpandedId(view) != "a")
                 throw new InvalidOperationException(
-                    "the add click expanded '" + NoteExpandedId(view) + "', wanted the fresh note");
-
-            var surface = NoteSurface(view);
-            if (!ReferenceEquals(NoteHostAt(view, 0).Child, surface))
-                throw new InvalidOperationException("the fresh note is not the expanded row");
-            if (!surface.IsEditing)
-                throw new InvalidOperationException("the new note did not open its whole-text edit");
-            if (SurfaceEditBox(surface).Text != string.Empty)
-                throw new InvalidOperationException("the fresh edit box carries '"
-                    + SurfaceEditBox(surface).Text + "', wanted empty");
-            if (SurfaceBeforeBox(surface).Document.Blocks.Count != 0
-                || SurfaceAfterBox(surface).Document.Blocks.Count != 0)
-                throw new InvalidOperationException("the whole-text edit rendered a surrounding pane");
+                    "the blank clicks moved the detail to '" + NoteExpandedId(view) + "'");
+            if (NoteNamed(view, "HomeHost").Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the home host came back on a blank click");
+            if (NoteNamed(view, "DetailHost").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the detail host disappeared on a blank click");
+            if (SurfaceNamed(NoteSurface(view), "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the detail left the rendered state");
         }
 
         /// <summary>
-        /// T6 (spec 6): the list's blank-area menu carries the one create entry
-        /// (the note kind's label through the existing localization keys) and its
-        /// click runs the same new-note flow as the ＋ row.
+        /// T4 (spec 4.1/user decision 7): while editing, a click outside the
+        /// surface - the surface host's padding band or the panel margin -
+        /// commits the block and renders back, still in the detail. The second
+        /// half re-enters the edit and repeats the click on the root, so both
+        /// click-away paths are covered.
+        /// </summary>
+        private static void NoteBlankClicksLeaveTheEditButStayInTheDetail()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0);
+
+            var surface = NoteSurface(view);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            ClickNoteHost(view);
+            AssertNoteLeftEdit(view, surface, note, "changed", "the host-padding click");
+
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not re-enter the block edit");
+            SurfaceEditBox(surface).Text = "changed again";
+
+            ClickNoteRoot(view);
+            AssertNoteLeftEdit(view, surface, note, "changed again", "the root-margin click");
+        }
+
+        private static void AssertNoteLeftEdit(NotePanelView view, NoteSurfaceView surface,
+            NoteItem note, string wanted, string what)
+        {
+            if (surface.IsEditing)
+                throw new InvalidOperationException(what + " left the edit open");
+            if (view.IsHome)
+                throw new InvalidOperationException(what + " collapsed the detail");
+            if (note.Text != wanted)
+                throw new InvalidOperationException(what + " left the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "', wanted '" + wanted + "'");
+            if (!ReferenceEquals(NoteHost(view).Child, surface))
+                throw new InvalidOperationException(what + " dropped the surface from its host");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException(what + " did not render back");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.3): Esc / Backspace close the rendered detail back to the
+        /// home; in the detail's edit they only leave the edit; at home they do
+        /// nothing at all.
+        /// </summary>
+        private static void NoteEscAndBackspaceReturnHomeOnlyInTheRenderedDetail()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(note);
+
+            var widget = new NoteWidget(data);
+            var view = widget.PanelView;
+            view.Refresh();
+
+            ClickNoteCard(view, 0);
+            var surface = NoteSurface(view);
+            var args = RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Escape);
+            if (!args.Handled)
+                throw new InvalidOperationException("the rendered Esc was not handled");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the rendered Esc left the detail open");
+
+            ClickNoteCard(view, 0);
+            args = RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Back);
+            if (!args.Handled)
+                throw new InvalidOperationException("the rendered Backspace was not handled");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the rendered Backspace left the detail open");
+
+            ClickNoteCard(view, 0);
+            if (!surface.TryBeginEditAt(0))
+                throw new InvalidOperationException("the note did not enter the block edit");
+            SurfaceEditBox(surface).Text = "committed";
+            args = RaiseNotePreviewKey(widget, SurfaceEditBox(surface), Key.Escape);
+            if (!args.Handled)
+                throw new InvalidOperationException("the edit Esc was not handled");
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the edit Esc left the session open");
+            if (view.IsHome)
+                throw new InvalidOperationException("the edit Esc collapsed the detail");
+            if (note.Text != "committed")
+                throw new InvalidOperationException("the edit Esc lost the text");
+
+            args = RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Escape);
+            if (!args.Handled)
+                throw new InvalidOperationException("the second rendered Esc was not handled");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the second rendered Esc left the detail open");
+
+            args = RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Escape);
+            if (args.Handled)
+                throw new InvalidOperationException("the home Esc was handled");
+            args = RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Back);
+            if (args.Handled)
+                throw new InvalidOperationException("the home Backspace was handled");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the home keys moved the panel");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.3): the blank area's menu carries the create entry at home
+        /// and create + "back to the notes" in the detail (home hides the home
+        /// entry). The right-click routing inside the surface stays on the
+        /// smoke list (an off-screen ContextMenuOpening is not a stable event to
+        /// fabricate); this pin owns the menu the route assigns.
+        /// </summary>
+        private static void NoteBlankMenuFollowsTheState()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            string newWanted = "＋ " + Localization.Format(
+                "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
+
+            var homeMenu = InvokeNoteBlankMenu(view);
+            if (homeMenu == null) throw new InvalidOperationException("the home has no blank menu");
+            if (homeMenu.Items.Count != 1)
+                throw new InvalidOperationException(
+                    "the home blank menu has " + homeMenu.Items.Count + " item(s), wanted 1");
+            if (HeaderOf(homeMenu.Items[0]) != newWanted)
+                throw new InvalidOperationException(
+                    "the home blank menu reads '" + HeaderOf(homeMenu.Items[0]) + "'");
+
+            ClickNoteCard(view, 0);
+            var detailMenu = InvokeNoteBlankMenu(view);
+            if (detailMenu == null) throw new InvalidOperationException("the detail has no blank menu");
+            if (detailMenu.Items.Count != 2)
+                throw new InvalidOperationException(
+                    "the detail blank menu has " + detailMenu.Items.Count + " item(s), wanted 2");
+            if (HeaderOf(detailMenu.Items[0]) != newWanted)
+                throw new InvalidOperationException(
+                    "the detail blank menu reads '" + HeaderOf(detailMenu.Items[0]) + "'");
+            if (HeaderOf(detailMenu.Items[1]) != Localization.Get("UI_NoteHome"))
+                throw new InvalidOperationException(
+                    "the detail blank menu's home entry reads '" + HeaderOf(detailMenu.Items[1]) + "'");
+        }
+
+        /// <summary>
+        /// T4 (spec 3.3/6): the blank-area menu's create entry opens a fresh
+        /// note straight into the whole-text edit in the detail.
         /// </summary>
         private static void NoteBlankAreaMenuStartsTheSameEdit()
         {
@@ -9827,12 +10244,13 @@ namespace Kobold.XamlLoadCheck
             view.Refresh();
 
             var menu = InvokeNoteBlankMenu(view);
-            if (menu == null) throw new InvalidOperationException("the empty list has no blank-area menu");
+            if (menu == null) throw new InvalidOperationException("the empty home has no blank-area menu");
             if (menu.Items.Count != 1)
                 throw new InvalidOperationException("the blank-area menu has " + menu.Items.Count + " item(s)");
 
             string header = HeaderOf(menu.Items[0]);
-            string wanted = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
+            string wanted = "＋ " + Localization.Format(
+                "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
             if (header != wanted)
                 throw new InvalidOperationException(
                     "the blank-area menu reads '" + header + "', wanted '" + wanted + "'");
@@ -9846,7 +10264,7 @@ namespace Kobold.XamlLoadCheck
                     "the blank-area menu left " + data.Notes.Count + " note(s), wanted 1");
             if (NoteExpandedId(view) != data.Notes[0].Id)
                 throw new InvalidOperationException(
-                    "the blank-area menu expanded '" + NoteExpandedId(view) + "', wanted the fresh note");
+                    "the blank-area menu opened '" + NoteExpandedId(view) + "', wanted the fresh note");
 
             var surface = NoteSurface(view);
             if (!surface.IsEditing)
@@ -9856,12 +10274,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 4.5): a note created by the ＋ row and left blank is dropped
-        /// again on the collapse - the data loses it, the collapse notifies the
-        /// host (the removal must converge through the usual save path) and the
-        /// list keeps only the add row.
+        /// T4 (spec 4.5): a note created by the title menu and left blank is
+        /// dropped again on the way home - the data loses it, the drop notifies
+        /// the host and the home shows its empty state.
         /// </summary>
-        private static void NoteEmptyNewNoteIsDiscardedOnCollapse()
+        private static void NoteEmptyNewNoteIsDiscardedOnTheWayHome()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -9872,29 +10289,35 @@ namespace Kobold.XamlLoadCheck
             int notified = 0;
             widget.OnDataChanged += () => notified++;
 
-            ClickNoteAdd(view);
+            ClickTitleMenuPart(view, "NoteMenuNew");
             if (data.Notes.Count != 1)
                 throw new InvalidOperationException("the fixture never created a note");
 
-            ClickNoteCollapse(NoteSurface(view));
+            // First Esc leaves the whole-text edit (still blank, still there);
+            // the second closes the rendered detail and drops the blank note.
+            var surface = NoteSurface(view);
+            RaiseNotePreviewKey(widget, SurfaceEditBox(surface), Key.Escape);
+            if (view.IsHome)
+                throw new InvalidOperationException("the edit Esc already left the detail");
+            RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Escape);
 
             if (data.Notes.Count != 0)
                 throw new InvalidOperationException(
-                    "the empty note survived the collapse (" + data.Notes.Count + " note(s))");
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("the discarded note stayed expanded");
+                    "the empty note survived the way home (" + data.Notes.Count + " note(s))");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the discarded note stayed in the detail");
             if (NoteCardCount(view) != 0)
-                throw new InvalidOperationException("the emptied list rendered " + NoteCardCount(view) + " row(s)");
+                throw new InvalidOperationException("the empty home rendered " + NoteCardCount(view) + " card(s)");
             if (notified < 1)
                 throw new InvalidOperationException("the discard never notified the host");
         }
 
         /// <summary>
-        /// T6 (spec 4.5): clearing an existing note's text (whitespace counts as
-        /// nothing) drops that note on the collapse too - only that one, and the
+        /// T4 (spec 4.5): clearing an existing note's text (whitespace counts as
+        /// nothing) drops that note on the way home too - only that one, and the
         /// removal notifies the host.
         /// </summary>
-        private static void NoteEmptyingAnExistingNoteDiscardsItOnCollapse()
+        private static void NoteEmptyingAnExistingNoteDiscardsItOnTheWayHome()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -9914,21 +10337,22 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the note did not enter the block edit");
             SurfaceEditBox(surface).Text = "   ";
 
-            ClickNoteCollapse(surface);
+            RaiseNotePreviewKey(widget, SurfaceEditBox(surface), Key.Escape);
+            RaiseNotePreviewKey(widget, SurfaceReadingBox(surface), Key.Escape);
 
             if (data.Notes.Count != 1 || data.Notes[0].Id != "b")
                 throw new InvalidOperationException(
                     "the emptied note survived (" + data.Notes.Count + " note(s) left)");
             if (NoteCardCount(view) != 1)
-                throw new InvalidOperationException("the list carries " + NoteCardCount(view) + " row(s), wanted 1");
+                throw new InvalidOperationException("the home carries " + NoteCardCount(view) + " row(s), wanted 1");
             if (notified < 1)
                 throw new InvalidOperationException("the discard never notified the host");
         }
 
         /// <summary>
-        /// T6 (spec 5.2): hiding the panel flushes the pending edit before the
+        /// T4 (spec 5.2): hiding the panel flushes the pending edit before the
         /// window goes away - the half-typed note is in the data, not lost, and
-        /// the block edit session is closed (the expanded state survives for the
+        /// the block edit session is closed (the detail state survives for the
         /// panel's next opening). The open flag is set reflectively (the base's
         /// own field), so the check never shows a window.
         /// </summary>
@@ -9943,7 +10367,7 @@ namespace Kobold.XamlLoadCheck
             EnsureRealDpi(widget);
             SetPrivateBaseField(widget, "_isExpanded", true);
 
-            ClickNoteAdd(view);
+            ClickTitleMenuPart(view, "NoteMenuNew");
             var surface = NoteSurface(view);
             SurfaceEditBox(surface).Text = "half a thought";
             widget.HidePanel();
@@ -9958,63 +10382,13 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the collapse left the block edit open");
             if (NoteExpandedId(view) != data.Notes[0].Id)
                 throw new InvalidOperationException(
-                    "the collapse dropped the expanded note (" + NoteExpandedId(view) + ")");
+                    "the collapse dropped the detail note (" + NoteExpandedId(view) + ")");
         }
 
         /// <summary>
-        /// Post-smoke fix round 1 (spec 4.3/4.4): the expanded row's host border
-        /// carries a 10,8 padding band, so a click in that band resolves to the
-        /// host itself - inside the card, outside the surface. While editing it
-        /// is the in-card click-away: the block commits and renders back, and the
-        /// card stays expanded (the same host row still owns the surface).
-        /// </summary>
-        private static void NoteClickingHostPaddingWhileEditingLeavesTheEdit()
-        {
-            ThemeManager.Initialize("dark");
-            var when = new DateTime(2026, 3, 5, 9, 0, 0);
-            var note = NewNote("a", "one\ntwo", when);
-            var data = new NoteData();
-            data.Notes.Add(note);
-
-            var view = new NoteWidget(data).PanelView;
-            view.Refresh();
-            ClickNoteCard(view, 0);
-
-            var surface = NoteSurface(view);
-            if (!surface.TryBeginEditAt(0))
-                throw new InvalidOperationException("the note's paragraph did not enter the block edit");
-            SurfaceEditBox(surface).Text = "changed";
-
-            var host = NotePrivate(view, "_surfaceHost") as Border;
-            if (host == null) throw new InvalidOperationException("_surfaceHost is not a Border");
-
-            // The root sees its own direct-event copy: the hit is the host (the
-            // padding band), not one of the surface's descendants.
-            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(
-                Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent,
-                Source = host
-            });
-
-            if (surface.IsEditing)
-                throw new InvalidOperationException("the host-padding click left the edit open");
-            if (note.Text != "changed")
-                throw new InvalidOperationException("the host-padding click left the note as '"
-                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
-            if (NoteExpandedId(view) != "a")
-                throw new InvalidOperationException(
-                    "the host-padding click collapsed the card (" + NoteExpandedId(view) + ")");
-            if (!ReferenceEquals(NoteHostAt(view, 0), host) || !ReferenceEquals(host.Child, surface))
-                throw new InvalidOperationException("the expanded row no longer hosts the surface");
-            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
-                throw new InvalidOperationException("the surface did not render back after the padding click");
-        }
-
-        /// <summary>
-        /// T6 (spec 4.3): a refresh (theme / language / widget update) during an
+        /// T4 (spec 4.3): a refresh (theme / language / widget update) during an
         /// open block edit repaints the surface but never rewrites the typed text
-        /// or drops the session.
+        /// or drops the session, and the detail stays open.
         /// </summary>
         private static void NoteRefreshDuringAnEditKeepsTheText()
         {
@@ -10040,16 +10414,16 @@ namespace Kobold.XamlLoadCheck
                     "the refresh rewrote the edit box as '" + edit.Text.Replace("\n", "\\n") + "'");
             if (!surface.IsEditing)
                 throw new InvalidOperationException("the refresh dropped the block edit session");
-            if (NoteExpandedId(view) != "a")
-                throw new InvalidOperationException("the refresh collapsed the note");
+            if (view.IsHome)
+                throw new InvalidOperationException("the refresh closed the detail");
         }
 
         /// <summary>
-        /// T6 (spec 4.5): the flushed edit stamps the note's modified time, so the
-        /// collapse rebuilds the list with that note on top (SortForDisplay) and
-        /// its face carries the fresh title.
+        /// T4 (spec 4.5): the committed edit stamps the note's modified time, so
+        /// going home rebuilds the cards with that note on top (SortForDisplay)
+        /// and its face carries the fresh title.
         /// </summary>
-        private static void NoteOrderFollowsTheLatestEditAfterCollapse()
+        private static void NoteOrderFollowsTheLatestEditAfterGoingHome()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -10068,10 +10442,10 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the note did not enter the block edit");
             SurfaceEditBox(surface).Text = "Zulu";
 
-            ClickNoteCollapse(surface);
+            ClickTitleMenuPart(view, "NoteMenuHome");
 
-            if (NoteExpandedId(view) != null)
-                throw new InvalidOperationException("the collapse left a note expanded");
+            if (!view.IsHome)
+                throw new InvalidOperationException("the home action left a note open");
             if (NoteCardLine(view, 0, 0) != "Zulu")
                 throw new InvalidOperationException(
                     "the edited note is card '" + NoteCardLine(view, 0, 0) + "', wanted it on top");
@@ -10081,10 +10455,10 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 5.3): a task box clicked in the expanded, rendered surface
+        /// T4 (spec 5.3): a task box clicked in the detail's rendered surface
         /// writes the flipped source line back, stamps the modified time and
-        /// re-renders the document - the stale glyph stays alone (the document was
-        /// rebuilt, not mutated in place).
+        /// re-renders the document - the stale glyph stays alone (the document
+        /// was rebuilt, not mutated in place).
         /// </summary>
         private static void NoteTaskToggleRewritesAndRerendersInPlace()
         {
@@ -10120,8 +10494,8 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T6 (spec 5.2): the expanded surface's rendered document keeps each
-        /// link's target on Hyperlink.NavigateUri so the click can hand it to the
+        /// T4 (spec 5.2): the detail's rendered document keeps each link's
+        /// target on Hyperlink.NavigateUri so the click can hand it to the
         /// browser. The pin reads the target only - raising the click would open
         /// one.
         /// </summary>
@@ -10171,7 +10545,7 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>The expanded note's id, off the private `_expandedId` field
-        /// (T6): the one-expanded-at-a-time pin surface.</summary>
+        /// (T4): null is the home, anything else the detail.</summary>
         private static string NoteExpandedId(NotePanelView view)
         {
             return NotePrivate(view, "_expandedId") as string;
@@ -10185,57 +10559,177 @@ namespace Kobold.XamlLoadCheck
             return field.GetValue(view);
         }
 
-        /// <summary>The ItemsPanel child at a display index (T6: the expanded
-        /// row's host and the card faces share the list).</summary>
-        private static Border NoteHostAt(NotePanelView view, int index)
+        /// <summary>The detail's permanent surface host (a Border carrying the
+        /// panel's one surface), off the private `_surfaceHost` field.</summary>
+        private static Border NoteHost(NotePanelView view)
         {
-            var panel = NoteItemsPanel(view);
-            if (panel.Children.Count <= index)
-                throw new InvalidOperationException(
-                    "row " + index + " not found (" + panel.Children.Count + " row(s))");
-            var row = panel.Children[index] as Border;
-            if (row == null) throw new InvalidOperationException("row " + index + " is not a Border");
-            return row;
+            var host = NotePrivate(view, "_surfaceHost") as Border;
+            if (host == null) throw new InvalidOperationException("_surfaceHost is not a Border");
+            return host;
         }
 
-        /// <summary>The floating ‹ of the expanded surface, clicked the way the
-        /// mouse does (the real handler, never a reflection call): a full
-        /// down/up pair on the button. The collapse fires on the up, so the
-        /// card face that replaces the surface never sees a release to expand
-        /// again.</summary>
-        private static void ClickNoteCollapse(NoteSurfaceView surface)
+        /// <summary>The widget's chrome, off the XAML name (the pin reads the
+        /// title the panel pushes onto it).</summary>
+        private static WidgetChrome NoteChrome(NoteWidget widget)
         {
-            var button = surface.FindName("CollapseButton") as FrameworkElement;
-            if (button == null) throw new InvalidOperationException("the surface has no CollapseButton");
-            button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-            button.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonUpEvent
-            });
+            var chrome = widget.FindName("NoteChrome") as WidgetChrome;
+            if (chrome == null) throw new InvalidOperationException("the widget has no NoteChrome");
+            return chrome;
         }
 
-        /// <summary>Every row of the list is a card face (no surface host among
-        /// them): the collapsed state's proof.</summary>
-        private static void AssertEveryRowIsACardFace(NotePanelView view)
+        /// <summary>Builds the title dropdown through its public builder (the
+        /// production popup content), then raises one action's real click.</summary>
+        private static void ClickTitleMenuPart(NotePanelView view, string tag)
         {
-            var panel = NoteItemsPanel(view);
-            for (int i = 0; i < panel.Children.Count; i++)
+            var part = TitleMenuPart(view.BuildTitleMenuContent(), tag);
+            var button = part as Button;
+            if (button == null)
+                throw new InvalidOperationException("the title-menu part '" + tag + "' is not a Button");
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+
+        /// <summary>Builds the title dropdown and raises one note entry's real
+        /// click, picked by its Tag (the note id) - the same wiring the popup
+        /// uses (close the menu, then open the note).</summary>
+        private static void ClickTitleMenuEntry(NotePanelView view, string noteId)
+        {
+            var entry = FindTagged(view.BuildTitleMenuContent(), noteId) as Button;
+            if (entry == null)
+                throw new InvalidOperationException("the title menu has no note entry '" + noteId + "'");
+            entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        }
+
+        /// <summary>The first element in the title menu tagged with
+        /// <paramref name="tag"/>; throws when the menu has none.</summary>
+        private static FrameworkElement TitleMenuPart(FrameworkElement root, string tag)
+        {
+            var found = FindTagged(root, tag);
+            if (found == null)
+                throw new InvalidOperationException("the title menu has no part tagged '" + tag + "'");
+            return found;
+        }
+
+        private static bool TitleMenuContains(FrameworkElement root, string tag)
+        {
+            return FindTagged(root, tag) != null;
+        }
+
+        private static FrameworkElement FindTagged(DependencyObject node, string tag)
+        {
+            var element = node as FrameworkElement;
+            if (element != null && string.Equals(element.Tag as string, tag, StringComparison.Ordinal))
+                return element;
+            foreach (var child in LogicalTreeHelper.GetChildren(node))
             {
-                var row = panel.Children[i] as Border;
-                if (row == null || !(row.Child is StackPanel))
-                    throw new InvalidOperationException("row " + i + " is not a card face");
+                var dependency = child as DependencyObject;
+                if (dependency == null) continue;
+                var found = FindTagged(dependency, tag);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>The title menu's note entries in presentation order - every
+        /// Button that is not one of the two action tags (its Tag is the note
+        /// id).</summary>
+        private static List<Button> NoteMenuEntries(FrameworkElement root)
+        {
+            var buttons = new List<Button>();
+            CollectButtons(root, buttons);
+
+            var entries = new List<Button>();
+            foreach (var button in buttons)
+            {
+                string tag = button.Tag as string;
+                if (tag == "NoteMenuNew" || tag == "NoteMenuHome") continue;
+                entries.Add(button);
+            }
+            return entries;
+        }
+
+        private static void CollectButtons(DependencyObject node, List<Button> found)
+        {
+            var button = node as Button;
+            if (button != null) found.Add(button);
+            foreach (var child in LogicalTreeHelper.GetChildren(node))
+            {
+                var dependency = child as DependencyObject;
+                if (dependency != null) CollectButtons(dependency, found);
             }
         }
 
+        private static void AssertNoteMenuOrder(List<Button> entries, params string[] ids)
+        {
+            if (entries.Count != ids.Length)
+                throw new InvalidOperationException(
+                    "the title menu lists " + entries.Count + " note(s), wanted " + ids.Length);
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string tag = entries[i].Tag as string;
+                if (tag != ids[i])
+                    throw new InvalidOperationException(
+                        "the title menu entry " + i + " is '" + tag + "', wanted '" + ids[i] + "'");
+            }
+        }
+
+        /// <summary>The check TextBlock of one note entry (empty when the entry
+        /// is not the current note).</summary>
+        private static TextBlock NoteMenuCheck(Button entry)
+        {
+            var grid = entry.Content as Grid;
+            if (grid == null) throw new InvalidOperationException("the note entry has no content grid");
+            foreach (var child in grid.Children)
+            {
+                var text = child as TextBlock;
+                if (text != null && "NoteMenuCheck".Equals(text.Tag as string)) return text;
+            }
+            throw new InvalidOperationException("the note entry carries no check mark element");
+        }
+
+        /// <summary>The title TextBlock of one note entry (the one that is not
+        /// the check mark).</summary>
+        private static string NoteMenuTitle(Button entry)
+        {
+            var grid = entry.Content as Grid;
+            if (grid == null) throw new InvalidOperationException("the note entry has no content grid");
+            foreach (var child in grid.Children)
+            {
+                var text = child as TextBlock;
+                if (text != null && !"NoteMenuCheck".Equals(text.Tag as string)) return text.Text;
+            }
+            throw new InvalidOperationException("the note entry carries no title element");
+        }
+
+        /// <summary>A left click on the detail's surface host padding band: the
+        /// root sees its own direct-event copy, so the hit is the host (never a
+        /// surface descendant).</summary>
+        private static void ClickNoteHost(NotePanelView view)
+        {
+            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(
+                Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+                Source = NoteHost(view)
+            });
+        }
+
+        /// <summary>A left click on the panel's own margin.</summary>
+        private static void ClickNoteRoot(NotePanelView view)
+        {
+            NoteNamed(view, "Root").RaiseEvent(new MouseButtonEventArgs(
+                Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent
+            });
+        }
+
         /// <summary>
-        /// The T6 reading key input: the same real presentation source the T13
-        /// reading pins built (EnsureHandle creates the HwndSource), raised as the
-        /// tunnelling PreviewKeyDown on the surface's own box - the document box
-        /// is no TextBox, so the todo helper's signature does not fit. Returns the
-        /// args so the pin can read Handled.
+        /// The note panel's rendered-detail key input: the same real
+        /// presentation source the surface reading pins built (EnsureHandle
+        /// creates the HwndSource), raised as the tunnelling PreviewKeyDown on
+        /// the surface's own box - the document box is no TextBox, so the todo
+        /// helper's signature does not fit. Returns the args so the pin can read
+        /// Handled.
         /// </summary>
         private static KeyEventArgs RaiseNotePreviewKey(Window window, FrameworkElement target, Key key)
         {
@@ -10252,23 +10746,8 @@ namespace Kobold.XamlLoadCheck
             return args;
         }
 
-        #endregion
-
-        #region Task T6: note list helpers kept from the retired editor pins
-
-        /// <summary>The ＋ row's left click: the real pill handler runs the same
-        /// new-note flow the blank-area menu does.</summary>
-        private static void ClickNoteAdd(NotePanelView view)
-        {
-            NoteNamed(view, "AddPill").RaiseEvent(new MouseButtonEventArgs(
-                Mouse.PrimaryDevice, 0, MouseButton.Left)
-            {
-                RoutedEvent = UIElement.MouseLeftButtonDownEvent
-            });
-        }
-
-        /// <summary>Builds the list's blank-area menu through its private builder
-        /// (the real ContextMenuOpening route only opens what it returns).</summary>
+        /// <summary>Builds the blank-area menu through its private builder (the
+        /// real ContextMenuOpening route only opens what it returns).</summary>
         private static ContextMenu InvokeNoteBlankMenu(NotePanelView view)
         {
             var method = typeof(NotePanelView).GetMethod("BuildBlankMenu",

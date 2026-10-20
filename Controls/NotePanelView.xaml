@@ -4,39 +4,67 @@
              TextOptions.TextFormattingMode="Display"
              PreviewKeyDown="Root_PreviewKeyDown">
 
-    <!-- The note list, the whole panel: the top add row over the card host.
-         One card at a time expands into the list itself (the panel carries one
-         NoteSurfaceView, mounted in the expanded row's host border), so the list
-         is the only surface the panel has - the rendered and the editing states
-         live inside the expanded card, never over a separate view. -->
+    <UserControl.Resources>
+        <!-- The title dropdown's flat entry: no chrome of its own, a rounded
+             hover wash and the current note's highlight painted through the
+             button's Background (the dropdown is rebuilt per opening). -->
+        <Style x:Key="NoteMenuButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
+            <Setter Property="FontSize" Value="{DynamicResource Kobold.Font.Body}"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Button}">
+                        <Border x:Name="Bd"
+                                CornerRadius="{DynamicResource Kobold.Radius.Control}"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background"
+                                        Value="{DynamicResource Kobold.Brush.SurfaceHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background"
+                                        Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- The note widget's content: a home list ⇄ a detail page (design §3.1).
+         The home carries the cards (the empty state over them when the data is
+         empty); the detail carries the panel's one surface in a permanent host.
+         Only one of the two hosts is visible, so the cards and the note content
+         never share the panel. -->
     <Grid x:Name="Root" Margin="12,8,12,10" Background="Transparent"
           MouseLeftButtonDown="Root_MouseLeftButtonDown">
 
-        <Grid x:Name="ListHost">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Add row: the ＋ pill creates an empty note straight into its
-                 whole-text edit (spec 6.3). -->
-            <Border x:Name="AddPill" Grid.Row="0" Height="30" CornerRadius="15" Margin="0,0,0,6"
-                    Background="Transparent" BorderThickness="1" Cursor="Hand"
-                    MouseLeftButtonDown="AddPill_Click">
-                <TextBlock x:Name="AddPillGlyph" Text="＋" FontSize="14"
-                           Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-
-            <!-- List host: the note rows are built here by the renderer - the
-                 card faces and, for the expanded note, the surface's host. Its
-                 inner scrollers are pass-throughs, so this scroller owns the
-                 list's single scroll region. -->
-            <ScrollViewer x:Name="ItemsScroller" Grid.Row="1"
-                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                          PanningMode="VerticalOnly" Background="Transparent">
+        <Grid x:Name="HomeHost">
+            <ScrollViewer x:Name="ItemsScroller" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly"
+                          Background="Transparent">
                 <StackPanel x:Name="ItemsPanel"/>
             </ScrollViewer>
+            <TextBlock x:Name="EmptyState" Visibility="Collapsed"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       TextAlignment="Center" TextWrapping="Wrap" Margin="24"
+                       FontSize="{DynamicResource Kobold.Font.Body}"
+                       Foreground="{DynamicResource Kobold.Brush.TextMuted}"/>
         </Grid>
+
+        <Grid x:Name="DetailHost" Visibility="Collapsed"/>
     </Grid>
 </UserControl>

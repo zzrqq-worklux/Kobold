@@ -16,8 +16,8 @@ namespace Kobold.Controls
 {
     /// <summary>
     /// The note surface: the rendered state ⇄ the block-editing state, plus the
-    /// source box's quick-insert menu - one expanded card's content in the note
-    /// list. Rendered, a single read-only, document-enabled RichTextBox paints
+    /// source box's quick-insert menu - the note detail's content. Rendered, a
+    /// single read-only, document-enabled RichTextBox paints
     /// the whole note through <see cref="NoteMarkdownRenderer"/>: its task boxes
     /// write the flipped source line back (spec 4.1/5.3) and its links keep
     /// their target for the browser. A click on a rendered line swaps that
@@ -25,7 +25,7 @@ namespace Kobold.Controls
     /// box / the after render, spec 4.3): the box types through a 400ms
     /// throttle straight back into the note and leaving renders the whole note
     /// again. <see cref="NotePanelView"/> owns one instance for its whole life
-    /// and mounts it in the expanded row (the shipped workbench design).
+    /// and keeps it in the detail page's permanent host (spec 3.1).
     /// </summary>
     public partial class NoteSurfaceView : UserControl
     {
@@ -43,10 +43,6 @@ namespace Kobold.Controls
 
         /// <summary>The quote block's left indent (the renderer's own pad).</summary>
         private const double QuoteIndent = 12;
-
-        /// <summary>Fires when the floating ‹ is clicked: the host collapses
-        /// the expanded card (spec 3.3).</summary>
-        public Action CollapseRequested;
 
         /// <summary>Fires after a write-back: the host runs the usual save and
         /// island refresh (mirroring <see cref="NotePanelView"/>'s change
@@ -393,14 +389,14 @@ namespace Kobold.Controls
         /// The rendered / editing states' click handler, attached to the root
         /// with handledEventsToo so it covers the reading box and the before /
         /// after panes even while a focused box swallows the up. The hit chain
-        /// is classified first: a click inside the source box is typing and a
-        /// click inside the ‹ is the collapse seam (both own their clicks); a
+        /// is classified first: a click inside the source box is typing (it
+        /// owns its click); a
         /// drag-selection release is skipped; a task glyph or a link owns its
         /// click - while editing it means "outside the edited block", so the
         /// session commits and renders back, otherwise it is left alone. A
         /// tagged line opens its block (or switches to it while editing); any
         /// other hit while editing is the click-away: commit and render back
-        /// without collapsing the card (spec 4.3/4.4).
+        /// without closing the detail (spec 4.3/4.4).
         ///
         /// A real mouse release reports the box itself as its original source
         /// (the probe: source=ReadingBox, taggedLine=-1), so the tagged element
@@ -418,7 +414,6 @@ namespace Kobold.Controls
             object resolved = hitBox != null ? HitAtPoint(hitBox, point) : hit;
 
             if (IsInside(hit, EditBox)) return;            // typing surface
-            if (IsInside(hit, CollapseButton)) return;     // the ‹ owns its click
 
             if (SelectionIsNotEmpty(hit)) return;
 
@@ -590,8 +585,8 @@ namespace Kobold.Controls
         }
 
         /// <summary>True when the hit chain passes through
-        /// <paramref name="target"/> (the source box, the ‹): those own their
-        /// clicks and the surface handler must stay out of them.</summary>
+        /// <paramref name="target"/> (the source box): it owns its clicks and
+        /// the surface handler must stay out of them.</summary>
         private static bool IsInside(object hit, DependencyObject target)
         {
             var element = hit as DependencyObject;
@@ -933,21 +928,8 @@ namespace Kobold.Controls
         #endregion
 
         /// <summary>
-        /// The floating ‹ (spec 3.3): the host collapses the expanded card.
-        /// Handled here on the button-up, not the button-down - the card face
-        /// behind the collapsed row expands on its own button-up, so collapsing
-        /// on the down would let the release immediately re-expand the card.
-        /// The event is still marked handled for the host's other listeners;
-        /// the surface's own handler (which now sees handled events) skips the
-        /// ‹ by hit identity instead.
+        /// The rendered state: the document box alone is visible.
         /// </summary>
-        private void CollapseButton_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            e.Handled = true;
-            CollapseRequested?.Invoke();
-        }
-
-        /// <summary>The rendered state: the document box alone is visible.</summary>
         private void ShowRendered()
         {
             ReadingBox.Visibility = Visibility.Visible;
@@ -983,9 +965,9 @@ namespace Kobold.Controls
         /// A task box was clicked (spec 4.1/5.3): the source line flips, the
         /// note becomes the newest modification, the host is notified and the
         /// document repaints. The fresh document then takes the focus back: the
-        /// glyph that was clicked belonged to the old document. The host's list
-        /// scroller owns the scroll offset in the workbench (the surface's own
-        /// scroller is a pass-through there), so the surface restores nothing.
+        /// glyph that was clicked belonged to the old document. The surface's
+        /// own scroller keeps the offset through the repaint (it is the detail's
+        /// only scroll region), so the surface restores nothing.
         /// </summary>
         private void ToggleTask(int line)
         {
