@@ -40,8 +40,34 @@
                         </Grid.ColumnDefinitions>
 
                         <ContentPresenter x:Name="HeaderLeading" x:FieldModifier="public" Grid.Column="0" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TitleText" x:FieldModifier="public" Grid.Column="1" FontSize="13" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <!-- Title area: the caption plus the optional title-menu
+                             chevron. The chevron stays collapsed unless a host
+                             sets TitleMenuEnabled, so folder/todo keep their
+                             plain title. Its own press is handled there, so a
+                             header drag never starts from it. -->
+                        <Grid x:Name="TitleGroup" Grid.Column="1" Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TitleText" x:FieldModifier="public" Grid.Column="0" FontSize="13" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <!-- The chevron sits in a 24x24 transparent border so
+                                 the hit target is a comfortable square, not just
+                                 the glyph run. The glyph's ink comes from
+                                 ApplyTheme (one source of truth). -->
+                            <Border x:Name="TitleChevron" x:FieldModifier="public" Grid.Column="1"
+                                    Width="24" Height="24" Background="Transparent" Cursor="Hand"
+                                    VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    Margin="6,0,0,0" Visibility="Collapsed"
+                                    MouseLeftButtonDown="TitleChevron_MouseLeftButtonDown"
+                                    MouseLeftButtonUp="TitleChevron_MouseLeftButtonUp"
+                                    MouseEnter="TitleChevron_MouseEnter"
+                                    MouseLeave="TitleChevron_MouseLeave">
+                                <TextBlock x:Name="TitleChevronGlyph" Text="▾" FontSize="12" Padding="2,0"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            </Border>
+                        </Grid>
                         <ContentPresenter x:Name="HeaderTrailing" x:FieldModifier="public" Grid.Column="2" VerticalAlignment="Center"/>
 
                         <!-- Lock toggle (next to pin) -->

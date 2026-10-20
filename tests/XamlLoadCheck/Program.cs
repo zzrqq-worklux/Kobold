@@ -157,6 +157,16 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("chrome: resize cursors map to the edges", ChromeResizeCursorsMapToTheEdges);
                 failures += TryCheck("resize: locked band press is ignored", ResizeLockedBandPressIsIgnored);
 
+                // Task 3 pins: the shared chrome grows an optional title-menu
+                // chevron, off by default so folder/todo keep their look. Only
+                // the chevron handles its press (a header drag must not start
+                // from it), and the title text stays for the folder/todo title
+                // pins.
+                failures += TryCheck("chrome: the title chevron follows the flag",
+                    ChromeTitleMenuChevronFollowsTheFlag);
+                failures += TryCheck("chrome: the title text survives and the disabled chevron takes no room",
+                    ChromeTitleTextStillExistsForFolderPins);
+
                 // Fix round 1 pins: the shell backdrop follows the widget color
                 // (and returns to the neutral surface), and a resize re-fits the
                 // panel into the work area.
@@ -1689,6 +1699,125 @@ namespace Kobold.XamlLoadCheck
         private static void InvokeResizeStarted(Window window, WidgetResizeEdge edge, Point cursor)
         {
             PrivateBaseMethod("OnResizeStarted").Invoke(window, new object[] { edge, cursor });
+        }
+
+        #endregion
+
+        #region Task 3: title-menu chevron pins
+
+        /// <summary>
+        /// Task 3: the title chevron is off by default, appears when a host
+        /// sets TitleMenuEnabled (and hides again when it is cleared), and its
+        /// own press raises TitleMenuClicked exactly once. The press is
+        /// synthetic, and because the chevron marks it handled the header drag
+        /// must never start from it. The hit target is a 24x24 transparent
+        /// border around the glyph, and the anchor the note host will use is
+        /// the title group.
+        /// </summary>
+        private static void ChromeTitleMenuChevronFollowsTheFlag()
+        {
+            ThemeManager.Initialize("dark");
+
+            var chrome = new WidgetChrome();
+            var chevron = chrome.FindName("TitleChevron") as Border;
+            if (chevron == null) throw new InvalidOperationException("WidgetChrome has no TitleChevron");
+            if (chevron.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the title chevron is visible while disabled");
+            if (chrome.TitleMenuEnabled)
+                throw new InvalidOperationException("the title menu starts enabled");
+
+            if (chevron.Width != 24 || chevron.Height != 24)
+                throw new InvalidOperationException(
+                    "the chevron hit target is " + chevron.Width + "x" + chevron.Height + ", wanted 24x24");
+            if (chevron.Background == null)
+                throw new InvalidOperationException("the chevron hit target has no background (not hit-testable)");
+
+            var glyph = chrome.FindName("TitleChevronGlyph") as TextBlock;
+            if (glyph == null || glyph.Text != "▾")
+                throw new InvalidOperationException("the chevron glyph is missing its down arrow");
+
+            bool dragStarted = false;
+            chrome.HeaderDragStarted += _ => dragStarted = true;
+
+            int clicks = 0;
+            chrome.TitleMenuClicked += () => clicks++;
+            chrome.TitleMenuEnabled = true;
+            if (chevron.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the title chevron stayed hidden after enabling");
+
+            var titleGroup = chrome.FindName("TitleGroup") as FrameworkElement;
+            if (titleGroup == null || !ReferenceEquals(chrome.TitleMenuAnchor, titleGroup))
+                throw new InvalidOperationException("TitleMenuAnchor is not the TitleGroup");
+
+            try
+            {
+                chevron.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                });
+                chevron.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                });
+
+                if (clicks != 1)
+                    throw new InvalidOperationException("the title chevron raised " + clicks + " click(s), wanted 1");
+
+                // A release without a press (the guard was reset) must not fire.
+                chevron.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                });
+                if (clicks != 1)
+                    throw new InvalidOperationException(
+                        "a release without a press fired the title menu (" + clicks + " click(s))");
+            }
+            finally
+            {
+                // The handlers may have taken the (test-local) capture.
+                Mouse.Capture(null);
+                Mouse.OverrideCursor = null;
+            }
+
+            if (dragStarted)
+                throw new InvalidOperationException("the title chevron press started a header drag");
+
+            chrome.TitleMenuEnabled = false;
+            if (chevron.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the title chevron stayed visible after disabling");
+        }
+
+        /// <summary>
+        /// Task 3: the folder/todo title pins keep working - TitleText stays a
+        /// public field with the Title round-trip and still gets real layout
+        /// width - while the disabled chevron is collapsed.
+        /// </summary>
+        private static void ChromeTitleTextStillExistsForFolderPins()
+        {
+            ThemeManager.Initialize("dark");
+
+            var chrome = new WidgetChrome();
+            if (chrome.TitleText == null) throw new InvalidOperationException("WidgetChrome has no TitleText");
+
+            chrome.Title = "Folder";
+            if (chrome.TitleText.Text != "Folder")
+                throw new InvalidOperationException(
+                    "Title did not reach TitleText ('" + chrome.TitleText.Text + "')");
+
+            var chevron = chrome.FindName("TitleChevron") as FrameworkElement;
+            if (chevron == null) throw new InvalidOperationException("WidgetChrome has no TitleChevron");
+            if (chevron.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the title chevron is visible while disabled");
+            if (chrome.TitleMenuEnabled)
+                throw new InvalidOperationException("the title menu starts enabled");
+
+            // Off by default: the title keeps the header's width.
+            chrome.Measure(new Size(400, 40));
+            chrome.Arrange(new Rect(0, 0, 400, 40));
+            chrome.UpdateLayout();
+            if (chrome.TitleText.ActualWidth <= 0)
+                throw new InvalidOperationException(
+                    "the title took no layout width (" + chrome.TitleText.ActualWidth + " DIP)");
         }
 
         #endregion

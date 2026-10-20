@@ -38,6 +38,8 @@ namespace Kobold.Controls
         private bool _isPinned;
         private bool _isDragActive;
         private bool _isResizeActive;
+        private bool _titleMenuEnabled;
+        private bool _titleChevronPressed;
         private double _panelOpacity = MAX_PANEL_OPACITY;
         private string _panelColor;
 
@@ -58,6 +60,9 @@ namespace Kobold.Controls
 
         /// <summary>Header right-click; the host shows the widget menu.</summary>
         public event Action HeaderRightClicked;
+
+        /// <summary>The title chevron was clicked; the note host opens its title menu.</summary>
+        public event Action TitleMenuClicked;
 
         /// <summary>Resize press grabbed an edge/corner; cursor is in screen pixels.</summary>
         public event Action<WidgetResizeEdge, Point> ResizeStarted;
@@ -133,9 +138,24 @@ namespace Kobold.Controls
             }
         }
 
+        /// <summary>Shows the title chevron; note widgets turn this on.</summary>
+        public bool TitleMenuEnabled
+        {
+            get => _titleMenuEnabled;
+            set
+            {
+                if (_titleMenuEnabled == value) return;
+                _titleMenuEnabled = value;
+                TitleChevron.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        /// <summary>The title area the note widget anchors its popup to.</summary>
+        public FrameworkElement TitleMenuAnchor => TitleGroup;
+
         /// <summary>
         /// Repaints everything theme-dependent: panel backdrop, header tint,
-        /// title and the lock/pin icon states.
+        /// title, the title chevron and the lock/pin icon states.
         /// </summary>
         public void ApplyTheme()
         {
@@ -143,6 +163,7 @@ namespace Kobold.Controls
             UpdatePinVisual();
             UpdatePanelBackground();
             TitleText.Foreground = ThemeManager.TextBrush;
+            TitleChevronGlyph.Foreground = ThemeManager.SecondaryTextBrush;
         }
 
         /// <summary>
@@ -265,6 +286,33 @@ namespace Kobold.Controls
         {
             PinClicked?.Invoke();
             e.Handled = true;
+        }
+
+        private void TitleChevron_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Remember this press so a release over the chevron after a press
+            // elsewhere never opens the menu.
+            _titleChevronPressed = true;
+            e.Handled = true; // never start a header drag from the chevron
+        }
+
+        private void TitleChevron_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (!_titleChevronPressed) return;
+
+            _titleChevronPressed = false;
+            TitleMenuClicked?.Invoke();
+        }
+
+        private void TitleChevron_MouseEnter(object sender, MouseEventArgs e)
+        {
+            TitleChevron.Background = ThemeManager.SurfaceHoverBrush;
+        }
+
+        private void TitleChevron_MouseLeave(object sender, MouseEventArgs e)
+        {
+            TitleChevron.Background = Brushes.Transparent;
         }
 
         private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
