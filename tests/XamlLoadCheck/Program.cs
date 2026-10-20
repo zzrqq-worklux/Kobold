@@ -678,6 +678,36 @@ namespace Kobold.XamlLoadCheck
                     SurfaceRepaintDuringEditKeepsTheBoxText);
                 failures += TryCheck("surface: two splices converge", SurfaceTwoSplicesConverge);
 
+                // Task 5 pins: the end-of-text AppendZone and the surface blank
+                // semantics - the transparent zone below the panes exists only
+                // while editing, a click there opens a new block whose write is
+                // separated by exactly one blank line (LF / CRLF kept), an empty
+                // append writes nothing, a whole-text / rendered click is a
+                // no-op, switching panes commits the append, and a block-gap
+                // click still just leaves the edit.
+                failures += TryCheck("surface: the append zone is only visible while editing",
+                    SurfaceAppendZoneOnlyVisibleWhileEditing);
+                failures += TryCheck("surface: the append zone starts a new block",
+                    SurfaceAppendZoneStartsANewBlock);
+                failures += TryCheck("surface: a dirty block is committed before the append",
+                    SurfaceAppendZoneCommitsADirtyBlockFirst);
+                failures += TryCheck("surface: an append committed twice stays one block",
+                    SurfaceAppendDoubleCommitKeepsOneBlock);
+                failures += TryCheck("surface: the append zone is the stretch row below the panes",
+                    SurfaceAppendZoneIsTheStretchRowBelowThePanes);
+                failures += TryCheck("surface: an empty append writes nothing",
+                    SurfaceEmptyAppendWritesNothing);
+                failures += TryCheck("surface: the append separator keeps one blank line",
+                    SurfaceAppendSeparatorKeepsOneBlankLine);
+                failures += TryCheck("surface: appending in a whole-text edit is a no-op",
+                    SurfaceAppendInWholeTextEditIsANoOp);
+                failures += TryCheck("surface: switching from an append commits it",
+                    SurfaceSwitchingFromAnAppendCommitsIt);
+                failures += TryCheck("surface: a block-gap click leaves the edit",
+                    SurfaceBlockGapClickLeavesTheEdit);
+                failures += TryCheck("surface: the append zone is a click-away no-op in the rendered state",
+                    SurfaceAppendZoneClickAwayInRenderedStateIsANoOp);
+
                 // Task T5 pins: the insert menu carried onto the surface's own
                 // source box - the same four command BINDINGS (read, never
                 // invoked), the heading / format submenus, the seven flat
@@ -11844,6 +11874,403 @@ namespace Kobold.XamlLoadCheck
             if (changed != 1)
                 throw new InvalidOperationException("the splices notified the host " + changed + " time(s), wanted 1");
         }
+
+        #endregion
+
+        #region Task 5: note surface append pins
+
+        /// <summary>
+        /// Task 5 (spec 4.1/4.2): the end-of-text blank is an editing-only
+        /// surface - rendered (just attached) it is collapsed, an open block
+        /// edit shows it, and leaving the edit collapses it again.
+        /// </summary>
+        private static void SurfaceAppendZoneOnlyVisibleWhileEditing()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            var zone = SurfaceAppendZone(surface);
+
+            if (zone.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the append zone is visible in the rendered state");
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            if (zone.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the append zone is hidden while editing");
+
+            surface.LeaveEdit();
+            if (zone.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the append zone stayed visible after leaving the edit");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): a click on the end-of-text blank commits the open
+        /// block and opens a fresh block after the whole text - the box is empty,
+        /// every existing block paints in the before pane and the after pane is
+        /// empty. Typing then appends the new block one blank line below the
+        /// text, stamped and notified once.
+        /// </summary>
+        private static void SurfaceAppendZoneStartsANewBlock()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "one\ntwo", when);
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            ClickAppendZone(surface);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the append click dropped the edit session");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "")
+                throw new InvalidOperationException("the append box opened with '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted empty");
+
+            int before = SurfaceBeforeBox(surface).Document.Blocks.Count;
+            int after = SurfaceAfterBox(surface).Document.Blocks.Count;
+            if (before != 1)
+                throw new InvalidOperationException("the before pane rendered " + before + " block(s), wanted 1");
+            if (after != 0)
+                throw new InvalidOperationException("the after pane rendered " + after + " block(s), wanted 0");
+
+            edit.Text = "new";
+            surface.Flush();
+
+            if (note.Text != "one\ntwo\n\nnew")
+                throw new InvalidOperationException("the append wrote '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "', wanted 'one\\ntwo\\n\\nnew'");
+            if (note.ModifiedAt <= when)
+                throw new InvalidOperationException("the append did not stamp the modified time (still " + note.ModifiedAt + ")");
+            if (changed != 1)
+                throw new InvalidOperationException("the append notified the host " + changed + " time(s), wanted 1");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): the append entry commits the block that is open
+        /// first. A dirty box must land in the note before the append session
+        /// snapshots its prefix - otherwise the typed block change would be
+        /// silently dropped by the empty new box.
+        /// </summary>
+        private static void SurfaceAppendZoneCommitsADirtyBlockFirst()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+            SurfaceEditBox(surface).Text = "changed";
+
+            ClickAppendZone(surface);
+
+            if (note.Text != "changed")
+                throw new InvalidOperationException("the dirty block was not committed before the append: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the append click dropped the edit session");
+            if (SurfaceEditBox(surface).Text != "")
+                throw new InvalidOperationException("the append box opened with '"
+                    + SurfaceEditBox(surface).Text.Replace("\n", "\\n") + "', wanted empty");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): the append commit is idempotent - a later Flush /
+        /// LeaveEdit / pane switch with the same box text must not append the
+        /// body twice nor notify the host again.
+        /// </summary>
+        private static void SurfaceAppendDoubleCommitKeepsOneBlock()
+        {
+            ThemeManager.Initialize("dark");
+
+            // Flush (the throttle's commit), then LeaveEdit (its own Flush).
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginAppendEdit())
+                throw new InvalidOperationException("the append session did not open");
+            SurfaceEditBox(surface).Text = "new";
+            surface.Flush();
+            surface.LeaveEdit();
+
+            if (note.Text != "one\ntwo\n\nnew")
+                throw new InvalidOperationException("the double commit wrote '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "', wanted one appended block");
+            if (changed != 1)
+                throw new InvalidOperationException("the double commit notified the host " + changed + " time(s), wanted 1");
+
+            // Flush, then a pane switch (the switch commits the append again).
+            var switched = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var other = NewSurface(new NoteData(), switched);
+            int switchedChanged = 0;
+            other.DataChanged += () => switchedChanged++;
+
+            if (!other.TryBeginAppendEdit())
+                throw new InvalidOperationException("the append session did not open on the switch fixture");
+            SurfaceEditBox(other).Text = "new";
+            other.Flush();
+            ClickTaggedLine(other, SurfaceBeforeBox(other), 1);
+
+            if (switched.Text != "one\ntwo\n\nnew")
+                throw new InvalidOperationException("the switch double commit wrote '"
+                    + (switched.Text ?? string.Empty).Replace("\n", "\\n") + "', wanted one appended block");
+            if (switchedChanged != 1)
+                throw new InvalidOperationException("the switch double commit notified the host "
+                    + switchedChanged + " time(s), wanted 1");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2 layout): the zone is the grid's second row under the
+        /// pane stack, at least 48px tall, and the scroller stretches its
+        /// content so a short note lets the zone fill the rest of the viewport.
+        /// The pixel height itself is never asserted off-screen.
+        /// </summary>
+        private static void SurfaceAppendZoneIsTheStretchRowBelowThePanes()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            var zone = SurfaceAppendZone(surface);
+
+            if (Grid.GetRow(zone) != 1)
+                throw new InvalidOperationException("the append zone sits in grid row " + Grid.GetRow(zone) + ", wanted 1");
+
+            var stack = SurfaceNamed(surface, "SurfaceStack") as Grid;
+            if (stack == null)
+                throw new InvalidOperationException("SurfaceStack is not a Grid");
+            if (!ReferenceEquals(zone.Parent, stack))
+                throw new InvalidOperationException("the append zone is not a child of SurfaceStack");
+            if (zone.MinHeight < 48)
+                throw new InvalidOperationException("the append zone's MinHeight is " + zone.MinHeight + ", wanted >= 48");
+
+            var scroller = SurfaceNamed(surface, "SurfaceScroller") as ScrollViewer;
+            if (scroller == null)
+                throw new InvalidOperationException("SurfaceScroller is not a ScrollViewer");
+            if (scroller.VerticalContentAlignment != VerticalAlignment.Stretch)
+                throw new InvalidOperationException("SurfaceScroller's VerticalContentAlignment is "
+                    + scroller.VerticalContentAlignment + ", wanted Stretch");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): an append session that types nothing leaves the
+        /// note exactly as it was - no empty block, no stamp, no notification.
+        /// </summary>
+        private static void SurfaceEmptyAppendWritesNothing()
+        {
+            ThemeManager.Initialize("dark");
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            var note = NewNote("a", "one\ntwo", when);
+            var surface = NewSurface(new NoteData(), note);
+
+            int changed = 0;
+            surface.DataChanged += () => changed++;
+
+            if (!surface.TryBeginAppendEdit())
+                throw new InvalidOperationException("the append session did not open");
+            surface.LeaveEdit();
+
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("the empty append rewrote the text as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (note.ModifiedAt != when)
+                throw new InvalidOperationException("the empty append bumped the modified time (" + note.ModifiedAt + ")");
+            if (changed != 0)
+                throw new InvalidOperationException("the empty append notified the host " + changed + " time(s), wanted 0");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): the append always leaves exactly one blank line
+        /// between the prefix and the new body, and keeps the source's own line
+        /// ending - an LF prefix stays LF, a CRLF prefix stays CRLF and a prefix
+        /// that already ends in a blank run gains nothing, and an empty prefix
+        /// starts the note with the body alone.
+        /// </summary>
+        private static void SurfaceAppendSeparatorKeepsOneBlankLine()
+        {
+            ThemeManager.Initialize("dark");
+            var fixtures = new (string Source, string Expected)[]
+            {
+                ("one", "one\n\nnew"),
+                ("one\n", "one\n\nnew"),
+                ("one\n\n", "one\n\nnew"),
+                ("one\r\n", "one\r\n\r\nnew"),
+                ("one\r\n\r\n", "one\r\n\r\nnew"),
+                ("", "new")
+            };
+
+            foreach (var fixture in fixtures)
+            {
+                var note = NewNote("a", fixture.Source, new DateTime(2026, 3, 5, 9, 0, 0));
+                var surface = NewSurface(new NoteData(), note);
+
+                if (!surface.TryBeginAppendEdit())
+                    throw new InvalidOperationException("the append session did not open on '"
+                        + fixture.Source.Replace("\r", "\\r").Replace("\n", "\\n") + "'");
+                SurfaceEditBox(surface).Text = "new";
+                surface.Flush();
+
+                if (note.Text != fixture.Expected)
+                    throw new InvalidOperationException("appending to '"
+                        + fixture.Source.Replace("\r", "\\r").Replace("\n", "\\n") + "' wrote '"
+                        + (note.Text ?? string.Empty).Replace("\r", "\\r").Replace("\n", "\\n")
+                        + "', wanted '" + fixture.Expected.Replace("\r", "\\r").Replace("\n", "\\n") + "'");
+            }
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2): a whole-text edit is already the whole note, so
+        /// the end-of-text blank is a no-op there - the box and the session stay
+        /// exactly as they were.
+        /// </summary>
+        private static void SurfaceAppendInWholeTextEditIsANoOp()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            surface.BeginEditWhole();
+            var edit = SurfaceEditBox(surface);
+            string wasText = edit.Text;
+
+            ClickAppendZone(surface);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the append click dropped the whole-text edit");
+            if (edit.Text != wasText)
+                throw new InvalidOperationException("the append click rewrote the whole-text box as '"
+                    + edit.Text.Replace("\n", "\\n") + "'");
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("the append click wrote the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.2/4.4): a pane click while appending commits the new
+        /// block first and then switches the edit to the clicked block.
+        /// </summary>
+        private static void SurfaceSwitchingFromAnAppendCommitsIt()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo\n\nthree", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginAppendEdit())
+                throw new InvalidOperationException("the append session did not open");
+            SurfaceEditBox(surface).Text = "new";
+
+            ClickTaggedLine(surface, SurfaceBeforeBox(surface), 0);
+
+            if (!surface.IsEditing)
+                throw new InvalidOperationException("the pane switch dropped the edit session");
+            if (note.Text != "one\ntwo\n\nthree\n\nnew")
+                throw new InvalidOperationException("the append was not committed: '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one\ntwo\n")
+                throw new InvalidOperationException("the switch opened '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted the clicked block 'one\\ntwo\\n'");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.1/4.4): a click in the blank run between the panes (the
+        /// surface stack, not the append zone and not a tagged line) commits and
+        /// leaves the edit, and the surface stays in the detail (the rendered
+        /// document is back).
+        /// </summary>
+        private static void SurfaceBlockGapClickLeavesTheEdit()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(1))
+                throw new InvalidOperationException("the paragraph block did not enter edit");
+
+            ClickSurfaceBlank(surface);
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the block-gap click kept the edit open");
+            if (SurfaceNamed(surface, "ReadingBox").Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the block-gap click did not render the detail back");
+        }
+
+        /// <summary>
+        /// Task 5 (spec 4.1): rendered, the same blank click is inert - the
+        /// collapsed append zone never opens an edit and nothing else happens.
+        /// </summary>
+        private static void SurfaceAppendZoneClickAwayInRenderedStateIsANoOp()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            ClickSurfaceBlank(surface);
+
+            if (surface.IsEditing)
+                throw new InvalidOperationException("the rendered blank click opened an edit");
+            if (note.Text != "one\ntwo")
+                throw new InvalidOperationException("the rendered blank click wrote the note as '"
+                    + (note.Text ?? string.Empty).Replace("\n", "\\n") + "'");
+            if (SurfaceAppendZone(surface).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the rendered blank click showed the append zone");
+        }
+
+        /// <summary>The end-of-text blank: the transparent border below the panes.</summary>
+        private static Border SurfaceAppendZone(NoteSurfaceView surface)
+        {
+            var named = surface.FindName("AppendZone");
+            if (named == null) throw new InvalidOperationException("NoteSurfaceView has no AppendZone");
+            var border = named as Border;
+            if (border == null)
+                throw new InvalidOperationException("AppendZone is a " + named.GetType().Name + ", not a Border");
+            return border;
+        }
+
+        /// <summary>
+        /// A click on the end-of-text blank. MouseLeftButtonUp is a direct event
+        /// the input system re-raises per element along the real mouse route:
+        /// first on the zone itself (its own handler opens the append session),
+        /// then on the root with the zone as its source (the root's
+        /// classification must leave the click to the zone).
+        /// </summary>
+        private static void ClickAppendZone(NoteSurfaceView surface)
+        {
+            var zone = SurfaceAppendZone(surface);
+            RaiseLeftClick(zone);
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = zone,
+                    Handled = true
+                });
+        }
+
+        /// <summary>
+        /// A click on the surface's blank - the stack between / below the panes,
+        /// no tagged line under it. The root's own copy of the direct mouse-up,
+        /// the stack as its source (the same shape the chrome pin uses).
+        /// </summary>
+        private static void ClickSurfaceBlank(NoteSurfaceView surface)
+        {
+            SurfaceNamed(surface, "SurfaceRoot").RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent,
+                    Source = SurfaceNamed(surface, "SurfaceStack")
+                });
+        }
+
+        #endregion
+
+        #region Task T4 helpers: surface clicks and lookups
 
         /// <summary>
         /// T4: the equivalent of a click on a rendered line. The pin first raises

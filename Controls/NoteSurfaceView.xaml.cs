@@ -83,6 +83,16 @@ namespace Kobold.Controls
         private List<MdBlock> _beforeBlocks = new List<MdBlock>();
         private List<MdBlock> _afterBlocks = new List<MdBlock>();
 
+        /// <summary>True while the session edits the blank after the whole
+        /// text (the AppendZone): the box is a brand-new block, so the splice
+        /// is an append, not a region replacement (spec 4.2).</summary>
+        private bool _appendSession;
+
+        /// <summary>The document text the append session entered with: the
+        /// commit writes it back verbatim when the box stays empty, and the
+        /// separator rule reads its tail (spec 4.2).</summary>
+        private string _appendPrefix;
+
         /// <summary>The typing throttle: restarted on every keystroke, its tick
         /// splices the region back (spec 4.3).</summary>
         private readonly DispatcherTimer _throttle;
@@ -205,6 +215,11 @@ namespace Kobold.Controls
             var blocks = MarkdownParser.Parse(text);
             if (index < 0 || index >= ranges.Count || index >= blocks.Count) return false;
 
+            // Only a real entry drops an append session (a failed index must
+            // leave the caller's session as it was).
+            _appendSession = false;
+            _appendPrefix = null;
+
             _editStart = ranges[index].Start;
             _editEnd = ranges[index].End;
             _editBlock = blocks[index];
@@ -229,6 +244,8 @@ namespace Kobold.Controls
             if (_note == null) return;
 
             if (_editing) CommitRegion();
+            _appendSession = false;
+            _appendPrefix = null;
 
             string text = _note.Text ?? string.Empty;
             _editStart = 0;
@@ -243,6 +260,39 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// The end-of-text blank's entry (spec 4.2): commits the open block and
+        /// opens a new one after the whole text - the box is empty, the before
+        /// pane paints every existing block, the after pane is empty, and the
+        /// commit appends with the separator rule. False without a note, and
+        /// while a whole-text edit or an append session is already open (those
+        /// two are the note's whole text already, so there is nothing to append
+        /// to).
+        /// </summary>
+        public bool TryBeginAppendEdit()
+        {
+            if (_note == null) return false;
+            if (_editing && _editBlock == null) return false; // whole-text / append already
+            if (_editing) CommitRegion();
+
+            string text = _note.Text ?? string.Empty;
+            _appendSession = true;
+            _appendPrefix = text;
+            _editStart = NoteBlockRanges.LineCount(text);
+            _editEnd = _editStart;
+            _editBlock = null;
+            _beforeBlocks = MarkdownParser.Parse(text);
+            _afterBlocks = new List<MdBlock>();
+            _entryText = text;
+            _entryIndex = _beforeBlocks.Count;
+            EnterEditingState(0, 0);
+
+            // The new box sits below every existing block: pull it into the
+            // viewport so typing starts in sight (a failed scroll is harmless).
+            Dispatcher.BeginInvoke(new Action(() => AppendZone.BringIntoView()));
+            return true;
+        }
+
+        /// <summary>
         /// Splices whatever is still pending and renders the whole note again
         /// (spec 4.3). Idempotent: a surface that is not editing does nothing.
         /// </summary>
@@ -252,6 +302,11 @@ namespace Kobold.Controls
 
             Flush();
             _editing = false;
+
+            // The session is over: an append's prefix must not survive into the
+            // next entry (spec 4.2).
+            _appendSession = false;
+            _appendPrefix = null;
             ShowRendered();
             RenderReading();
 
@@ -356,6 +411,11 @@ namespace Kobold.Controls
         private void CommitRegion()
         {
             if (!_editing || _note == null) return;
+            if (_appendSession)
+            {
+                CommitAppend();
+                return;
+            }
             if (EditBox.Text == _editEntryText) return;
 
             string updated = NoteBlockRanges.ReplaceLines(_note.Text, _editStart, _editEnd, EditBox.Text);
@@ -367,6 +427,47 @@ namespace Kobold.Controls
             }
 
             _editEnd = _editStart + NoteBlockRanges.LineCount(EditBox.Text);
+            _editEntryText = EditBox.Text;
+        }
+
+        /// <summary>
+        /// Splicing an append session (spec 4.2): the box is a new block after
+        /// <see cref="_appendPrefix"/>, not a region of the document, so it is
+        /// spelled out explicitly - an empty box writes nothing, and a body is
+        /// joined by exactly one blank line whose line ending follows the
+        /// prefix's own (an empty prefix takes the body alone). The same prefix
+        /// and box text always produce the same text, so a repeated commit
+        /// converges and only a real change stamps the time and notifies.
+        /// </summary>
+        private void CommitAppend()
+        {
+            if (_note == null) return;
+
+            // No prefix means no append session ever opened (the reset paths
+            // null it): never let a stray box text replace the whole note.
+            if (_appendPrefix == null) return;
+            if (EditBox.Text == _editEntryText) return;
+
+            string body = EditBox.Text ?? string.Empty;
+            string updated = _appendPrefix ?? string.Empty;
+            if (body.Length > 0)
+            {
+                string separator;
+                if (updated.Length == 0) separator = string.Empty;
+                else if (updated.EndsWith("\n\n", StringComparison.Ordinal)
+                      || updated.EndsWith("\r\n\r\n", StringComparison.Ordinal)) separator = string.Empty;
+                else if (updated.EndsWith("\r\n", StringComparison.Ordinal)) separator = "\r\n";
+                else if (updated.EndsWith("\n", StringComparison.Ordinal)) separator = "\n";
+                else separator = "\n\n";
+                updated = updated + separator + body;
+            }
+
+            if (!string.Equals(updated, _note.Text, StringComparison.Ordinal))
+            {
+                _note.Text = updated;
+                _note.ModifiedAt = DateTime.Now;
+                DataChanged?.Invoke();
+            }
             _editEntryText = EditBox.Text;
         }
 
@@ -386,11 +487,24 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// The end-of-text blank's own click (spec 4.2): while a block is
+        /// edited it opens the append session; in a whole-text edit, an append
+        /// session or the rendered state it does nothing. The mark stays
+        /// handled so the root's click-away walk never sees it.
+        /// </summary>
+        private void AppendZone_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            if (_editing && _editBlock != null) TryBeginAppendEdit();
+        }
+
+        /// <summary>
         /// The rendered / editing states' click handler, attached to the root
         /// with handledEventsToo so it covers the reading box and the before /
         /// after panes even while a focused box swallows the up. The hit chain
         /// is classified first: a click inside the source box is typing (it
-        /// owns its click); a
+        /// owns its click); a click on the end-of-text blank is the append
+        /// zone's own (it opened the new block in its own handler); a
         /// drag-selection release is skipped; a task glyph or a link owns its
         /// click - while editing it means "outside the edited block", so the
         /// session commits and renders back, otherwise it is left alone. A
@@ -414,6 +528,7 @@ namespace Kobold.Controls
             object resolved = hitBox != null ? HitAtPoint(hitBox, point) : hit;
 
             if (IsInside(hit, EditBox)) return;            // typing surface
+            if (IsInside(hit, AppendZone)) return;         // the zone owns its click
 
             if (SelectionIsNotEmpty(hit)) return;
 
@@ -731,13 +846,15 @@ namespace Kobold.Controls
         }
 
         /// <summary>The editing state: the reading box gives way to the three
-        /// panes (spec 4.3).</summary>
+        /// panes (spec 4.3) and the end-of-text blank becomes clickable (spec
+        /// 4.2).</summary>
         private void ShowEditing()
         {
             ReadingBox.Visibility = Visibility.Collapsed;
             BeforeBox.Visibility = Visibility.Visible;
             EditBox.Visibility = Visibility.Visible;
             AfterBox.Visibility = Visibility.Visible;
+            AppendZone.Visibility = Visibility.Visible;
         }
 
         /// <summary>Drops every trace of an edit session (Attach's rule: a
@@ -754,6 +871,8 @@ namespace Kobold.Controls
             _entryIndex = -1;
             _beforeBlocks = new List<MdBlock>();
             _afterBlocks = new List<MdBlock>();
+            _appendSession = false;
+            _appendPrefix = null;
             EditBox.Text = string.Empty;
         }
 
@@ -928,7 +1047,9 @@ namespace Kobold.Controls
         #endregion
 
         /// <summary>
-        /// The rendered state: the document box alone is visible.
+        /// The rendered state: the document box alone is visible and the
+        /// end-of-text blank is gone - a rendered blank click is inert (spec
+        /// 4.1).
         /// </summary>
         private void ShowRendered()
         {
@@ -936,6 +1057,7 @@ namespace Kobold.Controls
             BeforeBox.Visibility = Visibility.Collapsed;
             EditBox.Visibility = Visibility.Collapsed;
             AfterBox.Visibility = Visibility.Collapsed;
+            AppendZone.Visibility = Visibility.Collapsed;
         }
 
         /// <summary>

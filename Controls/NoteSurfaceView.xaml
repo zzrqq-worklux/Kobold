@@ -7,47 +7,65 @@
          (T4), plus the source box's quick-insert menu (T5). Rendered, the one
          read-only document box fills the surface; in edit, the before render /
          the block's source / the after render stack in place over one shared
-         scroller. -->
+         scroller, with the end-of-text blank (AppendZone) below them. -->
     <Grid x:Name="SurfaceRoot" Background="Transparent">
 
-        <!-- The pane stack both states share - the detail page's only scroll
-             region (the panel's home is a separate host). -->
-        <ScrollViewer x:Name="SurfaceScroller"
+        <!-- The surface stack both states share - the detail page's only scroll
+             region (the panel's home is a separate host). Stretch makes the
+             content's grid fill a short viewport, so the AppendZone row owns
+             whatever height the text leaves below the panes. -->
+        <ScrollViewer x:Name="SurfaceScroller" VerticalContentAlignment="Stretch"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       PanningMode="VerticalOnly" Background="Transparent">
-            <StackPanel x:Name="SurfaceStack">
+            <Grid x:Name="SurfaceStack">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-                <!-- Rendered state: the whole note through the T12 renderer,
-                     read-only but document-enabled so its task boxes and links
-                     take the clicks (spec 4.1/5.2/5.3). Its inner scroller
-                     stays disabled so this outer one owns the offset. -->
-                <RichTextBox x:Name="ReadingBox" IsReadOnly="True" IsDocumentEnabled="True"
+                <StackPanel x:Name="PaneStack" Grid.Row="0">
+
+                    <!-- Rendered state: the whole note through the T12 renderer,
+                         read-only but document-enabled so its task boxes and links
+                         take the clicks (spec 4.1/5.2/5.3). Its inner scroller
+                         stays disabled so this outer one owns the offset. -->
+                    <RichTextBox x:Name="ReadingBox" IsReadOnly="True" IsDocumentEnabled="True"
+                                 VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                 Background="Transparent" BorderThickness="0" Padding="0"/>
+
+                    <!-- Block-editing state (T4): the render before the edited
+                         block. Static - its callbacks are empty, so a task box or
+                         link inside it never writes while a block is edited. -->
+                    <RichTextBox x:Name="BeforeBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
+                                 VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                 Background="Transparent" BorderThickness="0" Padding="0"/>
+
+                    <!-- The edited block's own source: the note's Markdown, in the
+                         view's body size, multi-line and wrapping (the old source
+                         box's carry). -->
+                    <TextBox x:Name="EditBox" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap"
+                             Background="Transparent" BorderThickness="0" Padding="0"
+                             FontSize="{DynamicResource Kobold.Font.Body}"
+                             Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
                              VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                             Background="Transparent" BorderThickness="0" Padding="0"/>
+                             TextChanged="EditBox_TextChanged"/>
 
-                <!-- Block-editing state (T4): the render before the edited
-                     block. Static - its callbacks are empty, so a task box or
-                     link inside it never writes while a block is edited. -->
-                <RichTextBox x:Name="BeforeBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
-                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                             Background="Transparent" BorderThickness="0" Padding="0"/>
+                    <!-- Block-editing state (T4): the render after the edited
+                         block, static like the before render. -->
+                    <RichTextBox x:Name="AfterBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
+                                 VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                 Background="Transparent" BorderThickness="0" Padding="0"/>
+                </StackPanel>
 
-                <!-- The edited block's own source: the note's Markdown, in the
-                     view's body size, multi-line and wrapping (the old source
-                     box's carry). -->
-                <TextBox x:Name="EditBox" Visibility="Collapsed" AcceptsReturn="True" TextWrapping="Wrap"
-                         Background="Transparent" BorderThickness="0" Padding="0"
-                         FontSize="{DynamicResource Kobold.Font.Body}"
-                         Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                         VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                         TextChanged="EditBox_TextChanged"/>
-
-                <!-- Block-editing state (T4): the render after the edited
-                     block, static like the before render. -->
-                <RichTextBox x:Name="AfterBox" Visibility="Collapsed" IsReadOnly="True" IsDocumentEnabled="True"
-                             VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                             Background="Transparent" BorderThickness="0" Padding="0"/>
-            </StackPanel>
+                <!-- The end-of-text blank (spec 4.2): an invisible, textless
+                     stretch of the surface below the panes that opens a new
+                     block when clicked while editing. Transparent so the click
+                     is its own; collapsed in the rendered state, where the blank
+                     is inert. -->
+                <Border x:Name="AppendZone" Grid.Row="1" MinHeight="48"
+                        Background="Transparent" Cursor="IBeam" Visibility="Collapsed"
+                        MouseLeftButtonUp="AppendZone_MouseLeftButtonUp"/>
+            </Grid>
         </ScrollViewer>
     </Grid>
 </UserControl>
