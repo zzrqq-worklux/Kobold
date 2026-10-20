@@ -171,12 +171,13 @@ namespace Kobold.Controls
         /// <summary>
         /// The block edit entry (spec 4.2): the line's top-level block range
         /// lands in the box, its surrounding blocks render statically into the
-        /// before / after panes and the caret lands on the clicked line. Called
-        /// while editing, it splices the current region first and then switches
-        /// to the new block (spec 4.3/4.4). False without a block range (an
-        /// empty note, spec 5.4).
+        /// before / after panes and the caret lands on the clicked character
+        /// (<paramref name="line"/>, <paramref name="column"/>, both source
+        /// positions). Called while editing, it splices the current region
+        /// first and then switches to the new block (spec 4.3/4.4). False
+        /// without a block range (an empty note, spec 5.4).
         /// </summary>
-        public bool TryBeginEditAt(int line)
+        public bool TryBeginEditAt(int line, int column = 0)
         {
             if (_note == null) return false;
 
@@ -188,17 +189,18 @@ namespace Kobold.Controls
 
             var ranges = NoteBlockRanges.RangesOf(text);
             if (index >= ranges.Count) return false;
-            return BeginEditAtIndex(index, line - ranges[index].Start);
+            return BeginEditAtIndex(index, line - ranges[index].Start, column);
         }
 
         /// <summary>
         /// Opens the block at <paramref name="index"/> of the current text with
-        /// the caret <paramref name="relativeLine"/> lines into it: the one
+        /// the caret <paramref name="relativeLine"/> lines into it and
+        /// <paramref name="relativeColumn"/> characters into that line: the one
         /// entry both the line click and a pane switch land on. The session's
         /// entry snapshot is refreshed here, so the panes this entry paints are
         /// the ones a later pane click resolves against.
         /// </summary>
-        private bool BeginEditAtIndex(int index, int relativeLine)
+        private bool BeginEditAtIndex(int index, int relativeLine, int relativeColumn)
         {
             if (_note == null) return false;
 
@@ -216,7 +218,8 @@ namespace Kobold.Controls
             _entryIndex = index;
 
             if (relativeLine < 0) relativeLine = 0;
-            EnterEditingState(relativeLine);
+            if (relativeColumn < 0) relativeColumn = 0;
+            EnterEditingState(relativeLine, relativeColumn);
             return true;
         }
 
@@ -240,7 +243,7 @@ namespace Kobold.Controls
             _entryText = text;
             _entryIndex = -1;
 
-            EnterEditingState(0);
+            EnterEditingState(0, 0);
         }
 
         /// <summary>
@@ -277,10 +280,11 @@ namespace Kobold.Controls
         /// Arms the edit state around the freshly assigned box text: the entry
         /// text becomes the commit guard, the throttle is disarmed (the text
         /// assignment itself must not schedule a splice), the panes render and
-        /// the caret lands on the clicked line's offset
-        /// (<paramref name="relativeLine"/>, clamped to the ends).
+        /// the caret lands on the clicked character
+        /// (<paramref name="relativeLine"/>, <paramref name="relativeColumn"/>,
+        /// clamped to the ends).
         /// </summary>
-        private void EnterEditingState(int relativeLine)
+        private void EnterEditingState(int relativeLine, int relativeColumn)
         {
             // The box carries its quick-insert menu from the moment the edit
             // opens: WPF's own text-editor handler only steps aside (letting the
@@ -297,7 +301,7 @@ namespace Kobold.Controls
             PaintEditPanes();
             ApplyEditTypography(_editBlock);
             ShowEditing();
-            SetCaret(relativeLine);
+            SetCaret(relativeLine, relativeColumn);
             FocusEditBox();
         }
 
@@ -441,16 +445,25 @@ namespace Kobold.Controls
                 return;
             }
 
+            // The click also names a character inside the line. A synthetic
+            // event whose source carries the tag has no point, so it keeps the
+            // line's first visual character.
+            int visualOffset = 0;
+            int caretLine;
+            if (hitBox != null && CaretAtPoint(hitBox, point, out caretLine, out visualOffset))
+                line = caretLine;
+
             // While editing, a click in either static pane names a block of the
             // *entry* document. Resolve it before the splice: the line tags are
             // stale the moment the edited region changes height (spec 4.3).
             if (_editing)
             {
-                TrySwitchPaneEdit(line);
+                TrySwitchPaneEdit(line, visualOffset);
                 return;
             }
 
-            TryBeginEditAt(line);
+            var mapped = NoteCaretMap.Map(_note == null ? string.Empty : _note.Text, line, visualOffset);
+            TryBeginEditAt(mapped.Line, mapped.Column);
         }
 
         /// <summary>
@@ -497,17 +510,18 @@ namespace Kobold.Controls
         /// edit itself. The panes tile the entry document around the edited
         /// block, so the clicked entry line alone says which pane it came from.
         /// </summary>
-        private bool TrySwitchPaneEdit(int line)
+        private bool TrySwitchPaneEdit(int line, int visualOffset)
         {
             if (_entryText == null || _entryIndex < 0) return false;
 
             var entryRanges = NoteBlockRanges.RangesOf(_entryText);
-            int entryIndex = NoteBlockRanges.RangeIndexAtLine(_entryText, line);
+            var mapped = NoteCaretMap.Map(_entryText, line, visualOffset);
+            int entryIndex = NoteBlockRanges.RangeIndexAtLine(_entryText, mapped.Line);
             if (entryIndex < 0 || entryIndex >= entryRanges.Count) return false;
             if (entryIndex == _entryIndex) return false; // the edited block is in the box
 
             bool afterPane = entryIndex > _entryIndex;
-            int relative = line - entryRanges[entryIndex].Start;
+            int relative = mapped.Line - entryRanges[entryIndex].Start;
             int after = entryIndex - _entryIndex - 1;
             if (afterPane && (after < 0 || after >= _afterBlocks.Count)) return false;
 
@@ -516,7 +530,7 @@ namespace Kobold.Controls
             int target = afterPane
                 ? MarkdownParser.Parse(_note.Text ?? string.Empty).Count - _afterBlocks.Count + after
                 : entryIndex;
-            return BeginEditAtIndex(target, relative);
+            return BeginEditAtIndex(target, relative, mapped.Column);
         }
 
         /// <summary>
@@ -620,22 +634,105 @@ namespace Kobold.Controls
             return LogicalTreeHelper.GetParent(element);
         }
 
-        /// <summary>Puts the caret on the clicked line's first character inside
-        /// the box, clamped to the box's ends. The offset is counted off the
-        /// text: the box carries no line metrics until it is laid out, and the
-        /// entry must not depend on a layout pass.</summary>
-        private void SetCaret(int relativeLine)
+        /// <summary>
+        /// Puts the caret on the clicked source character inside the box,
+        /// clamped to the box's ends. The offset is counted off the text: the
+        /// box carries no line metrics until it is laid out, and the entry
+        /// must not depend on a layout pass.
+        /// </summary>
+        private void SetCaret(int relativeLine, int relativeColumn)
         {
             string text = EditBox.Text ?? string.Empty;
+            string[] lines = text.Split('\n');
             int caret = 0;
-            if (relativeLine > 0)
-            {
-                string[] lines = text.Split('\n');
-                for (int i = 0; i < relativeLine && i < lines.Length; i++)
-                    caret += lines[i].Length + 1;
-            }
+            for (int i = 0; i < relativeLine && i < lines.Length; i++)
+                caret += lines[i].Length + 1;
+            if (relativeColumn > 0 && relativeLine < lines.Length)
+                caret += Math.Min(relativeColumn, lines[relativeLine].Length);
             if (caret > text.Length) caret = text.Length;
             EditBox.CaretIndex = caret;
+        }
+
+        /// <summary>
+        /// The visual character offset under the point inside a tagged line:
+        /// the text pointer's parent chain is walked up to the nearest Span /
+        /// Paragraph carrying a SourceLine tag, then the element's own inline
+        /// tree is counted up to the pointer. Runs contribute their text
+        /// characters; an InlineUIContainer (the task box) contributes none.
+        /// The count is structural on purpose: this runtime's TextRange.Text
+        /// reads an InlineUIContainer back as U+0020, not U+FFFC, so a plain
+        /// text-length count would mistake the glyph for a visible space.
+        /// </summary>
+        private static bool CaretAtPoint(RichTextBox box, Point point, out int line, out int visualOffset)
+        {
+            line = -1;
+            visualOffset = 0;
+
+            var pos = box.GetPositionFromPoint(point, true);
+            if (pos == null) return false;
+
+            var element = pos.Parent;
+            while (element != null)
+            {
+                if (element is Span || element is Paragraph)
+                {
+                    int tagged = NoteMarkdownRenderer.GetSourceLine(element);
+                    if (tagged >= 0)
+                    {
+                        line = tagged;
+                        visualOffset = VisibleOffset((TextElement)element, pos);
+                        if (visualOffset < 0) visualOffset = 0;
+                        return true;
+                    }
+                }
+
+                element = ParentOf(element);
+            }
+            return false;
+        }
+
+        /// <summary>The visible characters before <paramref name="position"/>
+        /// inside the tagged element: run text only, embedded UI containers
+        /// skipped.</summary>
+        private static int VisibleOffset(TextElement element, TextPointer position)
+        {
+            var paragraph = element as Paragraph;
+            if (paragraph != null) return VisibleOffset(paragraph.Inlines, position);
+
+            var span = element as Span;
+            if (span != null) return VisibleOffset(span.Inlines, position);
+
+            return 0;
+        }
+
+        private static int VisibleOffset(InlineCollection inlines, TextPointer position)
+        {
+            int count = 0;
+            foreach (var inline in inlines)
+            {
+                if (inline.ContentStart.CompareTo(position) >= 0) break;
+
+                var run = inline as Run;
+                if (run != null)
+                {
+                    count += run.ContentEnd.CompareTo(position) <= 0
+                        ? (run.Text ?? string.Empty).Length
+                        : new TextRange(run.ContentStart, position).Text.Length;
+                    continue;
+                }
+
+                var span = inline as Span;
+                if (span != null)
+                {
+                    count += span.ContentEnd.CompareTo(position) <= 0
+                        ? VisibleOffset(span.Inlines, span.ContentEnd)
+                        : VisibleOffset(span.Inlines, position);
+                }
+
+                // InlineUIContainer and other non-text inlines are not visible
+                // characters: they advance the text pointer but not the offset.
+            }
+            return count;
         }
 
         /// <summary>The editing state: the reading box gives way to the three

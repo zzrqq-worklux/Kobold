@@ -637,6 +637,18 @@ namespace Kobold.XamlLoadCheck
                     SurfaceHandledClickOnTaggedLineEntersTheEdit);
                 failures += TryCheck("surface: a click point inside the paragraph resolves its line",
                     SurfaceLineAtPointResolvesAParagraph);
+                failures += TryCheck("surface: the caret lands on the clicked character",
+                    SurfaceCaretLandsOnTheClickedCharacter);
+                failures += TryCheck("surface: a heading caret skips the marker",
+                    SurfaceHeadingCaretSkipsTheMarker);
+                failures += TryCheck("surface: a task caret skips the box",
+                    SurfaceTaskCaretSkipsTheBox);
+                failures += TryCheck("surface: CaretAtPoint names the visual offset",
+                    SurfaceCaretAtPointNamesTheVisualOffset);
+                failures += TryCheck("surface: CaretAtPoint subtracts a task glyph",
+                    SurfaceCaretAtPointSubtractsATaskGlyph);
+                failures += TryCheck("surface: CaretAtPoint counts formatted line characters",
+                    SurfaceCaretAtPointCountsFormattedLineCharacters);
                 failures += TryCheck("surface: a handled glyph click does not enter the edit",
                     SurfaceHandledGlyphClickDoesNotEnterTheEdit);
                 failures += TryCheck("surface: clicking the chrome while editing leaves the edit",
@@ -10764,6 +10776,197 @@ namespace Kobold.XamlLoadCheck
             if (line != 1)
                 throw new InvalidOperationException("the point " + point.X.ToString("0") + ","
                     + point.Y.ToString("0") + " resolved to line " + line + ", wanted 1");
+        }
+
+        /// <summary>
+        /// Task 1B (spec 4.2): a click also names the character inside the
+        /// line, so the caret lands exactly there instead of on the line's
+        /// first column. The paragraph's source starts at its own line start,
+        /// so column 8 is the clicked 'o' of "two".
+        /// </summary>
+        private static void SurfaceCaretLandsOnTheClickedCharacter()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# H\n\none **two** three", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(2, 8))
+                throw new InvalidOperationException("the paragraph did not enter edit");
+
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "one **two** three")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted the paragraph source");
+            if (edit.CaretIndex != 8)
+                throw new InvalidOperationException("the caret sits at " + edit.CaretIndex + ", wanted 8");
+        }
+
+        /// <summary>
+        /// Task 1B (spec 4.2): a heading's source carries its `# ` marker, so
+        /// the column the caller names is already a source column - column 4
+        /// is the 'a' of "Head".
+        /// </summary>
+        private static void SurfaceHeadingCaretSkipsTheMarker()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "# Head\n\nbody", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(0, 4))
+                throw new InvalidOperationException("the heading did not enter edit");
+
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "# Head\n")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted the heading source");
+            if (edit.CaretIndex != 4)
+                throw new InvalidOperationException("the caret sits at " + edit.CaretIndex + ", wanted 4");
+        }
+
+        /// <summary>
+        /// Task 1B (spec 4.2): a task line's source carries `- [ ] `, so the
+        /// caller's column 8 is the 's' of "task" inside the source line.
+        /// </summary>
+        private static void SurfaceTaskCaretSkipsTheBox()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "- [ ] task", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+
+            if (!surface.TryBeginEditAt(0, 8))
+                throw new InvalidOperationException("the task did not enter edit");
+
+            var edit = SurfaceEditBox(surface);
+            if (edit.Text != "- [ ] task")
+                throw new InvalidOperationException("the box reads '"
+                    + edit.Text.Replace("\n", "\\n") + "', wanted the task source");
+            if (edit.CaretIndex != 8)
+                throw new InvalidOperationException("the caret sits at " + edit.CaretIndex + ", wanted 8");
+        }
+
+        /// <summary>
+        /// Task 1B (spec 4.2): the click point names a visible character
+        /// offset inside the tagged line, which is what the root handler hands
+        /// to <see cref="NoteCaretMap"/>. Layout the surface for real, take the
+        /// line-1 Run's third character rect and hand that point to
+        /// <c>CaretAtPoint</c>: the offset must be the character's own. Counting
+        /// from the Run (not the span's symbol offsets) keeps the pin honest.
+        /// </summary>
+        private static void SurfaceCaretAtPointNamesTheVisualOffset()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one\ntwo", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            LayoutSurface(surface);
+
+            var box = SurfaceReadingBox(surface);
+            var span = SpanWithLine(box.Document, 1);
+            var run = FindRunWithText(span.Inlines, "two");
+            if (run == null)
+                throw new InvalidOperationException("the line-1 span has no 'two' run");
+
+            var point = CharacterPoint(run.ContentStart.GetPositionAtOffset(2), "the line-1 third character");
+            var result = InvokeCaretAtPoint(box, point);
+
+            if (!result.Resolved)
+                throw new InvalidOperationException("CaretAtPoint resolved nothing at " + point.X.ToString("0")
+                    + "," + point.Y.ToString("0"));
+            if (result.Line != 1)
+                throw new InvalidOperationException("CaretAtPoint named line " + result.Line + ", wanted 1");
+            if (result.VisualOffset != 2)
+                throw new InvalidOperationException("CaretAtPoint named visual offset "
+                    + result.VisualOffset + ", wanted 2");
+        }
+
+        /// <summary>
+        /// Task 1B review fix: a task box is an InlineUIContainer and occupies no
+        /// visible character, so clicking the first visible character of "task"
+        /// must name offset 0, not the glyph's symbol offset 1. The count is
+        /// structural because this runtime's TextRange.Text reads the container
+        /// back as U+0020, which a plain text-length count would mistake for a
+        /// visible space.
+        /// </summary>
+        private static void SurfaceCaretAtPointSubtractsATaskGlyph()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "- [ ] task", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            LayoutSurface(surface);
+
+            var box = SurfaceReadingBox(surface);
+            var paragraph = ParagraphAt(box.Document, 0);
+            var run = RunWithText(paragraph, "task");
+
+            var point = CharacterPoint(run.ContentStart, "the task text's first character");
+            var result = InvokeCaretAtPoint(box, point);
+
+            if (!result.Resolved)
+                throw new InvalidOperationException("CaretAtPoint resolved nothing at " + point.X.ToString("0")
+                    + "," + point.Y.ToString("0"));
+            if (result.Line != 0)
+                throw new InvalidOperationException("CaretAtPoint named line " + result.Line + ", wanted 0");
+            if (result.VisualOffset != 0)
+                throw new InvalidOperationException("CaretAtPoint named visual offset "
+                    + result.VisualOffset + ", wanted 0 (the glyph is not a visible character)");
+        }
+
+        /// <summary>
+        /// Task 1B review fix: emphasis is flattened into runs, so a click in
+        /// the "two" run of "one **two** three" counts the characters of the
+        /// whole visible line ("one tw" = 6), not the run's local offset.
+        /// </summary>
+        private static void SurfaceCaretAtPointCountsFormattedLineCharacters()
+        {
+            ThemeManager.Initialize("dark");
+            var note = NewNote("a", "one **two** three", new DateTime(2026, 3, 5, 9, 0, 0));
+            var surface = NewSurface(new NoteData(), note);
+            LayoutSurface(surface);
+
+            var box = SurfaceReadingBox(surface);
+            var span = SpanWithLine(box.Document, 0);
+            var run = FindRunWithText(span.Inlines, "two");
+            if (run == null)
+                throw new InvalidOperationException("the line-0 span has no 'two' run");
+
+            var point = CharacterPoint(run.ContentStart.GetPositionAtOffset(2), "the formatted third character");
+            var result = InvokeCaretAtPoint(box, point);
+
+            if (!result.Resolved)
+                throw new InvalidOperationException("CaretAtPoint resolved nothing at " + point.X.ToString("0")
+                    + "," + point.Y.ToString("0"));
+            if (result.Line != 0)
+                throw new InvalidOperationException("CaretAtPoint named line " + result.Line + ", wanted 0");
+            if (result.VisualOffset != 6)
+                throw new InvalidOperationException("CaretAtPoint named visual offset "
+                    + result.VisualOffset + ", wanted 6");
+        }
+
+        /// <summary>The point at a character's own rect, nudged inside its line
+        /// box (the off-screen rect is degenerate in X).</summary>
+        private static Point CharacterPoint(TextPointer pointer, string what)
+        {
+            if (pointer == null)
+                throw new InvalidOperationException(what + " has no character position");
+
+            Rect rect = pointer.GetCharacterRect(LogicalDirection.Forward);
+            if (rect.IsEmpty)
+                throw new InvalidOperationException(
+                    what + " has no rect after layout (the pin has no stable point)");
+            return new Point(rect.X + 1, rect.Y + 2);
+        }
+
+        /// <summary>Invokes the production point resolver by reflection.</summary>
+        private static (bool Resolved, int Line, int VisualOffset) InvokeCaretAtPoint(
+            RichTextBox box, Point point)
+        {
+            var method = typeof(NoteSurfaceView).GetMethod("CaretAtPoint",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (method == null)
+                throw new InvalidOperationException("NoteSurfaceView has no CaretAtPoint");
+
+            var args = new object[] { box, point, -1, 0 };
+            bool resolved = (bool)method.Invoke(null, args);
+            return (resolved, (int)args[2], (int)args[3]);
         }
 
         /// <summary>

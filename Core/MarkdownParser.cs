@@ -43,8 +43,12 @@ namespace Kobold.Core
     /// <summary>A standalone rule line (`---` / `***` / `___`).</summary>
     public sealed class MdThematicBreak : MdBlock { }
 
-    /// <summary>A piece of inline content.</summary>
-    public abstract class MdInline { }
+    /// <summary>
+    /// A piece of inline content. <see cref="SourcePositions"/> is additive
+    /// metadata for click mapping: one 0-based source column per visible
+    /// character (null when a caller built the inline by hand).
+    /// </summary>
+    public abstract class MdInline { public List<int> SourcePositions; }
 
     /// <summary>Literal text.</summary>
     public sealed class MdText : MdInline { public string Text; }
@@ -170,14 +174,27 @@ namespace Kobold.Core
         /// scanner cannot pair stays literal text; neighbouring literals merge
         /// into one <see cref="MdText"/>. A bracketed link is a link only when
         /// its target is http or https - any other one is kept as the whole
-        /// literal span.
+        /// literal span. Every visible character is also tagged with its
+        /// source column, relative to the start of <paramref name="text"/>.
         /// </summary>
         public static List<MdInline> ParseInlines(string text)
+        {
+            return ParseInlines(text, 0);
+        }
+
+        /// <summary>
+        /// The inline scan over a substring that starts at
+        /// <paramref name="sourceBase"/> in its source line: escaped markers,
+        /// delimiters and link targets do not move the visible characters'
+        /// source columns, and a nested inline run recurses with its own base.
+        /// </summary>
+        private static List<MdInline> ParseInlines(string text, int sourceBase)
         {
             var inlines = new List<MdInline>();
             if (string.IsNullOrEmpty(text)) return inlines;
 
             var literal = new StringBuilder();
+            var literalPositions = new List<int>();
             int i = 0;
             while (i < text.Length)
             {
@@ -187,6 +204,7 @@ namespace Kobold.Core
                 if (c == '\\' && i + 1 < text.Length && EscapeChars.IndexOf(text[i + 1]) >= 0)
                 {
                     literal.Append(text[i + 1]);
+                    literalPositions.Add(sourceBase + i + 1);
                     i += 2;
                     continue;
                 }
@@ -197,12 +215,17 @@ namespace Kobold.Core
                     int close = text.IndexOf('`', i + 1);
                     if (close > i)
                     {
-                        Flush(inlines, literal);
-                        inlines.Add(new MdCodeSpan { Text = text.Substring(i + 1, close - i - 1) });
+                        Flush(inlines, literal, literalPositions);
+                        inlines.Add(new MdCodeSpan
+                        {
+                            Text = text.Substring(i + 1, close - i - 1),
+                            SourcePositions = Range(sourceBase + i + 1, close - i - 1)
+                        });
                         i = close + 1;
                         continue;
                     }
                     literal.Append(c);
+                    literalPositions.Add(sourceBase + i);
                     i++;
                     continue;
                 }
@@ -215,19 +238,29 @@ namespace Kobold.Core
                     {
                         if (IsWebUrl(url))
                         {
-                            Flush(inlines, literal);
-                            inlines.Add(new MdLink { Text = label, Url = url });
+                            Flush(inlines, literal, literalPositions);
+                            inlines.Add(new MdLink
+                            {
+                                Text = label,
+                                Url = url,
+                                SourcePositions = Range(sourceBase + i + 1, label.Length)
+                            });
                         }
                         else
                         {
                             // A link we will not follow keeps its whole source
                             // span: brackets, label and target are literal.
-                            literal.Append(text, i, end - i);
+                            for (int k = i; k < end; k++)
+                            {
+                                literal.Append(text[k]);
+                                literalPositions.Add(sourceBase + k);
+                            }
                         }
                         i = end;
                         continue;
                     }
                     literal.Append(c);
+                    literalPositions.Add(sourceBase + i);
                     i++;
                     continue;
                 }
@@ -245,10 +278,10 @@ namespace Kobold.Core
                             int close = text.IndexOf("~~", i + 2, StringComparison.Ordinal);
                             if (close >= 0)
                             {
-                                Flush(inlines, literal);
+                                Flush(inlines, literal, literalPositions);
                                 inlines.Add(new MdStrike
                                 {
-                                    Inlines = ParseInlines(text.Substring(i + 2, close - i - 2))
+                                    Inlines = ParseInlines(text.Substring(i + 2, close - i - 2), sourceBase + i + 2)
                                 });
                                 i = close + 2;
                                 continue;
@@ -261,10 +294,10 @@ namespace Kobold.Core
                         int close = text.IndexOf(marker, i + 2, StringComparison.Ordinal);
                         if (close >= 0)
                         {
-                            Flush(inlines, literal);
+                            Flush(inlines, literal, literalPositions);
                             inlines.Add(new MdStrong
                             {
-                                Inlines = ParseInlines(text.Substring(i + 2, close - i - 2))
+                                Inlines = ParseInlines(text.Substring(i + 2, close - i - 2), sourceBase + i + 2)
                             });
                             i = close + 2;
                             continue;
@@ -275,10 +308,10 @@ namespace Kobold.Core
                         int close = text.IndexOf(c, i + 1);
                         if (close >= 0)
                         {
-                            Flush(inlines, literal);
+                            Flush(inlines, literal, literalPositions);
                             inlines.Add(new MdEm
                             {
-                                Inlines = ParseInlines(text.Substring(i + 1, close - i - 1))
+                                Inlines = ParseInlines(text.Substring(i + 1, close - i - 1), sourceBase + i + 1)
                             });
                             i = close + 1;
                             continue;
@@ -286,16 +319,21 @@ namespace Kobold.Core
                     }
 
                     // Unpaired: the whole marker run stays literal as written.
-                    literal.Append(text, i, run);
+                    for (int k = 0; k < run; k++)
+                    {
+                        literal.Append(text[i + k]);
+                        literalPositions.Add(sourceBase + i + k);
+                    }
                     i += run;
                     continue;
                 }
 
                 literal.Append(c);
+                literalPositions.Add(sourceBase + i);
                 i++;
             }
 
-            Flush(inlines, literal);
+            Flush(inlines, literal, literalPositions);
             return inlines;
         }
 
@@ -327,12 +365,26 @@ namespace Kobold.Core
                 || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Appends the pending literal text as one <see cref="MdText"/>.</summary>
-        private static void Flush(List<MdInline> inlines, StringBuilder literal)
+        /// <summary>Appends the pending literal text as one <see cref="MdText"/>,
+        /// carrying its source columns alongside.</summary>
+        private static void Flush(List<MdInline> inlines, StringBuilder literal, List<int> positions)
         {
             if (literal.Length == 0) return;
-            inlines.Add(new MdText { Text = literal.ToString() });
+            inlines.Add(new MdText
+            {
+                Text = literal.ToString(),
+                SourcePositions = new List<int>(positions)
+            });
             literal.Clear();
+            positions.Clear();
+        }
+
+        /// <summary>The consecutive source columns `start .. start+length-1`.</summary>
+        private static List<int> Range(int start, int length)
+        {
+            var positions = new List<int>(length);
+            for (int k = 0; k < length; k++) positions.Add(start + k);
+            return positions;
         }
 
         private static MdCodeBlock ReadCodeBlock(IList<string> lines, ref int i)

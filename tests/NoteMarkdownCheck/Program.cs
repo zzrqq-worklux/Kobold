@@ -53,6 +53,8 @@ namespace Kobold.NoteMarkdownCheck
             Rules();
             Tables();
             Inlines();
+            ParserSourcePositions();
+            CaretMap();
             Progress();
             EditorOps();
             BlockRanges();
@@ -540,6 +542,113 @@ namespace Kobold.NoteMarkdownCheck
                   && qp.Lines[0][0] is MdStrong
                   && InlineText(((MdStrong)qp.Lines[0][0]).Inlines) == "a",
                 "inline: quotes re-parse their content");
+        }
+
+        // ---- MarkdownParser source-column pins (task 1B) ------------------
+
+        /// <summary>
+        /// The parser's additive source map: one source column per visible
+        /// character, escapes / code spans / link labels skipping their
+        /// delimiters, and nested inlines carrying their own inner offsets.
+        /// </summary>
+        private static void ParserSourcePositions()
+        {
+            var plain = MarkdownParser.ParseInlines("abc");
+            var plainText = plain.Count == 1 ? plain[0] as MdText : null;
+            Check(plainText != null && plainText.Text == "abc"
+                  && Positions(plainText.SourcePositions) == "0,1,2",
+                "source: plain text maps every character");
+
+            var escaped = MarkdownParser.ParseInlines("a\\*b");
+            var escapedText = escaped.Count == 1 ? escaped[0] as MdText : null;
+            Check(escapedText != null && escapedText.Text == "a*b"
+                  && Positions(escapedText.SourcePositions) == "0,2,3",
+                "source: an escape skips the backslash");
+
+            var strong = MarkdownParser.ParseInlines("**bold** x");
+            var strongInline = strong.Count == 2 ? strong[0] as MdStrong : null;
+            var strongText = strongInline != null && strongInline.Inlines.Count == 1
+                ? strongInline.Inlines[0] as MdText : null;
+            var tail = strong.Count == 2 ? strong[1] as MdText : null;
+            Check(strongText != null && strongText.Text == "bold"
+                  && Positions(strongText.SourcePositions) == "2,3,4,5"
+                  && tail != null && tail.Text == " x"
+                  && Positions(tail.SourcePositions) == "8,9",
+                "source: strong carries its inner offsets");
+
+            var code = MarkdownParser.ParseInlines("`co`de");
+            var codeSpan = code.Count == 2 ? code[0] as MdCodeSpan : null;
+            var afterCode = code.Count == 2 ? code[1] as MdText : null;
+            Check(codeSpan != null && codeSpan.Text == "co"
+                  && Positions(codeSpan.SourcePositions) == "1,2"
+                  && afterCode != null && afterCode.Text == "de"
+                  && Positions(afterCode.SourcePositions) == "4,5",
+                "source: a code span excludes its backticks");
+
+            var link = MarkdownParser.ParseInlines("[label](https://x)");
+            var linkInline = link.Count == 1 ? link[0] as MdLink : null;
+            Check(linkInline != null && linkInline.Text == "label"
+                  && Positions(linkInline.SourcePositions) == "1,2,3,4,5",
+                "source: a link label excludes the brackets");
+
+            var unpaired = MarkdownParser.ParseInlines("a * b");
+            var unpairedText = unpaired.Count == 1 ? unpaired[0] as MdText : null;
+            Check(unpairedText != null && unpairedText.Text == "a * b"
+                  && Positions(unpairedText.SourcePositions) == "0,1,2,3,4",
+                "source: an unpaired marker stays literal");
+        }
+
+        /// <summary>The source positions as a comma-separated run ("null" when absent).</summary>
+        private static string Positions(List<int> positions)
+        {
+            return positions == null ? "null" : string.Join(",", positions);
+        }
+
+        // ---- NoteCaretMap pins (task 1B) ---------------------------------
+
+        /// <summary>
+        /// The visual-offset → source (line, column) map: a paragraph maps
+        /// directly, a heading / bullet / task box shifts by its marker, the
+        /// line end sits one past the last visible character, code maps into
+        /// its body and a table / quote falls back to the line start.
+        /// </summary>
+        private static void CaretMap()
+        {
+            Check(NoteCaretMap.Map("one **two** three", 0, 6) == (0, 8)
+                  && NoteCaretMap.Map("one **two** three", 0, 4) == (0, 6),
+                "caret: a paragraph offset maps directly");
+
+            Check(NoteCaretMap.Map("# Head", 0, 2) == (0, 4)
+                  && NoteCaretMap.Map("# Head", 0, 0) == (0, 2),
+                "caret: a heading skips its marker");
+
+            Check(NoteCaretMap.Map("- item", 0, 2) == (0, 4),
+                "caret: a list skips its bullet");
+
+            Check(NoteCaretMap.Map("- [ ] task", 0, 2) == (0, 8),
+                "caret: a task skips the box");
+
+            Check(NoteCaretMap.Map("# Head", 0, 4) == (0, 6)
+                  && NoteCaretMap.Map("", 0, 0) == (0, 0)
+                  && NoteCaretMap.Map("a\n\nb", 1, 0) == (1, 0),
+                "caret: the line end sits after the last visible character");
+
+            Check(NoteCaretMap.Map("# H\n\nbody", 2, 1) == (2, 1),
+                "caret: a heading after a blank line uses the absolute line");
+
+            Check(NoteCaretMap.Map("```\none\ntwo\n```", 0, 5) == (2, 1),
+                "caret: code maps to the code body line");
+
+            Check(NoteCaretMap.Map("```\none\n```", 0, 99) == (1, 3)
+                  && NoteCaretMap.Map("```\n```", 0, 0) == (0, 0),
+                "caret: an over-long code offset clamps to the body end");
+
+            Check(NoteCaretMap.Map("# #tag", 0, 0) == (0, 2),
+                "caret: a heading prefix stops before its hash-starting text");
+
+            Check(NoteCaretMap.Map("| a | b |\n| --- | --- |", 0, 2) == (0, 0)
+                  && NoteCaretMap.Map("> q", 0, 1) == (0, 0),
+                "caret: a table falls back to the line start");
         }
 
         // ---- NoteOps.TaskProgressOf pins (T8) ----------------------------
