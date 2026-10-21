@@ -1282,7 +1282,8 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
 | T4 home / detail + 标题下拉 | `205fe1b` | `ab0a09e` | Needs fixes（1 Important：Popup 不拿焦点、Esc 在 detail 误回 home）→ 复审通过 | 1 |
 | T5 AppendZone | `ab0a09e` | `e8c47f3` | Approved（1 Important：`ModifiedAt` 断言恒真）→ 修复后复审通过 | 1 |
 | T6 字号渲染 + 菜单 | `e8c47f3` | `a9aa61e` | Approved（0 Critical / 0 Important） | 0 |
-| T7 文档 + 全量自检 | `a9aa61e` | 本次文档提交 | 本节 + 全量自检 | — |
+| T7 文档 + 全量自检 | `a9aa61e` | `3d57dfa` / `d9cd110` | 本节 + 全量自检 | — |
+| 终审修复（detail 空白右键菜单） | `3d57dfa` | `ef138b4` | 终审 Important → 复审通过 | 1 |
 
 T1B 的 BASE 是 T1 之后的 docs 修订 `495a5fc`；T2 的 BASE 是 T1B 的 docs 修订 `80051e0`。
 
@@ -1311,9 +1312,13 @@ T1B 的 BASE 是 T1 之后的 docs 修订 `495a5fc`；T2 的 BASE 是 T1B 的 do
 ### 全量自检
 
 `powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all`
-→ **32/32 PASS**（2026-10-21 控制者复跑）：30 项 checks 全绿（`XamlLoadCheck` 40.4s、
-`FolderWatchCheck` 4.6s 为次长），installer 60/60、`config-pin` True。运行前已停掉本机
-`Kobold` 进程，避免 live config 写入造成 pin 抖动；未改任何检查口径。
+→ **32/32 PASS**（2026-10-21 控制者复跑两次；终审修复后最终一次 `XamlLoadCheck` 70.3s）：
+30 项 checks 全绿，installer 60/60、`config-pin` True。运行前已停掉本机 `Kobold` 进程，
+避免 live config 写入造成 pin 抖动；未改任何检查口径。
+
+终审：官方 `deepseek/deepseek-flash` 整支审查；唯一 Important = detail 的
+`_surfaceHost` padding 右键被当成 surface 内部而吞掉菜单 → `ef138b4` 区分 host 与 surface
+内容并补路由 pin；复审通过。延迟 minor 全部裁定为可合并（见上）。
 
 部署冒烟（2026-10-21）：用户部署 `a9aa61e` 后真鼠标验证 home/detail、标题下拉、
 空白语义 / AppendZone、精确光标、字号、bug 重进，结论「整体不错了」——本轮验收通过。
