@@ -25,6 +25,7 @@ namespace Kobold.DragOutCheck
             TheShellIgnoredTheDrop();
             InternalDropsKeepTheItems();
             LockedWidgetsNeverGiveItemsUp();
+            ExternalDropPolicyPins();
 
             Console.WriteLine();
             if (Errors.Count == 0)
@@ -85,6 +86,26 @@ namespace Kobold.DragOutCheck
                 "locked: a locked widget keeps its items even when the shell moved files");
             Check(Resolve(ExternalDropEffect.None, false, true, locked: true) == DragOutAction.KeepItems,
                 "locked: a locked widget never ejects on an ignored drop");
+        }
+
+        private static void ExternalDropPolicyPins()
+        {
+            Check(ExternalDropPolicy.Accepts(true, false, true, false),
+                "external drop: the browse background accepts a file drop");
+            Check(ExternalDropPolicy.Accepts(true, false, true, false) &&
+                  ExternalDropPolicy.TargetDirectory(true, @"C:\a\sub", @"C:\a") == @"C:\a\sub",
+                "external drop: a folder row accepts and targets the subfolder");
+            Check(!ExternalDropPolicy.Accepts(true, false, true, true),
+                "external drop: a file row refuses");
+            Check(!ExternalDropPolicy.Accepts(true, true, true, false),
+                "external drop: a locked widget refuses");
+            Check(!ExternalDropPolicy.Accepts(true, false, false, false),
+                "external drop: a non-file payload refuses");
+            Check(!ExternalDropPolicy.Accepts(false, false, true, false),
+                "external drop: root mode never uses the browse policy");
+            Check(ExternalDropPolicy.TargetDirectory(true, null, @"C:\a") == @"C:\a" &&
+                  ExternalDropPolicy.TargetDirectory(false, @"C:\a\sub", @"C:\a") == @"C:\a",
+                "external drop: a blank folder row falls back to the current folder");
         }
     }
 }
