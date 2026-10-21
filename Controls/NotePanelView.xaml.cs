@@ -708,10 +708,11 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The panel's blank right-click (spec §3.3): the action menu is only
-        /// assigned outside the detail's surface host, so the note content
-        /// keeps its own menus. Built per opening, so it always reflects the
-        /// current language and state.
+        /// The panel's blank right-click (spec §3.3): the action menu is
+        /// assigned outside the surface's content, so the note content keeps
+        /// its own menus while the detail host's padding band - the only blank
+        /// area in the detail - still offers the panel menu. Built per opening,
+        /// so it always reflects the current language and state.
         /// </summary>
         private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
@@ -722,7 +723,10 @@ namespace Kobold.Controls
             }
 
             var hit = (e.OriginalSource ?? e.Source) as DependencyObject;
-            Root.ContextMenu = hit != null && IsWithinSurfaceHost(hit) ? null : BuildBlankMenu();
+            bool insideContent = hit != null
+                && IsWithinSurfaceHost(hit)
+                && !ReferenceEquals(hit, _surfaceHost);
+            Root.ContextMenu = insideContent ? null : BuildBlankMenu();
         }
 
         /// <summary>

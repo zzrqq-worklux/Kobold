@@ -582,6 +582,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: Esc and Backspace return home only in the rendered detail",
                     NoteEscAndBackspaceReturnHomeOnlyInTheRenderedDetail);
                 failures += TryCheck("note: the blank menu follows the state", NoteBlankMenuFollowsTheState);
+                failures += TryCheck("note: the detail's padding band opens the blank menu",
+                    NoteDetailPaddingBandOpensTheBlankMenu);
                 failures += TryCheck("note: the blank-area menu starts the same edit",
                     NoteBlankAreaMenuStartsTheSameEdit);
                 failures += TryCheck("note: an empty new note is discarded on the way home",
@@ -10239,9 +10241,8 @@ namespace Kobold.XamlLoadCheck
         /// <summary>
         /// T4 (spec 3.3): the blank area's menu carries the create entry at home
         /// and create + "back to the notes" in the detail (home hides the home
-        /// entry). The right-click routing inside the surface stays on the
-        /// smoke list (an off-screen ContextMenuOpening is not a stable event to
-        /// fabricate); this pin owns the menu the route assigns.
+        /// entry). This pin owns the menu the builder returns; the detail
+        /// padding-band route is pinned separately.
         /// </summary>
         private static void NoteBlankMenuFollowsTheState()
         {
@@ -10276,6 +10277,73 @@ namespace Kobold.XamlLoadCheck
             if (HeaderOf(detailMenu.Items[1]) != Localization.Get("UI_NoteHome"))
                 throw new InvalidOperationException(
                     "the detail blank menu's home entry reads '" + HeaderOf(detailMenu.Items[1]) + "'");
+        }
+
+        /// <summary>
+        /// Spec 3.3 route pin: in the detail the only blank area is the surface
+        /// host's padding band, so a right-click whose source is the host must
+        /// assign the panel's action menu (new + back to the notes), while a
+        /// right-click inside the note content must leave the panel menu unset
+        /// and let the surface keep its own menus. The real private handler is
+        /// driven with a fabricated opening event (WPF exposes no public
+        /// constructor for its args), the same idiom the surface menu pin uses.
+        /// </summary>
+        private static void NoteDetailPaddingBandOpensTheBlankMenu()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            ClickNoteCard(view, 0);
+            if (view.IsHome)
+                throw new InvalidOperationException("the card click did not open the detail");
+
+            var root = NoteNamed(view, "Root");
+            var opening = typeof(NotePanelView).GetMethod("Root_ContextMenuOpening",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (opening == null)
+                throw new InvalidOperationException("Root_ContextMenuOpening not found on NotePanelView");
+
+            RaiseNoteContextMenuOpening(opening, view, root, NoteHost(view));
+            var menu = root.ContextMenu;
+            if (menu == null)
+                throw new InvalidOperationException("the detail's padding band assigned no blank menu");
+            if (menu.Items.Count != 2)
+                throw new InvalidOperationException(
+                    "the padding-band menu has " + menu.Items.Count + " item(s), wanted 2");
+
+            string newWanted = "＋ " + Localization.Format(
+                "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
+            if (HeaderOf(menu.Items[0]) != newWanted)
+                throw new InvalidOperationException(
+                    "the padding-band menu's new entry reads '" + HeaderOf(menu.Items[0]) + "'");
+            if (HeaderOf(menu.Items[1]) != Localization.Get("UI_NoteHome"))
+                throw new InvalidOperationException(
+                    "the padding-band menu's home entry reads '" + HeaderOf(menu.Items[1]) + "'");
+
+            RaiseNoteContextMenuOpening(opening, view, root, NoteSurface(view));
+            if (root.ContextMenu != null)
+                throw new InvalidOperationException(
+                    "a right-click inside the note content assigned the panel menu");
+        }
+
+        /// <summary>
+        /// Invokes the panel's real ContextMenuOpening handler with the given
+        /// hit source. The framework's non-public args constructor carries the
+        /// source (its second argument is <c>opening</c>), and the original
+        /// source stays unset because the event is dispatched straight to the
+        /// handler rather than raised through the tree.
+        /// </summary>
+        private static void RaiseNoteContextMenuOpening(MethodInfo opening, NotePanelView view,
+            FrameworkElement root, DependencyObject source)
+        {
+            var args = (ContextMenuEventArgs)Activator.CreateInstance(typeof(ContextMenuEventArgs),
+                BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { source, true }, null);
+            args.RoutedEvent = ContextMenuService.ContextMenuOpeningEvent;
+            opening.Invoke(view, new object[] { root, args });
         }
 
         /// <summary>
