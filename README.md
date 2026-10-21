@@ -244,7 +244,7 @@ the new version. Settings and stored files are kept.
 | Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
 | Undo a delete or a tick | With no editor focused, Ctrl+Z steps back up to 20 edits |
 | Clear the day's completed todos | Right-click the list or the calendar's blank space → **Clear completed** (greyed out when the day has none) |
-| Create a note | Title ▾ → **New**, or right-click the home blank area |
+| Create a note | Title ▾ → **New**, or right-click the blank area (home, or the detail padding) |
 | Open a note | Click a card; the title ▾ lists every note for quick switching |
 | Back to the list | Title ▾ → **Notes**, or Esc / Backspace in the rendered detail |
 | Edit a note | Click any block; click the blank area / Esc to render it back |
@@ -499,7 +499,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
 | 撤回删除或勾选 | 编辑器未聚焦时按 Ctrl+Z，最多连续回退 20 步 |
 | 清理当天已完成 | 在清单或日历空白处右键 →「清理已完成」（当天没有已完成项时置灰） |
-| 新建笔记 | 标题 ▾ →「新建」，或在 home 空白处右键 |
+| 新建笔记 | 标题 ▾ →「新建」，或在空白处右键（home，或详情的内边距） |
 | 打开笔记 | 单击卡片；标题 ▾ 可列出全部笔记快速切换 |
 | 回到列表 | 标题 ▾ →「笔记列表」，或渲染态按 Esc / Backspace |
 | 编辑笔记 | 点正文里的任意一个块；点空白处 / Esc 渲染回去 |

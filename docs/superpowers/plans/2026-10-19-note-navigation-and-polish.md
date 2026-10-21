@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **状态：待用户审阅后执行。**
+> **状态：已执行（2026-10-21）；最终终审使用官方 `deepseek/deepseek-flash`。**
 > **Spec**：`docs/superpowers/specs/2026-10-19-note-navigation-and-polish-design.md`（本计划只引 §号，不复述决策）。
 > **基线**：`main` @ `64b91ac`；worktree：`C:\Users\31177347\.local\share\opencode\worktree\c3852b\note-widget-polish`；分支 `note-widget-polish`。
 > **执行方式**：subagent-driven-development。每任务：实现子代理 TDD → 按 pathspec `git add`（不提交）→ 控制者
@@ -118,6 +118,8 @@ private static string Describe(object hit)
 `using System.IO;` 仅探针期间需要；删除探针时一并删除。
 
 ### Step 2（控制者：部署探针 + 真鼠标取证）
+
+> 下面的探针代码与 PowerShell 脚本是**诊断记录**，没有加入仓库；最终提交只含修复与回归 pin。
 
 - 构建：`dotnet build C:\Users\31177347\.local\share\opencode\worktree\c3852b\note-widget-polish\Kobold.csproj -c Debug --nologo`
 - 征求用户同意后部署探针版；让用户打开一个**有文字**的笔记组件，点卡展开
@@ -1198,7 +1200,7 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
 - Modify: `CHANGELOG.md`（Unreleased）
 - Modify: 本计划文件（追加「执行记录」）
 
-- [ ] **Step 1：README**
+- [x] **Step 1：README**
 
   英文 / 中文功能段改为：
   - 笔记以 home 卡片列表呈现；点卡进入详情；标题右侧 `▾` 下拉可新建、回列表、快速切换；
@@ -1207,19 +1209,19 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
   - 任务框 / 链接 / 快速插入 / 删除撤回保持。
   用法表对应行（中英镜像）：
   - `Open a note | Click a card; the title ▾ lists every note for quick switching`
-  - `Create a note | Title ▾ → New, or right-click the home blank area`
+  - `Create a note | Title ▾ → New, or right-click the blank area (home or detail padding)`
   - `Back to the list | Title ▾ → Notes, or Esc / Backspace in the rendered detail`
   - `Edit a note | Click any block; click the blank area / Esc to render it back`
   - `Append a block | While editing, click the blank space below the last block`
   - `Change note text size | Right-click the widget → Font size → Small / Medium / Large`
 
-- [ ] **Step 2：CHANGELOG**
+- [x] **Step 2：CHANGELOG**
 
   `Unreleased / 新增` 的笔记组件段落按新导航与字号重述；「修复」补一条
   「退出编辑后再次点击块无法进入编辑（真鼠标 Direct 路由）」；「计划 / 待办」删除
   已交付项，保留 `config.json.failed-*` 兼容条。
 
-- [ ] **Step 3：全量自检**
+- [x] **Step 3：全量自检**
 
   ```powershell
   powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all
@@ -1227,7 +1229,7 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
 
   预期 32/32（30 checks + installer 60 例）。
 
-- [ ] **Step 4：执行记录**
+- [x] **Step 4：执行记录**
 
   在本计划末尾追加：
   - 每任务 BASE / 实现提交 / 审查结论 / 修复轮；
@@ -1235,7 +1237,7 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
   - 延迟 minor 清单与裁定；
   - 全量自检结果与部署冒烟结论。
 
-- [ ] **Step 5：提交**
+- [x] **Step 5：提交**
 
   `git add README.md CHANGELOG.md docs/superpowers/plans/2026-10-19-note-navigation-and-polish.md`
   → `docs: document the note navigation and polish`
@@ -1244,10 +1246,10 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
 
 ## 收尾（控制者执行，非任务）
 
-- [ ] 整支终审（spec 覆盖 / 数据 / 事件路由 / 测试口径）。
-- [ ] 单一修复波；复审通过。
-- [ ] `tools\Run-Checks.ps1 -Group all` 32/32。
-- [ ] 征求用户同意后 `tools\deploy.ps1`，用户按 spec §8.2 真鼠标冒烟（尤其 bug 1、AppendZone、标题下拉、字号）。
+- [x] 整支终审（spec 覆盖 / 数据 / 事件路由 / 测试口径）。
+- [x] 单一修复波；复审通过。
+- [x] `tools\Run-Checks.ps1 -Group all` 32/32。
+- [x] 征求用户同意后 `tools\deploy.ps1`，用户按 spec §8.2 真鼠标冒烟（尤其 bug 1、AppendZone、标题下拉、字号）。
 - [ ] 用户确认后合并 main + 推送（合并 / 推送必须先问）；worktree 按收尾规范清理。
 
 ## Self-Review
