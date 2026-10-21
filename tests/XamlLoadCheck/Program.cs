@@ -454,6 +454,11 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("island: hand-drawn system geometry differs from classic",
                     IslandHandDrawnSystemGeometryDiffers);
 
+                // Task 2 pin: the island's + tile opens the launcher card with
+                // its header and the three kind rows.
+                failures += TryCheck("launcher: the island add menu is a three-row card",
+                    IslandAddMenuUsesTheLauncherCard);
+
                 // Task 3.5 pins: the pure Quick Access path matcher and the
                 // read-only state probe (never Pin/Unpin - invoking them here
                 // would change the user's real Quick Access), plus the
@@ -7859,6 +7864,52 @@ namespace Kobold.XamlLoadCheck
             {
                 island.Close();
             }
+        }
+
+        private static void IslandAddMenuUsesTheLauncherCard()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var card = island.BuildAddWidgetContent() as Border;
+                if (card == null || !"IslandAddMenu".Equals(card.Tag as string))
+                    throw new InvalidOperationException("the island add menu is not a tagged Border");
+                if (Math.Abs(card.CornerRadius.TopLeft - UiTokens.RadiusWindow) > 0.01)
+                    throw new InvalidOperationException("the island add menu radius is " + card.CornerRadius.TopLeft);
+
+                var header = FindByTag(card, "IslandAddHeader") as TextBlock;
+                if (header == null || header.Text != Localization.Get("Island_NewWidgetHeader"))
+                    throw new InvalidOperationException("the island add menu has no localized header");
+
+                var style = Application.Current.FindResource("Kobold.Style.LauncherItem") as Style;
+                foreach (var id in new[] { "folder", "todo", "note" })
+                {
+                    var row = FindByTag(card, id) as Button;
+                    if (row == null) throw new InvalidOperationException("no " + id + " row");
+                    if (!ReferenceEquals(row.Style, style))
+                        throw new InvalidOperationException("the " + id + " row does not wear the launcher style");
+                    if (row.Content == null) throw new InvalidOperationException("the " + id + " row has no content");
+                }
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        private static FrameworkElement FindByTag(DependencyObject root, string tag)
+        {
+            if (root == null) return null;
+            var element = root as FrameworkElement;
+            if (element != null && tag.Equals(element.Tag as string)) return element;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = FindByTag(VisualTreeHelper.GetChild(root, i), tag);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         private static Canvas TileIconCanvas(IslandWindow island)

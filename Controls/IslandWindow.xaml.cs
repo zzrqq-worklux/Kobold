@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -37,6 +38,9 @@ namespace Kobold.Controls
         // True while a widget menu opened from a tile is up - the island must
         // not collapse underneath it.
         private bool _menuOpen;
+
+        // The launcher card opened from the add tile; null while it is closed.
+        private Popup _addWidgetPopup;
 
         // Guards the two-way sync between the tile scroller and its hint bar.
         private bool _syncingScrollBar;
@@ -515,25 +519,130 @@ namespace Kobold.Controls
             return widget != null && WidgetKindRegistry.Find(widget.Kind) != null;
         }
 
-        /// <summary>Type picker for the island's + tile: create a folder or a todo.</summary>
+        /// <summary>
+        /// Opens the launcher card from the add tile: a header plus one row per
+        /// kind, each with its icon, name and a one-line description. Clicking
+        /// the tile again, clicking away or Escape closes it.
+        /// </summary>
         private void ShowAddWidgetMenu()
         {
-            var menu = new ContextMenu();
-            foreach (var item in WidgetMenuBuilder.BuildKindChoices(
-                kind => WidgetManager.Instance.CreateWidget(kind)))
+            if (_addWidgetPopup != null)
             {
-                menu.Items.Add(item);
+                CloseAddWidgetMenu();
+                return;
             }
 
-            MenuBuilder.Prepare(menu);
-            menu.PlacementTarget = AddTile;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            var content = BuildAddWidgetContent();
+            var popup = new Popup
+            {
+                PlacementTarget = AddTile,
+                Placement = PlacementMode.Bottom,
+                StaysOpen = false,
+                AllowsTransparency = true,
+                Child = content,
+                HorizontalOffset = -(280 - AddTile.ActualWidth)
+            };
+            popup.Closed += (s, e) =>
+            {
+                if (ReferenceEquals(_addWidgetPopup, popup)) _addWidgetPopup = null;
+                ResumeAutoCollapse();
+            };
 
-            // Keep the island expanded while the menu is up, exactly like a
-            // widget tile's menu.
+            _addWidgetPopup = popup;
             PauseAutoCollapse();
-            menu.Closed += (s, e) => ResumeAutoCollapse();
-            menu.IsOpen = true;
+            popup.IsOpen = true;
+
+            content.Focusable = true;
+            content.Focus();
+        }
+
+        private void CloseAddWidgetMenu()
+        {
+            var popup = _addWidgetPopup;
+            if (popup == null) return;
+            _addWidgetPopup = null;
+            popup.IsOpen = false;
+        }
+
+        /// <summary>The add tile's launcher card; also the pin's entry point.</summary>
+        public FrameworkElement BuildAddWidgetContent()
+        {
+            var panel = new StackPanel { Margin = new Thickness(4) };
+            panel.Children.Add(new TextBlock
+            {
+                Tag = "IslandAddHeader",
+                Text = Localization.Get("Island_NewWidgetHeader"),
+                FontSize = 11,
+                Foreground = ThemeManager.SecondaryTextBrush,
+                Margin = new Thickness(8, 5, 8, 5)
+            });
+
+            string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
+            foreach (var kind in WidgetKindRegistry.All)
+            {
+                string kindId = kind.Id;
+                var iconCanvas = new Canvas { Width = 24, Height = 24 };
+                IconRendererFactory.CreateByKey(kind.IconKey, iconStyle)
+                    .Render(iconCanvas, UiTokens.DefaultFolderColor);
+
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(new TextBlock
+                {
+                    Text = Localization.Get(kind.NameKey),
+                    FontSize = 13,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeManager.TextBrush
+                });
+                text.Children.Add(new TextBlock
+                {
+                    Text = Localization.Get(HintKey(kindId)),
+                    FontSize = 11,
+                    Foreground = ThemeManager.SecondaryTextBrush
+                });
+
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(iconCanvas, 0);
+                Grid.SetColumn(text, 1);
+                grid.Children.Add(iconCanvas);
+                grid.Children.Add(text);
+
+                var row = new Button
+                {
+                    Tag = kindId,
+                    Content = grid,
+                    MinHeight = 48,
+                    Style = FindResource("Kobold.Style.LauncherItem") as Style
+                };
+                row.Click += (s, e) =>
+                {
+                    CloseAddWidgetMenu();
+                    WidgetManager.Instance.CreateWidget(kindId);
+                };
+                panel.Children.Add(row);
+            }
+
+            var card = LauncherCard.Create(panel, 280);
+            card.Tag = "IslandAddMenu";
+            card.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key != Key.Escape) return;
+                e.Handled = true;
+                CloseAddWidgetMenu();
+            };
+            return card;
+        }
+
+        private static string HintKey(string kindId)
+        {
+            switch (kindId)
+            {
+                case "folder": return "Island_NewFolderHint";
+                case "todo": return "Island_NewTodoHint";
+                case "note": return "Island_NewNoteHint";
+                default: return string.Empty;
+            }
         }
 
         private void DesktopTile_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
