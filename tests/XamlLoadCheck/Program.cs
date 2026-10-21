@@ -565,6 +565,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: the widget enables the title menu", NoteWidgetEnablesTheTitleMenu);
                 failures += TryCheck("note: the title menu groups actions and notes",
                     NoteTitleMenuGroupsActionsAndNotes);
+                failures += TryCheck("launcher: the note menu wears the shared card", NoteTitleMenuUsesTheLauncherStyle);
                 failures += TryCheck("note: the title menu switches notes", NoteTitleMenuSwitchesNotes);
                 failures += TryCheck("note: the title menu starts a new note", NoteTitleMenuStartsANewNote);
                 failures += TryCheck("note: the title menu returns home", NoteTitleMenuReturnsHome);
@@ -9782,6 +9783,40 @@ namespace Kobold.XamlLoadCheck
             if (NoteMenuTitle(blank) != Localization.Get("UI_NoteUntitled"))
                 throw new InvalidOperationException(
                     "the untitled entry reads '" + NoteMenuTitle(blank) + "'");
+        }
+
+        /// <summary>
+        /// T1: the note dropdown wears the shared launcher surface
+        /// (the window radius and the surface brush) and its rows wear the
+        /// shared <c>Kobold.Style.LauncherItem</c> row style - the one the
+        /// island's plus menu reuses.
+        /// </summary>
+        private static void NoteTitleMenuUsesTheLauncherStyle()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var menu = view.BuildTitleMenuContent() as Border;
+            if (menu == null || !"NoteTitleMenu".Equals(menu.Tag as string))
+                throw new InvalidOperationException("the title menu is not a tagged Border");
+            if (Math.Abs(menu.CornerRadius.TopLeft - UiTokens.RadiusWindow) > 0.01)
+                throw new InvalidOperationException("the title menu radius is " + menu.CornerRadius.TopLeft);
+            if (!ReferenceEquals(menu.Background, ThemeManager.SurfaceBrush))
+                throw new InvalidOperationException("the title menu does not wear the surface brush");
+
+            var style = Application.Current.FindResource("Kobold.Style.LauncherItem") as Style;
+            if (style == null) throw new InvalidOperationException("no Kobold.Style.LauncherItem resource");
+
+            var newButton = TitleMenuPart(menu, "NoteMenuNew") as Button;
+            if (newButton == null || !ReferenceEquals(newButton.Style, style))
+                throw new InvalidOperationException("the new action does not wear the launcher style");
+            var entry = NoteMenuEntries(menu)[0];
+            if (!ReferenceEquals(entry.Style, style))
+                throw new InvalidOperationException("a note entry does not wear the launcher style");
         }
 
         /// <summary>

@@ -4,46 +4,6 @@
              TextOptions.TextFormattingMode="Display"
              PreviewKeyDown="Root_PreviewKeyDown">
 
-    <UserControl.Resources>
-        <!-- The title dropdown's flat entry: no chrome of its own, a rounded
-             hover wash and the current note's highlight painted through the
-             button's Background (the dropdown is rebuilt per opening). -->
-        <Style x:Key="NoteMenuButtonStyle" TargetType="{x:Type Button}">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
-            <Setter Property="FontSize" Value="{DynamicResource Kobold.Font.Body}"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="SnapsToDevicePixels" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type Button}">
-                        <Border x:Name="Bd"
-                                CornerRadius="{DynamicResource Kobold.Radius.Control}"
-                                Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background"
-                                        Value="{DynamicResource Kobold.Brush.SurfaceHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background"
-                                        Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </UserControl.Resources>
-
     <!-- The note widget's content: a home list ⇄ a detail page (design §3.1).
          The home carries the cards (the empty state over them when the data is
          empty); the detail carries the panel's one surface in a permanent host.

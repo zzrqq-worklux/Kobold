@@ -322,17 +322,9 @@ namespace Kobold.Controls
                 Content = list
             });
 
-            var root = new Border
-            {
-                Tag = "NoteTitleMenu",
-                Width = Math.Max(MENU_MIN_WIDTH, Math.Min(MENU_MAX_WIDTH, ActualWidth - 24)),
-                Padding = new Thickness(4),
-                Background = ThemeManager.SurfaceBrush,
-                BorderBrush = ThemeManager.BorderBrush,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(UiTokens.RadiusControl),
-                Child = panel
-            };
+            var root = LauncherCard.Create(panel,
+                Math.Max(MENU_MIN_WIDTH, Math.Min(MENU_MAX_WIDTH, ActualWidth - 24)));
+            root.Tag = "NoteTitleMenu";
 
             // The popup is its own focus scope: Esc must be handled here, the
             // panel's key router never sees it.
@@ -352,7 +344,8 @@ namespace Kobold.Controls
             {
                 Tag = tag,
                 Content = new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis },
-                Style = FindResource("NoteMenuButtonStyle") as Style
+                Style = FindResource("Kobold.Style.LauncherItem") as Style,
+                MinHeight = 32
             };
             button.Click += (s, e) =>
             {
@@ -401,7 +394,8 @@ namespace Kobold.Controls
                 Tag = note.Id,
                 Content = grid,
                 Background = current ? ThemeManager.SurfaceHoverBrush : Brushes.Transparent,
-                Style = FindResource("NoteMenuButtonStyle") as Style
+                Style = FindResource("Kobold.Style.LauncherItem") as Style,
+                MinHeight = 34
             };
             button.Click += (s, e) =>
             {
