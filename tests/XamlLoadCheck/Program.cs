@@ -325,6 +325,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: clipboard entries follow the lock and paste gates", FolderClipboardMenuEntries);
                 failures += TryCheck("folder: the new-file menu entries wear the shared label", FolderNewFileMenuUsesTheFileLabel);
                 failures += TryCheck("folder: the browse back button accepts drops", BrowseBackButtonAcceptsDrops);
+                failures += TryCheck("folder: the content panel accepts external drops", FolderContentPanelAcceptsDrops);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
                 failures += TryCheck("folder: the icon row pitch does not follow the panel height", FolderRowPitchIsIndependentOfThePanelHeight);
@@ -6595,6 +6596,25 @@ namespace Kobold.XamlLoadCheck
             var button = widget.FindName("BackButton") as Border;
             if (button == null) throw new InvalidOperationException("BackButton not found");
             if (!button.AllowDrop) throw new InvalidOperationException("the browse back button does not accept drops");
+        }
+
+        /// <summary>
+        /// Task 3: browse mode takes an external FileDrop anywhere the listing
+        /// shows - the content panel and its scroller must accept drops, and
+        /// the empty state must not swallow the hit test.
+        /// </summary>
+        private static void FolderContentPanelAcceptsDrops()
+        {
+            var widget = new FolderWidget(new FolderData());
+            var content = widget.FindName("ContentPanel") as Grid;
+            var scroller = widget.FindName("ItemsScroller") as ScrollViewer;
+            var empty = widget.FindName("EmptyState") as FrameworkElement;
+            if (content == null || !content.AllowDrop)
+                throw new InvalidOperationException("ContentPanel does not accept drops");
+            if (scroller == null || !scroller.AllowDrop)
+                throw new InvalidOperationException("ItemsScroller does not accept drops");
+            if (empty == null || empty.IsHitTestVisible)
+                throw new InvalidOperationException("EmptyState still blocks drops");
         }
 
         /// <summary>

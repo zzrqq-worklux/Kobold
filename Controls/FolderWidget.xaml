@@ -106,12 +106,15 @@
                 </Border>
 
                 <!-- Files grid + empty state (both live in the chrome's content row) -->
-                <Grid x:Name="ContentPanel">
+                <Grid x:Name="ContentPanel" AllowDrop="True" Background="Transparent"
+                      DragOver="ContentPanel_DragOver" DragLeave="ContentPanel_DragLeave"
+                      Drop="ContentPanel_Drop">
                     <!-- Items - scrolls when the listing is taller than the panel cap -->
                     <ScrollViewer x:Name="ItemsScroller"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
                                   PanningMode="VerticalOnly"
+                                  AllowDrop="True"
                                   Background="Transparent">
                         <Grid x:Name="ItemsHost" Background="Transparent">
                             <ItemsControl x:Name="ItemsContainer" Margin="8,4,8,8"
@@ -218,6 +221,7 @@
                     <!-- Empty State -->
                     <StackPanel x:Name="EmptyState"
                                 VerticalAlignment="Center" HorizontalAlignment="Center"
+                                IsHitTestVisible="False"
                                 Visibility="Collapsed">
                         <TextBlock Text="📂" FontSize="32" HorizontalAlignment="Center" Opacity="0.6"/>
                         <TextBlock x:Name="EmptyText" Text="Drop files here" 

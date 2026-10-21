@@ -99,6 +99,38 @@ namespace Kobold.Controls
             NotifyDataChanged();
         }
 
+        /// <summary>True when the drag carries real files (the only external payload this round accepts).</summary>
+        private static bool IsExternalFileDrop(IDataObject data)
+        {
+            return data != null && data.GetDataPresent(DataFormats.FileDrop);
+        }
+
+        /// <summary>
+        /// Copies a browse-mode external FileDrop into targetDir through the shell,
+        /// so collisions keep both files and progress/cancel stay Explorer-like.
+        /// </summary>
+        private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
+        {
+            if (_data.IsLocked || string.IsNullOrEmpty(targetDir))
+            {
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            var paths = e.Data == null ? null : e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (paths == null || paths.Length == 0)
+            {
+                e.Effects = DragDropEffects.None;
+                return;
+            }
+
+            bool copied = ShellFileOperations.Copy(paths, targetDir, PanelHwnd);
+            e.Effects = copied ? DragDropEffects.Copy : DragDropEffects.None;
+
+            // Deferred so the re-list does not run inside the OLE drag loop.
+            Dispatcher.BeginInvoke(new Action(UpdateUI));
+        }
+
         #endregion
 
         #region Item Drag (Reordering) & Selection
@@ -492,6 +524,19 @@ namespace Kobold.Controls
         {
             if (IsBrowsing)
             {
+                // An external FileDrop copies real files into the folder on
+                // screen - the shell keeps collisions and progress Explorer-like.
+                if (IsExternalFileDrop(e.Data))
+                {
+                    bool externalAccepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
+                    e.Effects = externalAccepted ? DragDropEffects.Copy : DragDropEffects.None;
+                    SetBrowseDropHighlight(externalAccepted);
+                    DropIndicator.Visibility = Visibility.Collapsed;
+                    if (!externalAccepted) DragDropSession.Current?.MarkTargetRefused();
+                    e.Handled = true;
+                    return;
+                }
+
                 // Entries dragged from another browse panel move into the folder
                 // on screen; anything else is refused (browsing is a view, not a
                 // drop target for widget items).
@@ -669,6 +714,12 @@ namespace Kobold.Controls
         {
             SetBrowseDropHighlight(false);
 
+            if (IsExternalFileDrop(e.Data))
+            {
+                CopyExternalFileDrop(e, CurrentBrowsePath);
+                return;
+            }
+
             if (!IsBrowseDrag(e.Data, out var sourceFolder) ||
                 BrowseMove.SameFolder(sourceFolder, CurrentBrowsePath))
             {
@@ -713,6 +764,21 @@ namespace Kobold.Controls
 
             var border = sender as Border;
             var target = border?.DataContext as DisplayItem;
+
+            if (IsExternalFileDrop(e.Data))
+            {
+                bool externalAccepted = ExternalDropPolicy.Accepts(
+                    true, _data.IsLocked, true, !(target != null && target.IsDirectory));
+                e.Effects = externalAccepted ? DragDropEffects.Copy : DragDropEffects.None;
+                if (externalAccepted) SetItemDropHighlight(border);
+                else
+                {
+                    ClearItemDropHighlight();
+                    DragDropSession.Current?.MarkTargetRefused();
+                }
+                return;
+            }
+
             bool accepted = !_data.IsLocked &&
                             target != null &&
                             target.IsDirectory &&
@@ -747,6 +813,21 @@ namespace Kobold.Controls
 
             var border = sender as Border;
             var target = border?.DataContext as DisplayItem;
+
+            if (IsExternalFileDrop(e.Data))
+            {
+                bool externalAccepted = ExternalDropPolicy.Accepts(
+                    true, _data.IsLocked, true, !(target != null && target.IsDirectory));
+                if (!externalAccepted)
+                {
+                    e.Effects = DragDropEffects.None;
+                    return;
+                }
+                CopyExternalFileDrop(e, ExternalDropPolicy.TargetDirectory(
+                    true, target.Path, CurrentBrowsePath));
+                return;
+            }
+
             bool accepted = !_data.IsLocked &&
                             target != null &&
                             target.IsDirectory &&
@@ -827,6 +908,31 @@ namespace Kobold.Controls
             if (movable.Count == 0) return;
             ShellFileOperations.Move(movable, parent, new System.Windows.Interop.WindowInteropHelper(this).Handle);
             Dispatcher.BeginInvoke(new Action(UpdateUI));
+        }
+
+        /// <summary>The empty-state / panel-gap drop target: only browse mode takes external files.</summary>
+        private void ContentPanel_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Handled || !IsBrowsing || !IsExternalFileDrop(e.Data)) return;
+
+            bool accepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
+            e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void ContentPanel_DragLeave(object sender, DragEventArgs e)
+        {
+            SetBrowseDropHighlight(false);
+            ClearItemDropHighlight();
+        }
+
+        private void ContentPanel_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Handled || !IsBrowsing || !IsExternalFileDrop(e.Data)) return;
+
+            if (_data.IsLocked) e.Effects = DragDropEffects.None;
+            else CopyExternalFileDrop(e, CurrentBrowsePath);
+            e.Handled = true;
         }
 
         /// <summary>
