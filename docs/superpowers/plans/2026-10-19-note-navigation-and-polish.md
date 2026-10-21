@@ -1261,3 +1261,59 @@ private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData dat
   `ChromeTitle` / `IsHome` / `OpenNote` / `BuildTitleMenuContent` 在 T4 定义。
 - **风险**：T4 最大（导航 + 下拉 + 旧 pins 重写）；执行记录按「红证据 → 实现 → 全绿」留档，
   审查重点 = 切换时的提交 / 空稿丢弃 / 标题刷新 / Popup 关闭焦点。
+
+---
+
+## 执行记录（2026-10-19 ~ 2026-10-20）
+
+> 方式：SDD，实现 / 审查分离，子代理统一 `opencode/deepseek-v4.1-flash-free`，串行；
+> 每个任务走「红 → 实现 → 全绿 → 审查 → 修复轮 → 复审」。基线 `64b91ac`，计划 `31c1c21`。
+
+### 任务与提交
+
+| 任务 | BASE | 实现提交 | 审查结论 | 修复轮 |
+|---|---|---|---|---|
+| T1 点击行解析（bug 1） | `31c1c21` | `7f099de` | Needs fixes（1 Important：pin 未守卫生产路径）→ 复审通过 | 1 |
+| T1B 精确光标 | `495a5fc`（docs） | `762b8cf` | Needs fixes（2 Critical：偏移量按 TextPointer 边界计数；2 Important）→ 复审通过 | 1 |
+| T2 字号数据 | `80051e0`（docs） | `b205dc4` | Approved（0 Critical / 0 Important） | 0 |
+| T3 标题 `▾` | `b205dc4` | `205fe1b` | Approved（2 Important：命中区仅 glyph / 短标题位置）→ 修复后复审通过 | 1 |
+| T4 home / detail + 标题下拉 | `205fe1b` | `ab0a09e` | Needs fixes（1 Important：Popup 不拿焦点、Esc 在 detail 误回 home）→ 复审通过 | 1 |
+| T5 AppendZone | `ab0a09e` | `e8c47f3` | Approved（1 Important：`ModifiedAt` 断言恒真）→ 修复后复审通过 | 1 |
+| T6 字号渲染 + 菜单 | `e8c47f3` | `a9aa61e` | Approved（0 Critical / 0 Important） | 0 |
+| T7 文档 + 全量自检 | `a9aa61e` | 本次文档提交 | 本节 + 全量自检 | — |
+
+T1B 的 BASE 是 T1 之后的 docs 修订 `495a5fc`；T2 的 BASE 是 T1B 的 docs 修订 `80051e0`。
+
+### Task 1 真鼠标证据（bug 1）
+
+- 时间 2026-10-19 19:19；`NoteWidget` 移到 `(50,50)` 后点击 `(200,190)`；探针日志
+  （`%TEMP%\kobold-note-click-probe.log`）：
+  `source=RichTextBox#ReadingBox | handled=True | captured=<null> | taggedLine=-1 | selection=False | point=127,23 | pos=<null> | input=Paragraph | inputLine=0`
+- `MouseLeftButtonUp` 与 `Mouse.MouseUp` **都到达 root**（前者 `Handled=True`），
+  `OriginalSource` 是 RTB 本身而非 `Span` / `Paragraph`；RTB 内 `InputHitTest` 命中
+  `Paragraph`（`SourceLine=0`），`GetPositionFromPoint(..., false)` 返回 null。
+- 结论：推翻「Direct 事件到不了 root」假设；修复改为按点击坐标在 RTB 内解析行，探针与
+  脚本不入库。用户真鼠标冒烟：点击块进入编辑，Esc 后**能再次进入编辑**——bug 1 通过；
+  随后按用户要求追加 T1B（光标落到点击的字）。
+
+### 延迟 minor（裁定：不阻塞本轮，留后续）
+
+- T2：`backup.tmp` 死断言；未使用的 `using System;`。
+- T3：`▾` 的 toggle / hover 关闭路径只由 T4 的 `IsTitleMenuOpen` 覆盖，无独立 pin；
+  chevron 位置与宽度只靠冒烟。
+- T4：Popup 外部点击 / `StaysOpen` / `Closed` 焦点恢复交冒烟；root margin 路由；
+  home 滚动位置恢复无 pin（实现存在，恢复失败回落顶部）。
+- T5：AppendZone 像素几何 / 占满剩余高度；`BringIntoView` 滚动；dirty append 后续路径。
+- T6：Small 档与非正文元素的字号 pin 缺口；语言恢复无 `finally`；卡片进度 / 空态不随字号。
+
+### 全量自检
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all`
+→ **32/32 PASS**（2026-10-21 控制者复跑）：30 项 checks 全绿（`XamlLoadCheck` 40.4s、
+`FolderWatchCheck` 4.6s 为次长），installer 60/60、`config-pin` True。运行前已停掉本机
+`Kobold` 进程，避免 live config 写入造成 pin 抖动；未改任何检查口径。
+
+部署冒烟（2026-10-21）：用户部署 `a9aa61e` 后真鼠标验证 home/detail、标题下拉、
+空白语义 / AppendZone、精确光标、字号、bug 重进，结论「整体不错了」——本轮验收通过。
+用户同时提出 4 项下一轮优化（表格框架内编辑、下拉样式统一、island 新建/配色/文件格式、
+外部拖放），另开新分支处理，不计入本轮缺陷。
