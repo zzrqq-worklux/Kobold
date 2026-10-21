@@ -2,12 +2,31 @@ using System;
 
 namespace Kobold.Core
 {
+    /// <summary>The internal drag formats that make a FileDrop payload an in-app drag, not an external one.</summary>
+    [Flags]
+    public enum InternalDragFormats
+    {
+        None = 0,
+        KoboldItem = 1,
+        KoboldItems = 2,
+        KoboldSourceFolderId = 4,
+        KoboldWidgetItems = 8,
+        BrowseSource = 16,
+        BrowsePaths = 32
+    }
+
     /// <summary>
     /// The browse-mode verdict for an external FileDrop: accept/copy or refuse.
     /// Root-mode drops are handled by the existing root path and never call this.
     /// </summary>
     public static class ExternalDropPolicy
     {
+        /// <summary>True only for a real external FileDrop: FileDrop present, no in-app drag marker.</summary>
+        public static bool IsExternalFileDrop(bool hasFileDrop, InternalDragFormats internalFormats)
+        {
+            return hasFileDrop && internalFormats == InternalDragFormats.None;
+        }
+
         /// <summary>
         /// True when a browse-mode external FileDrop should be accepted.
         /// File rows refuse (only folder rows and the background accept);

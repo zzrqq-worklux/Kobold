@@ -106,6 +106,17 @@ namespace Kobold.DragOutCheck
             Check(ExternalDropPolicy.TargetDirectory(true, null, @"C:\a") == @"C:\a" &&
                   ExternalDropPolicy.TargetDirectory(false, @"C:\a\sub", @"C:\a") == @"C:\a",
                 "external drop: a blank folder row falls back to the current folder");
+            Check(ExternalDropPolicy.IsExternalFileDrop(true, InternalDragFormats.None),
+                "external drop: a plain FileDrop is external");
+            Check(!ExternalDropPolicy.IsExternalFileDrop(true, InternalDragFormats.KoboldItem),
+                "external drop: a root-widget drag is not external");
+            Check(!ExternalDropPolicy.IsExternalFileDrop(true,
+                    InternalDragFormats.KoboldItem | InternalDragFormats.KoboldSourceFolderId),
+                "external drop: a cross-widget drag is not external");
+            Check(!ExternalDropPolicy.IsExternalFileDrop(true, InternalDragFormats.BrowsePaths),
+                "external drop: a browse-panel drag is not external");
+            Check(!ExternalDropPolicy.IsExternalFileDrop(false, InternalDragFormats.None),
+                "external drop: a payload without FileDrop is not external");
         }
     }
 }

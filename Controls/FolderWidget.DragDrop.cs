@@ -99,10 +99,25 @@ namespace Kobold.Controls
             NotifyDataChanged();
         }
 
-        /// <summary>True when the drag carries real files (the only external payload this round accepts).</summary>
+        /// <summary>
+        /// True only for a real external FileDrop: the drag carries files and no
+        /// in-app marker (widget, cross-widget or browse-panel drags publish
+        /// FileDrop too, and must keep their own paths).
+        /// </summary>
         private static bool IsExternalFileDrop(IDataObject data)
         {
-            return data != null && data.GetDataPresent(DataFormats.FileDrop);
+            if (data == null) return false;
+
+            InternalDragFormats internalFormats = InternalDragFormats.None;
+            if (data.GetDataPresent("KoboldItem")) internalFormats |= InternalDragFormats.KoboldItem;
+            if (data.GetDataPresent("KoboldItems")) internalFormats |= InternalDragFormats.KoboldItems;
+            if (data.GetDataPresent("KoboldSourceFolderId")) internalFormats |= InternalDragFormats.KoboldSourceFolderId;
+            if (data.GetDataPresent("KoboldWidgetItems")) internalFormats |= InternalDragFormats.KoboldWidgetItems;
+            if (data.GetDataPresent(BrowseDragSourceFormat)) internalFormats |= InternalDragFormats.BrowseSource;
+            if (data.GetDataPresent(BrowseDragPathsFormat)) internalFormats |= InternalDragFormats.BrowsePaths;
+
+            return ExternalDropPolicy.IsExternalFileDrop(
+                data.GetDataPresent(DataFormats.FileDrop), internalFormats);
         }
 
         /// <summary>
