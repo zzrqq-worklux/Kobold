@@ -109,12 +109,58 @@
 ```csharp
 namespace Kobold.Core
 {
+    /// <summary>The internal drag formats that make a FileDrop payload an in-app drag, not an external one.</summary>
+    [Flags]
+    public enum InternalDragFormats
+    {
+        None = 0,
+        KoboldItem = 1,
+        KoboldItems = 2,
+        KoboldSourceFolderId = 4,
+        KoboldWidgetItems = 8,
+        BrowseSource = 16,
+        BrowsePaths = 32
+    }
+
     /// <summary>
     /// The browse-mode verdict for an external FileDrop: accept/copy or refuse.
     /// Root-mode drops are handled by the existing root path and never call this.
     /// </summary>
     public static class ExternalDropPolicy
     {
+        // The published drag format names. The UI sets and reads these, so the
+        // mapping from a name to its marker lives here and nowhere else.
+        public const string KoboldItemFormat = "KoboldItem";
+        public const string KoboldItemsFormat = "KoboldItems";
+        public const string KoboldSourceFolderFormat = "KoboldSourceFolderId";
+        public const string KoboldWidgetItemsFormat = "KoboldWidgetItems";
+        public const string BrowseSourceFormat = "KoboldBrowseSource";
+        public const string BrowsePathsFormat = "KoboldBrowsePaths";
+
+        /// <summary>Maps the published drag format names to their in-app marker flags.</summary>
+        public static InternalDragFormats FromFormats(IEnumerable<string> formats)
+        {
+            InternalDragFormats flags = InternalDragFormats.None;
+            if (formats == null) return flags;
+
+            foreach (string format in formats)
+            {
+                if (string.Equals(format, KoboldItemFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.KoboldItem;
+                else if (string.Equals(format, KoboldItemsFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.KoboldItems;
+                else if (string.Equals(format, KoboldSourceFolderFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.KoboldSourceFolderId;
+                else if (string.Equals(format, KoboldWidgetItemsFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.KoboldWidgetItems;
+                else if (string.Equals(format, BrowseSourceFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.BrowseSource;
+                else if (string.Equals(format, BrowsePathsFormat, StringComparison.Ordinal)) flags |= InternalDragFormats.BrowsePaths;
+            }
+            return flags;
+        }
+
+        /// <summary>True only for a real external FileDrop: FileDrop present, no in-app drag marker.</summary>
+        public static bool IsExternalFileDrop(bool hasFileDrop, InternalDragFormats internalFormats)
+        {
+            return hasFileDrop && internalFormats == InternalDragFormats.None;
+        }
+
         /// <summary>
         /// True when a browse-mode external FileDrop should be accepted.
         /// File rows refuse (only folder rows and the background accept);
@@ -142,6 +188,14 @@ namespace Kobold.Core
 - `browsing=false` 返回 false：根模式不走这个策略，保持现有 `AddExternalPaths`。
 - `overFileRow=true` 返回 false：只有文件夹行与空白接受。
 - `TargetDirectory` 对空文件夹行路径回退到当前目录，避免空目标。
+- `IsExternalFileDrop` 只认“有 `FileDrop` 且没有任何内部标记”：根 Widget / 跨 widget /
+  browse 面板的内部拖动也发布 `FileDrop`，必须回到原有分支。
+- **格式名真相在 Core**：`KoboldItem` / `KoboldItems` / `KoboldSourceFolderId` /
+  `KoboldWidgetItems` / `KoboldBrowseSource` / `KoboldBrowsePaths` 六个常量与
+  `FromFormats` 都在 `ExternalDropPolicy`；UI 只引用它们，不再写字面量。
+- **新增任何 in-app 拖动格式时，必须同时登记到 `InternalDragFormats` 与 `FromFormats`**，
+  否则该拖动会被判成外部 `FileDrop` 并触发复制。
+
 
 ## 6. 接口与文件
 
@@ -155,9 +209,13 @@ namespace Kobold.Core
 新增：
 
 ```csharp
-private bool IsExternalFileDrop(IDataObject data)
+private static bool IsExternalFileDrop(IDataObject data)
 {
-    return data != null && data.GetDataPresent(DataFormats.FileDrop);
+    if (data == null) return false;
+
+    InternalDragFormats internalFormats = ExternalDropPolicy.FromFormats(data.GetFormats());
+    return ExternalDropPolicy.IsExternalFileDrop(
+        data.GetDataPresent(DataFormats.FileDrop, false), internalFormats);
 }
 
 private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
@@ -168,7 +226,7 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
         return;
     }
 
-    var paths = e.Data == null ? null : e.Data.GetData(DataFormats.FileDrop) as string[];
+    var paths = e.Data == null ? null : e.Data.GetData(DataFormats.FileDrop, false) as string[];
     if (paths == null || paths.Length == 0)
     {
         e.Effects = DragDropEffects.None;
@@ -180,6 +238,9 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
     Dispatcher.BeginInvoke(new Action(UpdateUI));
 }
 ```
+
+- 两种读取都用 `autoConvert: false`：只接受真正的 `FileDrop` 载荷（`GetFormats()` 的
+  名字集合只用于内部标记判定），不让 WPF 把别的格式转换成一个“像 FileDrop”的值。
 
 修改：
 
@@ -219,11 +280,14 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
       if (e.Handled || !IsBrowsing || !IsExternalFileDrop(e.Data)) return;
       bool accepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
       e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+      SetBrowseDropHighlight(accepted);
+      if (!accepted) DragDropSession.Current?.MarkTargetRefused();
       e.Handled = true;
   }
 
   private void ContentPanel_DragLeave(object sender, DragEventArgs e)
   {
+      if (e.Handled) return;
       SetBrowseDropHighlight(false);
       ClearItemDropHighlight();
   }
@@ -256,7 +320,9 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
 
 ### 7.1 自检矩阵（维持 32 行）
 
-**`tests/DragOutCheck`（纯逻辑，CI）新增：**
+**`tests/DragOutCheck`（纯逻辑，CI）新增（`DragOutCheck` 现为 25 PASS：9 条既有拖出策略 + 16 条外部拖入）：**
+
+接受 / 拒绝矩阵：
 
 1. `external drop: the browse background accepts a file drop`：
    `Accepts(true, false, true, false) == true`。
@@ -274,12 +340,31 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
    `TargetDirectory(true, null, @"C:\a") == @"C:\a"`；
    `TargetDirectory(false, @"C:\a\sub", @"C:\a") == @"C:\a"`。
 
+内部标记 pin（5 条）：
+
+8. `external drop: a plain FileDrop is external`；
+9. `external drop: a root-widget drag is not external`；
+10. `external drop: a cross-widget drag is not external`；
+11. `external drop: a browse-panel drag is not external`；
+12. `external drop: a payload without FileDrop is not external`。
+
+内部格式名映射 pin（4 条）：
+
+13. `external drop: the format name maps to the item marker`：
+    `FromFormats(new[] { KoboldItemFormat }) == InternalDragFormats.KoboldItem`。
+14. `external drop: combined format names map to combined flags`：
+    `KoboldItem` + `KoboldSourceFolderFormat` + `BrowsePathsFormat` 映射为三个 flag 的并集。
+15. `external drop: unknown formats add no marker`：
+    `FromFormats(new[] { "FileDrop", "Text" }) == InternalDragFormats.None`。
+16. `external drop: a root-widget format list is not external`：
+    真实 `GetFormats()` 形态（`"FileDrop"` + `"KoboldItem"`）经 `FromFormats` 后不判为外部。
+
 **`tests/XamlLoadCheck`（WPF，离屏）新增：**
 
-8. `folder: the content panel accepts external drops`：
-   `ContentPanel.AllowDrop == true`；`ItemsScroller.AllowDrop == true`；
-   `EmptyState.IsHitTestVisible == false`；`ItemsContainer.AllowDrop == true`。
-   （XAML 事件处理器不直接 pin，真实拖放交冒烟。）
+17. `folder: the content panel accepts external drops`：
+    `ContentPanel.AllowDrop == true`；`ItemsScroller.AllowDrop == true`；
+    `EmptyState.IsHitTestVisible == false`；`ItemsContainer.AllowDrop == true`。
+    （XAML 事件处理器不直接 pin，真实拖放交冒烟。）
 
 **既有 pins 零回归**：`DragOutCheck` 的拖出策略、`StorageOpsCheck` 的存储/恢复、
 `WidgetItemsCheck` 的合并、`XamlLoadCheck` 的 browse 拖拽 / 文件夹行 / 后退按钮 pins。
@@ -318,7 +403,7 @@ private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
 - `Controls/FolderWidget.xaml`（`ContentPanel` / `ItemsScroller` 落点、`EmptyState` 不拦截）。
 - `tests/DragOutCheck/Program.cs`、`tests/XamlLoadCheck/Program.cs`（按 §7 增补）。
 - `docs/superpowers/plans/2026-10-21-external-file-drop.md`（writing-plans 产出）。
-- `README.md`（英/中）、`CHANGELOG.md`（Unreleased）在整支终审时统一补。
+- `README.md`（英/中）、`CHANGELOG.md`（Unreleased）已随 Task 4 提交。
 - 临时探针只存在于 Task 1，最终删除 / 不入库。
 
 ## 10. 与既有 spec 的关系

@@ -6615,6 +6615,9 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("ItemsScroller does not accept drops");
             if (empty == null || empty.IsHitTestVisible)
                 throw new InvalidOperationException("EmptyState still blocks drops");
+            var items = widget.FindName("ItemsContainer") as ItemsControl;
+            if (items == null || !items.AllowDrop)
+                throw new InvalidOperationException("ItemsContainer does not accept drops");
         }
 
         /// <summary>

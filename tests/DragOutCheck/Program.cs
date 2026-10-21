@@ -117,6 +117,27 @@ namespace Kobold.DragOutCheck
                 "external drop: a browse-panel drag is not external");
             Check(!ExternalDropPolicy.IsExternalFileDrop(false, InternalDragFormats.None),
                 "external drop: a payload without FileDrop is not external");
+            Check(ExternalDropPolicy.FromFormats(new[] { ExternalDropPolicy.KoboldItemFormat }) ==
+                  InternalDragFormats.KoboldItem,
+                "external drop: the format name maps to the item marker");
+            Check(ExternalDropPolicy.FromFormats(new[]
+                  {
+                      ExternalDropPolicy.KoboldItemFormat,
+                      ExternalDropPolicy.KoboldSourceFolderFormat,
+                      ExternalDropPolicy.BrowsePathsFormat
+                  }) == (InternalDragFormats.KoboldItem |
+                          InternalDragFormats.KoboldSourceFolderId |
+                          InternalDragFormats.BrowsePaths),
+                "external drop: combined format names map to combined flags");
+            Check(ExternalDropPolicy.FromFormats(new[] { "FileDrop", "Text" }) == InternalDragFormats.None,
+                "external drop: unknown formats add no marker");
+            Check(!ExternalDropPolicy.IsExternalFileDrop(true,
+                    ExternalDropPolicy.FromFormats(new[]
+                    {
+                        "FileDrop",
+                        ExternalDropPolicy.KoboldItemFormat
+                    })),
+                "external drop: a root-widget format list is not external");
         }
     }
 }

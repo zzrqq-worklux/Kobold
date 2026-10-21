@@ -72,6 +72,8 @@ Expected: 无输出（探针是唯一改动，删除后工作树干净）。
 
 ## Task 2: `ExternalDropPolicy` 纯策略
 
+> **注：Task 2/3 的代码片段是修复前版本；最终实现增加了 `InternalDragFormats` / `FromFormats`，见执行记录。**
+
 **Files：**
 - Create: `Core/ExternalDropPolicy.cs`
 - Modify: `tests/DragOutCheck/Program.cs`
@@ -178,6 +180,8 @@ git -C "C:\Users\31177347\.local\share\opencode\worktree\c3852b\kobold-external-
 ---
 
 ## Task 3: UI 接线 + XAML + XamlLoadCheck pin
+
+> **注：Task 2/3 的代码片段是修复前版本；最终实现增加了 `InternalDragFormats` / `FromFormats`，见执行记录。**
 
 **Files：**
 - Modify: `Controls/FolderWidget.DragDrop.cs`
@@ -492,7 +496,7 @@ git -C "..." commit -m "docs: document the external file drop"
   - 用户实测：根目录拖入正常（引用），**浏览目录显示禁止光标、不复制**。
   - 结论：descriptor-first / COM 虚拟文件方案被裁掉（YAGNI）；本轮只做浏览模式外部 `FileDrop`。
 - **Task 2**：`ae36c98` `feat(drop): decide external file drops in the browser`
-  - 红测：`ExternalDropPolicy` 不存在 → 10 × `CS0103`，生成失败。
+  - 红测：`ExternalDropPolicy` 不存在 → 9 × `CS0103`，生成失败。
   - 绿测：`DragOutCheck` 16/16（9 旧 + 7 新），`ALL DRAG-OUT CHECKS PASSED`。
   - 审查：clean；遗留 minor（`using System;` 未用、复合断言消息、报告 `CS0103` 计数笔误、
     `TargetDirectory` 的 null/empty 分支未单独 pin）。
@@ -515,4 +519,12 @@ git -C "..." commit -m "docs: document the external file drop"
   因此真实 OLE 拖放 / 企微实拖 / shell 复制进度与重名 `(1)` 仍待用户在修复构建上确认）。
 - **已知限制**：不做虚拟文件 / Outlook 附件（descriptor-only 载荷不消费）；复制同步执行，
   无自绘进度；真实拖放仅冒烟覆盖；新增内部拖动格式必须同步登记到 `InternalDragFormats`。
+- **终审修复波（整支终审）**：终审结论 **"With fixes"**，全部 findings 已按裁定实现
+  （Core 拥有格式名 + `FromFormats`、UI 严格格式判定、`ContentPanel` 高亮 / 拒绝反馈、
+  格式名映射 pins、`ItemsContainer` 断言、README / spec 措辞）。修复提交
+  `fix(drop): close the final review findings`（本次提交；SHA 见
+  `.superpowers/sdd/2026-10-21-external-file-drop/final-fix-report.md`）。
+  验证：`DragOutCheck` **25/25**、`XamlLoadCheck` 全 PASS、`LangCheck` 不变、
+  build 0 警告 / 0 错误、`Run-Checks.ps1 -Group all` **32/32**。
+  冒烟：仍 **待用户冒烟**（未部署修复构建）。
 

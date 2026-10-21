@@ -35,8 +35,8 @@ namespace Kobold.Controls
 
         // Browse-mode drags carry the plain file paths plus the folder they came
         // from, so another browse panel knows what to move and from where.
-        private const string BrowseDragPathsFormat = "KoboldBrowsePaths";
-        private const string BrowseDragSourceFormat = "KoboldBrowseSource";
+        private const string BrowseDragPathsFormat = ExternalDropPolicy.BrowsePathsFormat;
+        private const string BrowseDragSourceFormat = ExternalDropPolicy.BrowseSourceFormat;
 
         // Folder row currently highlighted as an item-level drop target.
         private Border _browseDropHighlight;
@@ -108,16 +108,9 @@ namespace Kobold.Controls
         {
             if (data == null) return false;
 
-            InternalDragFormats internalFormats = InternalDragFormats.None;
-            if (data.GetDataPresent("KoboldItem")) internalFormats |= InternalDragFormats.KoboldItem;
-            if (data.GetDataPresent("KoboldItems")) internalFormats |= InternalDragFormats.KoboldItems;
-            if (data.GetDataPresent("KoboldSourceFolderId")) internalFormats |= InternalDragFormats.KoboldSourceFolderId;
-            if (data.GetDataPresent("KoboldWidgetItems")) internalFormats |= InternalDragFormats.KoboldWidgetItems;
-            if (data.GetDataPresent(BrowseDragSourceFormat)) internalFormats |= InternalDragFormats.BrowseSource;
-            if (data.GetDataPresent(BrowseDragPathsFormat)) internalFormats |= InternalDragFormats.BrowsePaths;
-
+            InternalDragFormats internalFormats = ExternalDropPolicy.FromFormats(data.GetFormats());
             return ExternalDropPolicy.IsExternalFileDrop(
-                data.GetDataPresent(DataFormats.FileDrop), internalFormats);
+                data.GetDataPresent(DataFormats.FileDrop, false), internalFormats);
         }
 
         /// <summary>
@@ -132,7 +125,7 @@ namespace Kobold.Controls
                 return;
             }
 
-            var paths = e.Data == null ? null : e.Data.GetData(DataFormats.FileDrop) as string[];
+            var paths = e.Data == null ? null : e.Data.GetData(DataFormats.FileDrop, false) as string[];
             if (paths == null || paths.Length == 0)
             {
                 e.Effects = DragDropEffects.None;
@@ -932,11 +925,14 @@ namespace Kobold.Controls
 
             bool accepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
             e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+            SetBrowseDropHighlight(accepted);
+            if (!accepted) DragDropSession.Current?.MarkTargetRefused();
             e.Handled = true;
         }
 
         private void ContentPanel_DragLeave(object sender, DragEventArgs e)
         {
+            if (e.Handled) return;
             SetBrowseDropHighlight(false);
             ClearItemDropHighlight();
         }

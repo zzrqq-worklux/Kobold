@@ -158,8 +158,9 @@ development base.
   the drop.
 - **Drop into a browsed folder** — an external file dropped on the panel
   blank copies into the current folder; dropped on a folder row it copies
-  into that subfolder. Explorer-style `(1)` names keep both copies.
-- **Enterprise WeChat** — its FileDrop (a WeWork cache path) follows the
+  into that subfolder. Explorer-style `(1)` names keep both copies. File
+  rows and locked panels still refuse.
+- **Enterprise WeChat** — its FileDrop (a WXWork cache path) follows the
   same rules: the widget root keeps a reference, a browsed folder gets a
   copy.
 - **Readable badges** — a coloured cabinet badge means the file lives in
@@ -453,7 +454,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **拖入文件夹** — 浏览时把条目拖到任意文件夹条目上即可移入该文件夹，按住 Ctrl
   为复制；拖到「返回」按钮则移回上级目录。锁定面板拒绝该操作。
 - **拖入浏览目录** — 外部文件拖到面板空白 → 复制进当前目录；拖到文件夹行 →
-  复制进该子文件夹；重名按 Explorer 习惯生成 `(1)`，不覆盖。
+  复制进该子文件夹；重名按 Explorer 习惯生成 `(1)`，不覆盖。文件行与锁定面板仍拒绝。
 - **企业微信** — 企微的 FileDrop（WXWork 缓存路径）遵循同一规则：组件根目录保持引用，
   浏览中的文件夹复制一份。
 - **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
