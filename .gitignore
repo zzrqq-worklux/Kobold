@@ -256,6 +256,8 @@ ServiceFabricBackup/
 *.bim_*.settings
 *.ppt
 *.pptx
+# The blank PPTX template is a runtime resource, not a user document
+!Resources/blank.pptx
 
 # Service Fabric Backup files
 # (https://github.com/github/gitignore/pull/3120)

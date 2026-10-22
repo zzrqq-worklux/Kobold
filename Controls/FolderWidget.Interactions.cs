@@ -316,10 +316,16 @@ namespace Kobold.Controls
             {
                 // Use same storage path as other files so RestoreToDesktop works
                 string filePath = System.IO.Path.Combine(storage, fileName);
-                
-                // Create empty file
-                System.IO.File.WriteAllText(filePath, "");
-                
+
+                // Creates an empty text file, or a real Office document;
+                // never overwrites an existing file.
+                string error;
+                if (!FileTemplates.TryCreate(filePath, out error))
+                {
+                    ShowMessage($"Error creating file: {error}");
+                    return;
+                }
+
                 // Add to widget
                 _data.Items.Add(new WidgetItem { Name = fileName, Path = filePath, IsReference = false });
                 UpdateUI();

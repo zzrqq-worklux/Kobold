@@ -11,7 +11,7 @@ namespace Kobold.Core
     public static class NewFileName
     {
         public static readonly string[] CommonExtensions =
-            { ".txt", ".md", ".json", ".csv", ".log", ".html", ".xml", ".ini", ".bat", ".ps1" };
+            { ".txt", ".md", ".json", ".csv", ".log", ".html", ".xml", ".ini", ".bat", ".ps1", ".docx", ".xlsx", ".pptx" };
         public const string DefaultExtension = ".txt";
 
         /// <summary>Typed extension → one leading dot, lower-case; blank → ""; letters/digits/'-' only, else null.</summary>

@@ -31,6 +31,7 @@ namespace Kobold.ShellOpsCheck
             NameValidationAllowsCaseOnlyRename();
             NewFileNameNormalizesExtensions();
             NewFileNameComposesNames();
+            OfficeFileFormats();
             RecyclePrecheckAcceptsFixedDriveOnly();
             DeleteFlagsKeepTheRecycleBinSafe();
             MoveFlagsKeepCollisionsWithTheShell();
@@ -200,6 +201,55 @@ namespace Kobold.ShellOpsCheck
                 "new-name: an empty extension appends nothing");
             Check(NewFileName.Compose("报告", null) == "报告",
                 "new-name: a null extension appends nothing");
+        }
+
+        // ---------- office formats ----------
+
+        private static void OfficeFileFormats()
+        {
+            var exts = NewFileName.CommonExtensions;
+            Check(exts[exts.Length - 3] == ".docx" && exts[exts.Length - 2] == ".xlsx" && exts[exts.Length - 1] == ".pptx",
+                "new file: the extension list ends with docx/xlsx/pptx");
+
+            Check(HasPart(FileTemplates.BuildOfficePackage(".docx"), "[Content_Types].xml") &&
+                  HasPart(FileTemplates.BuildOfficePackage(".docx"), "_rels/.rels") &&
+                  HasPart(FileTemplates.BuildOfficePackage(".docx"), "word/document.xml"),
+                "new file: docx carries its minimal parts");
+            Check(HasPart(FileTemplates.BuildOfficePackage(".xlsx"), "xl/workbook.xml") &&
+                  HasPart(FileTemplates.BuildOfficePackage(".xlsx"), "xl/worksheets/sheet1.xml"),
+                "new file: xlsx carries its minimal parts");
+            Check(HasPart(FileTemplates.BuildOfficePackage(".pptx"), "ppt/presentation.xml") &&
+                  HasPart(FileTemplates.BuildOfficePackage(".pptx"), "ppt/slides/slide1.xml"),
+                "new file: pptx carries its minimal parts");
+
+            string dir = Path.Combine(Path.GetTempPath(), "kobold-office-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string error;
+                Check(FileTemplates.TryCreate(Path.Combine(dir, "a.docx"), out error) &&
+                      new FileInfo(Path.Combine(dir, "a.docx")).Length > 0,
+                    "new file: TryCreate writes a docx");
+                Check(FileTemplates.TryCreate(Path.Combine(dir, "b.txt"), out error) &&
+                      new FileInfo(Path.Combine(dir, "b.txt")).Length == 0,
+                    "new file: a text file stays empty");
+                Check(!FileTemplates.TryCreate(Path.Combine(dir, "a.docx"), out error),
+                    "new file: TryCreate never overwrites");
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        private static bool HasPart(byte[] package, string name)
+        {
+            if (package == null) return false;
+            using (var stream = new MemoryStream(package))
+            using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read))
+            {
+                return zip.GetEntry(name) != null;
+            }
         }
 
         // ---------- recycle ----------

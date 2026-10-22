@@ -22,12 +22,19 @@
     <Resource Include="Resources\cursor_grab.cur" />
   </ItemGroup>
   <ItemGroup>
+    <!-- New .pptx files are copies of this blank presentation -->
+    <EmbeddedResource Include="Resources\blank.pptx" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- The C# runtime binder for the Shell.Application dynamic calls in
          Helpers/QuickAccess.cs - a framework assembly, not a new dependency. -->
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Windows.Forms" />
+    <!-- Minimal OOXML packages for the new-file dialog (framework assemblies) -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
   <ItemGroup>
     <!-- tests/ holds separate projects; keep them out of the WPF app build -->

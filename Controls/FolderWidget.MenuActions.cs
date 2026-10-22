@@ -140,7 +140,7 @@ namespace Kobold.Controls
             if (string.IsNullOrWhiteSpace(name)) return;
 
             string error;
-            if (!ShellFileOperations.CreateTextFile(directory, name, out error))
+            if (!FileTemplates.TryCreate(Path.Combine(directory, name), out error))
             {
                 ShowMessage(Localization.Format("Dialog_CreateFailed", error));
                 return;
