@@ -1,6 +1,6 @@
 # Kobold Widget 菜单、配色与新建文件格式设计（launcher · 色盘 · 输入框跟色 · Office 模板）
 
-> **状态**：**已执行（2026-10-22）**（设计 1A / 2A / 3A / 4A / 5A；表格 6A 留到 A）。
+> **状态**：**已执行（2026-10-22；冒烟待用户）**（设计 1A / 2A / 3A / 4A / 5A；表格 6A 留到 A）。
 > **基线**：`main` @ `2538300`（外部文件拖放已合并、已推送、已部署）。
 > **关系**：独立增量 spec；不修改 `2026-10-19-note-navigation-and-polish-design.md` 与
 > `2026-10-21-external-file-drop-design.md`。表格 WYSIWYG 编辑是后续独立 spec（A），本 spec 不实现。

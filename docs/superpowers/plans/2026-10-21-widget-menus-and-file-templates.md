@@ -967,7 +967,7 @@ git -C "..." commit -m "feat(file): create minimal Office documents from the new
   - 验证：build 0 警告；`XamlLoadCheck` **290 PASS**。
 - Task 4 `5579daf` `feat(folder): open the shared palette and tint input dialogs` + `a48c556` `fix(folder): only offer the default color when one is set`。
   - 文件夹右键单入口「文件夹颜色…」；`DialogFactory.BuildInput`/`ShowInput` 跟色；`MenuRenderCheck` 重写。
-  - 审查发现无自定义色时“恢复默认”仍可点，修复为 `allowDefault: current != null`。
+  - 审查发现无自定义色时“恢复默认”仍可点，修复为 `allowDefault: FolderColor.HasCustomIcon(resource)`（任意自定义图标；`current` 只决定圈/名称）。
   - 验证：build 0 警告；`MenuRenderCheck` 全 PASS；`XamlLoadCheck` **291 PASS**。
 - Task 5 `288ca29` `feat(file): create minimal Office documents from the new-file dialog`。
   - `FileTemplates`（docx/xlsx 最小包、pptx 内嵌模板）、扩展名追加、根/浏览创建路径；`.gitignore` 例外 + EmbeddedResource。
@@ -975,6 +975,9 @@ git -C "..." commit -m "feat(file): create minimal Office documents from the new
 - Task 6 文档：README 英/中、CHANGELOG Unreleased、spec 状态；提交 `8a12bdb`（后续 docs 修正提交见 `git log`）。
   全量 `Run-Checks.ps1 -Group all` **32/32**（日志 `%TEMP%\kobold-widget-menus-matrix.log`：
   `All 32 check(s) passed`；XamlLoadCheck 76s、MenuRenderCheck 4.8s）。
+- 终审修复波 `27cfa36` `fix(ui): close the final review findings`：popup 10px 阴影带、文件夹菜单接线 pin / 默认门、Office XML 解析 pin、`MENU_CHECK_WIDTH=18`、island 64 canvas pin、palette token/ring、`BuildInput` null 关闭、`FileTemplates.CreateNew`。
+  验证：`MenuRenderCheck` 全 PASS、`ShellOpsCheck` **83 PASS**、`XamlLoadCheck` **291 PASS**、全量 **32/32**。
+  scoped 复审子代理因环境 `EPERM` 启动失败；控制者按终审 findings 逐条核对 diff。
 - **冒烟：待用户**。修复版尚未部署；launcher / 色盘 / 输入框跟色 / Office 双击打开需要真机确认。
 - 已知限制：docx/xlsx 为最小 OOXML，真实 Office 打开仅冒烟；pptx 为一次性生成的 1 页空白模板；island 非激活窗口上的 Esc 是 best-effort，点外部是保证关闭路径。
 
