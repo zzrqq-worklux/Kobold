@@ -2,9 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using Kobold.Core;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
@@ -274,47 +272,23 @@ namespace Kobold.Controls
             OnDataChanged?.Invoke();
         }
 
-        /// <summary>Shows the palette picker; picking repaints and remembers the colour.</summary>
+        /// <summary>Shows the shared palette picker; picking repaints and remembers the colour.</summary>
         public void BeginColorChange()
         {
-            var dialog = new Window
-            {
-                Title = Localization.Get("Dialog_PickColor"),
-                Width = 340,
-                Height = 220,
-                WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = Brushes.Transparent,
-                ResizeMode = ResizeMode.NoResize,
-                Owner = this
-            };
-
-            var wrapPanel = new WrapPanel { Margin = new Thickness(UiTokens.Space4) };
-            foreach (var color in UiTokens.FolderPalette)
-            {
-                wrapPanel.Children.Add(CreateColorSwatch(color, dialog));
-            }
-
-            dialog.Content = new Border
-            {
-                Background = ThemeManager.DialogBackgroundBrush,
-                CornerRadius = new CornerRadius(UiTokens.RadiusWindow),
-                BorderBrush = ThemeManager.DialogBorderBrush,
-                BorderThickness = new Thickness(1),
-                Effect = new DropShadowEffect
+            RunModal(() => ColorPaletteDialog.Show(
+                this,
+                Localization.Get("Dialog_PickColor"),
+                UiTokens.FolderPalette,
+                _data.Color,
+                allowDefault: false,
+                defaultText: null,
+                onPick: color =>
                 {
-                    BlurRadius = 20,
-                    ShadowDepth = 0,
-                    Opacity = 0.5,
-                    Color = Colors.Black
+                    _data.Color = color;
+                    RefreshTheme();
+                    OnDataChanged?.Invoke();
                 },
-                Child = wrapPanel
-            };
-
-            // Shielding the panel: a colour pick on an unpinned panel must not
-            // collapse it through the dialog's focus change.
-            RunModal(() => dialog.ShowDialog());
+                onDefault: null));
         }
 
         /// <summary>Confirms and then deletes the widget through the manager.</summary>
@@ -343,36 +317,6 @@ namespace Kobold.Controls
         {
             if (!_isExpanded || Chrome == null) return;
             Chrome.ApplyOpacity(GetPanelOpacity());
-        }
-
-        private Border CreateColorSwatch(string color, Window dialog)
-        {
-            bool isCurrent = string.Equals(color, _data.Color, StringComparison.OrdinalIgnoreCase);
-            var swatch = new Border
-            {
-                Width = 48,
-                Height = 48,
-                Margin = new Thickness(6),
-                CornerRadius = new CornerRadius(UiTokens.RadiusControl),
-                Background = new SolidColorBrush(Utils.HexToColor(color)),
-                Cursor = Cursors.Hand,
-                BorderThickness = isCurrent ? new Thickness(3) : new Thickness(1),
-                BorderBrush = isCurrent ? ThemeManager.WhiteBrush : ThemeManager.IconStrokeBrush
-            };
-
-            swatch.Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 2, Opacity = 0.3 };
-
-            swatch.MouseEnter += (s, e) => swatch.Opacity = 0.8;
-            swatch.MouseLeave += (s, e) => swatch.Opacity = 1.0;
-            swatch.MouseLeftButtonUp += (s, e) =>
-            {
-                _data.Color = color;
-                RefreshTheme();
-                OnDataChanged?.Invoke();
-                dialog.Close();
-            };
-
-            return swatch;
         }
 
         #endregion

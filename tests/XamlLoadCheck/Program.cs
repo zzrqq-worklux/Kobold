@@ -459,6 +459,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("launcher: the island add menu is a three-row card",
                     IslandAddMenuUsesTheLauncherCard);
 
+                // Task 3 pins: one shared palette for widgets and folders - a
+                // 3x3 grid of the palette's swatches with a ring and check on
+                // the current colour, its name in the caption, and the default
+                // button only when the caller offers one.
+                failures += TryCheck("palette: the shared palette has nine swatches and a current ring", SharedPaletteHasNineSwatches);
+                failures += TryCheck("palette: the folder palette shows the default button", FolderPaletteShowsDefault);
+
                 // Task 3.5 pins: the pure Quick Access path matcher and the
                 // read-only state probe (never Pin/Unpin - invoking them here
                 // would change the user's real Quick Access), plus the
@@ -7907,6 +7914,45 @@ namespace Kobold.XamlLoadCheck
             {
                 island.Close();
             }
+        }
+
+        private static void SharedPaletteHasNineSwatches()
+        {
+            ThemeManager.Initialize("dark");
+            var window = ColorPaletteDialog.Build("选择颜色", UiTokens.FolderPalette, "#3B82F6",
+                false, null, c => { }, () => { });
+            var root = window.Content as Border;
+            if (root == null) throw new InvalidOperationException("the palette has no Border content");
+
+            int swatches = 0;
+            foreach (var color in UiTokens.FolderPalette)
+            {
+                var swatch = FindByTag(root, color) as Border;
+                if (swatch == null) throw new InvalidOperationException("no swatch for " + color);
+                swatches++;
+            }
+            if (swatches != 9) throw new InvalidOperationException("the palette has " + swatches + " swatches");
+
+            var current = FindByTag(root, "#3B82F6") as Border;
+            if (current == null || current.BorderThickness.Left != 3)
+                throw new InvalidOperationException("the current swatch has no ring");
+
+            var caption = FindByTag(root, "PaletteCaption") as TextBlock;
+            if (caption == null || caption.Text != Localization.Get("Color_Blue"))
+                throw new InvalidOperationException("the caption does not name the current color");
+
+            if (FindByTag(root, "PaletteDefault") != null)
+                throw new InvalidOperationException("a widget palette shows the default button");
+        }
+
+        private static void FolderPaletteShowsDefault()
+        {
+            ThemeManager.Initialize("dark");
+            var window = ColorPaletteDialog.Build("文件夹颜色", UiTokens.FolderIconPalette, null,
+                true, Localization.Get("Menu_FolderColorDefault"), c => { }, () => { });
+            var root = window.Content as Border;
+            if (FindByTag(root, "PaletteDefault") == null)
+                throw new InvalidOperationException("the folder palette has no default button");
         }
 
         private static FrameworkElement FindByTag(DependencyObject root, string tag)
