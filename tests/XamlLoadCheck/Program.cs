@@ -7882,6 +7882,11 @@ namespace Kobold.XamlLoadCheck
                 if (header == null || header.Text != Localization.Get("Island_NewWidgetHeader"))
                     throw new InvalidOperationException("the island add menu has no localized header");
 
+                int kindRows = 0;
+                CountKindRows(card, ref kindRows);
+                if (kindRows != 3)
+                    throw new InvalidOperationException("the island add menu has " + kindRows + " kind rows, wanted 3");
+
                 var style = Application.Current.FindResource("Kobold.Style.LauncherItem") as Style;
                 foreach (var id in new[] { "folder", "todo", "note" })
                 {
@@ -7889,7 +7894,13 @@ namespace Kobold.XamlLoadCheck
                     if (row == null) throw new InvalidOperationException("no " + id + " row");
                     if (!ReferenceEquals(row.Style, style))
                         throw new InvalidOperationException("the " + id + " row does not wear the launcher style");
-                    if (row.Content == null) throw new InvalidOperationException("the " + id + " row has no content");
+
+                    var grid = row.Content as Grid;
+                    var view = grid == null || grid.Children.Count == 0 ? null : grid.Children[0] as Viewbox;
+                    if (view == null || Math.Abs(view.Width - 24) > 0.01 || Math.Abs(view.Height - 24) > 0.01)
+                        throw new InvalidOperationException("the " + id + " row icon is not a 24px Viewbox");
+                    if (CountNonEmptyText(grid) < 2)
+                        throw new InvalidOperationException("the " + id + " row has no name + hint");
                 }
             }
             finally
@@ -7910,6 +7921,30 @@ namespace Kobold.XamlLoadCheck
                 if (found != null) return found;
             }
             return null;
+        }
+
+        private static void CountKindRows(DependencyObject root, ref int count)
+        {
+            if (root == null) return;
+            var button = root as Button;
+            if (button != null && button.Tag is string tag &&
+                (tag == "folder" || tag == "todo" || tag == "note"))
+            {
+                count++;
+            }
+            int children = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < children; i++) CountKindRows(VisualTreeHelper.GetChild(root, i), ref count);
+        }
+
+        private static int CountNonEmptyText(DependencyObject root)
+        {
+            if (root == null) return 0;
+            int count = 0;
+            var text = root as TextBlock;
+            if (text != null && !string.IsNullOrEmpty(text.Text)) count++;
+            int children = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < children; i++) count += CountNonEmptyText(VisualTreeHelper.GetChild(root, i));
+            return count;
         }
 
         private static Canvas TileIconCanvas(IslandWindow island)

@@ -26,6 +26,7 @@ namespace Kobold.Controls
         private const int ShadowPadding = 16;
         private const int TileIconSize = 32;
         private const double IslandDragThreshold = 4;
+        private const double AddMenuWidth = 280;
 
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
@@ -540,7 +541,7 @@ namespace Kobold.Controls
                 StaysOpen = false,
                 AllowsTransparency = true,
                 Child = content,
-                HorizontalOffset = -(280 - AddTile.ActualWidth)
+                HorizontalOffset = -(AddMenuWidth - AddTile.ActualWidth)
             };
             popup.Closed += (s, e) =>
             {
@@ -581,31 +582,36 @@ namespace Kobold.Controls
             foreach (var kind in WidgetKindRegistry.All)
             {
                 string kindId = kind.Id;
-                var iconCanvas = new Canvas { Width = 24, Height = 24 };
+                var iconCanvas = new Canvas { Width = 64, Height = 64 };
                 IconRendererFactory.CreateByKey(kind.IconKey, iconStyle)
                     .Render(iconCanvas, UiTokens.DefaultFolderColor);
+                var iconView = new Viewbox { Width = 24, Height = 24, Child = iconCanvas };
 
                 var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 text.Children.Add(new TextBlock
                 {
-                    Text = Localization.Get(kind.NameKey),
+                    Text = Localization.Get(KindLabelKey(kindId)),
                     FontSize = 13,
                     FontWeight = FontWeights.SemiBold,
                     Foreground = ThemeManager.TextBrush
                 });
-                text.Children.Add(new TextBlock
+                string hintKey = HintKey(kindId);
+                if (hintKey.Length > 0)
                 {
-                    Text = Localization.Get(HintKey(kindId)),
-                    FontSize = 11,
-                    Foreground = ThemeManager.SecondaryTextBrush
-                });
+                    text.Children.Add(new TextBlock
+                    {
+                        Text = Localization.Get(hintKey),
+                        FontSize = 11,
+                        Foreground = ThemeManager.SecondaryTextBrush
+                    });
+                }
 
                 var grid = new Grid();
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                Grid.SetColumn(iconCanvas, 0);
+                Grid.SetColumn(iconView, 0);
                 Grid.SetColumn(text, 1);
-                grid.Children.Add(iconCanvas);
+                grid.Children.Add(iconView);
                 grid.Children.Add(text);
 
                 var row = new Button
@@ -623,8 +629,10 @@ namespace Kobold.Controls
                 panel.Children.Add(row);
             }
 
-            var card = LauncherCard.Create(panel, 280);
+            var card = LauncherCard.Create(panel, AddMenuWidth);
             card.Tag = "IslandAddMenu";
+            // Best effort: the island is not activatable; outside click (StaysOpen=false)
+            // is the guaranteed close. Esc is smoke-only.
             card.PreviewKeyDown += (s, e) =>
             {
                 if (e.Key != Key.Escape) return;
@@ -642,6 +650,17 @@ namespace Kobold.Controls
                 case "todo": return "Island_NewTodoHint";
                 case "note": return "Island_NewNoteHint";
                 default: return string.Empty;
+            }
+        }
+
+        private static string KindLabelKey(string kindId)
+        {
+            switch (kindId)
+            {
+                case "folder": return "UI_WidgetKindFolder";
+                case "todo": return "UI_WidgetKindTodo";
+                case "note": return "UI_WidgetKindNote";
+                default: return kindId;
             }
         }
 
