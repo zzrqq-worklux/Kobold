@@ -959,7 +959,7 @@ git -C "..." commit -m "feat(file): create minimal Office documents from the new
   - 验证：build 0 警告；`XamlLoadCheck` **287 PASS**。
   - 审查通过；遗留 minor（勾选列 16 vs 设计 18、阴影/边框未 pin、popup 阴影裁切风险、RED 证据二手）。
 - Task 2 `7114344` `feat(island): open a launcher card from the add tile` + `e000eab` `fix(island): scale the launcher icons and label the kinds`。
-  - island `＋` 从 ContextMenu 改为 Popup；三行图标/名称/说明；Esc/点外部/自动收起；四语 key。
+  - island `＋` 从 ContextMenu 改为 Popup；三行图标/名称/说明；Esc/点外部/自动收起；三语 key。
   - 审查发现图标 64→24 未缩放，修复为 Viewbox + 64 canvas；行标题改用 `UI_WidgetKind*`；pin 加 3 行/24px/名称+说明断言。
   - 验证：build 0 警告；`XamlLoadCheck` **288 PASS**；`LangCheck` **182 keys**。
 - Task 3 `bdfdf3c` `feat(ui): share one color palette for widgets and folders`。
@@ -972,7 +972,9 @@ git -C "..." commit -m "feat(file): create minimal Office documents from the new
 - Task 5 `288ca29` `feat(file): create minimal Office documents from the new-file dialog`。
   - `FileTemplates`（docx/xlsx 最小包、pptx 内嵌模板）、扩展名追加、根/浏览创建路径；`.gitignore` 例外 + EmbeddedResource。
   - 验证：build 0 警告；`ShellOpsCheck` **77 PASS**（含 7 条 Office pin）。
-- Task 6 文档：README 英/中、CHANGELOG Unreleased、spec 状态；全量 `Run-Checks.ps1 -Group all` **32/32**。
+- Task 6 文档：README 英/中、CHANGELOG Unreleased、spec 状态；提交 `8a12bdb`（后续 docs 修正提交见 `git log`）。
+  全量 `Run-Checks.ps1 -Group all` **32/32**（日志 `%TEMP%\kobold-widget-menus-matrix.log`：
+  `All 32 check(s) passed`；XamlLoadCheck 76s、MenuRenderCheck 4.8s）。
 - **冒烟：待用户**。修复版尚未部署；launcher / 色盘 / 输入框跟色 / Office 双击打开需要真机确认。
 - 已知限制：docx/xlsx 为最小 OOXML，真实 Office 打开仅冒烟；pptx 为一次性生成的 1 页空白模板；island 非激活窗口上的 Esc 是 best-effort，点外部是保证关闭路径。
 

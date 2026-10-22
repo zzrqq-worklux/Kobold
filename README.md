@@ -144,8 +144,9 @@ development base.
   of the final name. A name that already ends with the suffix is not doubled;
   the dialog follows the widget's colour. Text files are created empty under
   exactly the previewed name; `.docx` / `.xlsx` / `.pptx` are written from a
-  minimal OOXML template (a blank paragraph / worksheet / slide) so Office
-  opens them without a repair prompt. The browse menu's old **New Text
+  minimal OOXML template (a blank paragraph / worksheet / slide) with the
+  parts Office expects. Opening them in Word / Excel / PowerPoint is a smoke
+  check, not an automated pin. The browse menu's old **New Text
   Document** entry is now this **New File**.
 - **Folder colors** — right-click a folder in a panel and pick one of nine
   colors from the same 3×3 palette the widget colour uses: the icon changes
@@ -274,7 +275,7 @@ the new version. Settings and stored files are kept.
 | Move the selection with the arrow keys | Left/right cross rows, up/down keep the column, an edge stops |
 | File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
 | Create a file | Right-click the empty area or the browse background → **New File** (name + extension picker + a **Will create** preview) |
-| Color a folder | Right-click a folder entry → **Folder color** (nine colours, or **Default color** to undo) |
+| Color a folder | Right-click a folder entry → **Folder color…** → pick from the 3×3 palette (Default color only when a custom colour is set) |
 | The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
 | Preview the selected item | Select an item, press Space (QuickLook) |
 | File actions (open, rename, store, eject…) | Right-click an item in a panel |
@@ -452,9 +453,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   对话框：名称框 + 可编辑的后缀选择器（常用 .txt、.md、.json、.csv、.log、.html、
   .xml、.ini、.bat、.ps1、.docx、.xlsx、.pptx，也可输入自定义的单个后缀），下方是
   实时的「将创建」预览；名称已带相同后缀不会重复追加；对话框跟随组件颜色。文本文件
-  按预览名称创建为**空文件**；`.docx` / `.xlsx` / `.pptx` 写入最小 OOXML 模板
-  （空段落 / 空工作表 / 空白幻灯片），Office 打开不报损坏。浏览菜单原来的
-  「新建文本文档」更名为「新建文件」。
+  按预览名称创建为**空文件**；`.docx` / `.xlsx` / `.pptx` 按 Office 可识别的最小
+  OOXML 结构写入（空段落 / 空工作表 / 空白幻灯片）；真实 Office 打开是冒烟项，
+  不是自动 pin。浏览菜单原来的「新建文本文档」更名为「新建文件」。
 - **文件夹颜色** — 右键面板里的文件夹，可从与组件换色同一套 3×3 色盘中选 9 种颜色：
   图标会在所有地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。只有已有
   自定义色的文件夹才显示「恢复默认颜色」。新建文件夹 / 重命名等输入框也跟随组件颜色。
@@ -537,7 +538,7 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 | 方向键移动选择 | 左右跨行、上下同列，到边界停住 |
 | 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
 | 新建文件 | 右键空白处或浏览背景 →「新建文件」（名称 + 后缀选择器 +「将创建」预览） |
-| 给文件夹上色 | 右键文件夹条目 →「文件夹颜色」（9 种颜色；「恢复默认颜色」可还原） |
+| 给文件夹上色 | 右键文件夹条目 →「文件夹颜色…」→ 在 3×3 色盘里选（只有已有自定义色时才显示恢复默认） |
 | 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
 | 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
 | 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
