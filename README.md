@@ -46,6 +46,9 @@ development base.
 - **Widget kinds** — a new widget is a **folder**, a **todo** or a **note**,
   picked when you create it; all three kinds behave the same on the island, in
   panels, in the context menus and when panels come back after a restart.
+- **One launcher card** — the note title `▾` and the island `+` open the same
+  floating card: one surface and row style; the island rows show each kind's
+  icon, name and a one-line hint. Right-click menus stay classic context menus.
 - **Note widget** — a note widget is a list of cards (its home), newest
   first: each card shows the note's **title** (its first heading or line),
   when it was last edited, a two-line excerpt derived from the text and a
@@ -135,16 +138,21 @@ development base.
   where it is. The root panel does not respond to Ctrl+X.
 - **New File dialog** — the panel's empty-area **New File** entry and the
   browse menu's entry share one dialog: a name box and an editable extension
-  selector with the ten common suffixes (.txt, .md, .json, .csv, .log,
-  .html, .xml, .ini, .bat, .ps1; a custom single-segment extension can be
-  typed) plus a live **Will create** preview of the final name. A name that
-  already ends with the suffix is not doubled; the dialog follows the
-  widget's colour; the file is created empty under exactly the previewed name
-  (no Windows templates). The browse menu's old **New Text Document** entry
-  is now this **New File**.
-- **Folder colors** — right-click a folder in a panel and give it one of nine
-  colors: the icon changes everywhere (Explorer included), and **Default
-  color** puts the system icon back.
+  selector with the thirteen common suffixes (.txt, .md, .json, .csv, .log,
+  .html, .xml, .ini, .bat, .ps1, .docx, .xlsx, .pptx; a custom
+  single-segment extension can be typed) plus a live **Will create** preview
+  of the final name. A name that already ends with the suffix is not doubled;
+  the dialog follows the widget's colour. Text files are created empty under
+  exactly the previewed name; `.docx` / `.xlsx` / `.pptx` are written from a
+  minimal OOXML template (a blank paragraph / worksheet / slide) so Office
+  opens them without a repair prompt. The browse menu's old **New Text
+  Document** entry is now this **New File**.
+- **Folder colors** — right-click a folder in a panel and pick one of nine
+  colors from the same 3×3 palette the widget colour uses: the icon changes
+  everywhere (Explorer included), and **Default color** puts the system icon
+  back. The default entry is only offered when the folder already has a
+  custom colour. The name/prompt dialogs (new folder, rename) follow the
+  widget's colour too.
 - **Drag & drop everywhere** — drop files from Explorer onto a panel,
   reorder entries with a drop indicator, move them between widgets, or drag
   them out. Windows performs the move, so dropping an entry into an Explorer
@@ -388,6 +396,8 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   停住（未选中任何条目时，第一次方向键选中最前一项）。
 - **组件类型** — 新建组件时可选「文件夹」「待办」或「笔记」三种类型；三类组件在岛、
   面板、右键菜单与开机恢复中的行为一致。
+- **统一的启动卡片** — 笔记标题 `▾` 与 island `＋` 打开同一套浮层卡片：同一表面与行样式；
+  island 每行显示组件图标、名称与一句说明。右键菜单仍是经典 ContextMenu。
 - **笔记组件** — 笔记以卡片列表（home）呈现，最近编辑在最上：每张卡片显示**标题**（取第一个
   标题行或首行）、最后修改时间与两行摘要（摘要由正文自动得出），有任务框时还显示 `✓ 2/5`
   完成进度。单击卡片进入**详情页**，笔记铺满内容区、卡片列表隐藏，不跳页。标题右侧的 `▾`
@@ -440,12 +450,14 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   相同，源文件原地不动。主面板不响应 Ctrl+X。
 - **新建文件对话框** — 面板空区的「新建文件」与浏览菜单里的「新建文件」共用同一个
   对话框：名称框 + 可编辑的后缀选择器（常用 .txt、.md、.json、.csv、.log、.html、
-  .xml、.ini、.bat、.ps1，也可输入自定义的单个后缀），下方是实时的「将创建」预览；
-  名称已带相同后缀不会重复追加；对话框跟随组件颜色；文件按预览的名称创建为
-  **空文件**（不套用 Windows 模板）。浏览菜单原来的「新建文本文档」更名为
-  「新建文件」。
-- **文件夹颜色** — 右键面板里的文件夹，可给它换 9 种颜色中的一种：图标会在所有
-  地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。
+  .xml、.ini、.bat、.ps1、.docx、.xlsx、.pptx，也可输入自定义的单个后缀），下方是
+  实时的「将创建」预览；名称已带相同后缀不会重复追加；对话框跟随组件颜色。文本文件
+  按预览名称创建为**空文件**；`.docx` / `.xlsx` / `.pptx` 写入最小 OOXML 模板
+  （空段落 / 空工作表 / 空白幻灯片），Office 打开不报损坏。浏览菜单原来的
+  「新建文本文档」更名为「新建文件」。
+- **文件夹颜色** — 右键面板里的文件夹，可从与组件换色同一套 3×3 色盘中选 9 种颜色：
+  图标会在所有地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。只有已有
+  自定义色的文件夹才显示「恢复默认颜色」。新建文件夹 / 重命名等输入框也跟随组件颜色。
 - **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
   拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件，冲突提示与进度
   都是系统原生的。
