@@ -452,7 +452,7 @@ namespace Kobold.Controls
                 Localization.Get("Menu_FolderColor"),
                 UiTokens.FolderIconPalette,
                 current,
-                allowDefault: true,
+                allowDefault: current != null,
                 defaultText: Localization.Get("Menu_FolderColorDefault"),
                 onPick: color => ApplyFolderColor(item, color),
                 onDefault: () => RestoreFolderColor(item)));
