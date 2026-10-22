@@ -22,10 +22,28 @@ namespace Kobold.Helpers
         /// Modal single-line input. Returns the entered text, or null when the
         /// user cancels. validate may return an error message; it is shown
         /// inside the dialog and the dialog stays open. Callers decide how to
-        /// validate the value.
+        /// validate the value. widgetColor tints the dialog to the widget.
         /// </summary>
         public static string ShowInput(Window owner, string title, string prompt, string initialValue,
-            Func<string, string> validate = null)
+            Func<string, string> validate = null, string widgetColor = null)
+        {
+            string result = null;
+            Window dialog = null;
+            dialog = BuildInput(owner, title, prompt, initialValue, validate, widgetColor,
+                value => { result = value; dialog.Close(); });
+            dialog.ShowDialog();
+            return result;
+        }
+
+        /// <summary>
+        /// Builds the modal single-line input dialog without showing it, so
+        /// offscreen checks can inspect it. validate may return an error
+        /// message; it is shown inside the dialog and the dialog stays open.
+        /// onAccept receives the accepted text. When widgetColor is set the
+        /// dialog wears the widget accent instead of the theme accent.
+        /// </summary>
+        public static Window BuildInput(Window owner, string title, string prompt, string initialValue,
+            Func<string, string> validate, string widgetColor, Action<string> onAccept)
         {
             var dialog = new Window
             {
@@ -47,8 +65,6 @@ namespace Kobold.Helpers
                 Margin = new Thickness(0, UiTokens.Space3, 0, 0)
             };
 
-            string result = null;
-
             var errorText = new TextBlock
             {
                 Foreground = ThemeManager.DangerBrush,
@@ -69,8 +85,7 @@ namespace Kobold.Helpers
                     textBox.Focus();
                     return;
                 }
-                result = value;
-                dialog.Close();
+                onAccept?.Invoke(value);
             };
 
             var okButton = CreateButton("Dialog_OK", "Kobold.Style.PrimaryButton");
@@ -130,9 +145,10 @@ namespace Kobold.Helpers
                 Child = content
             };
 
+            ApplyWidgetColor(dialog, widgetColor);
+
             dialog.Loaded += (s, e) => { textBox.Focus(); textBox.SelectAll(); };
-            dialog.ShowDialog();
-            return result;
+            return dialog;
         }
 
         /// <summary>

@@ -465,6 +465,7 @@ namespace Kobold.XamlLoadCheck
                 // button only when the caller offers one.
                 failures += TryCheck("palette: the shared palette has nine swatches and a current ring", SharedPaletteHasNineSwatches);
                 failures += TryCheck("palette: the folder palette shows the default button", FolderPaletteShowsDefault);
+                failures += TryCheck("input: the dialog follows the widget color", InputDialogFollowsWidgetColor);
 
                 // Task 3.5 pins: the pure Quick Access path matcher and the
                 // read-only state probe (never Pin/Unpin - invoking them here
@@ -7953,6 +7954,24 @@ namespace Kobold.XamlLoadCheck
             var root = window.Content as Border;
             if (FindByTag(root, "PaletteDefault") == null)
                 throw new InvalidOperationException("the folder palette has no default button");
+        }
+
+        /// <summary>
+        /// Task 4: an input dialog opened from a widget overrides its accent
+        /// resources with the widget colour, while a null colour leaves the
+        /// theme accent alone. BuildInput returns the window unshown.
+        /// </summary>
+        private static void InputDialogFollowsWidgetColor()
+        {
+            ThemeManager.Initialize("dark");
+            var window = DialogFactory.BuildInput(null, "t", "p", "x", null, "#EF4444", v => { });
+            var accent = window.Resources[ThemeManager.BrushKeyPrefix + "Accent"] as SolidColorBrush;
+            if (accent == null || accent.Color != Utils.HexToColor("#EF4444"))
+                throw new InvalidOperationException("the input dialog did not take the widget accent");
+
+            var plain = DialogFactory.BuildInput(null, "t", "p", "x", null, null, v => { });
+            if (plain.Resources.Contains(ThemeManager.BrushKeyPrefix + "Accent"))
+                throw new InvalidOperationException("a null widget color wrote an accent override");
         }
 
         private static FrameworkElement FindByTag(DependencyObject root, string tag)

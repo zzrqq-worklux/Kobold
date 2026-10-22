@@ -346,7 +346,8 @@ namespace Kobold.Controls
         protected string ShowInputModal(string title, string prompt, string initialValue, Func<string, string> validate)
         {
             string result = null;
-            RunModal(() => { result = DialogFactory.ShowInput(this, title, prompt, initialValue, validate); });
+            RunModal(() => { result = DialogFactory.ShowInput(this, title, prompt, initialValue, validate,
+                _data == null ? null : _data.Color); });
             return result;
         }
 

@@ -244,7 +244,7 @@ namespace Kobold.Controls
                 .AddItem("Menu_Copy", () => CopySelection(selected, false), !_data.IsLocked)
                 .AddItem("Menu_Cut", () => CopySelection(selected, true), !_data.IsLocked);
 
-            if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorMenu(item));
+            if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorEntry(item));
 
             return builder
                 .AddSeparator()
@@ -384,7 +384,7 @@ namespace Kobold.Controls
             menu.Items.Add(renameItem);
             menu.Items.Add(copyPathItem);
             menu.Items.Add(copyItem);
-            if (IsColorable(item)) menu.Items.Add(CreateFolderColorMenu(item));
+            if (IsColorable(item)) menu.Items.Add(CreateFolderColorEntry(item));
             menu.Items.Add(new Separator());
             menu.Items.Add(remItem);
             MenuBuilder.Prepare(menu, _data.Color);
@@ -400,59 +400,62 @@ namespace Kobold.Controls
                    Directory.Exists(item.Path);
         }
 
-        /// <summary>Swatch submenu: one entry per palette color, then "default".</summary>
-        private MenuItem CreateFolderColorMenu(DisplayItem item)
+        /// <summary>
+        /// One entry that opens the shared palette: a 16px swatch of the
+        /// folder's current colour (a hollow swatch when it has none) plus the
+        /// localised label. No submenu - the palette owns the colours.
+        /// </summary>
+        private MenuItem CreateFolderColorEntry(DisplayItem item)
         {
-            var menu = new MenuItem { Header = Localization.Get("Menu_FolderColor") };
-            string current = FolderColor.GetIconResource(item.Path);
+            string resource = FolderColor.GetIconResource(item.Path);
+            string current = CurrentFolderColor(resource);
 
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            var swatch = new System.Windows.Shapes.Rectangle
+            {
+                Width = 16,
+                Height = 16,
+                RadiusX = 3,
+                RadiusY = 3,
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = current == null ? Brushes.Transparent : new SolidColorBrush(Utils.HexToColor(current)),
+                Stroke = ThemeManager.BorderBrush,
+                StrokeThickness = current == null ? 1 : 0
+            };
+            header.Children.Add(swatch);
+            header.Children.Add(new TextBlock
+            {
+                Text = Localization.Get("Menu_FolderColor") + "…",
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var entry = new MenuItem { Header = header, Tag = "FolderColorEntry" };
+            entry.Click += (s, a) => OpenFolderColorPalette(item, current);
+            return entry;
+        }
+
+        /// <summary>The palette hex the folder's cached icon carries, or null.</summary>
+        private static string CurrentFolderColor(string resource)
+        {
             for (int i = 0; i < UiTokens.FolderIconPalette.Length; i++)
             {
-                string color = UiTokens.FolderIconPalette[i];
-                var swatch = new System.Windows.Shapes.Rectangle
-                {
-                    Width = 16,
-                    Height = 16,
-                    RadiusX = 3,
-                    RadiusY = 3,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Fill = new SolidColorBrush(Utils.HexToColor(color))
-                };
-
-                var name = new TextBlock
-                {
-                    Text = Localization.Get(UiTokens.FolderIconPaletteNames[i]),
-                    Margin = new Thickness(10, 0, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-
-                // The swatch and its name ride in Header, not Icon: the app's
-                // MenuItem template (App.xaml) renders only the header and the
-                // submenu arrow, so an Icon would never show up.
-                var header = new StackPanel { Orientation = Orientation.Horizontal };
-                header.Children.Add(swatch);
-                header.Children.Add(name);
-
-                var entry = new MenuItem
-                {
-                    Header = header,
-                    IsChecked = IconBelongsTo(current, color)
-                };
-                entry.Click += (s, a) => ApplyFolderColor(item, color);
-                menu.Items.Add(entry);
+                if (IconBelongsTo(resource, UiTokens.FolderIconPalette[i])) return UiTokens.FolderIconPalette[i];
             }
+            return null;
+        }
 
-            menu.Items.Add(new Separator());
-
-            var reset = new MenuItem
-            {
-                Header = Localization.Get("Menu_FolderColorDefault"),
-                IsEnabled = current != null
-            };
-            reset.Click += (s, a) => RestoreFolderColor(item);
-            menu.Items.Add(reset);
-
-            return menu;
+        private void OpenFolderColorPalette(DisplayItem item, string current)
+        {
+            RunModal(() => ColorPaletteDialog.Show(
+                this,
+                Localization.Get("Menu_FolderColor"),
+                UiTokens.FolderIconPalette,
+                current,
+                allowDefault: true,
+                defaultText: Localization.Get("Menu_FolderColorDefault"),
+                onPick: color => ApplyFolderColor(item, color),
+                onDefault: () => RestoreFolderColor(item)));
         }
 
         /// <summary>True when the folder already shows the cached icon of this color.</summary>
