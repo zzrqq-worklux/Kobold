@@ -431,7 +431,8 @@ namespace Kobold.Controls
             });
 
             var entry = new MenuItem { Header = header, Tag = "FolderColorEntry" };
-            entry.Click += (s, a) => OpenFolderColorPalette(item, current);
+            entry.Click += (s, a) =>
+                OpenFolderColorPalette(item, current, FolderColor.HasCustomIcon(resource));
             return entry;
         }
 
@@ -445,14 +446,14 @@ namespace Kobold.Controls
             return null;
         }
 
-        private void OpenFolderColorPalette(DisplayItem item, string current)
+        private void OpenFolderColorPalette(DisplayItem item, string current, bool hasCustomIcon)
         {
             RunModal(() => ColorPaletteDialog.Show(
                 this,
                 Localization.Get("Menu_FolderColor"),
                 UiTokens.FolderIconPalette,
                 current,
-                allowDefault: current != null,
+                allowDefault: hasCustomIcon,
                 defaultText: Localization.Get("Menu_FolderColorDefault"),
                 onPick: color => ApplyFolderColor(item, color),
                 onDefault: () => RestoreFolderColor(item)));

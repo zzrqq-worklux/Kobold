@@ -57,6 +57,20 @@ namespace Kobold.MenuRenderCheck
 
                 FolderColorEntryIsSingle(entry);
                 FolderColorEntryPaintsItsSwatch(entry);
+
+                Check(!FolderColor.HasCustomIcon(null),
+                    "folder color: no custom icon hides the default");
+                Check(FolderColor.HasCustomIcon("C:\\x.ico,0"),
+                    "folder color: any custom icon offers the default");
+
+                var rootMenu = (ContextMenu)typeof(FolderWidget)
+                    .GetMethod("BuildRootItemMenu", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(widget, new object[] { item });
+                var browseMenu = (ContextMenu)typeof(FolderWidget)
+                    .GetMethod("BuildBrowseItemMenu", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(widget, new object[] { item, new List<DisplayItem> { item } });
+                FolderColorEntryIsWired(rootMenu, "root");
+                FolderColorEntryIsWired(browseMenu, "browse");
             }
             catch (Exception ex)
             {
@@ -105,6 +119,19 @@ namespace Kobold.MenuRenderCheck
             var label = header == null ? null : header.Children[1] as TextBlock;
             if (label == null || label.Text.IndexOf(Localization.Get("Menu_FolderColor"), StringComparison.Ordinal) < 0)
                 Errors.Add("the folder color entry has no localized label");
+        }
+
+        private static void FolderColorEntryIsWired(ContextMenu menu, string where)
+        {
+            foreach (var raw in menu.Items)
+            {
+                var entry = raw as MenuItem;
+                if (entry == null || !"FolderColorEntry".Equals(entry.Tag as string)) continue;
+                if (entry.Items.Count != 0)
+                    Errors.Add("the " + where + " folder color entry has a submenu");
+                return;
+            }
+            Errors.Add("the " + where + " menu has no folder color entry");
         }
 
         /// <summary>

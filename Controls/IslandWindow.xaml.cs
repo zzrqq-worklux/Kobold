@@ -523,7 +523,7 @@ namespace Kobold.Controls
         /// <summary>
         /// Opens the launcher card from the add tile: a header plus one row per
         /// kind, each with its icon, name and a one-line description. Clicking
-        /// the tile again, clicking away or Escape closes it.
+        /// away closes it; Escape is best-effort (see the card handler).
         /// </summary>
         private void ShowAddWidgetMenu()
         {
@@ -534,14 +534,20 @@ namespace Kobold.Controls
             }
 
             var content = BuildAddWidgetContent();
+
+            // The popup sizes to its child's layout box; the card's drop shadow
+            // renders outside that box, so reserve a 10px band (same as menus).
+            var host = new Grid { Margin = new Thickness(10), Background = Brushes.Transparent };
+            host.Children.Add(content);
+
             var popup = new Popup
             {
                 PlacementTarget = AddTile,
                 Placement = PlacementMode.Bottom,
                 StaysOpen = false,
                 AllowsTransparency = true,
-                Child = content,
-                HorizontalOffset = -(AddMenuWidth - AddTile.ActualWidth)
+                Child = host,
+                HorizontalOffset = -(AddMenuWidth + 20 - Math.Max(AddTile.ActualWidth, 24))
             };
             popup.Closed += (s, e) =>
             {

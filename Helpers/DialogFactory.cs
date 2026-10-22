@@ -85,7 +85,12 @@ namespace Kobold.Helpers
                     textBox.Focus();
                     return;
                 }
-                onAccept?.Invoke(value);
+                if (onAccept == null)
+                {
+                    dialog.Close();
+                    return;
+                }
+                onAccept(value);
             };
 
             var okButton = CreateButton("Dialog_OK", "Kobold.Style.PrimaryButton");

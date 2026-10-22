@@ -7907,6 +7907,9 @@ namespace Kobold.XamlLoadCheck
                     var view = grid == null || grid.Children.Count == 0 ? null : grid.Children[0] as Viewbox;
                     if (view == null || Math.Abs(view.Width - 24) > 0.01 || Math.Abs(view.Height - 24) > 0.01)
                         throw new InvalidOperationException("the " + id + " row icon is not a 24px Viewbox");
+                    var canvas = view.Child as Canvas;
+                    if (canvas == null || Math.Abs(canvas.Width - 64) > 0.01 || Math.Abs(canvas.Height - 64) > 0.01)
+                        throw new InvalidOperationException("the " + id + " icon canvas is not 64px");
                     if (CountNonEmptyText(grid) < 2)
                         throw new InvalidOperationException("the " + id + " row has no name + hint");
                 }
@@ -7920,7 +7923,7 @@ namespace Kobold.XamlLoadCheck
         private static void SharedPaletteHasNineSwatches()
         {
             ThemeManager.Initialize("dark");
-            var window = ColorPaletteDialog.Build("选择颜色", UiTokens.FolderPalette, "#3B82F6",
+            var window = ColorPaletteDialog.Build("选择颜色", UiTokens.FolderPalette, UiTokens.DefaultFolderColor,
                 false, null, c => { }, () => { });
             var root = window.Content as Border;
             if (root == null) throw new InvalidOperationException("the palette has no Border content");
@@ -7934,8 +7937,9 @@ namespace Kobold.XamlLoadCheck
             }
             if (swatches != 9) throw new InvalidOperationException("the palette has " + swatches + " swatches");
 
-            var current = FindByTag(root, "#3B82F6") as Border;
-            if (current == null || current.BorderThickness.Left != 3)
+            var current = FindByTag(root, UiTokens.DefaultFolderColor) as Border;
+            if (current == null || current.BorderThickness.Left != 3 ||
+                !ReferenceEquals(current.BorderBrush, ThemeManager.TextBrush))
                 throw new InvalidOperationException("the current swatch has no ring");
 
             var caption = FindByTag(root, "PaletteCaption") as TextBlock;
@@ -7952,8 +7956,10 @@ namespace Kobold.XamlLoadCheck
             var window = ColorPaletteDialog.Build("文件夹颜色", UiTokens.FolderIconPalette, null,
                 true, Localization.Get("Menu_FolderColorDefault"), c => { }, () => { });
             var root = window.Content as Border;
-            if (FindByTag(root, "PaletteDefault") == null)
-                throw new InvalidOperationException("the folder palette has no default button");
+            var button = FindByTag(root, "PaletteDefault") as Button;
+            if (button == null ||
+                !Equals(button.Content, Localization.Get("Menu_FolderColorDefault")))
+                throw new InvalidOperationException("the folder palette has no localized default button");
         }
 
         /// <summary>

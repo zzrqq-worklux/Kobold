@@ -125,6 +125,12 @@ namespace Kobold.Core
             }
         }
 
+        /// <summary>True when a folder icon resource is present (any custom icon).</summary>
+        public static bool HasCustomIcon(string iconResource)
+        {
+            return !string.IsNullOrWhiteSpace(iconResource);
+        }
+
         /// <summary>
         /// The icon the folder points at, as "file,index" - the form desktop.ini
         /// uses - or null when the folder shows the default icon.

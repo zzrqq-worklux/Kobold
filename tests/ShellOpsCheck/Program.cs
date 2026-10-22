@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Xml.Linq;
 using Kobold.Core;
 using Kobold.Services;
 
@@ -222,6 +223,30 @@ namespace Kobold.ShellOpsCheck
                   HasPart(FileTemplates.BuildOfficePackage(".pptx"), "ppt/slides/slide1.xml"),
                 "new file: pptx carries its minimal parts");
 
+            var docx = FileTemplates.BuildOfficePackage(".docx");
+            var xlsx = FileTemplates.BuildOfficePackage(".xlsx");
+            var pptx = FileTemplates.BuildOfficePackage(".pptx");
+            Check(NewFileName.DefaultExtension == ".txt",
+                "new file: the default extension stays txt");
+            Check(IsXml(PartText(docx, "[Content_Types].xml")) &&
+                  IsXml(PartText(docx, "_rels/.rels")) &&
+                  IsXml(PartText(docx, "word/document.xml")),
+                "new file: docx parts are parseable XML");
+            Check(IsXml(PartText(xlsx, "[Content_Types].xml")) &&
+                  IsXml(PartText(xlsx, "_rels/.rels")) &&
+                  IsXml(PartText(xlsx, "xl/workbook.xml")) &&
+                  IsXml(PartText(xlsx, "xl/_rels/workbook.xml.rels")) &&
+                  IsXml(PartText(xlsx, "xl/worksheets/sheet1.xml")),
+                "new file: xlsx parts are parseable XML");
+            Check(IsXml(PartText(pptx, "ppt/presentation.xml")) &&
+                  IsXml(PartText(pptx, "ppt/slides/slide1.xml")),
+                "new file: pptx parts are parseable XML");
+            Check(ContainsPart(docx, "[Content_Types].xml", "/word/document.xml"),
+                "new file: docx content types name the document part");
+            Check(ContainsPart(xlsx, "[Content_Types].xml", "/xl/workbook.xml") &&
+                  ContainsPart(xlsx, "[Content_Types].xml", "/xl/worksheets/sheet1.xml"),
+                "new file: xlsx content types name the workbook and sheet");
+
             string dir = Path.Combine(Path.GetTempPath(), "kobold-office-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
             try
@@ -244,12 +269,42 @@ namespace Kobold.ShellOpsCheck
 
         private static bool HasPart(byte[] package, string name)
         {
-            if (package == null) return false;
+            return PartText(package, name) != null;
+        }
+
+        private static string PartText(byte[] package, string name)
+        {
+            if (package == null) return null;
             using (var stream = new MemoryStream(package))
             using (var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read))
             {
-                return zip.GetEntry(name) != null;
+                var entry = zip.GetEntry(name);
+                if (entry == null) return null;
+                using (var reader = new StreamReader(entry.Open()))
+                {
+                    return reader.ReadToEnd();
+                }
             }
+        }
+
+        private static bool IsXml(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            try
+            {
+                XDocument.Parse(text);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool ContainsPart(byte[] package, string part, string needle)
+        {
+            string text = PartText(package, part);
+            return text != null && text.IndexOf(needle, StringComparison.Ordinal) >= 0;
         }
 
         // ---------- recycle ----------

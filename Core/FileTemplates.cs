@@ -97,7 +97,10 @@ namespace Kobold.Core
                         error = "The " + extension + " template is missing from the application.";
                         return false;
                     }
-                    File.WriteAllBytes(path, package);
+                    using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        output.Write(package, 0, package.Length);
+                    }
                     return true;
                 }
 

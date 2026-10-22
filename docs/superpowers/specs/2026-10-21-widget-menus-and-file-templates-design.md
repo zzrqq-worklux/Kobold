@@ -314,16 +314,16 @@ private void OpenFolderColorPalette(DisplayItem item, string current)
         Localization.Get("Menu_FolderColor"),
         UiTokens.FolderIconPalette,
         current,
-        allowDefault: current != null,
+        allowDefault: FolderColor.HasCustomIcon(resource),
         defaultText: Localization.Get("Menu_FolderColorDefault"),
         onPick: color => ApplyFolderColor(item, color),
         onDefault: () => RestoreFolderColor(item)));
 }
 ```
 
-- `allowDefault` 只在文件夹已有自定义色时为真（`current != null`），沿用旧菜单
-  `IsEnabled = current != null` 的边界；避免对没有自定义色的文件夹执行 `Restore`
-  而误移除 System 属性 / 非本程序的 desktop.ini。
+- `allowDefault` 只在文件夹已有**任意**自定义图标时为真（`FolderColor.HasCustomIcon(resource)`，
+  沿用旧菜单 `IsEnabled = current != null` 的边界）；`current`（9 色匹配）只决定当前圈/名称。
+  避免对没有自定义色的文件夹执行 `Restore` 而误移除 System 属性 / 非本程序的 desktop.ini。
 
 - `BuildRootItemMenu` 与 `BuildBrowseItemMenu` 都把 `CreateFolderColorMenu(item)` 换成
   `CreateFolderColorEntry(item)`；`IsColorable(item)` 判断保留。

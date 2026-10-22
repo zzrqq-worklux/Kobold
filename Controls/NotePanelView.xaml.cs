@@ -50,7 +50,7 @@ namespace Kobold.Controls
         private const double MENU_MIN_LIST_HEIGHT = 120;
 
         /// <summary>The check column of one dropdown note entry.</summary>
-        private const double MENU_CHECK_WIDTH = 16;
+        private const double MENU_CHECK_WIDTH = 18;
 
         private NoteData _data;
         private NoteWidget _host;
@@ -215,13 +215,19 @@ namespace Kobold.Controls
             }
             if (anchor == null) return;
 
+            // The popup sizes to its child's layout box; the card's drop shadow
+            // renders outside that box, so reserve the same 10px band the menu
+            // template uses or the shadow gets clipped.
+            var host = new Grid { Margin = new Thickness(10), Background = Brushes.Transparent };
+            host.Children.Add(BuildTitleMenuContent());
+
             var popup = new Popup
             {
                 PlacementTarget = anchor,
                 Placement = PlacementMode.Bottom,
                 StaysOpen = false,
                 AllowsTransparency = true,
-                Child = BuildTitleMenuContent()
+                Child = host
             };
             popup.Closed += (s, e) =>
             {
