@@ -102,6 +102,24 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Left edge of the add-widget launcher card: right-aligned to the add
+        /// tile's right edge and clamped to the monitor work area. All arguments
+        /// share one coordinate space (the popup callback supplies physical
+        /// screen pixels).
+        /// </summary>
+        public static double AddMenuLeft(double targetRight, double popupWidth, double workLeft, double workRight)
+        {
+            double workWidth = workRight - workLeft;
+            if (workWidth <= 0 || popupWidth >= workWidth) return workLeft;
+
+            double left = targetRight - popupWidth;
+            if (left < workLeft) return workLeft;
+
+            double maxLeft = workRight - popupWidth;
+            return left > maxLeft ? maxLeft : left;
+        }
+
+        /// <summary>
         /// Offset after rolling the wheel by whole tiles. Negative notches
         /// scroll towards the start of the tiles, positive ones towards their end.
         /// </summary>

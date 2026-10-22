@@ -27,6 +27,7 @@ namespace Kobold.Controls
         private const int TileIconSize = 32;
         private const double IslandDragThreshold = 4;
         private const double AddMenuWidth = 280;
+        private const double AddMenuShadowPadding = 10;
 
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
@@ -116,7 +117,10 @@ namespace Kobold.Controls
 
             AddTile.MouseEnter += (s, e) => AddTile.Background = ThemeManager.IslandHoverBrush;
             AddTile.MouseLeave += (s, e) => AddTile.Background = Brushes.Transparent;
-            AddTile.MouseLeftButtonDown += (s, e) =>
+            // Open on mouse-up: a StaysOpen=false popup captures the mouse as
+            // soon as it opens, so opening on mouse-down makes the same click's
+            // release land "outside" and close the menu immediately.
+            AddTile.MouseLeftButtonUp += (s, e) =>
             {
                 ShowAddWidgetMenu();
                 e.Handled = true;
@@ -537,17 +541,24 @@ namespace Kobold.Controls
 
             // The popup sizes to its child's layout box; the card's drop shadow
             // renders outside that box, so reserve a 10px band (same as menus).
-            var host = new Grid { Margin = new Thickness(10), Background = Brushes.Transparent };
-            host.Children.Add(content);
+            // Padding (not Margin) keeps the band inside the child the custom
+            // placement callback measures, so the popup's right edge can line
+            // up with the add tile's right edge.
+            var host = new Border
+            {
+                Padding = new Thickness(AddMenuShadowPadding),
+                Background = Brushes.Transparent,
+                Child = content
+            };
 
             var popup = new Popup
             {
                 PlacementTarget = AddTile,
-                Placement = PlacementMode.Bottom,
+                Placement = PlacementMode.Custom,
+                CustomPopupPlacementCallback = PlaceAddWidgetMenu,
                 StaysOpen = false,
                 AllowsTransparency = true,
-                Child = host,
-                HorizontalOffset = -(AddMenuWidth + 20 - Math.Max(AddTile.ActualWidth, 24))
+                Child = host
             };
             popup.Closed += (s, e) =>
             {
@@ -561,6 +572,40 @@ namespace Kobold.Controls
 
             content.Focusable = true;
             content.Focus();
+        }
+
+        /// <summary>
+        /// Right-aligns the launcher card under the add tile, clamped to the
+        /// add tile's monitor work area. WPF's Bottom placement uses the
+        /// system's MenuDropAlignment setting, which flips the anchor to the
+        /// target's right edge; a custom placement keeps the geometry stable.
+        /// </summary>
+        private CustomPopupPlacement[] PlaceAddWidgetMenu(Size childSize, Size targetSize, Point offset)
+        {
+            if (childSize.Width <= 0)
+            {
+                return new[]
+                {
+                    new CustomPopupPlacement(new Point(0, targetSize.Height), PopupPrimaryAxis.Horizontal)
+                };
+            }
+
+            Point targetTopLeft = AddTile.PointToScreen(new Point(0, 0));
+            var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(
+                (int)Math.Round(targetTopLeft.X + targetSize.Width / 2),
+                (int)Math.Round(targetTopLeft.Y + targetSize.Height / 2)));
+            double left = IslandLayout.AddMenuLeft(
+                targetTopLeft.X + targetSize.Width,
+                childSize.Width,
+                screen.WorkingArea.Left,
+                screen.WorkingArea.Right);
+
+            return new[]
+            {
+                new CustomPopupPlacement(
+                    new Point(left - targetTopLeft.X, targetSize.Height),
+                    PopupPrimaryAxis.Horizontal)
+            };
         }
 
         private void CloseAddWidgetMenu()

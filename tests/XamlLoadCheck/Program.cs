@@ -252,6 +252,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("todo: pill follows a single item", TodoPillFollowsASingleItem);
                 failures += TryCheck("todo: empty day shows no message", TodoEmptyDayShowsNoMessage);
                 failures += TryCheck("todo: overflowing list keeps six rows", TodoOverflowingListKeepsSixRows);
+                failures += TryCheck("todo: a taller panel shows all list rows", TodoTallerPanelShowsAllRows);
 
                 // Post-smoke design: row actions moved from hover glyphs to a
                 // right-click menu (add-child + delete on a parent, delete on a
@@ -458,6 +459,8 @@ namespace Kobold.XamlLoadCheck
                 // its header and the three kind rows.
                 failures += TryCheck("launcher: the island add menu is a three-row card",
                     IslandAddMenuUsesTheLauncherCard);
+                failures += TryCheck("launcher: the island add menu opens on mouse-up",
+                    IslandAddMenuOpensOnMouseUp);
 
                 // Task 3 pins: one shared palette for widgets and folders - a
                 // 3x3 grid of the palette's swatches with a ring and check on
@@ -578,6 +581,10 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: the widget enables the title menu", NoteWidgetEnablesTheTitleMenu);
                 failures += TryCheck("note: the title menu groups actions and notes",
                     NoteTitleMenuGroupsActionsAndNotes);
+                failures += TryCheck("note: the title menu widths to its content",
+                    NoteTitleMenuWidthsToItsContent);
+                failures += TryCheck("note: the rendered detail right-click opens the full menu",
+                    NoteRenderedRightClickOpensTheFullMenu);
                 failures += TryCheck("launcher: the note menu wears the shared card", NoteTitleMenuUsesTheLauncherStyle);
                 failures += TryCheck("note: the title menu switches notes", NoteTitleMenuSwitchesNotes);
                 failures += TryCheck("note: the title menu starts a new note", NoteTitleMenuStartsANewNote);
@@ -597,8 +604,8 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: Esc and Backspace return home only in the rendered detail",
                     NoteEscAndBackspaceReturnHomeOnlyInTheRenderedDetail);
                 failures += TryCheck("note: the blank menu follows the state", NoteBlankMenuFollowsTheState);
-                failures += TryCheck("note: the detail's padding band opens the blank menu",
-                    NoteDetailPaddingBandOpensTheBlankMenu);
+                failures += TryCheck("note: the detail's padding band opens the full note menu",
+                    NoteDetailPaddingBandOpensTheFullNoteMenu);
                 failures += TryCheck("note: the blank-area menu starts the same edit",
                     NoteBlankAreaMenuStartsTheSameEdit);
                 failures += TryCheck("note: an empty new note is discarded on the way home",
@@ -4321,7 +4328,7 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        /// <summary>More than six rows still clamp to six rows of 30px.</summary>
+        /// <summary>More than six rows still clamp to six rows at the default height.</summary>
         private static void TodoOverflowingListKeepsSixRows()
         {
             var data = NewTodoData(out TodoItem item);
@@ -4333,6 +4340,28 @@ namespace Kobold.XamlLoadCheck
             if (scroller == null) throw new InvalidOperationException("ItemsScroller not found");
             if (Math.Abs(scroller.Height - 180) > 0.01)
                 throw new InvalidOperationException("overflowing scroller " + scroller.Height + " != 180 (six rows)");
+        }
+
+        /// <summary>
+        /// A user-widened panel spends the extra height on the day list: all
+        /// seven rows fit and the scrollbar disappears instead of the list
+        /// stopping at the default six-row cap.
+        /// </summary>
+        private static void TodoTallerPanelShowsAllRows()
+        {
+            ThemeManager.Initialize("dark");
+            var data = NewSevenRowAugustDay();
+            data.PanelHeight = 700;
+            var view = new TodoWidget(data).CalendarView;
+
+            var scroller = view.FindName("ItemsScroller") as ScrollViewer;
+            if (scroller == null) throw new InvalidOperationException("ItemsScroller not found");
+            if (Math.Abs(scroller.Height - 210) > 0.5)
+                throw new InvalidOperationException(
+                    "the taller panel's scroller is " + scroller.Height.ToString("0.##") + ", wanted 210 (seven rows)");
+            if (scroller.ScrollableHeight > 0.01)
+                throw new InvalidOperationException(
+                    "the taller panel still scrolls: " + scroller.ScrollableHeight.ToString("0.##"));
         }
 
         /// <summary>
@@ -7874,6 +7903,50 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        private static void IslandAddMenuOpensOnMouseUp()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                island.Show();
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var addTile = (UIElement)typeof(IslandWindow)
+                    .GetField("AddTile", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(island);
+                var popupField = typeof(IslandWindow)
+                    .GetField("_addWidgetPopup", BindingFlags.Instance | BindingFlags.NonPublic);
+
+                addTile.RaiseEvent(new MouseButtonEventArgs(
+                    Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                });
+                var popup = popupField.GetValue(island) as Popup;
+                if (popup == null || !popup.IsOpen)
+                    throw new InvalidOperationException("the add menu did not open on mouse-up");
+
+                // Opening on mouse-down would let the popup's own capture turn
+                // the same click's release into an outside click, closing it.
+                typeof(IslandWindow)
+                    .GetMethod("CloseAddWidgetMenu", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(island, null);
+                addTile.RaiseEvent(new MouseButtonEventArgs(
+                    Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                });
+                if (popupField.GetValue(island) != null)
+                    throw new InvalidOperationException("the add menu opened on mouse-down");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
         private static void IslandAddMenuUsesTheLauncherCard()
         {
             ThemeManager.Initialize("dark");
@@ -9943,6 +10016,108 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
+        /// The title dropdown and the right-click menu both size to their
+        /// content instead of stretching to a fixed 220..360 width. A short
+        /// note list must not leave a large empty band on the right.
+        /// </summary>
+        private static void NoteTitleMenuWidthsToItsContent()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var menu = view.BuildTitleMenuContent() as Border;
+            if (menu == null) throw new InvalidOperationException("the title menu is not a Border");
+            if (!double.IsNaN(menu.Width))
+                throw new InvalidOperationException("the title menu still has a fixed width " + menu.Width);
+            if (menu.MaxWidth > 360.01 || menu.MaxWidth <= 0)
+                throw new InvalidOperationException("the title menu max width is " + menu.MaxWidth);
+
+            menu.Measure(new Size(360, double.PositiveInfinity));
+            if (menu.DesiredSize.Width >= 320)
+                throw new InvalidOperationException(
+                    "a short note list still measures " + menu.DesiredSize.Width.ToString("0.##") + " wide");
+        }
+
+        /// <summary>
+        /// Spec 3.3 replacement: in the rendered detail a right-click inside
+        /// the note content opens the full note menu (new / home / notes), not
+        /// no menu and not the old two-entry blank menu. The current note is
+        /// checked; the entries are in modified-time order.
+        /// </summary>
+        private static void NoteRenderedRightClickOpensTheFullMenu()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(NewNote("c", "Gamma", new DateTime(2026, 3, 5, 10, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0); // Beta
+
+            var root = NoteNamed(view, "Root");
+            var opening = typeof(NotePanelView).GetMethod("Root_ContextMenuOpening",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (opening == null)
+                throw new InvalidOperationException("Root_ContextMenuOpening not found on NotePanelView");
+
+            var surfaceRoot = SurfaceNamed(NoteSurface(view), "SurfaceRoot");
+            RaiseNoteContextMenuOpening(opening, view, root, surfaceRoot);
+
+            var menu = root.ContextMenu;
+            if (menu == null)
+                throw new InvalidOperationException("a rendered-note right-click opened no menu");
+            if (menu.Items.Count != 6)
+                throw new InvalidOperationException(
+                    "the full note menu has " + menu.Items.Count + " item(s), wanted 6");
+
+            if (!"NoteMenuNew".Equals((menu.Items[0] as MenuItem)?.Tag as string))
+                throw new InvalidOperationException("the full note menu has no new entry");
+            if (!"NoteMenuHome".Equals((menu.Items[1] as MenuItem)?.Tag as string))
+                throw new InvalidOperationException("the full note menu has no home entry");
+            if (!(menu.Items[2] is Separator))
+                throw new InvalidOperationException("the full note menu has no separator");
+
+            string[] wanted = { "b", "c", "a" };
+            string current = PrivateField<string>(view, "_expandedId");
+            for (int i = 0; i < wanted.Length; i++)
+            {
+                var item = menu.Items[3 + i] as MenuItem;
+                if (item == null || !wanted[i].Equals(item.Tag as string))
+                    throw new InvalidOperationException(
+                        "the full note menu entry " + i + " is not '" + wanted[i] + "'");
+                bool isCurrent = wanted[i] == current;
+                if (item.IsChecked != isCurrent)
+                    throw new InvalidOperationException(
+                        "the full note menu entry '" + wanted[i] + "' has the wrong check state");
+                if (ContextMenuTitle(item) == string.Empty)
+                    throw new InvalidOperationException("the full note menu entry has no title");
+            }
+
+            int before = data.Notes.Count;
+            ((MenuItem)menu.Items[0]).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            if (data.Notes.Count != before + 1)
+                throw new InvalidOperationException("the full note menu's new entry created no note");
+        }
+
+        private static string ContextMenuTitle(MenuItem item)
+        {
+            var grid = item == null ? null : item.Header as Grid;
+            if (grid == null) return string.Empty;
+            foreach (var child in grid.Children)
+            {
+                var text = child as TextBlock;
+                if (text != null && !"NoteMenuCheck".Equals(text.Tag as string)) return text.Text;
+            }
+            return string.Empty;
+        }
+
+        /// <summary>
         /// T1: the note dropdown wears the shared launcher surface
         /// (the window radius and the surface brush) and its rows wear the
         /// shared <c>Kobold.Style.LauncherItem</c> row style - the one the
@@ -10495,15 +10670,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Spec 3.3 route pin: in the detail the only blank area is the surface
-        /// host's padding band, so a right-click whose source is the host must
-        /// assign the panel's action menu (new + back to the notes), while a
-        /// right-click inside the note content must leave the panel menu unset
-        /// and let the surface keep its own menus. The real private handler is
-        /// driven with a fabricated opening event (WPF exposes no public
-        /// constructor for its args), the same idiom the surface menu pin uses.
+        /// The rendered detail's padding band and note surface both open the
+        /// full note menu (new / home / notes); the old two-entry blank menu is
+        /// only used while editing or at home.
         /// </summary>
-        private static void NoteDetailPaddingBandOpensTheBlankMenu()
+        private static void NoteDetailPaddingBandOpensTheFullNoteMenu()
         {
             ThemeManager.Initialize("dark");
             var data = new NoteData();
@@ -10525,10 +10696,10 @@ namespace Kobold.XamlLoadCheck
             RaiseNoteContextMenuOpening(opening, view, root, NoteHost(view));
             var menu = root.ContextMenu;
             if (menu == null)
-                throw new InvalidOperationException("the detail's padding band assigned no blank menu");
-            if (menu.Items.Count != 2)
+                throw new InvalidOperationException("the detail's padding band assigned no menu");
+            if (menu.Items.Count != 4)
                 throw new InvalidOperationException(
-                    "the padding-band menu has " + menu.Items.Count + " item(s), wanted 2");
+                    "the padding-band menu has " + menu.Items.Count + " item(s), wanted 4");
 
             string newWanted = "＋ " + Localization.Format(
                 "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
@@ -10538,11 +10709,16 @@ namespace Kobold.XamlLoadCheck
             if (HeaderOf(menu.Items[1]) != Localization.Get("UI_NoteHome"))
                 throw new InvalidOperationException(
                     "the padding-band menu's home entry reads '" + HeaderOf(menu.Items[1]) + "'");
+            if (!(menu.Items[2] is Separator))
+                throw new InvalidOperationException("the padding-band menu has no separator");
+            if (!"a".Equals((menu.Items[3] as MenuItem)?.Tag as string))
+                throw new InvalidOperationException("the padding-band menu's note entry is missing");
 
             RaiseNoteContextMenuOpening(opening, view, root, NoteSurface(view));
-            if (root.ContextMenu != null)
+            var surfaceMenu = root.ContextMenu;
+            if (surfaceMenu == null || surfaceMenu.Items.Count != 4)
                 throw new InvalidOperationException(
-                    "a right-click inside the note content assigned the panel menu");
+                    "a right-click inside the rendered note did not open the full menu");
         }
 
         /// <summary>

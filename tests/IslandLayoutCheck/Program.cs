@@ -105,6 +105,21 @@ namespace Kobold.IslandLayoutCheck
             Check(IslandLayout.ScrollTarget(10, 0, 200) == 10,
                 "no notches leaves the offset alone");
 
+            // The add-widget launcher card opens under the add tile with its
+            // right edge on the tile's right edge. The left edge is clamped to
+            // the monitor's work area so the card never leaves the screen (the
+            // popup callback works in physical screen pixels).
+            Check(IslandLayout.AddMenuLeft(1300, 300, 0, 1560) == 1000,
+                "the add menu right-aligns under its tile");
+            Check(IslandLayout.AddMenuLeft(100, 300, 0, 1560) == 0,
+                "an add menu at the left edge clamps to the work area");
+            Check(IslandLayout.AddMenuLeft(1700, 300, 0, 1560) == 1260,
+                "an add menu past the right edge clamps to the work area");
+            Check(IslandLayout.AddMenuLeft(-100, 300, -1920, 0) == -400,
+                "the add menu clamp works left of the primary monitor");
+            Check(IslandLayout.AddMenuLeft(1000, 2000, 0, 1560) == 0,
+                "a menu wider than the work area starts at the work-area left");
+
             // Dropping the island clamps the dragged centre into the island
             // monitor's work area: a position inside stays put, the edges
             // clamp by half the window, and a window at least as wide as the

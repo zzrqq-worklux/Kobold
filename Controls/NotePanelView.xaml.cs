@@ -45,7 +45,7 @@ namespace Kobold.Controls
         private const int UNDO_DEPTH = 20;
 
         /// <summary>The dropdown's minimum / maximum width and its list floor.</summary>
-        private const double MENU_MIN_WIDTH = 220;
+        private const double MENU_MIN_WIDTH = 180;
         private const double MENU_MAX_WIDTH = 360;
         private const double MENU_MIN_LIST_HEIGHT = 120;
 
@@ -328,8 +328,11 @@ namespace Kobold.Controls
                 Content = list
             });
 
-            var root = LauncherCard.Create(panel,
-                Math.Max(MENU_MIN_WIDTH, Math.Min(MENU_MAX_WIDTH, ActualWidth - 24)));
+            var root = LauncherCard.Create(panel);
+            double available = ActualWidth > 0 ? ActualWidth - 24 : MENU_MAX_WIDTH;
+            double maxWidth = Math.Max(MENU_MIN_WIDTH, Math.Min(MENU_MAX_WIDTH, available));
+            root.MinWidth = Math.Min(MENU_MIN_WIDTH, maxWidth);
+            root.MaxWidth = maxWidth;
             root.Tag = "NoteTitleMenu";
 
             // The popup is its own focus scope: Esc must be handled here, the
@@ -341,6 +344,99 @@ namespace Kobold.Controls
                 CloseTitleMenu();
             };
             return root;
+        }
+
+        /// <summary>
+        /// The rendered detail's right-click menu: the same actions and note
+        /// list as the title dropdown, built as a real context menu so WPF
+        /// owns its mouse-up/Esc/outside-click lifecycle. The title dropdown
+        /// itself stays the anchored popup.
+        /// </summary>
+        public ContextMenu BuildNoteContextMenu()
+        {
+            var menu = new ContextMenu();
+
+            var newItem = new MenuItem
+            {
+                Tag = "NoteMenuNew",
+                Header = "＋ " + Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"))
+            };
+            newItem.Click += (s, e) =>
+            {
+                CloseTitleMenu();
+                StartNewNote();
+            };
+            menu.Items.Add(newItem);
+
+            if (!IsHome)
+            {
+                var home = new MenuItem
+                {
+                    Tag = "NoteMenuHome",
+                    Header = Localization.Get("UI_NoteHome")
+                };
+                home.Click += (s, e) =>
+                {
+                    CloseTitleMenu();
+                    GoHome();
+                };
+                menu.Items.Add(home);
+            }
+
+            menu.Items.Add(new Separator());
+
+            foreach (var note in NoteOps.SortForDisplay(_data == null ? null : _data.Notes))
+            {
+                if (note == null) continue;
+                bool current = note.Id == _expandedId;
+                var item = new MenuItem
+                {
+                    Tag = note.Id,
+                    IsChecked = current,
+                    Header = BuildNoteContextMenuHeader(note, current)
+                };
+                item.Click += (s, e) =>
+                {
+                    CloseTitleMenu();
+                    OpenNote(note.Id);
+                };
+                menu.Items.Add(item);
+            }
+
+            MenuBuilder.Prepare(menu, _data == null ? null : _data.Color);
+            return menu;
+        }
+
+        /// <summary>One context-menu note row: check column + trimmed title.</summary>
+        private Grid BuildNoteContextMenuHeader(NoteItem note, bool current)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MENU_CHECK_WIDTH) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var check = new TextBlock
+            {
+                Tag = "NoteMenuCheck",
+                Text = current ? "✓" : string.Empty,
+                Foreground = ThemeManager.SecondaryTextBrush,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(check, 0);
+            grid.Children.Add(check);
+
+            string title = NoteOps.TitleOf(note.Text);
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(title) ? Localization.Get("UI_NoteUntitled") : title,
+                Foreground = ThemeManager.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = Math.Max(120, Math.Min(MENU_MAX_WIDTH,
+                    ActualWidth > 0 ? ActualWidth - 100 : MENU_MAX_WIDTH))
+            };
+            Grid.SetColumn(label, 1);
+            grid.Children.Add(label);
+            return grid;
         }
 
         /// <summary>One flat action button of the dropdown (new / home).</summary>
@@ -708,11 +804,11 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The panel's blank right-click (spec §3.3): the action menu is
-        /// assigned outside the surface's content, so the note content keeps
-        /// its own menus while the detail host's padding band - the only blank
-        /// area in the detail - still offers the panel menu. Built per opening,
-        /// so it always reflects the current language and state.
+        /// The panel's right-click route: the rendered detail opens the full
+        /// note menu anywhere in the panel; at home and while editing the old
+        /// blank create/back menu remains (the surface keeps its editor menu
+        /// and the home cards keep their delete menu). Built per opening, so it
+        /// always reflects the current language and state.
         /// </summary>
         private void Root_ContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
@@ -726,13 +822,23 @@ namespace Kobold.Controls
             bool insideContent = hit != null
                 && IsWithinSurfaceHost(hit)
                 && !ReferenceEquals(hit, _surfaceHost);
+
+            // The rendered detail owns a full note menu everywhere in the
+            // panel. While editing, the surface keeps its own editor menu and
+            // the blank padding keeps the old create/back menu.
+            if (!IsHome && !_surface.IsEditing)
+            {
+                CloseTitleMenu();
+                Root.ContextMenu = BuildNoteContextMenu();
+                return;
+            }
+
             Root.ContextMenu = insideContent ? null : BuildBlankMenu();
         }
 
         /// <summary>
-        /// The blank-area menu (spec §3.3): the create entry always, plus the
-        /// way back to the notes in the detail (the home hides it, so its menu
-        /// carries only the create entry).
+        /// The create/back menu used at home and while editing. The rendered
+        /// detail uses <see cref="BuildNoteContextMenu"/> instead.
         /// </summary>
         private ContextMenu BuildBlankMenu()
         {

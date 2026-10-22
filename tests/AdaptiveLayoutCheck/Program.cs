@@ -231,6 +231,18 @@ namespace Kobold.AdaptiveLayoutCheck
             Check(capped.ListScrolls, "nine natural rows over six shown scroll");
             Check(Near(capped.CellHeight, 36), "todo 500 high with six list rows: cell height 36");
 
+            // A manually taller panel lifts the six-row cap: the list takes
+            // every natural row before the calendar keeps its 36 maximum.
+            var expanded = PanelLayoutAdapter.AdaptTodo(650, 5, 9, true, int.MaxValue);
+            Check(expanded.ListRows == 9, "a manually taller panel shows all nine rows");
+            Check(!expanded.ListScrolls, "the taller panel's nine rows all fit");
+            Check(Near(expanded.CellHeight, 36), "the taller panel still keeps the 36 cell maximum");
+
+            var expandedFit = PanelLayoutAdapter.FitTodoList(650, 180, 9, 36, int.MaxValue);
+            Check(Near(expandedFit.Viewport, 270), "a manually taller panel gives the list nine rows");
+            Check(!expandedFit.Scrolls, "nine rows fit the taller list viewport");
+            Check(!expandedFit.Pinned, "the add row follows all nine rows");
+
             var listFirst = PanelLayoutAdapter.AdaptTodo(343, 5, 2, true);
             Check(listFirst.ListRows == 2, "the list takes its natural rows first");
             Check(Near(listFirst.CellHeight, 30), "the calendar gets the remaining 30 per week");

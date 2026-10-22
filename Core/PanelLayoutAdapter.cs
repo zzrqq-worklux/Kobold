@@ -197,17 +197,20 @@ namespace Kobold.Core
 
         /// <summary>
         /// Splits the todo panel's height: the day list gets its natural rows
-        /// first (zero for an empty day, capped at LIST_MAX_ROWS), the calendar
-        /// takes what is left per week clamped to CELL_MIN..CELL_MAX. When that
-        /// would starve the calendar below CELL_MIN, the floor wins and the
-        /// list shrinks to the rows that still fit. Day labels need available
-        /// data and a cell at least LABEL_MIN_CELL high.
+        /// first, capped by <paramref name="maxListRows"/> (six by default; the
+        /// view lifts the cap when the user has made the panel taller); the
+        /// calendar takes what is left per week clamped to CELL_MIN..CELL_MAX.
+        /// When that would starve the calendar below CELL_MIN, the floor wins
+        /// and the list shrinks to the rows that still fit. Day labels need
+        /// available data and a cell at least LABEL_MIN_CELL high.
         /// </summary>
-        public static TodoLayout AdaptTodo(double contentHeight, int weekCount, int naturalListRows, bool labelsAvailable)
+        public static TodoLayout AdaptTodo(double contentHeight, int weekCount, int naturalListRows, bool labelsAvailable,
+            int maxListRows = LIST_MAX_ROWS)
         {
             if (weekCount < 1) weekCount = 1;
             int natural = naturalListRows < 0 ? 0 : naturalListRows;
-            int listRows = Math.Min(natural, LIST_MAX_ROWS);
+            int cap = maxListRows < 0 ? 0 : maxListRows;
+            int listRows = Math.Min(natural, cap);
 
             double cal = contentHeight - FIXED_CONTENT_H - listRows * LIST_ROW_H;
             double cellH = Clamp(cal / weekCount, CELL_MIN, CELL_MAX);
@@ -216,7 +219,7 @@ namespace Kobold.Core
             {
                 cellH = CELL_MIN;
                 double listSpace = contentHeight - FIXED_CONTENT_H - CELL_MIN * weekCount;
-                listRows = ClampRows((int)Math.Floor(listSpace / LIST_ROW_H));
+                listRows = ClampRows((int)Math.Floor(listSpace / LIST_ROW_H), cap);
             }
 
             return new TodoLayout
@@ -230,17 +233,20 @@ namespace Kobold.Core
 
         /// <summary>
         /// Fits the day list under the add row's block: the viewport takes what is left
-        /// below the calendar, capped by the natural rows; when that is not enough the
-        /// add row pins to the bottom edge (viewport shrinks, the list scrolls).
+        /// below the calendar, capped by the natural rows and
+        /// <paramref name="maxListRows"/>; when that is not enough the add row
+        /// pins to the bottom edge (viewport shrinks, the list scrolls).
         /// </summary>
         public static TodoListLayout FitTodoList(
-            double contentHeight, double calendarHeight, int naturalListRows, double addBlockHeight)
+            double contentHeight, double calendarHeight, int naturalListRows, double addBlockHeight,
+            int maxListRows = LIST_MAX_ROWS)
         {
             double listTop = FIXED_ROOT_MARGIN_TOP + FIXED_MONTH_NAV + FIXED_WEEKDAY_ROW
                              + calendarHeight + FIXED_SEPARATOR + FIXED_DAY_HEADER;
             int natural = naturalListRows < 0 ? 0 : naturalListRows;
+            int cap = maxListRows < 0 ? 0 : maxListRows;
             double content = natural * LIST_ROW_H;
-            double needed = Math.Min(natural, LIST_MAX_ROWS) * LIST_ROW_H;
+            double needed = Math.Min(natural, cap) * LIST_ROW_H;
             double bottomEdge = contentHeight - FIXED_ROOT_MARGIN_BOTTOM;
 
             double viewport = bottomEdge - listTop - addBlockHeight;
@@ -284,7 +290,7 @@ namespace Kobold.Core
         {
             if (weekCount < 1) weekCount = 1;
             double h = WidgetConstants.HEADER_HEIGHT + FIXED_CONTENT_H
-                       + weekCount * MIGRATION_CELL_H + ClampRows(naturalListRows) * LIST_ROW_H;
+                       + weekCount * MIGRATION_CELL_H + ClampRows(naturalListRows, LIST_MAX_ROWS) * LIST_ROW_H;
             return (DEFAULT_WIDTH, h);
         }
 
@@ -299,10 +305,11 @@ namespace Kobold.Core
             return value > max ? max : value;
         }
 
-        private static int ClampRows(int rows)
+        private static int ClampRows(int rows, int cap)
         {
             if (rows < 0) return 0;
-            return rows > LIST_MAX_ROWS ? LIST_MAX_ROWS : rows;
+            if (cap < 0) cap = 0;
+            return rows > cap ? cap : rows;
         }
     }
 }

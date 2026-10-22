@@ -30,9 +30,11 @@ namespace Kobold.Controls
         // The calendar/list split and every size around it come from the pure
         // layout engine (A4.1): the renderer consumes PanelLayoutAdapter's
         // constants and AdaptTodo output, so the panel never drifts from the
-        // rules. The list viewport follows the engine's row count - up to six
-        // rows, where it scrolls; an empty day reserves no row (fix round 12,
-        // the add row sits directly under the day header).
+        // rules. The list viewport follows the engine's row count - the default
+        // height keeps up to six rows and scrolls beyond that; a manually
+        // taller panel lifts that cap and shows every natural row it can. An
+        // empty day reserves no row (fix round 12, the add row sits directly
+        // under the day header).
         private const double PARENT_FONT = 14;
         private const double CHILD_FONT = 13;
 
@@ -152,7 +154,8 @@ namespace Kobold.Controls
             BuildWeekdayHeader();
             BuildCalendar(today, metrics.Cell, metrics.ShowLabels);
             BuildDayList(metrics.Parents, today);
-            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH, metrics.AddBlock);
+            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH,
+                metrics.AddBlock, metrics.MaxRows);
             UpdateAddRowVisuals(metrics.DayIsEmpty);
 
             // The divider only drags while the panel is unlocked: the band is
@@ -246,7 +249,8 @@ namespace Kobold.Controls
         /// one is stored, otherwise the automatic engine split - always inside
         /// CELL_MIN..CELL_MAX and never beyond what the panel can afford.
         /// </summary>
-        private double EffectiveCellHeight(int weekCount, int naturalRows, double contentHeight, double addBlockHeight)
+        private double EffectiveCellHeight(int weekCount, int naturalRows, double contentHeight,
+            double addBlockHeight, int maxRows)
         {
             double cell;
             if (_data.CalendarCellHeight.HasValue)
@@ -257,7 +261,7 @@ namespace Kobold.Controls
             {
                 double autoInput = contentHeight - Math.Max(0, addBlockHeight - PanelLayoutAdapter.FIXED_ADD_ROW);
                 cell = PanelLayoutAdapter.AdaptTodo(autoInput, weekCount, naturalRows,
-                    Localization.CurrentLanguage == "zh").CellHeight;
+                    Localization.CurrentLanguage == "zh", maxRows).CellHeight;
             }
             double maxCell = MaxCalendarCell(weekCount, contentHeight, addBlockHeight);
             return Math.Max(PanelLayoutAdapter.CELL_MIN,
@@ -277,6 +281,7 @@ namespace Kobold.Controls
             public double ContentH;
             public double AddBlock;
             public double Cell;
+            public int MaxRows;
             public bool ShowLabels;
         }
 
@@ -293,7 +298,13 @@ namespace Kobold.Controls
                 _culture.DateTimeFormat.FirstDayOfWeek);
             double contentH = CurrentContentHeight(weekCount, naturalRows, dayIsEmpty);
             double addBlock = AddBlockHeight(dayIsEmpty);
-            double cell = EffectiveCellHeight(weekCount, naturalRows, contentH, addBlock);
+            // The default natural height keeps the six-row cap; once the user
+            // has dragged the panel taller, the extra height goes to the list
+            // (up to every natural row) before the calendar takes any.
+            int maxRows = contentH > NaturalHeight(weekCount, PanelLayoutAdapter.LIST_MAX_ROWS, dayIsEmpty) + 0.5
+                ? int.MaxValue
+                : PanelLayoutAdapter.LIST_MAX_ROWS;
+            double cell = EffectiveCellHeight(weekCount, naturalRows, contentH, addBlock, maxRows);
             bool showLabels = Localization.CurrentLanguage == "zh"
                               && cell >= PanelLayoutAdapter.LABEL_MIN_CELL;
 
@@ -306,19 +317,22 @@ namespace Kobold.Controls
                 ContentH = contentH,
                 AddBlock = addBlock,
                 Cell = cell,
+                MaxRows = maxRows,
                 ShowLabels = showLabels
             };
         }
 
         /// <summary>
         /// Applies the fitted geometry: the day grid's height, the list
-        /// viewport (capped by its natural rows; the add row pins to the
-        /// bottom when the space runs out) and the ring/check scale boxes.
+        /// viewport (capped by the natural rows and the caller's row cap; the
+        /// add row pins to the bottom when the space runs out) and the
+        /// ring/check scale boxes.
         /// </summary>
-        private void ApplyGeometry(int weekCount, double cell, int naturalRows, double contentH, double addBlock)
+        private void ApplyGeometry(int weekCount, double cell, int naturalRows, double contentH,
+            double addBlock, int maxRows)
         {
             DayGrid.Height = weekCount * cell;
-            var fit = PanelLayoutAdapter.FitTodoList(contentH, weekCount * cell, naturalRows, addBlock);
+            var fit = PanelLayoutAdapter.FitTodoList(contentH, weekCount * cell, naturalRows, addBlock, maxRows);
             ItemsScroller.Height = fit.Viewport;
             foreach (var box in _ringBoxes) { box.Width = cell + 4; box.Height = cell + 4; }
         }
@@ -336,7 +350,8 @@ namespace Kobold.Controls
             var metrics = ComputeMetrics(today);
 
             if (metrics.ShowLabels != _builtShowLabels) BuildCalendar(today, metrics.Cell, metrics.ShowLabels);
-            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH, metrics.AddBlock);
+            ApplyGeometry(metrics.WeekCount, metrics.Cell, metrics.NaturalRows, metrics.ContentH,
+                metrics.AddBlock, metrics.MaxRows);
             _builtCellHeight = metrics.Cell;
         }
 
