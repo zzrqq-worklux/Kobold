@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>Kobold.FileSearchSpike</AssemblyName>
+    <RootNamespace>Kobold.FileSearchSpike</RootNamespace>
+    <!-- AnyCPU would run 64-bit while NuGet copies the win-x86 native asset,
+         which fails with BadImageFormatException. Pin the platform so the
+         win-x64 e_sqlite3.dll matches the process. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.30" />
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+</Project>
