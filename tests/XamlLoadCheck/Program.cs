@@ -9003,6 +9003,17 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException("the result list does not content-scroll");
             }
+
+            // The virtualized row pitch is part of the contract: one 44-DIP
+            // Grid is the template root.
+            DataTemplate template = list.ItemTemplate;
+            var rowRoot = template == null ? null : template.LoadContent() as FrameworkElement;
+            if (rowRoot == null || Math.Abs(rowRoot.Height - 44) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the result row height is " + (rowRoot == null ? "missing" : rowRoot.Height.ToString())
+                    + ", wanted 44");
+            }
         }
 
         /// <summary>

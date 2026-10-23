@@ -41,12 +41,17 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" FontSize="11" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
-                <Button x:Name="RebuildButton" Grid.Column="1" Content="Rebuild index"
-                        FontSize="11" Padding="8,2" Visibility="Collapsed"
+                <TextBlock x:Name="ResultStatusText" Grid.Column="1" FontSize="11"
+                           VerticalAlignment="Center" TextAlignment="Right" MaxWidth="220"
+                           TextTrimming="CharacterEllipsis" Margin="8,0,0,0"
+                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
+                <Button x:Name="RebuildButton" Grid.Column="2" Content="Rebuild index"
+                        FontSize="11" Padding="8,2" Margin="8,0,0,0" Visibility="Collapsed"
                         Click="RebuildButton_Click"/>
             </Grid>
             <ProgressBar x:Name="ScanProgress" Height="3" Margin="0,4,0,0"
@@ -109,7 +114,6 @@
             <ScrollViewer x:Name="OnboardingPanel" Visibility="Collapsed"
                           VerticalScrollBarVisibility="Auto" Background="Transparent">
                 <StackPanel Margin="16,8">
-                    <TextBlock x:Name="OnboardingHintText" TextWrapping="Wrap" Margin="0,0,0,10"/>
                     <TextBlock x:Name="OnboardingDrivesText" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <ItemsControl x:Name="RootsList"/>
                     <TextBlock x:Name="ScopeHint" TextWrapping="Wrap" Margin="0,10,0,0"

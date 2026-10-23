@@ -53,9 +53,9 @@ namespace Kobold.Controls
         private bool _subscribed;
         private bool _detached;
         private bool _hasQuery;
-        private bool _onboardingVisible;
         private bool _onboardingDismissed;
         private bool _rootsLoaded;
+        private bool _rootsLoading;
         private MenuItem _openMenuItem;
         private MenuItem _locationMenuItem;
         private MenuItem _copyMenuItem;
@@ -158,7 +158,7 @@ namespace Kobold.Controls
             NoIndexText.Text = Localization.Get("Search_NoIndex");
             StartIndexButton.Content = Localization.Get("Search_StartIndexing");
 
-            OnboardingHintText.Text = Localization.Get("Search_ConfigureHint");
+            ScopeHint.Text = Localization.Get("Search_ConfigureHint");
             OnboardingDrivesText.Text = Localization.Get("Search_Drives");
             OnboardingStartButton.Content = Localization.Get("Search_StartIndexing");
             OnboardingLaterButton.Content = Localization.Get("Search_Later");
@@ -277,6 +277,7 @@ namespace Kobold.Controls
                 _hasQuery = false;
                 ResultsList.ItemsSource = null;
                 EmptyState.Visibility = Visibility.Collapsed;
+                ResultStatusText.Text = string.Empty;
                 UpdateStatus(_service == null ? null : _service.Status);
                 return;
             }
@@ -300,7 +301,9 @@ namespace Kobold.Controls
 
             _hasQuery = true;
             EmptyState.Visibility = Visibility.Collapsed;
-            StatusText.Text = Localization.Get("Search_Searching");
+            // The query outcome owns its own line; the persistent service /
+            // scan status stays in StatusText and keeps indexing precedence.
+            ResultStatusText.Text = Localization.Get("Search_Searching");
 
             Task.Run(() =>
             {
@@ -349,6 +352,7 @@ namespace Kobold.Controls
             _hasQuery = false;
             if (ResultsList != null) ResultsList.ItemsSource = null;
             if (EmptyState != null) EmptyState.Visibility = Visibility.Collapsed;
+            if (ResultStatusText != null) ResultStatusText.Text = string.Empty;
         }
 
         private void ApplyQueryResult(SearchQueryResult result, Exception error)
@@ -359,7 +363,7 @@ namespace Kobold.Controls
             {
                 ResultsList.ItemsSource = null;
                 EmptyState.Visibility = Visibility.Collapsed;
-                StatusText.Text = Localization.Get("Search_Error") + ": " + error.Message;
+                ResultStatusText.Text = Localization.Get("Search_Error") + ": " + error.Message;
                 return;
             }
 
@@ -376,21 +380,19 @@ namespace Kobold.Controls
             ResultsList.ItemsSource = rows;
             if (rows.Count == 0)
             {
+                // The body carries the "no matches" sentence; a second copy on
+                // the status line would only repeat it.
                 EmptyState.Visibility = Visibility.Visible;
-                StatusText.Text = Localization.Get("Search_Empty");
+                ResultStatusText.Text = string.Empty;
                 return;
             }
 
             EmptyState.Visibility = Visibility.Collapsed;
-            if (result.LimitReached || result.TotalMatches > rows.Count)
-            {
-                StatusText.Text = Localization.Format("Search_ShowingFirst", rows.Count, result.TotalMatches);
-            }
-            else
-            {
-                FileSearchStatus status = _service == null ? null : _service.Status;
-                StatusText.Text = status == null ? Localization.Get("Search_Ready") : ReadyText(status);
-            }
+            // Only a truncated set needs a count line; a full result set is
+            // self-evident from the list itself.
+            ResultStatusText.Text = result.LimitReached || result.TotalMatches > rows.Count
+                ? Localization.Format("Search_ShowingFirst", rows.Count, result.TotalMatches)
+                : string.Empty;
         }
 
         private static string ReadyText(FileSearchStatus status)
@@ -499,31 +501,33 @@ namespace Kobold.Controls
                     break;
 
                 case FileSearchState.Ready:
+                    HideOnboarding();
                     ScanProgress.Visibility = Visibility.Collapsed;
+                    NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = status.NeedsRebuild ? Visibility.Visible : Visibility.Collapsed;
-                    if (!_onboardingVisible)
+                    if (!_hasQuery)
                     {
-                        NoIndexState.Visibility = Visibility.Collapsed;
-                        if (!_hasQuery)
-                        {
-                            ResultsList.ItemsSource = null;
-                            EmptyState.Visibility = Visibility.Collapsed;
-                        }
+                        ResultsList.ItemsSource = null;
+                        EmptyState.Visibility = Visibility.Collapsed;
                     }
                     StatusText.Text = ReadyText(status);
                     break;
 
                 case FileSearchState.NoIndex:
                     ClearResults();
+                    HideOnboarding();
                     ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
-                    if (!_onboardingVisible) NoIndexState.Visibility = Visibility.Visible;
-                    StatusText.Text = Localization.Get("Search_NoIndex");
+                    NoIndexState.Visibility = Visibility.Visible;
+                    // The state body carries the sentence; repeating it on the
+                    // status line would just say the same thing twice.
+                    StatusText.Text = string.Empty;
                     break;
 
                 case FileSearchState.Paused:
                     ClearResults();
+                    HideOnboarding();
                     ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
@@ -533,6 +537,7 @@ namespace Kobold.Controls
 
                 case FileSearchState.Error:
                     ClearResults();
+                    HideOnboarding();
                     ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
@@ -544,6 +549,7 @@ namespace Kobold.Controls
 
                 default:
                     ClearResults();
+                    HideOnboarding();
                     ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
@@ -552,9 +558,8 @@ namespace Kobold.Controls
                         // The config is in place but the service has not
                         // published its first state yet: never flash the
                         // onboarding panel over a configured install.
-                        HideOnboarding();
                         NoIndexState.Visibility = Visibility.Visible;
-                        StatusText.Text = Localization.Get("Search_NoIndex");
+                        StatusText.Text = string.Empty;
                         break;
                     }
 
@@ -579,7 +584,7 @@ namespace Kobold.Controls
         private void ShowOnboarding()
         {
             if (_detached) return;
-            _onboardingVisible = true;
+            _onboardingDismissed = false;
             NoIndexState.Visibility = Visibility.Collapsed;
             EmptyState.Visibility = Visibility.Collapsed;
             OnboardingPanel.Visibility = Visibility.Visible;
@@ -588,7 +593,6 @@ namespace Kobold.Controls
 
         private void HideOnboarding()
         {
-            _onboardingVisible = false;
             if (OnboardingPanel != null) OnboardingPanel.Visibility = Visibility.Collapsed;
         }
 
@@ -598,8 +602,8 @@ namespace Kobold.Controls
         /// </summary>
         private void PopulateRoots()
         {
-            if (_rootsLoaded) return;
-            _rootsLoaded = true;
+            if (_rootsLoaded || _rootsLoading) return;
+            _rootsLoading = true;
 
             string[] configured = null;
             try
@@ -616,9 +620,21 @@ namespace Kobold.Controls
 
             Task.Run(() => SearchRoots.Resolve(configured)).ContinueWith(task =>
             {
-                if (task.IsFaulted || task.IsCanceled) return;
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    // Leave _rootsLoaded false so the next onboarding show
+                    // retries instead of keeping a permanently empty list.
+                    PostToUi(() => { _rootsLoading = false; });
+                    return;
+                }
+
                 IReadOnlyList<string> roots = task.Result;
-                PostToUi(() => ApplyRoots(roots));
+                PostToUi(() =>
+                {
+                    _rootsLoading = false;
+                    _rootsLoaded = true;
+                    ApplyRoots(roots);
+                });
             });
         }
 
@@ -626,17 +642,7 @@ namespace Kobold.Controls
         {
             if (_detached) return;
             RootsList.Items.Clear();
-
-            if (roots == null || roots.Count == 0)
-            {
-                RootsList.Items.Add(new TextBlock
-                {
-                    Text = Localization.Get("Search_NotConfigured"),
-                    FontSize = 12
-                });
-                ScopeHint.Text = string.Empty;
-                return;
-            }
+            if (roots == null) return;
 
             for (int i = 0; i < roots.Count; i++)
             {
@@ -647,7 +653,6 @@ namespace Kobold.Controls
                     Margin = new Thickness(0, 1, 0, 1)
                 });
             }
-            ScopeHint.Text = Localization.Get("Search_Drives") + ": " + string.Join("   ", roots);
         }
 
         private void StartIndexButton_Click(object sender, RoutedEventArgs e)
