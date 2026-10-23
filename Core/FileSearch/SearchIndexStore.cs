@@ -386,15 +386,19 @@ DELETE FROM files
                 ThrowIfDisposed();
 
                 // A directory delete removes the row itself and its whole subtree. The
-                // trailing separator is escaped like the rest, then a wildcard matches
-                // any child - so C:\p\sub never claims C:\p\submarine.
-                string prefix = SearchPath.EscapeLike(path.TrimEnd('\\') + "\\") + "%";
+                // trailing separator is stripped so "C:\p\sub\" also matches the stored
+                // "C:\p\sub" row, while the pattern keeps it escaped: C:\p\sub never
+                // claims C:\p\submarine. A drive root keeps its separator.
+                string directory = path.TrimEnd('\\');
+                if (directory.Length == 2 && directory[1] == ':') directory += "\\";
+                string exact = directory.Length == 0 ? path : directory;
+                string prefix = SearchPath.EscapeLike(exact.TrimEnd('\\') + "\\") + "%";
 
                 using (var connection = OpenWrite())
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = @"DELETE FROM files WHERE Path = @path OR Path LIKE @prefix ESCAPE '\';";
-                    command.Parameters.AddWithValue("@path", path);
+                    command.Parameters.AddWithValue("@path", exact);
                     command.Parameters.AddWithValue("@prefix", prefix);
                     command.ExecuteNonQuery();
                 }
@@ -414,19 +418,29 @@ DELETE FROM files
             string contains = "%" + SearchPath.EscapeLike(q) + "%";
 
             using (var connection = OpenRead())
+            // Deferred (not IMMEDIATE) so a read-only connection can take it; the first
+            // SELECT pins one WAL snapshot for the count and both row phases, so a
+            // concurrent full-scan swap cannot mix generations.
+            using (var transaction = connection.BeginTransaction(deferred: true))
             {
                 long total;
                 using (var command = connection.CreateCommand())
                 {
+                    command.Transaction = transaction;
                     command.CommandText = CountSql;
                     command.Parameters.AddWithValue("@contains", contains);
                     total = ScalarLong(command);
                 }
-                if (total == 0) return new SearchQueryResult(new SearchEntry[0], 0, false);
+                if (total == 0)
+                {
+                    transaction.Commit();
+                    return new SearchQueryResult(new SearchEntry[0], 0, false);
+                }
 
                 var items = new List<SearchEntry>(Math.Min(limit, ToInt(total)));
                 using (var command = connection.CreateCommand())
                 {
+                    command.Transaction = transaction;
                     command.CommandText = PrefixSql;
                     command.Parameters.AddWithValue("@q", q);
                     command.Parameters.AddWithValue("@limit", limit);
@@ -437,6 +451,7 @@ DELETE FROM files
                 {
                     using (var command = connection.CreateCommand())
                     {
+                        command.Transaction = transaction;
                         command.CommandText = SuffixSql;
                         command.Parameters.AddWithValue("@q", q);
                         command.Parameters.AddWithValue("@contains", contains);
@@ -445,6 +460,7 @@ DELETE FROM files
                     }
                 }
 
+                transaction.Commit();
                 int totalMatches = ToInt(total);
                 return new SearchQueryResult(items, totalMatches, totalMatches > items.Count);
             }

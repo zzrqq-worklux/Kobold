@@ -54,7 +54,10 @@ namespace Kobold.FileSearchCheck
             SearchDataModelCase();
             ConfigCases();
             StoreCases();
+            StoreSuffixCases();
+            StoreDeleteBoundaryCases();
             StoreConcurrencyCase();
+            StoreSnapshotCase();
         }
 
         private static void TypeFilterCases()
@@ -431,6 +434,145 @@ namespace Kobold.FileSearchCheck
                 Check(store.Query("keep", 300, CancellationToken.None).TotalMatches == 1,
                     "store: a reconcile can start again after an abort");
             }
+        }
+
+        private static void StoreSuffixCases()
+        {
+            string db = Path.Combine(_root, "suffix.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[]
+                {
+                    Entry(@"C:\p\Alpha.txt", "Alpha.txt", "txt", false, 10, @"C:\"),
+                    Entry(@"C:\p\BetaAlpha.txt", "BetaAlpha.txt", "txt", false, 20, @"C:\"),
+                    Entry(@"C:\Projects\Alpha\report.txt", "report.txt", "txt", false, 30, @"C:\"),
+                });
+                store.CompleteFullScan(0, 0, 0, "fp");
+
+                var q = store.Query("alpha", 300, CancellationToken.None);
+                Check(q.TotalMatches == 3 && q.Items.Count == 3
+                      && q.Items[0].Name == "Alpha.txt"
+                      && q.Items[1].Name == "BetaAlpha.txt"
+                      && q.Items[2].Name == "report.txt",
+                    "store: name prefix, then name infix, then path-only match");
+                Check(!q.LimitReached, "store: the suffix phase reports no truncation when it fits");
+
+                q = store.Query("alpha", 2, CancellationToken.None);
+                Check(q.TotalMatches == 3 && q.Items.Count == 2 && q.LimitReached
+                      && q.Items[0].Name == "Alpha.txt" && q.Items[1].Name == "BetaAlpha.txt",
+                    "store: the suffix phase fills the remaining limit after the prefix rows");
+            }
+        }
+
+        private static void StoreDeleteBoundaryCases()
+        {
+            string db = Path.Combine(_root, "boundary.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[]
+                {
+                    Entry(@"C:\p\sub", "sub", "", true, 0, @"C:\p"),
+                    Entry(@"C:\p\sub\Beta.txt", "Beta.txt", "txt", false, 10, @"C:\p"),
+                    Entry(@"C:\p\submarine\Gamma.txt", "Gamma.txt", "txt", false, 20, @"C:\p"),
+                    Entry(@"C:\Root.txt", "Root.txt", "txt", false, 30, @"C:\"),
+                    Entry(@"C:\x\y.txt", "y.txt", "txt", false, 40, @"C:\"),
+                    Entry(@"D:\other.txt", "other.txt", "txt", false, 50, @"D:\"),
+                });
+                store.CompleteFullScan(0, 0, 0, "fp");
+
+                store.DeletePathAndPrefix(@"C:\p\sub\");
+                var subRows = store.Query("sub", 300, CancellationToken.None);
+                bool directoryRowGone = subRows.TotalMatches == 1;
+                foreach (var row in subRows.Items)
+                {
+                    if (row.IsDirectory) directoryRowGone = false;
+                }
+                Check(directoryRowGone,
+                    "store: deleting a directory with a trailing separator removes the directory row");
+                Check(store.Query("beta", 300, CancellationToken.None).TotalMatches == 0,
+                    "store: deleting a directory with a trailing separator removes its children");
+                Check(store.Query("gamma", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: deleting C:\\p\\sub leaves C:\\p\\submarine");
+                Check(store.Query("submarine", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: a prefix delete does not claim a sibling with the same stem");
+
+                store.DeletePathAndPrefix(@"C:\");
+                Check(store.Query("root", 300, CancellationToken.None).TotalMatches == 0
+                      && store.Query("y.txt", 300, CancellationToken.None).TotalMatches == 0,
+                    "store: deleting the drive root removes the whole drive");
+                Check(store.Query("other", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: deleting one drive root leaves other drives alone");
+            }
+        }
+
+        private static void StoreSnapshotCase()
+        {
+            string db = Path.Combine(_root, "snapshot.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                PublishSnapGeneration(store, 200);
+
+                Exception failure = null;
+                var writer = new Thread(() =>
+                {
+                    try
+                    {
+                        for (int round = 0; round < 8; round++)
+                        {
+                            PublishSnapGeneration(store, round % 2 == 0 ? 300 : 200);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex;
+                    }
+                });
+
+                int probes = 0;
+                writer.Start();
+                try
+                {
+                    do
+                    {
+                        var result = store.Query("snap", 1000, CancellationToken.None);
+                        if (result.TotalMatches != result.Items.Count
+                            || (result.TotalMatches != 200 && result.TotalMatches != 300))
+                        {
+                            failure = new InvalidOperationException(
+                                "count and rows came from different scan generations ("
+                                + result.TotalMatches + "/" + result.Items.Count + ")");
+                        }
+                        probes++;
+                    }
+                    while (writer.IsAlive);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+                writer.Join();
+
+                Check(failure == null && probes > 0,
+                    "store: one query sees one snapshot while a full scan swaps the table"
+                    + (failure == null ? string.Empty : " (" + failure.Message + ")"));
+            }
+        }
+
+        private static void PublishSnapGeneration(SearchIndexStore store, int count)
+        {
+            store.BeginFullScan();
+            var rows = new List<SearchEntry>(count);
+            for (int i = 0; i < count; i++)
+            {
+                rows.Add(Entry(@"C:\s\snap" + i + ".txt", "snap" + i + ".txt", "txt", false, i, @"C:\s"));
+            }
+            store.UpsertScanBatch(rows);
+            store.CompleteFullScan(0, 0, 0, "gen" + count);
         }
 
         private static void StoreConcurrencyCase()
