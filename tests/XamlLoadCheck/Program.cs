@@ -109,6 +109,13 @@ namespace Kobold.XamlLoadCheck
                 failures += TryLoad("NoteWidget [high contrast]", () => LoadNote("high contrast"));
                 failures += TryLoad("NoteWidget with notes [dark]", LoadNoteWithNotes);
 
+                // Task 8: the search host must load its chrome + the search
+                // panel skeleton under every theme. Loading never starts a
+                // scan (the view only subscribes once it is in a live tree).
+                failures += TryLoad("SearchWidget [dark]", () => LoadSearch("dark"));
+                failures += TryLoad("SearchWidget [light]", () => LoadSearch("light"));
+                failures += TryLoad("SearchWidget [high contrast]", () => LoadSearch("high contrast"));
+
                 // Regression pins for the drag-anchor defect the manual smoke
                 // found (see report): a forwarded move must never move the
                 // window before its start event, and the chrome must raise the
@@ -439,6 +446,8 @@ namespace Kobold.XamlLoadCheck
                 // styles, dispatched from CreateByKey("note", ...).
                 failures += TryCheck("icon: note factory dispatches classic and hand-drawn", NoteFactoryDispatchesStyles);
                 failures += TryCheck("icon: the by-key factory dispatches note", ByKeyFactoryDispatchesNote);
+                failures += TryCheck("icon: search factory dispatches classic and hand-drawn", SearchFactoryDispatchesStyles);
+                failures += TryCheck("icon: the by-key factory dispatches search", ByKeyFactoryDispatchesSearch);
                 failures += TryCheck("icon: classic note accents use the widget colour", ClassicNoteUsesWidgetColour);
                 failures += TryCheck("icon: hand-drawn note uses the widget colour and themed ink", HandDrawnNoteUsesWidgetColourAndInk);
                 failures += TryCheck("icon: hand-drawn note geometry differs from classic", HandDrawnNoteGeometryDiffersFromClassic);
@@ -457,7 +466,7 @@ namespace Kobold.XamlLoadCheck
 
                 // Task 2 pin: the island's + tile opens the launcher card with
                 // its header and the three kind rows.
-                failures += TryCheck("launcher: the island add menu is a three-row card",
+                failures += TryCheck("launcher: the island add menu lists every kind",
                     IslandAddMenuUsesTheLauncherCard);
                 failures += TryCheck("launcher: the island add menu opens on mouse-up",
                     IslandAddMenuOpensOnMouseUp);
@@ -526,6 +535,14 @@ namespace Kobold.XamlLoadCheck
                 // the chrome header + one card (spec 6.5).
                 failures += TryCheck("factory: note data builds the note widget", FactoryNoteDataBuildsNoteWidget);
                 failures += TryCheck("note: the panel minimum fits the shell", NotePanelMinimumFitsTheShell);
+
+                // Task 8 pins: search data builds through the factory, the
+                // result list virtualizes (recycling), and the empty / no-index
+                // / onboarding state panels all exist in the skeleton.
+                failures += TryCheck("factory: search data builds the search widget", FactorySearchDataBuildsSearchWidget);
+                failures += TryCheck("search: the result list is virtualized", SearchResultListIsVirtualized);
+                failures += TryCheck("search: the empty/no-index/onboarding states exist", SearchStatesExist);
+                failures += TryCheck("search: the panel minimum fits the shell", SearchPanelMinimumFitsTheShell);
 
                 // Task T11 pins: the list state - the cards (title / modified
                 // time / two-line excerpt / task progress), the modified-time
@@ -919,6 +936,34 @@ namespace Kobold.XamlLoadCheck
             if (carried == null || carried.Notes.Count != 1)
             {
                 throw new InvalidOperationException("the note host did not carry its data");
+            }
+            return widget;
+        }
+
+        /// <summary>
+        /// Task 8: builds a Search host the way WidgetManager does - its data
+        /// first, then the window (chrome + SearchPanelView) under the requested
+        /// theme. The window is never shown, so no scan and no store open can
+        /// start from this check.
+        /// </summary>
+        private static SearchWidget LoadSearch(string theme)
+        {
+            if (theme == "dark") ThemeManager.Initialize("dark");
+            else if (theme == "light") ThemeManager.Initialize("light");
+            else ThemeManager.Initialize(ThemeManager.IsDarkTheme ? "dark" : "light");
+
+            var widget = new SearchWidget(new SearchData());
+            if (widget.PanelView == null)
+            {
+                throw new InvalidOperationException("SearchWidget exposes no panel view");
+            }
+
+            // The pre-show size is the kind's default panel size (the migration
+            // persists 422x562 for a real widget).
+            if (widget.Width != 422 || widget.Height != 562)
+            {
+                throw new InvalidOperationException(
+                    "the search window opens at " + widget.Width + "x" + widget.Height + ", wanted 422x562");
             }
             return widget;
         }
@@ -7640,6 +7685,24 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("CreateByKey(note, handdrawn) is not a HandDrawnNoteIconRenderer");
         }
 
+        private static void SearchFactoryDispatchesStyles()
+        {
+            if (!(IconRendererFactory.CreateSearch("classic") is ClassicSearchIconRenderer))
+                throw new InvalidOperationException("CreateSearch(classic) is not a ClassicSearchIconRenderer");
+            if (!(IconRendererFactory.CreateSearch("handdrawn") is HandDrawnSearchIconRenderer))
+                throw new InvalidOperationException("CreateSearch(handdrawn) is not a HandDrawnSearchIconRenderer");
+            if (!(IconRendererFactory.CreateSearch("rounded") is ClassicSearchIconRenderer))
+                throw new InvalidOperationException("the retired rounded search style did not fall back to classic");
+        }
+
+        private static void ByKeyFactoryDispatchesSearch()
+        {
+            if (!(IconRendererFactory.CreateByKey("search", "classic") is ClassicSearchIconRenderer))
+                throw new InvalidOperationException("CreateByKey(search, classic) is not a ClassicSearchIconRenderer");
+            if (!(IconRendererFactory.CreateByKey("search", "handdrawn") is HandDrawnSearchIconRenderer))
+                throw new InvalidOperationException("CreateByKey(search, handdrawn) is not a HandDrawnSearchIconRenderer");
+        }
+
         private static void ClassicNoteUsesWidgetColour()
         {
             ThemeManager.Initialize("dark");
@@ -7965,11 +8028,12 @@ namespace Kobold.XamlLoadCheck
 
                 int kindRows = 0;
                 CountKindRows(card, ref kindRows);
-                if (kindRows != 3)
-                    throw new InvalidOperationException("the island add menu has " + kindRows + " kind rows, wanted 3");
+                if (kindRows != WidgetKindRegistry.All.Count)
+                    throw new InvalidOperationException("the island add menu has " + kindRows
+                        + " kind rows, wanted " + WidgetKindRegistry.All.Count);
 
                 var style = Application.Current.FindResource("Kobold.Style.LauncherItem") as Style;
-                foreach (var id in new[] { "folder", "todo", "note" })
+                foreach (var id in new[] { "folder", "todo", "note", "search" })
                 {
                     var row = FindByTag(card, id) as Button;
                     if (row == null) throw new InvalidOperationException("no " + id + " row");
@@ -8071,8 +8135,7 @@ namespace Kobold.XamlLoadCheck
         {
             if (root == null) return;
             var button = root as Button;
-            if (button != null && button.Tag is string tag &&
-                (tag == "folder" || tag == "todo" || tag == "note"))
+            if (button != null && button.Tag is string tag && WidgetKindRegistry.Find(tag) != null)
             {
                 count++;
             }
@@ -8882,6 +8945,86 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the note panel minimum is " + min.Item1 + "x" + min.Item2 + ", wanted 260x220");
+            }
+        }
+
+        /// <summary>
+        /// Task 8: the search panel's minimum keeps the box, one status line and
+        /// a handful of result rows usable. Read through the base's protected
+        /// hook, the same reflection the resize checks use.
+        /// </summary>
+        private static void SearchPanelMinimumFitsTheShell()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new SearchWidget(new SearchData());
+
+            var result = PrivateBaseMethod("GetMinPanelSize").Invoke(widget, null);
+            var min = ((double, double))result;
+            if (min.Item1 != 340 || min.Item2 != 320)
+            {
+                throw new InvalidOperationException(
+                    "the search panel minimum is " + min.Item1 + "x" + min.Item2 + ", wanted 340x320");
+            }
+        }
+
+        /// <summary>Task 8: search data builds the search window through the factory.</summary>
+        private static void FactorySearchDataBuildsSearchWidget()
+        {
+            if (!(WidgetWindowFactory.Create(new SearchData()) is SearchWidget))
+            {
+                throw new InvalidOperationException("search data did not build a SearchWidget");
+            }
+        }
+
+        /// <summary>
+        /// Task 8: the results list must virtualize with recycling so a 300-row
+        /// result set never builds 300 containers.
+        /// </summary>
+        private static void SearchResultListIsVirtualized()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new SearchWidget(new SearchData());
+            var list = widget.PanelView.FindName("ResultsList") as ListBox;
+            if (list == null)
+            {
+                throw new InvalidOperationException("the search panel has no ResultsList");
+            }
+            if (!VirtualizingStackPanel.GetIsVirtualizing(list))
+            {
+                throw new InvalidOperationException("the result list is not virtualizing");
+            }
+            if (VirtualizingStackPanel.GetVirtualizationMode(list) != VirtualizationMode.Recycling)
+            {
+                throw new InvalidOperationException(
+                    "the result list virtualization mode is "
+                    + VirtualizingStackPanel.GetVirtualizationMode(list));
+            }
+            if (!ScrollViewer.GetCanContentScroll(list))
+            {
+                throw new InvalidOperationException("the result list does not content-scroll");
+            }
+        }
+
+        /// <summary>
+        /// Task 8: the skeleton carries the empty, no-index and onboarding state
+        /// panels plus their controls; Task 9 fills the onboarding behaviour.
+        /// </summary>
+        private static void SearchStatesExist()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new SearchWidget(new SearchData());
+
+            foreach (string name in new[]
+            {
+                "EmptyState", "NoIndexState", "OnboardingPanel", "StartIndexButton",
+                "OnboardingStartButton", "OnboardingLaterButton", "RootsList", "ScopeHint",
+                "SearchBox", "ClearButton", "PlaceholderText", "StatusText", "ScanProgress"
+            })
+            {
+                if (widget.PanelView.FindName(name) == null)
+                {
+                    throw new InvalidOperationException("the search panel has no " + name);
+                }
             }
         }
 

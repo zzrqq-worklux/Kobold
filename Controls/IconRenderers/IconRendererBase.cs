@@ -98,6 +98,17 @@ namespace Kobold.Controls.IconRenderers
             }
         }
 
+        /// <summary>Search icon renderer for a style id; unknown/retired ids fall back to classic.</summary>
+        public static IIconRenderer CreateSearch(string style)
+        {
+            switch (style)
+            {
+                case "classic": return new ClassicSearchIconRenderer();
+                case "handdrawn": return new HandDrawnSearchIconRenderer();
+                default: return new ClassicSearchIconRenderer();
+            }
+        }
+
         /// <summary>Picks the renderer from a <see cref="WidgetKind.IconKey"/>;
         /// the folder glyph covers the fallback cases, matching the island's
         /// historical else-branch.</summary>
@@ -105,6 +116,7 @@ namespace Kobold.Controls.IconRenderers
         {
             if (iconKey == "todo") return CreateTodo(style);
             if (iconKey == "note") return CreateNote(style);
+            if (iconKey == "search") return CreateSearch(style);
             return Create(style);
         }
     }

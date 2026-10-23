@@ -78,6 +78,7 @@ namespace Kobold.FileSearchCheck
             BadTimestampCases();
             RootCases();
             SearchDataModelCase();
+            SearchDataCases();
             ConfigCases();
             StoreCases();
             StoreSuffixCases();
@@ -337,6 +338,19 @@ namespace Kobold.FileSearchCheck
         {
             var data = new Kobold.Core.SearchData();
             Check(data.Kind == "search", "search data: the kind is search");
+        }
+
+        /// <summary>
+        /// Task 8: the registered search kind drives the config round trip -
+        /// SerializeObject/DeserializeObject keep "search" and the shared id.
+        /// </summary>
+        private static void SearchDataCases()
+        {
+            var data = new Kobold.Core.SearchData();
+            Check(data.Kind == "search" && data.Id != null, "search data: kind and id are set");
+            var json = Newtonsoft.Json.JsonConvert.SerializeObject(data);
+            var back = Newtonsoft.Json.JsonConvert.DeserializeObject<Kobold.Core.SearchData>(json);
+            Check(back != null && back.Kind == "search", "search data: round-trips");
         }
 
         private static void ConfigCases()

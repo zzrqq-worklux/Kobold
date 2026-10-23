@@ -295,6 +295,11 @@ namespace Kobold.WidgetKindsCheck
             PanelSizeMigration.FillMissingSizes(note, 1.1, "en", new DateTime(2026, 10, 15));
             Check(note.PanelWidth == 300 && note.PanelHeight == 380,
                 "note: the migration default is 300x380");
+
+            var search = new SearchData();
+            PanelSizeMigration.FillMissingSizes(search, 1.1, "en", new DateTime(2026, 10, 15));
+            Check(search.PanelWidth == 422 && search.PanelHeight == 562,
+                "search: the migration default is 422x562");
         }
 
         private static void NoteSizeMigration()
@@ -683,15 +688,19 @@ namespace Kobold.WidgetKindsCheck
             var folder = WidgetKindRegistry.Find("folder");
             var todo = WidgetKindRegistry.Find("todo");
             var note = WidgetKindRegistry.Find("note");
+            var search = WidgetKindRegistry.Find("search");
 
-            Check(WidgetKindRegistry.All.Count == 3 && folder != null && todo != null && note != null,
-                "the registry holds three kinds");
+            Check(WidgetKindRegistry.All.Count == 4 && folder != null && todo != null && note != null
+                  && search != null,
+                "the registry holds four kinds");
             Check(folder != null && folder.Id == "folder" && folder.NameKey == "UI_DefaultFolderName"
                   && folder.IconKey == "folder", "the folder kind carries its id, name key and icon key");
             Check(todo != null && todo.Id == "todo" && todo.NameKey == "UI_DefaultTodoName"
                   && todo.IconKey == "todo", "the todo kind carries its id, name key and icon key");
             Check(note != null && note.Id == "note" && note.NameKey == "UI_DefaultNoteName"
                   && note.IconKey == "note", "the note kind carries its id, name key and icon key");
+            Check(search != null && search.Id == "search" && search.NameKey == "UI_DefaultSearchName"
+                  && search.IconKey == "search", "the search kind carries its id, name key and icon key");
             Check(WidgetKindRegistry.Find("weather") == null, "an unknown kind id is not found");
 
             Check(typeof(WidgetKind).GetField("SupportsGridColumns") == null
@@ -714,12 +723,19 @@ namespace Kobold.WidgetKindsCheck
             Check(defaultNote != null && defaultNote.Notes != null && defaultNote.Notes.Count == 0
                   && defaultNote.Kind == "note", "the note factory builds an empty note");
 
+            var defaultSearch = search?.CreateDefault() as SearchData;
+            Check(defaultSearch != null && defaultSearch.Kind == "search"
+                  && !string.IsNullOrEmpty(defaultSearch.Id),
+                "the search factory builds an empty search widget");
+
             Check(folder != null && folder.DataType == typeof(FolderData),
                 "the folder kind carries its data type");
             Check(todo != null && todo.DataType == typeof(TodoData),
                 "the todo kind carries its data type");
             Check(note != null && note.DataType == typeof(NoteData),
                 "the note kind carries its data type");
+            Check(search != null && search.DataType == typeof(SearchData),
+                "the search kind carries its data type");
         }
 
         private static void RegisteredTypeDrivesTheLoad()

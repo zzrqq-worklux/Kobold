@@ -16,6 +16,10 @@ namespace Kobold.Core
         private const double NOTE_DEFAULT_WIDTH = 300;
         private const double NOTE_DEFAULT_HEIGHT = 380;
 
+        // Task 8: the search panel's default size (box + status + results).
+        private const double SEARCH_DEFAULT_WIDTH = 422;
+        private const double SEARCH_DEFAULT_HEIGHT = 562;
+
         /// <summary>
         /// Fills the missing size fields of one widget. Folders replay the old
         /// grid settings through <see cref="PanelLayoutAdapter.MigrateFolderSize"/>;
@@ -56,6 +60,12 @@ namespace Kobold.Core
             {
                 if (note.PanelWidth == null) note.PanelWidth = NOTE_DEFAULT_WIDTH;
                 if (note.PanelHeight == null) note.PanelHeight = NOTE_DEFAULT_HEIGHT;
+            }
+
+            if (widget is SearchData search)
+            {
+                if (search.PanelWidth == null) search.PanelWidth = SEARCH_DEFAULT_WIDTH;
+                if (search.PanelHeight == null) search.PanelHeight = SEARCH_DEFAULT_HEIGHT;
             }
         }
     }

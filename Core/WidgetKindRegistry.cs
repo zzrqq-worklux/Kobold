@@ -59,6 +59,14 @@ namespace Kobold.Core
                 IconKey = "note",
                 CreateDefault = () => new NoteData(),
                 DataType = typeof(NoteData),
+            },
+            new WidgetKind
+            {
+                Id = "search",
+                NameKey = "UI_DefaultSearchName",
+                IconKey = "search",
+                CreateDefault = () => new SearchData(),
+                DataType = typeof(SearchData),
             }
         }.AsReadOnly();
 

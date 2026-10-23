@@ -1,0 +1,15 @@
+<local:WidgetWindowBase x:Class="Kobold.Controls.SearchWidget"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Kobold.Controls"
+        Title="SearchWidget" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" Topmost="False" ResizeMode="NoResize"
+        ShowInTaskbar="False" Width="422" Height="562"
+        TextOptions.TextFormattingMode="Display">
+
+    <!-- The shared shell. SearchPanelView is injected into the chrome's
+         ContentHost by the code-behind (it needs the data + host reference);
+         the widget menu comes from WidgetMenuBuilder. The pre-show 422x562
+         matches the kind's default panel size. -->
+    <local:WidgetChrome x:Name="SearchChrome"/>
+</local:WidgetWindowBase>

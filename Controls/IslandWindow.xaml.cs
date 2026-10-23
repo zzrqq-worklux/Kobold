@@ -700,6 +700,7 @@ namespace Kobold.Controls
                 case "folder": return "Island_NewFolderHint";
                 case "todo": return "Island_NewTodoHint";
                 case "note": return "Island_NewNoteHint";
+                case "search": return "Island_NewSearchHint";
                 default: return string.Empty;
             }
         }
@@ -711,6 +712,7 @@ namespace Kobold.Controls
                 case "folder": return "UI_WidgetKindFolder";
                 case "todo": return "UI_WidgetKindTodo";
                 case "note": return "UI_WidgetKindNote";
+                case "search": return "UI_WidgetKindSearch";
                 default: return kindId;
             }
         }
