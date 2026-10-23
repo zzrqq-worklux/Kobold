@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Kobold.Core.FileSearch;
 
 namespace Kobold.Core
 {
@@ -34,6 +35,13 @@ namespace Kobold.Core
         /// </summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public List<FolderData> Folders { get; set; }
+
+        /// <summary>
+        /// Optional file-search settings; null until the user configures the
+        /// feature, in which case nothing is written for it.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public FileSearchSettings FileSearch { get; set; }
 
         public AppConfig()
         {
@@ -117,6 +125,10 @@ namespace Kobold.Core
             // Legacy Folders move into Widgets before anything reads the list
             // or writes it back. New-format configs are already migrated.
             loaded.MigrateLegacyWidgets();
+
+            // Optional file-search settings are repaired only when present; a
+            // missing block stays null (unconfigured) and is never written.
+            if (loaded.FileSearch != null) loaded.FileSearch.Normalize();
 
             // Configs written before the size fields existed (and the migrated
             // legacy folders) get their panel size filled once in memory; the

@@ -50,6 +50,8 @@ namespace Kobold.FileSearchCheck
             EntryCases();
             BadTimestampCases();
             RootCases();
+            SearchDataModelCase();
+            ConfigCases();
         }
 
         private static void TypeFilterCases()
@@ -288,6 +290,42 @@ namespace Kobold.FileSearchCheck
                 if (r.IndexOf(@"\\?\") >= 0 || !Path.IsPathRooted(r)) plainAndRooted = false;
             }
             Check(plainAndRooted, "roots: fixed roots are plain rooted paths");
+        }
+
+        private static void SearchDataModelCase()
+        {
+            var data = new Kobold.Core.SearchData();
+            Check(data.Kind == "search", "search data: the kind is search");
+        }
+
+        private static void ConfigCases()
+        {
+            string dir = Path.Combine(_root, "config");
+            Directory.CreateDirectory(dir);
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""FileSearch"": { ""Configured"": true, ""IndexAllFiles"": true,
+                ""Types"": [""PDF"", "".CS""], ""ReconcileMinutes"": -5 } }");
+            var cfg = Kobold.Core.AppConfig.Load(main, backup);
+            Check(cfg.FileSearch != null && cfg.FileSearch.Configured && cfg.FileSearch.IndexAllFiles,
+                "config: FileSearch round-trips its booleans");
+            Check(cfg.FileSearch != null && Array.IndexOf(cfg.FileSearch.Types, "pdf") >= 0
+                  && Array.IndexOf(cfg.FileSearch.Types, "cs") >= 0,
+                "config: types are normalized to lowercase without dots");
+            Check(cfg.FileSearch != null && cfg.FileSearch.ReconcileMinutes == 0,
+                "config: negative reconcile minutes normalize to 0");
+
+            File.WriteAllText(main, @"{ ""Language"": ""en"" }");
+            cfg = Kobold.Core.AppConfig.Load(main, backup);
+            Check(cfg.FileSearch == null, "config: a missing FileSearch stays null (unconfigured)");
+
+            cfg.FileSearch = FileSearchSettings.CreateDefault();
+            cfg.FileSearch.Configured = true;
+            cfg.Save();
+            var reloaded = Kobold.Core.AppConfig.Load(main, backup);
+            Check(reloaded.FileSearch != null && reloaded.FileSearch.Configured,
+                "config: a saved FileSearch reloads");
         }
 
         private static bool PathsEqual(string a, string b)

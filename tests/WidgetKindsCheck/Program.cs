@@ -77,6 +77,42 @@ namespace Kobold.WidgetKindsCheck
             FreshConfigGetsOneFolder();
             CorruptWidgetListsAreUnreadable();
             PanelSizeMigrationChecks();
+            FileSearchSettingsRoundTrip();
+        }
+
+        /// <summary>
+        /// The optional file-search block: settings load through AppConfig,
+        /// a configured block is written back, and an absent block stays
+        /// absent (FileSearch is null, not an empty object).
+        /// </summary>
+        private static void FileSearchSettingsRoundTrip()
+        {
+            string dir = NewCase("file-search-settings");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main,
+                @"{ ""FileSearch"": { ""Enabled"": true, ""Configured"": true, " +
+                @"""IndexAllFiles"": false, ""ReconcileMinutes"": 30 } }");
+            var cfg = AppConfig.Load(main, backup);
+            Check(cfg.FileSearch != null && cfg.FileSearch.Configured
+                  && cfg.FileSearch.Enabled && cfg.FileSearch.ReconcileMinutes == 30,
+                "config: the FileSearch block round-trips its settings");
+
+            cfg.Save();
+            var root = JObject.Parse(File.ReadAllText(main));
+            Check(root["FileSearch"] != null && root["FileSearch"].Value<bool>("Configured"),
+                "config: a configured FileSearch block is written");
+            var reloaded = AppConfig.Load(main, backup);
+            Check(reloaded.FileSearch != null && reloaded.FileSearch.Configured,
+                "config: the saved FileSearch block reloads");
+
+            string bareDir = NewCase("file-search-absent");
+            string bareMain = Path.Combine(bareDir, "config.json");
+            var bare = AppConfig.Load(bareMain, bareMain + ".backup");
+            Check(bare.FileSearch == null, "config: an absent FileSearch block stays null");
+            Check(!File.ReadAllText(bareMain).Contains("\"FileSearch\""),
+                "config: an unconfigured FileSearch is not written as an empty object");
         }
 
         private static void PanelSizeMigrationChecks()
