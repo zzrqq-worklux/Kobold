@@ -91,7 +91,7 @@ namespace Kobold.Core
                 ["Search_SettingsPause"] = "Pause",
                 ["Search_SettingsResume"] = "Resume",
                 ["Search_NeedsRebuild"] = "Settings changed; rebuild the index to apply them.",
-                ["Search_SettingsNeedRoot"] = "Select at least one drive to index.",
+                ["Search_SettingsNeedRoot"] = "Select at least one drive to index. The File Search section will not be saved.",
 
                 ["UI_NewWidgetFormat"] = "New {0}",
                 ["UI_SelectedCountFormat"] = "{0} selected",
@@ -350,7 +350,7 @@ namespace Kobold.Core
                 ["Search_SettingsPause"] = "暂停",
                 ["Search_SettingsResume"] = "继续",
                 ["Search_NeedsRebuild"] = "设置已更改；重建索引后生效。",
-                ["Search_SettingsNeedRoot"] = "请至少选择一个要索引的磁盘。",
+                ["Search_SettingsNeedRoot"] = "请至少选择一个要索引的磁盘。文件搜索区将不会被保存。",
 
                 ["UI_NewWidgetFormat"] = "新建{0}",
                 ["UI_SelectedCountFormat"] = "{0} 项已选",
@@ -609,7 +609,7 @@ namespace Kobold.Core
                 ["Search_SettingsPause"] = "一時停止",
                 ["Search_SettingsResume"] = "再開",
                 ["Search_NeedsRebuild"] = "設定が変更されました。インデックスを再構築すると反映されます。",
-                ["Search_SettingsNeedRoot"] = "索引するドライブを 1 つ以上選択してください。",
+                ["Search_SettingsNeedRoot"] = "索引するドライブを 1 つ以上選択してください。ファイル検索セクションは保存されません。",
 
                 ["UI_NewWidgetFormat"] = "新規{0}",
                 ["UI_SelectedCountFormat"] = "{0} 件選択中",

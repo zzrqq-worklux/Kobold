@@ -192,6 +192,11 @@ namespace Kobold.FileSearchCheck
             string c = s.ComputeFingerprint(new[] { @"c:\", @"D:\" });
             string d = s.ComputeFingerprint(new[] { @"D:\", @"C:\" });
             Check(c == d, "settings: fingerprint does not depend on root order or case");
+
+            var clone = s.Clone();
+            if (clone.Types != null && clone.Types.Length > 0) clone.Types[0] = "zzz";
+            Check(s.Types.Length > 0 && s.Types[0] != "zzz",
+                "settings: clone copies the arrays instead of sharing them");
         }
 
         private static void NormalizeCases()
@@ -333,6 +338,14 @@ namespace Kobold.FileSearchCheck
                 if (r.IndexOf(@"\\?\") >= 0 || !Path.IsPathRooted(r)) plainAndRooted = false;
             }
             Check(plainAndRooted, "roots: fixed roots are plain rooted paths");
+
+            // Task 9: the shared "checked roots -> config form" rule used by the
+            // onboarding and the Settings section.
+            Check(SearchRoots.ToConfiguredRoots(fixedRoots).Length == 0,
+                "roots: every fixed root collapses to the all-fixed form");
+            var explicitRoots = SearchRoots.ToConfiguredRoots(new[] { tree });
+            Check(explicitRoots.Length == 1 && PathsEqual(explicitRoots[0], tree),
+                "roots: an explicit selection stays explicit");
         }
 
         private static void SearchDataModelCase()

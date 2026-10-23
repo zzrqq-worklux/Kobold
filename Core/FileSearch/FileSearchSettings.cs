@@ -73,6 +73,27 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
+        /// Independent copy (arrays included). The Settings window keeps one
+        /// for Cancel and one for the "was this section edited?" baseline, so
+        /// neither may share storage with the live config.
+        /// </summary>
+        public FileSearchSettings Clone()
+        {
+            return new FileSearchSettings
+            {
+                Enabled = Enabled,
+                Configured = Configured,
+                Roots = Roots == null ? null : (string[])Roots.Clone(),
+                IndexAllFiles = IndexAllFiles,
+                Types = Types == null ? null : (string[])Types.Clone(),
+                IndexFolders = IndexFolders,
+                IndexExtensionless = IndexExtensionless,
+                ExcludeDirectories = ExcludeDirectories == null ? null : (string[])ExcludeDirectories.Clone(),
+                ReconcileMinutes = ReconcileMinutes
+            };
+        }
+
+        /// <summary>
         /// Signature of everything that shapes the index contents. The store keeps
         /// the fingerprint of the published scan; a mismatch means "rebuild needed".
         /// </summary>

@@ -84,5 +84,51 @@ namespace Kobold.Core.FileSearch
             }
             return roots;
         }
+
+        /// <summary>
+        /// The config form of a user's checked root selection: exactly every
+        /// fixed NTFS root collapses to the empty array (the config's
+        /// "all fixed drives" form) and is then kept in sync with drives
+        /// attached later. Anything else - a partial fixed selection, an extra
+        /// directory, an empty enumeration of fixed roots - stays explicit.
+        /// The onboarding and the Settings section share this rule so the two
+        /// editors cannot drift apart.
+        /// </summary>
+        public static string[] ToConfiguredRoots(IEnumerable<string> selected)
+        {
+            var values = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (selected != null)
+            {
+                foreach (var raw in selected)
+                {
+                    if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                    string value = raw.Trim();
+                    if (!seen.Add(RootKey(value))) continue;
+                    values.Add(value);
+                }
+            }
+
+            IReadOnlyList<string> fixedRoots = FixedNtfsRoots();
+            // No fixed root is enumerable: never interpret an explicit
+            // selection as the "all fixed roots" form.
+            if (fixedRoots.Count == 0 || values.Count != fixedRoots.Count) return values.ToArray();
+
+            var fixedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var root in fixedRoots) fixedKeys.Add(RootKey(root));
+
+            foreach (var value in values)
+            {
+                if (!fixedKeys.Contains(RootKey(value))) return values.ToArray();
+            }
+            return new string[0];
+        }
+
+        private static string RootKey(string root)
+        {
+            return root.Trim().TrimEnd('\\').ToLowerInvariant();
+        }
     }
 }

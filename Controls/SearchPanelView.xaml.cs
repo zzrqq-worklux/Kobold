@@ -58,6 +58,14 @@ namespace Kobold.Controls
         private MenuItem _locationMenuItem;
         private MenuItem _copyMenuItem;
 
+        /// <summary>
+        /// Test seam (XamlLoadCheck): when set, starting the onboarding routes
+        /// the scan request here instead of the process-wide service, so the
+        /// configured-install path can be pinned without scanning the machine.
+        /// Production never sets it.
+        /// </summary>
+        internal Action<FileSearchSettings, IReadOnlyList<string>> StartScanForChecks { get; set; }
+
         public SearchPanelView()
         {
             InitializeComponent();
@@ -713,12 +721,6 @@ namespace Kobold.Controls
 
         private void OnboardingStartButton_Click(object sender, RoutedEventArgs e)
         {
-            if (IsConfigured())
-            {
-                HideOnboarding();
-                return;
-            }
-
             var roots = new List<string>();
             foreach (object item in RootsList.Items)
             {
@@ -732,24 +734,46 @@ namespace Kobold.Controls
             // checkbox change racing the click must not write an empty set.
             if (roots.Count == 0) return;
 
-            FileSearchSettings settings = FileSearchSettings.CreateDefault();
+            AppConfig config = WidgetManager.Instance.Config;
+
+            // A configured install reaches this panel through the no-index
+            // Start button, so keep its other choices and replace only the
+            // roots; a fresh install starts from the defaults.
+            FileSearchSettings settings = config.FileSearch == null
+                ? FileSearchSettings.CreateDefault()
+                : config.FileSearch.Clone();
             settings.Configured = true;
             settings.Enabled = true;
             // Every fixed drive checked is the default root set, stored as the
             // empty array so newly attached fixed drives are picked up too.
-            settings.Roots = CoversEveryFixedRoot(roots) ? new string[0] : roots.ToArray();
+            settings.Roots = SearchRoots.ToConfiguredRoots(roots);
             settings.Normalize();
 
-            AppConfig config = WidgetManager.Instance.Config;
             config.FileSearch = settings;
             config.Save();
 
-            if (_service == null) _service = FileSearchIndexService.Instance;
-            _service.ApplySettings(settings);
-            _service.StartFullScan(settings, SearchRoots.Resolve(settings.Roots));
+            StartOnboardingScan(settings, SearchRoots.Resolve(settings.Roots));
 
             HideOnboarding();
-            UpdateStatus(_service.Status);
+            UpdateStatus(_service == null ? FileSearchIndexService.Instance.Status : _service.Status);
+        }
+
+        /// <summary>
+        /// Launches the onboarding scan. The check hook replaces the service
+        /// path so the configured-install pin never scans the machine.
+        /// </summary>
+        private void StartOnboardingScan(FileSearchSettings settings, IReadOnlyList<string> roots)
+        {
+            Action<FileSearchSettings, IReadOnlyList<string>> hook = StartScanForChecks;
+            if (hook != null)
+            {
+                hook(settings, roots);
+                return;
+            }
+
+            if (_service == null) _service = FileSearchIndexService.Instance;
+            _service.ApplySettings(settings);
+            _service.StartFullScan(settings, roots);
         }
 
         private void OnboardingLaterButton_Click(object sender, RoutedEventArgs e)
@@ -760,22 +784,6 @@ namespace Kobold.Controls
             HideOnboarding();
             EmptyState.Visibility = Visibility.Collapsed;
             NoIndexState.Visibility = Visibility.Visible;
-        }
-
-        /// <summary>True when the selection is exactly every fixed NTFS root.</summary>
-        private static bool CoversEveryFixedRoot(List<string> selected)
-        {
-            IReadOnlyList<string> fixedRoots = SearchRoots.FixedNtfsRoots();
-            if (fixedRoots.Count == 0) return true;
-            if (selected.Count != fixedRoots.Count) return false;
-
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < selected.Count; i++) seen.Add(RootKey(selected[i]));
-            for (int i = 0; i < fixedRoots.Count; i++)
-            {
-                if (!seen.Contains(RootKey(fixedRoots[i]))) return false;
-            }
-            return true;
         }
 
         /// <summary>Case- and trailing-separator-insensitive root comparison key.</summary>

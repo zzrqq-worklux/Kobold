@@ -550,7 +550,9 @@ namespace Kobold.XamlLoadCheck
                 // root (without starting a scan), and the search widget menu
                 // offers rebuild + pause before the delete separator.
                 failures += TryCheck("settings: the file search section exists", SettingsFileSearchSectionExists);
+                failures += TryCheck("settings: an untouched file search section stays unconfigured", SettingsFileSearchSaveStaysOptional);
                 failures += TryCheck("search: the onboarding has drive choices and start/later", SearchOnboardingHasActions);
+                failures += TryCheck("search: a configured onboarding start reaches the scan path", SearchConfiguredOnboardingStarts);
                 failures += TryCheck("search: the widget menu offers rebuild and pause", SearchMenuOffersRebuildAndPause);
 
                 // Task T11 pins: the list state - the cards (title / modified
@@ -9160,6 +9162,147 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "populating the onboarding started a scan (" + state + ")");
+            }
+        }
+
+        /// <summary>
+        /// Task 9 fix round 1: a Save that only changes theme/opacity must not
+        /// activate file search. The save decision seam is invoked directly
+        /// (SaveButton would also write the registry and close the window):
+        /// untouched -> false and FileSearch stays null; one changed control ->
+        /// true and a configured section is created.
+        /// </summary>
+        private static void SettingsFileSearchSaveStaysOptional()
+        {
+            ThemeManager.Initialize("dark");
+            AppConfig config = WidgetManager.Instance.Config;
+            FileSearchSettings saved = config.FileSearch;
+            try
+            {
+                config.FileSearch = null;
+                var window = new SettingsWindow();
+
+                var apply = typeof(SettingsWindow).GetMethod("TryApplyFileSearchSection",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (apply == null)
+                {
+                    throw new InvalidOperationException("SettingsWindow.TryApplyFileSearchSection was not found");
+                }
+
+                bool applied = (bool)apply.Invoke(window, null);
+                if (applied)
+                {
+                    throw new InvalidOperationException("an untouched file-search section was applied");
+                }
+                if (config.FileSearch != null)
+                {
+                    throw new InvalidOperationException("an untouched save created FileSearch");
+                }
+
+                var allFiles = window.FindName("FileSearchAllFilesCheck") as CheckBox;
+                if (allFiles == null)
+                {
+                    throw new InvalidOperationException("the all-files check is missing");
+                }
+                allFiles.IsChecked = true;
+
+                applied = (bool)apply.Invoke(window, null);
+                if (!applied)
+                {
+                    throw new InvalidOperationException("an edited file-search section was not applied");
+                }
+                if (config.FileSearch == null || !config.FileSearch.Configured
+                    || !config.FileSearch.Enabled || !config.FileSearch.IndexAllFiles)
+                {
+                    throw new InvalidOperationException(
+                        "the edited section was not saved as a configured, all-files setting");
+                }
+            }
+            finally
+            {
+                config.FileSearch = saved;
+            }
+        }
+
+        /// <summary>
+        /// Task 9 fix round 1: a configured install reaches onboarding through
+        /// the no-index Start button, so Start must build/save/apply settings
+        /// and request the scan instead of returning. The internal
+        /// StartScanForChecks hook records the request; no real scan runs.
+        /// </summary>
+        private static void SearchConfiguredOnboardingStarts()
+        {
+            ThemeManager.Initialize("dark");
+            AppConfig config = WidgetManager.Instance.Config;
+            FileSearchSettings saved = config.FileSearch;
+
+            string root = IO.Path.Combine(IO.Path.GetTempPath(),
+                "kobold-onboarding-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(root);
+
+            try
+            {
+                var settings = FileSearchSettings.CreateDefault();
+                settings.Configured = true;
+                settings.Enabled = true;
+                settings.Roots = new[] { root };
+                config.FileSearch = settings;
+
+                var view = new SearchWidget(new SearchData()).PanelView;
+
+                // A configured install does not auto-show onboarding; the
+                // no-index Start button calls ShowOnboarding.
+                var show = typeof(SearchPanelView).GetMethod("ShowOnboarding",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (show == null) throw new InvalidOperationException("ShowOnboarding was not found");
+                show.Invoke(view, null);
+
+                var rootsList = view.FindName("RootsList") as ItemsControl;
+                if (rootsList == null || rootsList.Items.Count != 1
+                    || !((rootsList.Items[0] as CheckBox)?.IsChecked == true))
+                {
+                    throw new InvalidOperationException(
+                        "the configured roots were not seeded into the onboarding");
+                }
+
+                FileSearchSettings started = null;
+                IReadOnlyList<string> startedRoots = null;
+                int calls = 0;
+
+                var hook = typeof(SearchPanelView).GetProperty("StartScanForChecks",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (hook == null) throw new InvalidOperationException("StartScanForChecks was not found");
+                hook.SetValue(view, new Action<FileSearchSettings, IReadOnlyList<string>>(
+                    (s, r) => { calls++; started = s; startedRoots = r; }));
+
+                var click = typeof(SearchPanelView).GetMethod("OnboardingStartButton_Click",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (click == null) throw new InvalidOperationException("OnboardingStartButton_Click was not found");
+                click.Invoke(view, new object[] { view, new RoutedEventArgs() });
+
+                if (calls != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the configured start never reached the scan path (calls=" + calls + ")");
+                }
+                if (started == null || !started.Configured || !started.Enabled)
+                {
+                    throw new InvalidOperationException("the applied settings are not configured/enabled");
+                }
+                if (startedRoots == null || startedRoots.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the scan got " + (startedRoots == null ? "null" : startedRoots.Count.ToString()) + " root(s)");
+                }
+                if (config.FileSearch == null || !config.FileSearch.Configured)
+                {
+                    throw new InvalidOperationException("starting the configured onboarding did not save the config");
+                }
+            }
+            finally
+            {
+                config.FileSearch = saved;
+                try { IO.Directory.Delete(root, true); } catch (Exception) { }
             }
         }
 

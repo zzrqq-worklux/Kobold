@@ -8,7 +8,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
-using Newtonsoft.Json;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
 using Kobold.Controls;
@@ -37,8 +36,11 @@ namespace Kobold.Windows
         private bool? _storagePinned;
 
         // File search: the section writes the live config on Save, so Cancel
-        // restores this deep copy instead of the (mutated) live object.
+        // restores this deep copy instead of the (mutated) live object. The
+        // baseline captures the controls at open time so an unrelated save
+        // (theme, opacity, ...) never activates file search.
         private FileSearchSettings _originalFileSearch;
+        private FileSearchSettings _fileSearchBaseline;
         private FileSearchIndexService _fileSearchService;
         private bool _fileSearchInfoPending;
         private bool _closed;
@@ -60,7 +62,7 @@ namespace Kobold.Windows
             _originalPanelOpacity = _config.PanelOpacity;
             _originalIslandDelay = _config.IslandCollapseDelay;
             _originalPinStorage = _config.PinStorageToQuickAccess;
-            _originalFileSearch = CloneFileSearch(_config.FileSearch);
+            _originalFileSearch = _config.FileSearch == null ? null : _config.FileSearch.Clone();
 
             // Live status only (in-memory snapshot). The service touches no
             // SQLite until a scan/read is explicitly queued.
@@ -249,9 +251,7 @@ namespace Kobold.Windows
         /// <summary>Cancel must restore the settings the window opened with, not the live object.</summary>
         private static FileSearchSettings CloneFileSearch(FileSearchSettings settings)
         {
-            if (settings == null) return null;
-            return JsonConvert.DeserializeObject<FileSearchSettings>(
-                JsonConvert.SerializeObject(settings));
+            return settings == null ? null : settings.Clone();
         }
 
         private void LoadFileSearchSettings()
@@ -272,6 +272,10 @@ namespace Kobold.Windows
                 .ToString(CultureInfo.InvariantCulture);
 
             PopulateFileSearchRoots(settings);
+
+            // The comparison baseline: the same controls read back immediately,
+            // before the user can change anything.
+            _fileSearchBaseline = BuildFileSearchSettings();
         }
 
         /// <summary>
@@ -322,14 +326,15 @@ namespace Kobold.Windows
         }
 
         /// <summary>
-        /// Reads the controls into a settings object. Saving the section is
-        /// what marks the feature configured: Configured=true, Enabled=true.
+        /// Reads the controls into a settings object. <see cref="Configured"/>
+        /// is only set on save, and only when the section was actually edited;
+        /// <see cref="Enabled"/> keeps the original choice.
         /// </summary>
         private FileSearchSettings BuildFileSearchSettings()
         {
             FileSearchSettings settings = FileSearchSettings.CreateDefault();
-            settings.Configured = true;
-            settings.Enabled = true;
+            settings.Configured = false;
+            settings.Enabled = _originalFileSearch == null || _originalFileSearch.Enabled;
             settings.IndexAllFiles = FileSearchAllFilesCheck.IsChecked == true;
             settings.IndexExtensionless = FileSearchExtensionlessCheck.IsChecked == true;
             settings.IndexFolders = FileSearchFoldersCheck.IsChecked == true;
@@ -355,7 +360,7 @@ namespace Kobold.Windows
             return values.ToArray();
         }
 
-        /// <summary>A missing or out-of-range reconcile interval falls back to ten minutes.</summary>
+        /// <summary>Non-numeric text falls back to ten minutes; numbers clamp to 0..1440.</summary>
         private static int ParseReconcileMinutes(string text)
         {
             int minutes;
@@ -364,14 +369,15 @@ namespace Kobold.Windows
             {
                 return 10;
             }
-            if (minutes < 0 || minutes > 1440) return 10;
+            if (minutes < 0) return 0;
+            if (minutes > 1440) return 1440;
             return minutes;
         }
 
         /// <summary>
-        /// The checked roots. "Every fixed drive checked" is stored as the
-        /// empty array (the config's "all fixed drives" form), unless the user
-        /// also checked an extra configured directory.
+        /// The checked roots in config form: every fixed drive collapses to
+        /// the empty array, anything else stays explicit (shared rule with the
+        /// onboarding, see <see cref="SearchRoots.ToConfiguredRoots"/>).
         /// </summary>
         private string[] ReadCheckedRoots()
         {
@@ -385,25 +391,7 @@ namespace Kobold.Windows
                 if (!string.IsNullOrWhiteSpace(root)) selected.Add(root.Trim());
             }
 
-            IReadOnlyList<string> fixedRoots = SearchRoots.FixedNtfsRoots();
-            if (fixedRoots.Count > 0 && selected.Count == fixedRoots.Count
-                && CoversEveryFixedRoot(selected, fixedRoots))
-            {
-                return new string[0];
-            }
-            return selected.ToArray();
-        }
-
-        private static bool CoversEveryFixedRoot(List<string> selected, IReadOnlyList<string> fixedRoots)
-        {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string root in selected) seen.Add(RootKey(root));
-
-            foreach (string root in fixedRoots)
-            {
-                if (!seen.Contains(RootKey(root))) return false;
-            }
-            return true;
+            return SearchRoots.ToConfiguredRoots(selected);
         }
 
         private static bool ContainsRoot(List<string> roots, string root)
@@ -424,9 +412,87 @@ namespace Kobold.Windows
         }
 
         /// <summary>
-        /// Save is refused with a localized warning when the user unchecked
-        /// every drive: an empty root set means "all fixed drives", the exact
-        /// opposite of the visible selection.
+        /// Applies the file-search section to the config only when the user
+        /// actually edited it. An untouched section (theme/opacity-only save)
+        /// leaves <see cref="AppConfig.FileSearch"/> exactly as it was - null
+        /// on a fresh install - so the feature keeps waiting for onboarding.
+        /// The check assembly reaches this seam so the decision is pinned
+        /// without clicking Save (which writes the registry and closes).
+        /// </summary>
+        internal bool TryApplyFileSearchSection()
+        {
+            if (!IsFileSearchSectionEdited()) return false;
+
+            if (!FileSearchRootsAreValid())
+            {
+                // The warning says the section will not be saved; the rest of
+                // the Settings window still saves normally.
+                return false;
+            }
+
+            FileSearchSettings draft = BuildFileSearchSettings();
+            draft.Configured = true;
+            _config.FileSearch = draft;
+            return true;
+        }
+
+        internal bool IsFileSearchSectionEdited()
+        {
+            if (_fileSearchBaseline == null) return false;
+            return !SameFileSearchContents(BuildFileSearchSettings(), _fileSearchBaseline);
+        }
+
+        /// <summary>Field-wise comparison; Configured/Enabled are not section edits.</summary>
+        private static bool SameFileSearchContents(FileSearchSettings left, FileSearchSettings right)
+        {
+            if (left == null || right == null) return ReferenceEquals(left, right);
+
+            if (left.IndexAllFiles != right.IndexAllFiles
+                || left.IndexFolders != right.IndexFolders
+                || left.IndexExtensionless != right.IndexExtensionless
+                || left.ReconcileMinutes != right.ReconcileMinutes)
+            {
+                return false;
+            }
+
+            return SameSet(left.Types, right.Types)
+                && SameSet(left.ExcludeDirectories, right.ExcludeDirectories)
+                && SameRoots(left.Roots, right.Roots);
+        }
+
+        private static bool SameSet(string[] left, string[] right)
+        {
+            string[] a = left ?? new string[0];
+            string[] b = right ?? new string[0];
+            if (a.Length != b.Length) return false;
+
+            var set = new HashSet<string>(a, StringComparer.OrdinalIgnoreCase);
+            foreach (string value in b)
+            {
+                if (!set.Contains(value)) return false;
+            }
+            return true;
+        }
+
+        private static bool SameRoots(string[] left, string[] right)
+        {
+            string[] a = left ?? new string[0];
+            string[] b = right ?? new string[0];
+            if (a.Length != b.Length) return false;
+
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string root in a) set.Add(RootKey(root));
+            foreach (string root in b)
+            {
+                if (!set.Contains(RootKey(root))) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Scoped no-root guard: returns false with a localized warning when
+        /// the visible selection is empty. The caller skips only the file
+        /// search section and still persists the other settings.
         /// </summary>
         private bool FileSearchRootsAreValid()
         {
@@ -568,15 +634,25 @@ namespace Kobold.Windows
 
             Task.Run(() =>
             {
-                IndexStatus index = null;
                 long size = 0;
-                try { index = service.ReadStatus(); }
-                catch (Exception) { index = null; }
+                DateTime? lastScan = null;
+                try
+                {
+                    IndexStatus index = null;
+                    try { index = service.ReadStatus(); }
+                    catch (Exception) { index = null; }
 
-                size = FileLength(databasePath) + FileLength(databasePath + "-wal")
-                    + FileLength(databasePath + "-shm");
+                    size = FileLength(databasePath) + FileLength(databasePath + "-wal")
+                        + FileLength(databasePath + "-shm");
+                    lastScan = index == null ? (DateTime?)null : index.LastScanUtc;
+                }
+                finally
+                {
+                    // Always release the guard, even if the window closed or the
+                    // post below is skipped because the dispatcher is gone.
+                    _fileSearchInfoPending = false;
+                }
 
-                DateTime? lastScan = index == null ? (DateTime?)null : index.LastScanUtc;
                 PostFileSearchInfo(size, lastScan);
             });
         }
@@ -601,7 +677,6 @@ namespace Kobold.Windows
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                _fileSearchInfoPending = false;
                 if (_closed) return;
 
                 FileSearchSizeText.Text = Localization.Format("Search_IndexSize", FormatFileSize(size));
@@ -802,19 +877,20 @@ namespace Kobold.Windows
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!FileSearchRootsAreValid()) return;
-
-            // Saving the file-search section is what configures the feature;
-            // the service compares the fingerprint against the published index
-            // and flags NeedsRebuild without starting a scan.
-            FileSearchSettings fileSearch = BuildFileSearchSettings();
-            _config.FileSearch = fileSearch;
+            // Only an edited file-search section is written; an untouched one
+            // leaves the live config (and a fresh install's null) alone.
+            bool fileSearchApplied = TryApplyFileSearchSection();
 
             // Apply registry startup setting
             SetStartupRegistry(_config.StartWithWindows);
 
             _config.Save();
-            FileSearchIndexService.Instance.ApplySettings(fileSearch);
+            if (fileSearchApplied)
+            {
+                // The service compares the fingerprint against the published
+                // index and flags NeedsRebuild without starting a scan.
+                FileSearchIndexService.Instance.ApplySettings(_config.FileSearch);
+            }
             WidgetManager.Instance.RefreshAllWidgets();
             WidgetManager.Instance.ApplyIconStyle();
             RefreshWidgetTexts();
