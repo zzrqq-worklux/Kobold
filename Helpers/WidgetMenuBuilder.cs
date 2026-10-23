@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows.Controls;
 using Kobold.Controls;
 using Kobold.Core;
+using Kobold.Core.FileSearch;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Helpers
@@ -39,6 +40,7 @@ namespace Kobold.Helpers
             if (host.Data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
             if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
             if (host.Data is NoteData noteData) menu.AddMenuItem(CreateNoteFontMenu(host, noteData));
+            if (host.Data is SearchData) AddSearchActions(menu);
 
             var built = menu.AddSeparator()
                 .AddItem("Menu_Delete", () => Delete(host))
@@ -223,6 +225,34 @@ namespace Kobold.Helpers
                 regionItem.Items.Add(item);
             }
             return regionItem;
+        }
+
+        #endregion
+
+        #region Kind-specific appendices (search)
+
+        /// <summary>
+        /// Task 9: the search widget owns the index actions. Rebuild asks the
+        /// service directly (no confirmation here: the menu is the user's
+        /// explicit request), and the pause entry flips to Resume while the
+        /// service reports Paused. Labels are localization keys, never text.
+        /// </summary>
+        private static void AddSearchActions(MenuBuilder menu)
+        {
+            menu.AddItem("Search_Rebuild", () => FileSearchIndexService.Instance.RequestRebuild());
+
+            bool paused = FileSearchIndexService.Instance.Status.State == FileSearchState.Paused;
+            menu.AddItem(paused ? "Search_Resume" : "Search_Pause", () =>
+            {
+                if (FileSearchIndexService.Instance.Status.State == FileSearchState.Paused)
+                {
+                    FileSearchIndexService.Instance.Resume();
+                }
+                else
+                {
+                    FileSearchIndexService.Instance.Pause();
+                }
+            });
         }
 
         #endregion

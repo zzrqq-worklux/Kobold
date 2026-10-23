@@ -54,8 +54,6 @@ namespace Kobold.Controls
         private bool _detached;
         private bool _hasQuery;
         private bool _onboardingDismissed;
-        private bool _rootsLoaded;
-        private bool _rootsLoading;
         private MenuItem _openMenuItem;
         private MenuItem _locationMenuItem;
         private MenuItem _copyMenuItem;
@@ -185,15 +183,9 @@ namespace Kobold.Controls
                 _subscribed = true;
             }
 
-            // Loading never scans: it only reads the in-memory status and, for
-            // a fresh install, offers the onboarding panel (Task 9 fills it).
-            if (!IsConfigured())
-            {
-                if (!_onboardingDismissed) ShowOnboarding();
-                UpdateStatus(_service.Status);
-                return;
-            }
-
+            // Loading never scans: it only populates the onboarding choices for
+            // a fresh install (or hides them) and reads the in-memory status.
+            RefreshOnboarding();
             UpdateStatus(_service.Status);
         }
 
@@ -581,6 +573,25 @@ namespace Kobold.Controls
 
         #region Onboarding
 
+        /// <summary>
+        /// The onboarding entry point. A configured install only hides the
+        /// panel; a fresh one lists the drive choices. Internal (not public)
+        /// because it is a test seam for XamlLoadCheck, which reaches it by
+        /// reflection like the other private view pins.
+        /// </summary>
+        internal void RefreshOnboarding()
+        {
+            if (_detached) return;
+
+            if (IsConfigured())
+            {
+                HideOnboarding();
+                return;
+            }
+
+            ShowOnboarding();
+        }
+
         private void ShowOnboarding()
         {
             if (_detached) return;
@@ -597,13 +608,20 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Lists the roots a scan would walk. Drive enumeration and the
-        /// configured-root existence probes run off the UI thread.
+        /// Seeds one checked checkbox per root: the configured roots when the
+        /// config carries any, otherwise every fixed NTFS drive. This only
+        /// enumerates drives - it never resolves, scans or touches SQLite.
         /// </summary>
         private void PopulateRoots()
         {
-            if (_rootsLoaded || _rootsLoading) return;
-            _rootsLoading = true;
+            if (_detached) return;
+            if (RootsList.Items.Count > 0)
+            {
+                // UpdateStatus may re-show the same onboarding; rebuilding the
+                // boxes would throw away a selection the user just made.
+                UpdateOnboardingStartState();
+                return;
+            }
 
             string[] configured = null;
             try
@@ -618,55 +636,79 @@ namespace Kobold.Controls
                 configured = null;
             }
 
-            Task.Run(() => SearchRoots.Resolve(configured)).ContinueWith(task =>
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (configured != null && configured.Length > 0)
             {
-                if (task.IsFaulted || task.IsCanceled)
+                for (int i = 0; i < configured.Length; i++)
                 {
-                    // Leave _rootsLoaded false so the next onboarding show
-                    // retries instead of keeping a permanently empty list.
-                    PostToUi(() => { _rootsLoading = false; });
-                    return;
+                    string root = configured[i];
+                    if (string.IsNullOrWhiteSpace(root)) continue;
+                    root = root.Trim();
+                    if (!seen.Add(RootKey(root))) continue;
+                    AddRootCheckBox(root);
                 }
-
-                IReadOnlyList<string> roots = task.Result;
-                PostToUi(() =>
+            }
+            else
+            {
+                IReadOnlyList<string> fixedRoots = SearchRoots.FixedNtfsRoots();
+                for (int i = 0; i < fixedRoots.Count; i++)
                 {
-                    _rootsLoading = false;
-                    _rootsLoaded = true;
-                    ApplyRoots(roots);
-                });
-            });
+                    if (!seen.Add(RootKey(fixedRoots[i]))) continue;
+                    AddRootCheckBox(fixedRoots[i]);
+                }
+            }
+
+            UpdateOnboardingStartState();
         }
 
-        private void ApplyRoots(IReadOnlyList<string> roots)
+        private void AddRootCheckBox(string root)
         {
-            if (_detached) return;
-            RootsList.Items.Clear();
-            if (roots == null) return;
-
-            for (int i = 0; i < roots.Count; i++)
+            var box = new CheckBox
             {
-                RootsList.Items.Add(new TextBlock
-                {
-                    Text = roots[i],
-                    FontSize = 12,
-                    Margin = new Thickness(0, 1, 0, 1)
-                });
+                Content = root,
+                Tag = root,
+                IsChecked = true,
+                Margin = new Thickness(0, 2, 0, 2)
+            };
+            box.Checked += RootCheckBox_Changed;
+            box.Unchecked += RootCheckBox_Changed;
+            RootsList.Items.Add(box);
+        }
+
+        private void RootCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateOnboardingStartState();
+        }
+
+        /// <summary>
+        /// At least one drive must stay checked: an empty roots array means
+        /// "every fixed NTFS drive", which would contradict an empty selection.
+        /// </summary>
+        private void UpdateOnboardingStartState()
+        {
+            if (OnboardingStartButton == null) return;
+
+            bool any = false;
+            foreach (object item in RootsList.Items)
+            {
+                var box = item as CheckBox;
+                if (box != null && box.IsChecked == true) { any = true; break; }
             }
+            OnboardingStartButton.IsEnabled = any;
         }
 
         private void StartIndexButton_Click(object sender, RoutedEventArgs e)
         {
-            if (IsConfigured())
+            if (_service != null && _service.Status.NeedsRebuild)
             {
                 HideOnboarding();
-                if (_service != null) _service.RequestRebuild();
+                _service.RequestRebuild();
                 return;
             }
 
-            // No settings yet: Task 9 replaces this with the settings form.
+            // Configured but no index (or unconfigured): let the user pick the
+            // roots again. Nothing is written until Start is pressed.
             ShowOnboarding();
-            StatusText.Text = Localization.Get("Search_NotConfigured");
         }
 
         private void OnboardingStartButton_Click(object sender, RoutedEventArgs e)
@@ -674,20 +716,73 @@ namespace Kobold.Controls
             if (IsConfigured())
             {
                 HideOnboarding();
-                if (_service != null) _service.RequestRebuild();
                 return;
             }
 
-            // Task 9 owns the settings editor; until then this stays a stub
-            // that explains why nothing can start yet.
-            StatusText.Text = Localization.Get("Search_NotConfigured");
+            var roots = new List<string>();
+            foreach (object item in RootsList.Items)
+            {
+                var box = item as CheckBox;
+                if (box == null || box.IsChecked != true) continue;
+                string root = box.Tag as string;
+                if (!string.IsNullOrWhiteSpace(root)) roots.Add(root.Trim());
+            }
+
+            // Defensive: the button is disabled with no selection, but a
+            // checkbox change racing the click must not write an empty set.
+            if (roots.Count == 0) return;
+
+            FileSearchSettings settings = FileSearchSettings.CreateDefault();
+            settings.Configured = true;
+            settings.Enabled = true;
+            // Every fixed drive checked is the default root set, stored as the
+            // empty array so newly attached fixed drives are picked up too.
+            settings.Roots = CoversEveryFixedRoot(roots) ? new string[0] : roots.ToArray();
+            settings.Normalize();
+
+            AppConfig config = WidgetManager.Instance.Config;
+            config.FileSearch = settings;
+            config.Save();
+
+            if (_service == null) _service = FileSearchIndexService.Instance;
+            _service.ApplySettings(settings);
+            _service.StartFullScan(settings, SearchRoots.Resolve(settings.Roots));
+
+            HideOnboarding();
+            UpdateStatus(_service.Status);
         }
 
         private void OnboardingLaterButton_Click(object sender, RoutedEventArgs e)
         {
+            // "Later" only leaves the panel: no config is written and no scan
+            // starts. The no-index state keeps a way back in.
             _onboardingDismissed = true;
             HideOnboarding();
-            UpdateStatus(_service == null ? null : _service.Status);
+            EmptyState.Visibility = Visibility.Collapsed;
+            NoIndexState.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>True when the selection is exactly every fixed NTFS root.</summary>
+        private static bool CoversEveryFixedRoot(List<string> selected)
+        {
+            IReadOnlyList<string> fixedRoots = SearchRoots.FixedNtfsRoots();
+            if (fixedRoots.Count == 0) return true;
+            if (selected.Count != fixedRoots.Count) return false;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < selected.Count; i++) seen.Add(RootKey(selected[i]));
+            for (int i = 0; i < fixedRoots.Count; i++)
+            {
+                if (!seen.Contains(RootKey(fixedRoots[i]))) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Case- and trailing-separator-insensitive root comparison key.</summary>
+        private static string RootKey(string root)
+        {
+            if (string.IsNullOrWhiteSpace(root)) return string.Empty;
+            return root.Trim().TrimEnd('\\').ToLowerInvariant();
         }
 
         private void RebuildButton_Click(object sender, RoutedEventArgs e)

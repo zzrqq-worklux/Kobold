@@ -79,6 +79,7 @@ namespace Kobold.FileSearchCheck
             RootCases();
             SearchDataModelCase();
             SearchDataCases();
+            SettingsUiCases();
             ConfigCases();
             StoreCases();
             StoreSuffixCases();
@@ -351,6 +352,22 @@ namespace Kobold.FileSearchCheck
             var json = Newtonsoft.Json.JsonConvert.SerializeObject(data);
             var back = Newtonsoft.Json.JsonConvert.DeserializeObject<Kobold.Core.SearchData>(json);
             Check(back != null && back.Kind == "search", "search data: round-trips");
+        }
+
+        /// <summary>
+        /// Task 9: a settings change that alters the index contents changes the
+        /// fingerprint (which is what the service compares to flag NeedsRebuild).
+        /// "All files" is one of them.
+        /// </summary>
+        private static void SettingsUiCases()
+        {
+            var s = FileSearchSettings.CreateDefault();
+            s.Configured = true;
+            s.Roots = new[] { @"C:\" };
+            var f1 = s.ComputeFingerprint(new[] { @"C:\" });
+            s.IndexAllFiles = true;
+            var f2 = s.ComputeFingerprint(new[] { @"C:\" });
+            Check(f1 != f2, "settings: all-files changes the fingerprint and marks rebuild");
         }
 
         private static void ConfigCases()

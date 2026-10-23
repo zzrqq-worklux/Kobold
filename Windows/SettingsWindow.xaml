@@ -215,6 +215,65 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- File Search Section -->
+                    <TextBlock x:Name="FileSearchHeader" Text="🔎 File Search"
+                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+
+                    <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock x:Name="FileSearchStatusText" Text="Status: —"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       TextWrapping="Wrap" FontFamily="Segoe UI"/>
+                            <TextBlock x:Name="FileSearchSizeText" Text=""
+                                       Foreground="{DynamicResource Kobold.Brush.TextMuted}"
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                            <TextBlock x:Name="FileSearchLastUpdatedText" Text=""
+                                       Foreground="{DynamicResource Kobold.Brush.TextMuted}"
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+
+                            <CheckBox x:Name="FileSearchAllFilesCheck" Content="All files"
+                                      Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                      Margin="0,10,0,0" FontFamily="Segoe UI"/>
+                            <CheckBox x:Name="FileSearchExtensionlessCheck" Content="Extensionless files"
+                                      Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                      Margin="0,6,0,0" FontFamily="Segoe UI"/>
+                            <CheckBox x:Name="FileSearchFoldersCheck" Content="Index folders"
+                                      Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                      Margin="0,6,0,0" FontFamily="Segoe UI"/>
+
+                            <TextBlock x:Name="FileSearchTypesLabel" Text="File types (comma separated)"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                            <TextBox x:Name="FileSearchTypesBox" TextWrapping="Wrap"/>
+
+                            <TextBlock x:Name="FileSearchExcludesLabel" Text="Extra excluded folders (one per line)"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                            <TextBox x:Name="FileSearchExcludesBox" AcceptsReturn="True" Height="54"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+
+                            <TextBlock x:Name="FileSearchReconcileLabel" Text="Reconcile every (minutes, 0 = off)"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                            <TextBox x:Name="FileSearchReconcileBox" Width="60" HorizontalAlignment="Left"/>
+
+                            <TextBlock x:Name="FileSearchRootsLabel" Text="Indexed drives"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                            <ItemsControl x:Name="FileSearchRootsList"/>
+
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                                <Button x:Name="FileSearchRebuildButton" Content="Rebuild now" MinHeight="32" MinWidth="96" Padding="16,0" FontSize="12"
+                                        Style="{StaticResource Kobold.Style.SecondaryButton}"
+                                        Click="FileSearchRebuildButton_Click"/>
+                                <Button x:Name="FileSearchPauseButton" Content="Pause" MinHeight="32" MinWidth="80" Padding="16,0" FontSize="12" Margin="8,0,0,0"
+                                        Style="{StaticResource Kobold.Style.SecondaryButton}"
+                                        Click="FileSearchPauseButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Island Section -->
                     <TextBlock x:Name="IslandHeader" Text="🏝️ Island" 
                                Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 

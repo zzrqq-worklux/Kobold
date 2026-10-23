@@ -17,6 +17,7 @@ using System.Windows.Shapes;
 using Kobold.Controls;
 using Kobold.Controls.IconRenderers;
 using Kobold.Core;
+using Kobold.Core.FileSearch;
 using Kobold.Helpers;
 using Kobold.Windows;
 using Localization = Kobold.Core.Localization;
@@ -543,6 +544,14 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("search: the result list is virtualized", SearchResultListIsVirtualized);
                 failures += TryCheck("search: the empty/no-index/onboarding states exist", SearchStatesExist);
                 failures += TryCheck("search: the panel minimum fits the shell", SearchPanelMinimumFitsTheShell);
+
+                // Task 9 pins: the settings window carries the file-search
+                // section, the onboarding seeds one checkbox per fixed NTFS
+                // root (without starting a scan), and the search widget menu
+                // offers rebuild + pause before the delete separator.
+                failures += TryCheck("settings: the file search section exists", SettingsFileSearchSectionExists);
+                failures += TryCheck("search: the onboarding has drive choices and start/later", SearchOnboardingHasActions);
+                failures += TryCheck("search: the widget menu offers rebuild and pause", SearchMenuOffersRebuildAndPause);
 
                 // Task T11 pins: the list state - the cards (title / modified
                 // time / two-line excerpt / task progress), the modified-time
@@ -9036,6 +9045,165 @@ namespace Kobold.XamlLoadCheck
                 {
                     throw new InvalidOperationException("the search panel has no " + name);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Task 9: the Settings window carries the file-search section and every
+        /// control the code-behind drives. The labels must already be localized
+        /// by the constructor's UpdateLocalizedText pass.
+        /// </summary>
+        private static void SettingsFileSearchSectionExists()
+        {
+            ThemeManager.Initialize("dark");
+            var window = new SettingsWindow();
+
+            foreach (string name in new[]
+            {
+                "FileSearchHeader", "FileSearchStatusText", "FileSearchSizeText",
+                "FileSearchLastUpdatedText", "FileSearchAllFilesCheck",
+                "FileSearchExtensionlessCheck", "FileSearchFoldersCheck",
+                "FileSearchTypesBox", "FileSearchExcludesBox", "FileSearchReconcileBox",
+                "FileSearchRootsList", "FileSearchRebuildButton", "FileSearchPauseButton"
+            })
+            {
+                if (window.FindName(name) == null)
+                {
+                    throw new InvalidOperationException("the settings window has no " + name);
+                }
+            }
+
+            var header = window.FindName("FileSearchHeader") as TextBlock;
+            if (header == null || header.Text != "🔎 " + Localization.Get("Settings_FileSearch"))
+            {
+                throw new InvalidOperationException(
+                    "the file-search header shows '" + (header == null ? "null" : header.Text) + "'");
+            }
+
+            var allFiles = window.FindName("FileSearchAllFilesCheck") as CheckBox;
+            if (allFiles == null || allFiles.Content as string != Localization.Get("Search_SettingsAllFiles"))
+            {
+                throw new InvalidOperationException(
+                    "the all-files check shows '" + (allFiles == null ? "null" : allFiles.Content) + "'");
+            }
+
+            var rebuild = window.FindName("FileSearchRebuildButton") as Button;
+            if (rebuild == null || rebuild.Content as string != Localization.Get("Search_SettingsRebuild"))
+            {
+                throw new InvalidOperationException(
+                    "the rebuild button shows '" + (rebuild == null ? "null" : rebuild.Content) + "'");
+            }
+
+            var pause = window.FindName("FileSearchPauseButton") as Button;
+            string pauseLabel = pause == null ? null : pause.Content as string;
+            if (pauseLabel != Localization.Get("Search_SettingsPause") &&
+                pauseLabel != Localization.Get("Search_SettingsResume"))
+            {
+                throw new InvalidOperationException(
+                    "the pause button shows '" + pauseLabel + "', wanted a localized Pause/Resume label");
+            }
+        }
+
+        /// <summary>
+        /// Task 9: a fresh install's onboarding lists one checked checkbox per
+        /// fixed NTFS root (the configured-roots form when config carries any)
+        /// and has Start/Later. Filling the list must never start a scan.
+        /// </summary>
+        private static void SearchOnboardingHasActions()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+
+            // RefreshOnboarding is internal: the check assembly reaches it the
+            // same way the other private-method pins do.
+            var refresh = typeof(SearchPanelView).GetMethod("RefreshOnboarding",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (refresh == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.RefreshOnboarding was not found");
+            }
+            refresh.Invoke(view, null);
+
+            var rootsList = view.FindName("RootsList") as ItemsControl;
+            var start = view.FindName("OnboardingStartButton") as Button;
+            var later = view.FindName("OnboardingLaterButton") as Button;
+            if (rootsList == null || start == null || later == null)
+            {
+                throw new InvalidOperationException("the onboarding controls are missing");
+            }
+
+            int expected = SearchRoots.FixedNtfsRoots().Count;
+            if (rootsList.Items.Count != expected)
+            {
+                throw new InvalidOperationException(
+                    "the onboarding lists " + rootsList.Items.Count + " root(s), wanted " + expected);
+            }
+
+            foreach (object item in rootsList.Items)
+            {
+                var box = item as CheckBox;
+                if (box == null || box.IsChecked != true || string.IsNullOrEmpty(box.Tag as string))
+                {
+                    throw new InvalidOperationException(
+                        "a root entry is not a checked checkbox with its path tag");
+                }
+            }
+
+            if (!start.IsEnabled)
+            {
+                throw new InvalidOperationException("the start button is disabled with every root checked");
+            }
+
+            FileSearchState state = FileSearchIndexService.Instance.Status.State;
+            if (state == FileSearchState.Indexing || state == FileSearchState.Reconciling)
+            {
+                throw new InvalidOperationException(
+                    "populating the onboarding started a scan (" + state + ")");
+            }
+        }
+
+        /// <summary>
+        /// Task 9: the search widget's menu offers rebuild and the pause toggle
+        /// (localized from the service state) before the delete separator, while
+        /// the other kinds keep their menus.
+        /// </summary>
+        private static void SearchMenuOffersRebuildAndPause()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new SearchWidget(new SearchData());
+            var menu = WidgetMenuBuilder.Build(widget, null);
+
+            int rebuildIndex = -1;
+            int pauseIndex = -1;
+            int separatorIndex = -1;
+            for (int i = 0; i < menu.Items.Count; i++)
+            {
+                if (menu.Items[i] is Separator && separatorIndex < 0)
+                {
+                    separatorIndex = i;
+                    continue;
+                }
+
+                var item = menu.Items[i] as MenuItem;
+                string header = item == null ? null : item.Header as string;
+                if (header == Localization.Get("Search_Rebuild")) rebuildIndex = i;
+                if (header == Localization.Get("Search_Pause")) pauseIndex = i;
+            }
+
+            if (rebuildIndex < 0)
+            {
+                throw new InvalidOperationException("the search menu has no rebuild entry");
+            }
+            if (pauseIndex < 0)
+            {
+                throw new InvalidOperationException("the search menu has no pause entry");
+            }
+            if (separatorIndex < 0 || rebuildIndex > separatorIndex || pauseIndex > separatorIndex)
+            {
+                throw new InvalidOperationException(
+                    "the search actions must sit before the delete separator (" +
+                    rebuildIndex + "/" + pauseIndex + " vs " + separatorIndex + ")");
             }
         }
 
