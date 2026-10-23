@@ -11,8 +11,9 @@ namespace Kobold.FileSearchCheck
 {
     /// <summary>
     /// Checks for the file-search core layer: settings defaults, path helpers,
-    /// type filter, directory exclusions, index entries, root resolution and the
-    /// SQLite index store (schema, scans, reconcile, query).
+    /// type filter, directory exclusions, index entries, root resolution, the
+    /// SQLite index store (schema, scans, reconcile, query) and the directory
+    /// scanner.
     /// No UI. Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/FileSearchCheck
     /// </summary>
@@ -24,7 +25,11 @@ namespace Kobold.FileSearchCheck
         private static int Main()
         {
             Console.OutputEncoding = Encoding.UTF8;
-            _root = Path.Combine(Path.GetTempPath(), "kobold-filesearch-" + Guid.NewGuid().ToString("N"));
+            // %TEMP% is a production default exclusion, so a tree created there would
+            // be invisible to the scanner. The scratch tree lives in the repo instead,
+            // under the git-ignored .superpowers directory.
+            _root = Path.Combine(FindRepoRoot(), ".superpowers", "sdd", "file-search-check",
+                Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_root);
             try { RunAll(); }
             finally { try { Directory.Delete(_root, true); } catch { } }
@@ -38,6 +43,25 @@ namespace Kobold.FileSearchCheck
         private static void Check(bool ok, string what)
         {
             if (ok) Console.WriteLine("PASS " + what); else Errors.Add(what);
+        }
+
+        /// <summary>
+        /// The check project runs from tests/FileSearchCheck/bin/&lt;config&gt;/net48, so
+        /// the repo root is the nearest ancestor that still carries Kobold.csproj.
+        /// </summary>
+        private static string FindRepoRoot()
+        {
+            var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+            while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Kobold.csproj")))
+            {
+                directory = directory.Parent;
+            }
+            if (directory == null)
+            {
+                throw new InvalidOperationException(
+                    "Kobold.csproj was not found above " + AppDomain.CurrentDomain.BaseDirectory);
+            }
+            return directory.FullName;
         }
 
         private static void RunAll()
@@ -58,6 +82,7 @@ namespace Kobold.FileSearchCheck
             StoreDeleteBoundaryCases();
             StoreConcurrencyCase();
             StoreSnapshotCase();
+            ScannerCases();
         }
 
         private static void TypeFilterCases()
@@ -560,6 +585,128 @@ namespace Kobold.FileSearchCheck
                 Check(failure == null && probes > 0,
                     "store: one query sees one snapshot while a full scan swaps the table"
                     + (failure == null ? string.Empty : " (" + failure.Message + ")"));
+            }
+        }
+
+        /// <summary>
+        /// End-to-end scanner checks against a real tree in the repo scratch root:
+        /// default type/name filtering, a denied directory, an injected reparse
+        /// point, deterministic cancellation and the reconcile/subtree write paths.
+        /// </summary>
+        private static void ScannerCases()
+        {
+            string tree = Path.Combine(_root, "tree");
+            string docs = Path.Combine(tree, "docs");
+            string empty = Path.Combine(tree, "empty");
+            Directory.CreateDirectory(docs);
+            Directory.CreateDirectory(Path.Combine(tree, "node_modules", "pkg"));
+            Directory.CreateDirectory(empty);
+            File.WriteAllText(Path.Combine(tree, "README"), "x");
+            File.WriteAllText(Path.Combine(docs, "report.PDF"), "x");
+            File.WriteAllText(Path.Combine(tree, "node_modules", "pkg", "skip.js"), "x");
+            File.WriteAllText(Path.Combine(tree, "app.exe"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            string fingerprint = settings.ComputeFingerprint(new[] { tree });
+
+            string db = Path.Combine(_root, "scan.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+
+                var progress = new List<ScanProgress>();
+                var scanner = new DirectoryScanner(store, settings, progress.Add);
+                store.BeginFullScan();
+                var full = scanner.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None);
+                store.CompleteFullScan(full.SkippedDirectories, full.SkippedReparsePoints,
+                    full.SkippedLongPaths, fingerprint);
+                Check(full.Files == 2 && !full.Cancelled, "scan: default types index README + PDF, skip EXE");
+                Check(full.Directories == 3 && full.SkippedDirectories == 1,
+                    "scan: excluded node_modules is skipped and counted");
+                Check(full.SkippedReparsePoints == 0 && full.SkippedLongPaths == 0,
+                    "scan: a clean tree reports no skipped reparse points or long paths");
+                Check(store.Query("skip", 300, CancellationToken.None).TotalMatches == 0,
+                    "scan: node_modules is not indexed");
+                Check(store.Query("report", 300, CancellationToken.None).TotalMatches == 1,
+                    "scan: nested file is indexed");
+                Check(store.Query("app", 300, CancellationToken.None).TotalMatches == 0,
+                    "scan: a file type outside the list is not indexed");
+                Check(progress.Count >= 1 && progress[progress.Count - 1].Files == full.Files
+                      && progress[progress.Count - 1].Directories == full.Directories
+                      && progress[progress.Count - 1].SkippedEntries == 0,
+                    "scan: the final progress snapshot carries the result counters and no skipped entries");
+
+                var forbidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { docs };
+                var guarded = new DirectoryScanner(store, settings, null, p => forbidden.Contains(p));
+                store.BeginFullScan();
+                var denied = guarded.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None);
+                store.CompleteFullScan(denied.SkippedDirectories, denied.SkippedReparsePoints,
+                    denied.SkippedLongPaths, fingerprint);
+                Check(denied.SkippedDirectories == 2 && denied.Files == 1,
+                    "scan: a denied directory is skipped and counted");
+                Check(store.Query("report", 300, CancellationToken.None).TotalMatches == 0,
+                    "scan: files under a denied directory are not published");
+                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1,
+                    "scan: the rest of the tree is published when one directory is denied");
+
+                var junction = new DirectoryScanner(store, settings, null, null, p => PathsEqual(p, empty));
+                store.BeginFullScan();
+                var linked = junction.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None);
+                store.AbortFullScan();
+                Check(linked.SkippedReparsePoints == 1 && linked.Directories == 2,
+                    "scan: a reparse point is skipped and counted");
+                Check(store.Query("empty", 300, CancellationToken.None).TotalMatches == 1,
+                    "scan: an aborted scan keeps the previously published rows");
+
+                File.WriteAllText(Path.Combine(tree, "newfile.txt"), "x");
+                var cts = new CancellationTokenSource();
+                var cancelling = new DirectoryScanner(store, settings, null, p =>
+                {
+                    if (PathsEqual(p, docs)) cts.Cancel();
+                    return false;
+                });
+                store.BeginFullScan();
+                bool cancelled = false;
+                try { cancelling.Scan(new[] { tree }, ScanMode.Full, cts.Token); }
+                catch (OperationCanceledException) { cancelled = true; }
+                store.AbortFullScan();
+                Check(cancelled, "scan: cancellation on a directory stops the scan");
+                Check(store.Query("newfile", 300, CancellationToken.None).TotalMatches == 0
+                      && store.Query("readme", 300, CancellationToken.None).TotalMatches == 1,
+                    "scan: a cancelled scan leaves the published index intact");
+
+                store.BeginFullScan();
+                bool preCancelled = false;
+                try { scanner.Scan(new[] { tree }, ScanMode.Full, new CancellationToken(true)); }
+                catch (OperationCanceledException) { preCancelled = true; }
+                store.AbortFullScan();
+                Check(preCancelled, "scan: an already-cancelled token throws before walking");
+
+                store.Upsert(Entry(Path.Combine(tree, "stale.txt"), "stale.txt", "txt", false, 1, tree));
+                Check(store.Query("stale", 300, CancellationToken.None).TotalMatches == 1,
+                    "reconcile: a live row can be seeded before the scan");
+
+                store.BeginReconcile();
+                var reconcile = scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                store.CompleteReconcile(new[] { tree });
+                Check(reconcile.Files == 3, "reconcile: the scan records README, report.PDF and newfile.txt");
+                Check(store.Query("stale", 300, CancellationToken.None).TotalMatches == 0,
+                    "reconcile: rows the scan did not see are dropped");
+                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1
+                      && store.Query("report", 300, CancellationToken.None).TotalMatches == 1
+                      && store.Query("newfile", 300, CancellationToken.None).TotalMatches == 1,
+                    "reconcile: seen and freshly written rows survive");
+
+                File.WriteAllText(Path.Combine(docs, "renamed.txt"), "x");
+                var subtree = scanner.ScanSubtree(tree, docs, CancellationToken.None);
+                Check(subtree.Files == 2 && subtree.Directories == 1,
+                    "subtree: one directory is walked on its own");
+                Check(store.Query("renamed", 300, CancellationToken.None).TotalMatches == 1,
+                    "subtree: the new row is written live");
+                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1
+                      && store.ReadStatus().SettingsFingerprint == fingerprint,
+                    "subtree: the published index is not swapped or cleared");
             }
         }
 
