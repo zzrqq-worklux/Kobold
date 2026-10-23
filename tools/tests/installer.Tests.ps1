@@ -99,6 +99,8 @@ function New-DataDir {
     Set-Content -LiteralPath (Join-Path $dataDir 'FolderIcons\blue.ico') -Value 'stub'
     Set-Content -LiteralPath (Join-Path $searchIndexDir 'search-index.db') -Value 'stub-db'
     Set-Content -LiteralPath (Join-Path $searchIndexDir 'search-index.db-wal') -Value 'stub-wal'
+    # Unrelated file in the same folder: All must not delete the folder wholesale.
+    Set-Content -LiteralPath (Join-Path $searchIndexDir 'keep-me.txt') -Value 'unrelated'
 }
 
 try {
@@ -241,7 +243,8 @@ try {
         Remove-KoboldData -Path $dataDir -SearchIndexPath $searchIndexDir -Choice 'All'
         Check (-not (Test-Path -LiteralPath $dataDir)) 'All deletes the data folder'
         Check (Test-Path -LiteralPath $searchIndexDir) 'All leaves the LocalAppData folder itself alone'
-        Check (@(Get-ChildItem -LiteralPath $searchIndexDir -File -Filter 'search-index.db*').Count -eq 0) 'All deletes only the search index files'
+        Check (@(Get-ChildItem -LiteralPath $searchIndexDir -File -Filter 'search-index.db*').Count -eq 0) 'All deletes the search index files'
+        Check (Test-Path -LiteralPath (Join-Path $searchIndexDir 'keep-me.txt')) 'All keeps an unrelated file in the index folder'
     }
 
     Section 'The double-click wrappers point at the right scripts' {

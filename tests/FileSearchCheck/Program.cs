@@ -695,16 +695,28 @@ namespace Kobold.FileSearchCheck
                 });
 
                 store.BeginFullScan();
+                // Stage more than one 800-row batch before cancelling, so the
+                // "no staged rows published" assertion is not vacuous: a real
+                // flush has already written into files_new.
+                var staged = new List<SearchEntry>(810);
+                for (int i = 0; i < 810; i++)
+                {
+                    string name = "stagedprobe" + i.ToString("D4") + ".txt";
+                    staged.Add(Entry(@"C:\staged\" + name, name, "txt", false, i, @"C:\staged"));
+                }
+                store.UpsertScanBatch(staged);
+
                 bool cancelled = false;
                 try { scanner.Scan(new[] { cancelTree }, ScanMode.Full, cts.Token); }
                 catch (OperationCanceledException) { cancelled = true; }
                 store.AbortFullScan();
 
                 Check(cancelled, "scan: a mid-walk cancellation aborts the full scan");
+                Check(!store.IsFullScanActive, "scan: aborting clears the full-scan staging state");
                 Check(store.Query("legacy", 300, CancellationToken.None).TotalMatches == 1,
                     "scan: a cancelled full scan keeps the previously published rows");
-                Check(store.Query("cancelprobe", 300, CancellationToken.None).TotalMatches == 0,
-                    "scan: a cancelled full scan publishes none of its staged rows");
+                Check(store.Query("stagedprobe", 300, CancellationToken.None).TotalMatches == 0,
+                    "scan: a cancelled full scan publishes none of its batched staged rows");
             }
 
             string configDir = Path.Combine(_root, "boundary-config");
