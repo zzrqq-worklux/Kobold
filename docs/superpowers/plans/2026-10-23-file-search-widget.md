@@ -1719,12 +1719,13 @@ $KoboldRuntimeFiles = @(
     'Kobold.exe', 'Kobold.exe.config',
     'Hardcodet.NotifyIcon.Wpf.dll', 'Newtonsoft.Json.dll',
     'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.core.dll',
-    'SQLitePCLRaw.provider.e_sqlite3.dll',
-    'runtimes\win-x64\native\e_sqlite3.dll'
+    'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll',
+    'System.Buffers.dll', 'System.Memory.dll',
+    'System.Numerics.Vectors.dll', 'System.Runtime.CompilerServices.Unsafe.dll'
 )
 ```
 
-`Install-KoboldFiles` 的 `Copy-KoboldFile` 目标要保留相对目录：`$dest = Join-Path $InstallDir $file; New-Item -ItemType Directory -Force (Split-Path $dest)`。`package.ps1` 也要按相对路径复制，而不是只复制 flat 文件。`tools/tests/installer.Tests.ps1` 的 `New-FakeSource` 创建 `runtimes\win-x64\native` 并写 stub；安装断言用 `Test-Path` 相对路径；文件计数改为 `(Get-ChildItem $installDir -Recurse -File).Count` 并等于 `$runtimeFiles.Count + $uninstallerFiles.Count`。
+Task 4 的实际 Release 输出是 flat 布局（`e_sqlite3.dll` 在输出根目录，没有 `runtimes\` 子目录），所以安装器按上面的 flat 列表复制；`Install-KoboldFiles` 仍保留相对目录能力（`$dest = Join-Path $InstallDir $file; New-Item -ItemType Directory -Force (Split-Path $dest)`），`package.ps1` 用同一列表。`tools/tests/installer.Tests.ps1` 的 `New-FakeSource` 创建这 12 个文件；安装断言用 `Test-Path`；文件计数改为 `(Get-ChildItem $installDir -Recurse -File).Count` 并等于 `$runtimeFiles.Count + $uninstallerFiles.Count`（15）。
 
 卸载：`Get-KoboldDataInventory` 增加 `SearchIndexFiles`（`%LocalAppData%\Kobold\search-index.db*`）；`Remove-KoboldData -Choice All` 删除这些文件；`ConfigOnly` 不动索引库。`uninstall.ps1` 的清单文案若需要加一行“搜索索引”并三语。
 
