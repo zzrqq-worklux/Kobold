@@ -14,6 +14,13 @@ namespace Kobold.Core.FileSearch
     {
         string DatabasePath { get; }
 
+        /// <summary>
+        /// True between <see cref="BeginFullScan"/> and its complete/abort. A full
+        /// scan written without it would land in the live table, so the scanner
+        /// refuses to start in that state.
+        /// </summary>
+        bool IsFullScanActive { get; }
+
         void EnsureSchema();
 
         void BeginFullScan();

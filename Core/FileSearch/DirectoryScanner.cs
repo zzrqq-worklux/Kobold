@@ -65,12 +65,21 @@ namespace Kobold.Core.FileSearch
         {
             if (roots == null) throw new ArgumentNullException("roots");
 
+            // Full rows are staged in the shadow table and published by the caller's
+            // CompleteFullScan. Without BeginFullScan every batch would be written
+            // straight into the live index and a cancel could no longer discard them.
+            if (mode == ScanMode.Full && !_store.IsFullScanActive)
+            {
+                throw new InvalidOperationException(
+                    "ScanMode.Full requires BeginFullScan on the store before scanning.");
+            }
+
             var starts = new List<DirectoryNode>(roots.Count);
             for (int i = 0; i < roots.Count; i++)
             {
                 string root = SearchPath.Normalize(roots[i]);
                 if (root.Length == 0) continue;
-                starts.Add(new DirectoryNode(root, null, root));
+                starts.Add(new DirectoryNode(root, null, root, false));
             }
 
             return Walk(starts, mode, false, token);
@@ -79,7 +88,10 @@ namespace Kobold.Core.FileSearch
         /// <summary>
         /// Re-reads one directory subtree and writes its rows straight to the live
         /// table (directory rename/repair in the watcher). No staging table is
-        /// touched, so the published index stays searchable throughout.
+        /// touched, so the published index stays searchable throughout, and no
+        /// BeginFullScan is required. The start directory's own row is written too:
+        /// a rename deletes the old prefix, so without it the renamed folder would
+        /// stay unindexed until the next reconcile.
         /// </summary>
         public ScanResult ScanSubtree(string root, string directory, CancellationToken token)
         {
@@ -91,7 +103,7 @@ namespace Kobold.Core.FileSearch
 
             var starts = new List<DirectoryNode>(1)
             {
-                new DirectoryNode(normalizedDirectory, null, normalizedRoot)
+                new DirectoryNode(normalizedDirectory, null, normalizedRoot, true)
             };
             return Walk(starts, ScanMode.Full, true, token);
         }
@@ -136,6 +148,7 @@ namespace Kobold.Core.FileSearch
                 }
 
                 state.Directories++;
+                if (live && node.IsStart) AddDirectoryRow(node, state);
                 Enumerate(node, stack, state, mode, live, token);
                 MaybeReportProgress(state);
 
@@ -286,7 +299,7 @@ namespace Kobold.Core.FileSearch
                     if (isDirectory)
                     {
                         if (_settings.IndexFolders) Add(entry, state, mode, live, token);
-                        stack.Push(new DirectoryNode(path, info.Name, node.Root));
+                        stack.Push(new DirectoryNode(path, info.Name, node.Root, false));
                         continue;
                     }
 
@@ -298,6 +311,35 @@ namespace Kobold.Core.FileSearch
             {
                 items.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Writes the row for a live subtree's start directory. It is not yielded by
+        /// its parent's enumeration (that parent is outside the walk), so a rename
+        /// repair has to add it explicitly.
+        /// </summary>
+        private void AddDirectoryRow(DirectoryNode node, ScanState state)
+        {
+            if (!_settings.IndexFolders) return;
+
+            SearchEntry entry;
+            try
+            {
+                if (!SearchEntry.TryCreate(node.Root,
+                        new DirectoryInfo(SearchPath.ToExtended(node.Path)), out entry)
+                    || entry == null)
+                {
+                    state.SkippedEntries++;
+                    return;
+                }
+            }
+            catch (Exception ex) when (IsFileSystemError(ex))
+            {
+                state.SkippedEntries++;
+                return;
+            }
+
+            _store.Upsert(entry);
         }
 
         private void Add(SearchEntry entry, ScanState state, ScanMode mode, bool live, CancellationToken token)
@@ -357,11 +399,12 @@ namespace Kobold.Core.FileSearch
 
         private struct DirectoryNode
         {
-            public DirectoryNode(string path, string name, string root)
+            public DirectoryNode(string path, string name, string root, bool isStart)
             {
                 Path = path;
                 Name = name;
                 Root = root;
+                IsStart = isStart;
             }
 
             /// <summary>Plain, normalized directory path.</summary>
@@ -372,6 +415,12 @@ namespace Kobold.Core.FileSearch
 
             /// <summary>Plain scan root this subtree belongs to.</summary>
             public string Root { get; private set; }
+
+            /// <summary>
+            /// True for a starting node of the walk. Only a live subtree writes a row
+            /// for it; every other directory row comes from its parent's enumeration.
+            /// </summary>
+            public bool IsStart { get; private set; }
         }
 
         private sealed class ScanState
@@ -419,6 +468,7 @@ namespace Kobold.Core.FileSearch
                     SkippedDirectories = SkippedDirectories,
                     SkippedReparsePoints = SkippedReparsePoints,
                     SkippedLongPaths = SkippedLongPaths,
+                    SkippedEntries = SkippedEntries,
                     Cancelled = false
                 };
             }

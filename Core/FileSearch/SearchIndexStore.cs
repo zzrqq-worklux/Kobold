@@ -115,6 +115,18 @@ LIMIT @remaining;";
             get { return _databasePath; }
         }
 
+        public bool IsFullScanActive
+        {
+            get
+            {
+                lock (_writeGate)
+                {
+                    ThrowIfDisposed();
+                    return _fullScanActive;
+                }
+            }
+        }
+
         public void Dispose()
         {
             // Connections are opened per operation, so there is no handle to release.

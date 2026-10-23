@@ -42,6 +42,7 @@ namespace Kobold.Core.FileSearch
         public long SkippedDirectories { get; set; }
         public long SkippedReparsePoints { get; set; }
         public long SkippedLongPaths { get; set; }
+        public long SkippedEntries { get; set; }
         public bool Cancelled { get; set; }
     }
 }

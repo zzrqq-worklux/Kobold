@@ -83,6 +83,8 @@ namespace Kobold.FileSearchCheck
             StoreConcurrencyCase();
             StoreSnapshotCase();
             ScannerCases();
+            ScannerSubtreeCases();
+            ScannerBatchCases();
         }
 
         private static void TypeFilterCases()
@@ -626,11 +628,12 @@ namespace Kobold.FileSearchCheck
                     "scan: excluded node_modules is skipped and counted");
                 Check(full.SkippedReparsePoints == 0 && full.SkippedLongPaths == 0,
                     "scan: a clean tree reports no skipped reparse points or long paths");
-                Check(store.Query("skip", 300, CancellationToken.None).TotalMatches == 0,
+                Check(full.SkippedEntries == 0, "scan: the result carries the skipped-entry count");
+                Check(!HasRow(store, Path.Combine(tree, "node_modules", "pkg", "skip.js"), tree),
                     "scan: node_modules is not indexed");
-                Check(store.Query("report", 300, CancellationToken.None).TotalMatches == 1,
-                    "scan: nested file is indexed");
-                Check(store.Query("app", 300, CancellationToken.None).TotalMatches == 0,
+                Check(HasRow(store, Path.Combine(docs, "report.PDF"), tree),
+                    "scan: nested file is indexed under the scan root");
+                Check(!HasRow(store, Path.Combine(tree, "app.exe"), tree),
                     "scan: a file type outside the list is not indexed");
                 Check(progress.Count >= 1 && progress[progress.Count - 1].Files == full.Files
                       && progress[progress.Count - 1].Directories == full.Directories
@@ -645,9 +648,9 @@ namespace Kobold.FileSearchCheck
                     denied.SkippedLongPaths, fingerprint);
                 Check(denied.SkippedDirectories == 2 && denied.Files == 1,
                     "scan: a denied directory is skipped and counted");
-                Check(store.Query("report", 300, CancellationToken.None).TotalMatches == 0,
+                Check(!HasRow(store, Path.Combine(docs, "report.PDF"), tree),
                     "scan: files under a denied directory are not published");
-                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1,
+                Check(HasRow(store, Path.Combine(tree, "README"), tree),
                     "scan: the rest of the tree is published when one directory is denied");
 
                 var junction = new DirectoryScanner(store, settings, null, null, p => PathsEqual(p, empty));
@@ -656,7 +659,7 @@ namespace Kobold.FileSearchCheck
                 store.AbortFullScan();
                 Check(linked.SkippedReparsePoints == 1 && linked.Directories == 2,
                     "scan: a reparse point is skipped and counted");
-                Check(store.Query("empty", 300, CancellationToken.None).TotalMatches == 1,
+                Check(HasRow(store, empty, tree),
                     "scan: an aborted scan keeps the previously published rows");
 
                 File.WriteAllText(Path.Combine(tree, "newfile.txt"), "x");
@@ -672,8 +675,8 @@ namespace Kobold.FileSearchCheck
                 catch (OperationCanceledException) { cancelled = true; }
                 store.AbortFullScan();
                 Check(cancelled, "scan: cancellation on a directory stops the scan");
-                Check(store.Query("newfile", 300, CancellationToken.None).TotalMatches == 0
-                      && store.Query("readme", 300, CancellationToken.None).TotalMatches == 1,
+                Check(!HasRow(store, Path.Combine(tree, "newfile.txt"), tree)
+                      && HasRow(store, Path.Combine(tree, "README"), tree),
                     "scan: a cancelled scan leaves the published index intact");
 
                 store.BeginFullScan();
@@ -684,29 +687,132 @@ namespace Kobold.FileSearchCheck
                 Check(preCancelled, "scan: an already-cancelled token throws before walking");
 
                 store.Upsert(Entry(Path.Combine(tree, "stale.txt"), "stale.txt", "txt", false, 1, tree));
-                Check(store.Query("stale", 300, CancellationToken.None).TotalMatches == 1,
+                Check(HasRow(store, Path.Combine(tree, "stale.txt"), tree),
                     "reconcile: a live row can be seeded before the scan");
 
                 store.BeginReconcile();
                 var reconcile = scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
                 store.CompleteReconcile(new[] { tree });
                 Check(reconcile.Files == 3, "reconcile: the scan records README, report.PDF and newfile.txt");
-                Check(store.Query("stale", 300, CancellationToken.None).TotalMatches == 0,
+                Check(!HasRow(store, Path.Combine(tree, "stale.txt"), tree),
                     "reconcile: rows the scan did not see are dropped");
-                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1
-                      && store.Query("report", 300, CancellationToken.None).TotalMatches == 1
-                      && store.Query("newfile", 300, CancellationToken.None).TotalMatches == 1,
+                Check(HasRow(store, Path.Combine(tree, "README"), tree)
+                      && HasRow(store, Path.Combine(docs, "report.PDF"), tree)
+                      && HasRow(store, Path.Combine(tree, "newfile.txt"), tree),
                     "reconcile: seen and freshly written rows survive");
 
                 File.WriteAllText(Path.Combine(docs, "renamed.txt"), "x");
                 var subtree = scanner.ScanSubtree(tree, docs, CancellationToken.None);
                 Check(subtree.Files == 2 && subtree.Directories == 1,
                     "subtree: one directory is walked on its own");
-                Check(store.Query("renamed", 300, CancellationToken.None).TotalMatches == 1,
+                Check(HasRow(store, Path.Combine(docs, "renamed.txt"), tree),
                     "subtree: the new row is written live");
-                Check(store.Query("readme", 300, CancellationToken.None).TotalMatches == 1
+                Check(HasRow(store, Path.Combine(tree, "README"), tree)
                       && store.ReadStatus().SettingsFingerprint == fingerprint,
                     "subtree: the published index is not swapped or cleared");
+
+                // Full mode stages into files_new, so a caller that forgot BeginFullScan
+                // must be rejected before a single row can leak into the live table.
+                string guardFile = Path.Combine(tree, "guard.txt");
+                string keeper = Path.Combine(tree, "keeper.txt");
+                File.WriteAllText(guardFile, "x");
+                store.Upsert(Entry(keeper, "keeper.txt", "txt", false, 1, tree));
+                bool withoutBegin = false;
+                try { scanner.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None); }
+                catch (InvalidOperationException) { withoutBegin = true; }
+                Check(withoutBegin, "scan: a full scan without BeginFullScan throws");
+                Check(HasRow(store, keeper, tree) && !HasRow(store, guardFile, tree),
+                    "scan: the rejected scan leaves the live index unchanged");
+            }
+        }
+
+        /// <summary>
+        /// A directory rename: the watcher deletes the old prefix and rescans the new
+        /// directory. The start directory's own row must be written too, or the
+        /// renamed folder stays unindexed until the next reconcile.
+        /// </summary>
+        private static void ScannerSubtreeCases()
+        {
+            string tree = Path.Combine(_root, "rename-tree");
+            string oldDirectory = Path.Combine(tree, "old-name");
+            string newDirectory = Path.Combine(tree, "new-name");
+            Directory.CreateDirectory(oldDirectory);
+            File.WriteAllText(Path.Combine(oldDirectory, "child.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            string db = Path.Combine(_root, "rename.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                string fingerprint = settings.ComputeFingerprint(new[] { tree });
+                store.BeginFullScan();
+                var initial = new DirectoryScanner(store, settings).Scan(new[] { tree }, ScanMode.Full,
+                    CancellationToken.None);
+                store.CompleteFullScan(initial.SkippedDirectories, initial.SkippedReparsePoints,
+                    initial.SkippedLongPaths, fingerprint);
+                Check(HasRow(store, oldDirectory, tree), "subtree: the original directory row is indexed");
+
+                Directory.Move(oldDirectory, newDirectory);
+                store.DeletePathAndPrefix(oldDirectory);
+                Check(!HasRow(store, oldDirectory, tree) && !HasRow(store, Path.Combine(newDirectory, "child.txt"), tree),
+                    "subtree: the old prefix is gone before the rename repair");
+
+                var subtree = new DirectoryScanner(store, settings).ScanSubtree(tree, newDirectory,
+                    CancellationToken.None);
+                Check(subtree.Files == 1 && subtree.Directories == 1,
+                    "subtree: the renamed directory is walked");
+                Check(HasRow(store, newDirectory, tree),
+                    "subtree: the renamed directory row is written live");
+                Check(HasRow(store, Path.Combine(newDirectory, "child.txt"), tree),
+                    "subtree: the child file under the renamed directory is written live");
+            }
+        }
+
+        /// <summary>
+        /// More than one batch of rows: 810 files cross the 800-row flush inside the
+        /// walk, so the reconcile path must mark every batch as seen or
+        /// CompleteReconcile deletes the unmarked rows.
+        /// </summary>
+        private static void ScannerBatchCases()
+        {
+            const int FileCount = 810;
+
+            string tree = Path.Combine(_root, "batch-tree");
+            Directory.CreateDirectory(tree);
+            for (int i = 0; i < FileCount; i++)
+            {
+                File.WriteAllText(Path.Combine(tree, "file" + i.ToString("D4") + ".txt"), "x");
+            }
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            string db = Path.Combine(_root, "batch.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                string fingerprint = settings.ComputeFingerprint(new[] { tree });
+                var scanner = new DirectoryScanner(store, settings);
+
+                store.BeginFullScan();
+                var full = scanner.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None);
+                store.CompleteFullScan(full.SkippedDirectories, full.SkippedReparsePoints,
+                    full.SkippedLongPaths, fingerprint);
+                Check(full.Files == FileCount && full.Directories == 1,
+                    "batch: a full scan counts every file across two flushes");
+                var all = store.Query("file", FileCount + 10, CancellationToken.None);
+                Check(all.TotalMatches == FileCount && all.Items.Count == FileCount,
+                    "batch: every flushed row of a full scan is published");
+
+                store.BeginReconcile();
+                var reconcile = scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                store.CompleteReconcile(new[] { tree });
+                Check(reconcile.Files == FileCount, "reconcile: a batched scan counts every file");
+                all = store.Query("file", FileCount + 10, CancellationToken.None);
+                Check(all.TotalMatches == FileCount && all.Items.Count == FileCount,
+                    "reconcile: every flushed batch is marked as seen and survives completion");
             }
         }
 
@@ -799,6 +905,23 @@ namespace Kobold.FileSearchCheck
         private static bool PathsEqual(string a, string b)
         {
             return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Exact-row probe that does not depend on the checkout path. The query uses
+        /// the item's own file name (a token that cannot be a path fragment of the
+        /// scratch root), and the answer is the stored Path/Root pair, not a count:
+        /// a path-infix match can otherwise inflate counts when the repo path happens
+        /// to contain the probe letters.
+        /// </summary>
+        private static bool HasRow(SearchIndexStore store, string path, string root)
+        {
+            var result = store.Query(Path.GetFileName(path), 300, CancellationToken.None);
+            foreach (var item in result.Items)
+            {
+                if (PathsEqual(item.Path, path) && PathsEqual(item.Root, root)) return true;
+            }
+            return false;
         }
     }
 }
