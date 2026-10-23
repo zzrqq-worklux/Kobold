@@ -84,6 +84,7 @@ namespace Kobold.FileSearchCheck
             StoreCases();
             StoreSuffixCases();
             StoreDeleteBoundaryCases();
+            BoundaryCases();
             StoreConcurrencyCase();
             StoreSnapshotCase();
             ScannerCases();
@@ -586,6 +587,155 @@ namespace Kobold.FileSearchCheck
                 Check(store.Query("other", 300, CancellationToken.None).TotalMatches == 1,
                     "store: deleting one drive root leaves other drives alone");
             }
+        }
+
+        /// <summary>
+        /// Task 10 boundaries: the 300-row cap with one more match than the cap,
+        /// name priority over a path-only match, IndexFolders=false still walking
+        /// child files, a cancelled full scan keeping the published index, and
+        /// null settings arrays / a null FileSearch object normalizing safely.
+        /// </summary>
+        private static void BoundaryCases()
+        {
+            string db = Path.Combine(_root, "limit.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var rows = new List<SearchEntry>(301);
+                for (int i = 0; i < 301; i++)
+                {
+                    string name = "needle" + i.ToString("D3") + ".txt";
+                    rows.Add(Entry(@"C:\limit\" + name, name, "txt", false, i, @"C:\limit"));
+                }
+                store.UpsertScanBatch(rows);
+                store.CompleteFullScan(0, 0, 0, "limit");
+
+                var capped = store.Query("needle", 300, CancellationToken.None);
+                Check(capped.TotalMatches == 301 && capped.Items.Count == 300 && capped.LimitReached,
+                    "store: 301 matches with a 300 limit returns 300 rows, total 301 and the cap flag");
+            }
+
+            string rankDb = Path.Combine(_root, "rank.db");
+            using (var store = new SearchIndexStore(rankDb))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[]
+                {
+                    Entry(@"C:\p\zzz\readme.txt", "readme.txt", "txt", false, 1, @"C:\p"),
+                    Entry(@"C:\p\readme\other.txt", "other.txt", "txt", false, 1, @"C:\p"),
+                });
+                store.CompleteFullScan(0, 0, 0, "rank");
+
+                var ranked = store.Query("readme", 300, CancellationToken.None);
+                Check(ranked.TotalMatches == 2 && ranked.Items.Count == 2
+                      && ranked.Items[0].Name == "readme.txt"
+                      && ranked.Items[1].Name == "other.txt",
+                    "store: a name match ranks before a path-only match");
+            }
+
+            string noFoldersTree = Path.Combine(_root, "boundary-nofolders");
+            string noFoldersSub = Path.Combine(noFoldersTree, "sub");
+            Directory.CreateDirectory(noFoldersSub);
+            File.WriteAllText(Path.Combine(noFoldersSub, "inner.txt"), "x");
+
+            var noFolders = FileSearchSettings.CreateDefault();
+            noFolders.Roots = new[] { noFoldersTree };
+            noFolders.IndexFolders = false;
+            string noFoldersDb = Path.Combine(_root, "boundary-nofolders.db");
+            using (var store = new SearchIndexStore(noFoldersDb))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var scan = new DirectoryScanner(store, noFolders).Scan(new[] { noFoldersTree },
+                    ScanMode.Full, CancellationToken.None);
+                store.CompleteFullScan(scan.SkippedDirectories, scan.SkippedReparsePoints,
+                    scan.SkippedLongPaths, noFolders.ComputeFingerprint(new[] { noFoldersTree }));
+
+                Check(scan.Directories == 2 && scan.Files == 1,
+                    "scan: IndexFolders=false still walks subdirectories and their files");
+                Check(!HasRow(store, noFoldersSub, noFoldersTree),
+                    "scan: IndexFolders=false writes no directory row");
+                Check(HasRow(store, Path.Combine(noFoldersSub, "inner.txt"), noFoldersTree),
+                    "scan: IndexFolders=false indexes the child file");
+            }
+
+            string cancelTree = Path.Combine(_root, "boundary-cancel");
+            string stopDirectory = Path.Combine(cancelTree, "stop");
+            Directory.CreateDirectory(stopDirectory);
+            for (int i = 0; i < 60; i++)
+            {
+                File.WriteAllText(Path.Combine(cancelTree, "cancelprobe" + i.ToString("D2") + ".txt"), "x");
+            }
+            File.WriteAllText(Path.Combine(stopDirectory, "cancelprobe-stop.txt"), "x");
+
+            var cancelSettings = FileSearchSettings.CreateDefault();
+            cancelSettings.Roots = new[] { cancelTree };
+            string cancelDb = Path.Combine(_root, "boundary-cancel.db");
+            using (var store = new SearchIndexStore(cancelDb))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[]
+                {
+                    Entry(Path.Combine(cancelTree, "legacyneedle.txt"), "legacyneedle.txt", "txt", false, 1, cancelTree)
+                });
+                store.CompleteFullScan(0, 0, 0, "legacy");
+
+                var cts = new CancellationTokenSource();
+                var scanner = new DirectoryScanner(store, cancelSettings, null, path =>
+                {
+                    if (PathsEqual(path, stopDirectory))
+                    {
+                        cts.Cancel();
+                        return true;
+                    }
+                    return false;
+                });
+
+                store.BeginFullScan();
+                bool cancelled = false;
+                try { scanner.Scan(new[] { cancelTree }, ScanMode.Full, cts.Token); }
+                catch (OperationCanceledException) { cancelled = true; }
+                store.AbortFullScan();
+
+                Check(cancelled, "scan: a mid-walk cancellation aborts the full scan");
+                Check(store.Query("legacy", 300, CancellationToken.None).TotalMatches == 1,
+                    "scan: a cancelled full scan keeps the previously published rows");
+                Check(store.Query("cancelprobe", 300, CancellationToken.None).TotalMatches == 0,
+                    "scan: a cancelled full scan publishes none of its staged rows");
+            }
+
+            string configDir = Path.Combine(_root, "boundary-config");
+            Directory.CreateDirectory(configDir);
+            string main = Path.Combine(configDir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""FileSearch"": null }");
+            var cfg = Kobold.Core.AppConfig.Load(main, backup);
+            Check(cfg.FileSearch == null, "config: a null FileSearch object loads as unconfigured");
+
+            File.WriteAllText(main, @"{ ""FileSearch"": { ""Configured"": true,
+                ""Roots"": null, ""Types"": null, ""ExcludeDirectories"": null } }");
+            cfg = Kobold.Core.AppConfig.Load(main, backup);
+            Check(cfg.FileSearch != null && cfg.FileSearch.Types != null
+                  && cfg.FileSearch.Types.Length == FileSearchSettings.DefaultTypes.Length,
+                "config: a null Types array normalizes to the default types");
+            Check(cfg.FileSearch != null && cfg.FileSearch.ExcludeDirectories != null
+                  && cfg.FileSearch.ExcludeDirectories.Length == 0
+                  && cfg.FileSearch.Roots != null && cfg.FileSearch.Roots.Length == 0,
+                "config: null Roots/ExcludeDirectories arrays normalize to empty");
+
+            var settings = new FileSearchSettings();
+            settings.Types = null;
+            settings.ExcludeDirectories = null;
+            settings.Roots = null;
+            settings.Normalize();
+            Check(settings.Types != null && settings.Types.Length == FileSearchSettings.DefaultTypes.Length
+                  && settings.ExcludeDirectories != null && settings.ExcludeDirectories.Length == 0
+                  && settings.Roots != null && settings.Roots.Length == 0,
+                "settings: Normalize repairs null arrays without throwing");
         }
 
         private static void StoreSnapshotCase()

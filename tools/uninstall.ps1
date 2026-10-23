@@ -2,7 +2,8 @@
 # install folder, the shortcuts and the uninstall entry. User data in
 # %AppData%\Kobold is kept unless you ask for it to go - "Storage" holds files
 # that were moved into a widget, and "FolderIcons" is what coloured folders
-# point their desktop.ini at.
+# point their desktop.ini at. The search index lives in
+# %LocalAppData%\Kobold\search-index.db and is offered with the same choice.
 #
 # Also works as a portable cleanup: with no install folder present it still
 # clears a stale autostart entry and offers the same data choices.
@@ -12,6 +13,7 @@
 param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\Kobold'),
     [string]$DataDir = (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Kobold'),
+    [string]$SearchIndexDir = (Join-Path $env:LOCALAPPDATA 'Kobold'),
     [string]$ShortcutDir = [Environment]::GetFolderPath('Programs'),
     [string]$DesktopDir = [Environment]::GetFolderPath('Desktop'),
     [string]$UninstallKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Kobold',
@@ -25,7 +27,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'installer-common.ps1')
 
 function Write-KoboldDataInventory {
-    param($Inventory, [string]$Path)
+    param($Inventory, [string]$Path, [string]$SearchIndexPath)
 
     Write-Step "Your data lives in ${Path}:"
     if ($Inventory.ConfigFiles.Count -gt 0) { Write-Host '  config.json    your settings - safe to delete' }
@@ -34,6 +36,9 @@ function Write-KoboldDataInventory {
     }
     if ($Inventory.IconFiles.Count -gt 0) {
         Write-Host ("  FolderIcons\   {0} files - folders you coloured point at these icons; deleting breaks them" -f $Inventory.IconFiles.Count)
+    }
+    if ($Inventory.SearchIndexFiles.Count -gt 0) {
+        Write-Host ("  search index   {0} files, {1:N0} KB in {2} - file names and locations only; safe to delete, it rebuilds" -f $Inventory.SearchIndexFiles.Count, ($Inventory.SearchIndexBytes / 1KB), $SearchIndexPath)
     }
 }
 
@@ -74,10 +79,10 @@ if ($runValue) {
 }
 
 # --- the user's data --------------------------------------------------------
-$inventory = Get-KoboldDataInventory -Path $DataDir
-if ($inventory.Exists) {
+$inventory = Get-KoboldDataInventory -Path $DataDir -SearchIndexPath $SearchIndexDir
+if ($inventory.Exists -or $inventory.SearchIndexFiles.Count -gt 0) {
     Write-Host ''
-    Write-KoboldDataInventory -Inventory $inventory -Path $DataDir
+    Write-KoboldDataInventory -Inventory $inventory -Path $DataDir -SearchIndexPath $SearchIndexDir
 
     $choice = $DataChoice
     if (-not $Quiet) {
@@ -85,11 +90,11 @@ if ($inventory.Exists) {
         Write-Host 'What should happen to that data?'
         Write-Host '  [K] keep it (default)'
         Write-Host '  [C] delete the settings only'
-        Write-Host '  [A] delete everything - stored files and folder icons too'
+        Write-Host '  [A] delete everything - stored files, folder icons and the search index too'
         switch ((Read-Host 'K / C / A').ToUpperInvariant()) {
             'C' { $choice = 'ConfigOnly' }
             'A' {
-                Write-Warn 'Storage may hold your own files and coloured folders point at FolderIcons - both go for good, no Recycle Bin.'
+                Write-Warn 'Storage may hold your own files, coloured folders point at FolderIcons, and the search index is rebuilt from scratch - all go for good, no Recycle Bin.'
                 if ((Read-Host 'Type DELETE to confirm') -cne 'DELETE') {
                     $choice = 'Keep'
                     Write-Warn 'not confirmed - keeping your data'
@@ -102,12 +107,12 @@ if ($inventory.Exists) {
     Write-Host ''
     switch ($choice) {
         'ConfigOnly' {
-            Remove-KoboldData -Path $DataDir -Choice 'ConfigOnly'
-            Write-Ok 'settings deleted - stored files and folder icons kept'
+            Remove-KoboldData -Path $DataDir -SearchIndexPath $SearchIndexDir -Choice 'ConfigOnly'
+            Write-Ok 'settings deleted - stored files, folder icons and the search index kept'
         }
         'All' {
-            Remove-KoboldData -Path $DataDir -Choice 'All'
-            Write-Ok 'data folder deleted'
+            Remove-KoboldData -Path $DataDir -SearchIndexPath $SearchIndexDir -Choice 'All'
+            Write-Ok 'data folder and search index deleted'
         }
         default { Write-Ok "kept your data in $DataDir" }
     }

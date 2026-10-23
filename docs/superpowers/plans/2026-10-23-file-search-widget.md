@@ -1781,3 +1781,16 @@ git commit -m "test(file-search): wire checks and installer runtime"
 Plan complete and saved to `docs/superpowers/plans/2026-10-23-file-search-widget.md`.
 
 Recommended execution: subagent-driven-development. Task 1 is a spike; do not dispatch Task 2 until the decision record is reviewed and the provider/query backend is fixed.
+
+## 用户手动全盘冒烟清单（未执行）
+
+自动检查只使用仓库内的临时目录；以下项目需要用户在真实机器上手动完成，**当前尚未执行，不得声称全盘冒烟已通过**：
+
+1. 在系统盘有大量文件的机器上首次打开搜索组件，走完引导并点「开始索引」；等待状态变为就绪，记录文件 / 文件夹数量与耗时。
+2. 搜索中文文件名、超过 260 字符的长路径、无扩展名的文件，确认结果正确且能打开 / 打开所在位置 / 复制路径。
+3. 组件打开时创建、重命名、删除文件与文件夹，确认监听在数秒内更新结果，无需重建。
+4. 重启 Kobold，确认索引保留、搜索立即可用且没有自动全盘重扫。
+5. 点「重建索引」，确认扫描期间旧结果仍可搜索，完成后状态回到就绪。
+6. 手动删除或写坏 `%LocalAppData%\Kobold\search-index.db` 后重启，确认应用隔离 / 重建索引并可再次搜索。
+7. 以普通用户运行安装与卸载，全程不出现 UAC；卸载选「全部删除」后确认 `search-index.db*` 消失，而 `%LocalAppData%\Kobold` 目录本身没有被整个删除。
+8. 观察空闲时 CPU / 内存，确认监听与 10 分钟对账没有明显占用。

@@ -16,8 +16,8 @@ $ErrorActionPreference = 'Stop'
 $toolsDir = Split-Path $PSScriptRoot -Parent
 . (Join-Path $toolsDir 'installer-common.ps1')
 
-$runtimeFiles = @('Kobold.exe', 'Kobold.exe.config', 'Hardcodet.NotifyIcon.Wpf.dll', 'Newtonsoft.Json.dll')
-$uninstallerFiles = @('uninstall.cmd', 'uninstall.ps1', 'installer-common.ps1')
+$runtimeFiles = $KoboldRuntimeFiles
+$uninstallerFiles = $KoboldUninstallerFiles
 
 $script:Passed = 0
 $script:Failed = 0
@@ -83,6 +83,7 @@ $sandbox = Get-KoboldTestSandbox -Name ('kobold-installer-tests-' + [guid]::NewG
 $source = Join-Path $sandbox 'source'
 $installDir = Join-Path $sandbox 'install'
 $dataDir = Join-Path $sandbox 'data'
+$searchIndexDir = Join-Path $sandbox 'search-index'
 
 function New-FakeSource {
     New-Item -ItemType Directory -Force -Path $source | Out-Null
@@ -90,12 +91,14 @@ function New-FakeSource {
 }
 
 function New-DataDir {
-    New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'Storage'), (Join-Path $dataDir 'FolderIcons') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'Storage'), (Join-Path $dataDir 'FolderIcons'), $searchIndexDir | Out-Null
     Set-Content -LiteralPath (Join-Path $dataDir 'config.json') -Value '{}'
     Set-Content -LiteralPath (Join-Path $dataDir 'config.json.backup') -Value '{}'
     Set-Content -LiteralPath (Join-Path $dataDir 'Storage\note.md') -Value 'stub'
     Set-Content -LiteralPath (Join-Path $dataDir 'Storage\photo.png') -Value 'stub'
     Set-Content -LiteralPath (Join-Path $dataDir 'FolderIcons\blue.ico') -Value 'stub'
+    Set-Content -LiteralPath (Join-Path $searchIndexDir 'search-index.db') -Value 'stub-db'
+    Set-Content -LiteralPath (Join-Path $searchIndexDir 'search-index.db-wal') -Value 'stub-wal'
 }
 
 try {
@@ -133,14 +136,16 @@ try {
         foreach ($file in ($runtimeFiles + $uninstallerFiles)) {
             Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "installed $file"
         }
-        Check (@(Get-ChildItem -LiteralPath $installDir -File).Count -eq 7) 'the install folder holds exactly the expected files'
+        Check (@(Get-ChildItem -LiteralPath $installDir -Recurse -File).Count -eq
+            ($runtimeFiles.Count + $uninstallerFiles.Count)) 'the install folder holds exactly the expected files'
     }
 
     Section 'Install-KoboldFiles upgrades in place' {
         Set-Content -LiteralPath (Join-Path $source 'Kobold.exe') -Value 'stub v2'
         Install-KoboldFiles -Source $source -InstallDir $installDir -ScriptsDir $toolsDir
         Check ((Get-Content -LiteralPath (Join-Path $installDir 'Kobold.exe') -Raw) -match 'stub v2') 'the runtime files are refreshed'
-        Check (@(Get-ChildItem -LiteralPath $installDir -File).Count -eq 7) 'no files pile up'
+        Check (@(Get-ChildItem -LiteralPath $installDir -Recurse -File).Count -eq
+            ($runtimeFiles.Count + $uninstallerFiles.Count)) 'no files pile up'
     }
 
     Section 'Install-KoboldFiles refuses an incomplete source' {
@@ -150,6 +155,19 @@ try {
         Set-Content -LiteralPath (Join-Path $brokenSource 'Kobold.exe') -Value 'stub'
         Check-Throws { Install-KoboldFiles -Source $brokenSource -InstallDir $brokenTarget -ScriptsDir $toolsDir } 'Hardcodet\.NotifyIcon\.Wpf\.dll' 'the error names the missing file'
         Check (-not (Test-Path -LiteralPath $brokenTarget)) 'no half-install is left behind'
+    }
+
+    Section 'Install-KoboldFiles requires the SQLite native runtime' {
+        foreach ($missingFile in @('Microsoft.Data.Sqlite.dll', 'e_sqlite3.dll', 'SQLitePCLRaw.provider.e_sqlite3.dll')) {
+            $partialSource = Join-Path $sandbox ('partial-source-' + $missingFile)
+            $partialTarget = Join-Path $sandbox ('install-partial-' + $missingFile)
+            New-Item -ItemType Directory -Force -Path $partialSource | Out-Null
+            foreach ($file in $runtimeFiles) {
+                if ($file -ne $missingFile) { Set-Content -LiteralPath (Join-Path $partialSource $file) -Value 'stub' }
+            }
+            Check-Throws { Install-KoboldFiles -Source $partialSource -InstallDir $partialTarget -ScriptsDir $toolsDir } ([regex]::Escape($missingFile)) "a source without $missingFile is rejected"
+            Check (-not (Test-Path -LiteralPath $partialTarget)) "no half-install is left behind without $missingFile"
+        }
     }
 
     Section 'Get-KoboldUninstallEntry builds the Apps & Features values' {
@@ -192,30 +210,38 @@ try {
 
     Section 'Get-KoboldDataInventory counts the user data' {
         New-DataDir
-        $inventory = Get-KoboldDataInventory -Path $dataDir
+        $inventory = Get-KoboldDataInventory -Path $dataDir -SearchIndexPath $searchIndexDir
         Check ($inventory.Exists) 'the data folder is found'
         Check ($inventory.ConfigFiles.Count -eq 2) 'both config files are counted'
         Check ($inventory.StorageFiles.Count -eq 2) 'the stored files are counted'
         Check ($inventory.StorageBytes -gt 0) 'their size is reported'
         Check ($inventory.IconFiles.Count -eq 1) 'the folder icons are counted'
+        Check ($inventory.SearchIndexFiles.Count -eq 2) 'the search index and its WAL file are counted'
+        Check ($inventory.SearchIndexBytes -gt 0) 'the search index size is reported'
 
-        $nothing = Get-KoboldDataInventory -Path (Join-Path $sandbox 'no-data')
+        $nothing = Get-KoboldDataInventory -Path (Join-Path $sandbox 'no-data') -SearchIndexPath (Join-Path $sandbox 'no-index')
         Check (-not $nothing.Exists) 'a missing folder is reported as missing'
         Check ($nothing.StorageFiles.Count -eq 0 -and $nothing.StorageBytes -eq 0) 'and counts nothing'
+        Check ($nothing.SearchIndexFiles.Count -eq 0 -and $nothing.SearchIndexBytes -eq 0) 'and finds no search index'
     }
 
     Section 'Remove-KoboldData honours the choices' {
-        Remove-KoboldData -Path $dataDir -Choice 'Keep'
+        Remove-KoboldData -Path $dataDir -SearchIndexPath $searchIndexDir -Choice 'Keep'
         Check (Test-Path -LiteralPath (Join-Path $dataDir 'config.json')) 'Keep leaves the settings alone'
+        Check (Test-Path -LiteralPath (Join-Path $searchIndexDir 'search-index.db')) 'Keep leaves the search index alone'
 
-        Remove-KoboldData -Path $dataDir -Choice 'ConfigOnly'
+        Remove-KoboldData -Path $dataDir -SearchIndexPath $searchIndexDir -Choice 'ConfigOnly'
         Check (-not (Test-Path -LiteralPath (Join-Path $dataDir 'config.json'))) 'ConfigOnly deletes config.json'
         Check (-not (Test-Path -LiteralPath (Join-Path $dataDir 'config.json.backup'))) 'ConfigOnly deletes the backup'
         Check (Test-Path -LiteralPath (Join-Path $dataDir 'Storage\note.md')) 'ConfigOnly keeps the stored files'
         Check (Test-Path -LiteralPath (Join-Path $dataDir 'FolderIcons\blue.ico')) 'ConfigOnly keeps the folder icons'
+        Check ((Test-Path -LiteralPath (Join-Path $searchIndexDir 'search-index.db')) -and
+               (Test-Path -LiteralPath (Join-Path $searchIndexDir 'search-index.db-wal'))) 'ConfigOnly keeps the search index'
 
-        Remove-KoboldData -Path $dataDir -Choice 'All'
+        Remove-KoboldData -Path $dataDir -SearchIndexPath $searchIndexDir -Choice 'All'
         Check (-not (Test-Path -LiteralPath $dataDir)) 'All deletes the data folder'
+        Check (Test-Path -LiteralPath $searchIndexDir) 'All leaves the LocalAppData folder itself alone'
+        Check (@(Get-ChildItem -LiteralPath $searchIndexDir -File -Filter 'search-index.db*').Count -eq 0) 'All deletes only the search index files'
     }
 
     Section 'The double-click wrappers point at the right scripts' {

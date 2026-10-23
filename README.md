@@ -195,6 +195,57 @@ development base.
   while idle, and the pages fault back in on demand.
 - **DPI aware** — PerMonitorV2, verified at 200% scaling.
 
+## File search
+
+Add the **search** widget from the island `+` menu (or the tray menu) to find
+files and folders by name across your fixed NTFS drives.
+
+- **Index** — `%LocalAppData%\Kobold\search-index.db` (SQLite). The native
+  `e_sqlite3.dll` and its managed support assemblies ship flat beside
+  `Kobold.exe`; the installer copies all 12 runtime files. Only **metadata** is
+  stored — path, name, extension, size, modified time and root. File contents
+  are never read or indexed.
+- **Defaults** — folders and extensionless files are included, plus a built-in
+  list of common document, image, video, audio, archive and code types.
+  **All files** turns the type filter off; the type list and extra excluded
+  folders are editable in **Settings → File search**.
+- **No admin rights** — the index is per-user under `%LocalAppData%`. System
+  and build folders (`WinSxS`, `node_modules`, `.git`), reparse points and
+  over-long paths are skipped, and the skipped-folder count is shown with the
+  status.
+- **First run** — an onboarding card lists the fixed drives with **Start
+  indexing** and **Later**. Nothing is scanned until you start; the chosen
+  roots are remembered.
+- **Lifecycle** — a full scan runs at below-normal priority and publishes
+  atomically, so the old results stay searchable until it finishes; cancelling
+  keeps the old index. A watcher applies creates, renames and deletes
+  incrementally, and a **10-minute reconcile** catches missed changes.
+  **Rebuild index** and **Pause indexing** live in the widget menu and
+  Settings.
+- **Results** — up to 300 rows in a virtualized list with the true match count
+  (“showing first N of M”); name matches rank before path-only matches. Open,
+  open location and copy path sit on each row.
+- **Three languages** — en / zh / ja copy for the widget, onboarding, status
+  and settings.
+
+### Manual full-disk smoke checklist
+
+The automated checks use scratch trees only. A full-disk pass on a real machine
+is still **outstanding** — do this before calling the feature release-ready:
+
+1. Start indexing on a machine with a full system drive; wait for Ready and
+   check that the file count is plausible.
+2. Search a Chinese name, a very long path and an extensionless file.
+3. Create, rename and delete a file while the widget is open; each change
+   appears without a rebuild.
+4. Restart Kobold; the index is kept and searching works without rescanning.
+5. Use **Rebuild index**; results stay searchable during the scan and the
+   rebuilt index finishes Ready.
+6. Delete or corrupt `search-index.db` and restart; the app quarantines or
+   recreates it and can rebuild.
+7. Install and uninstall without a UAC prompt; choose **All** and confirm the
+   index files are gone while `%LocalAppData%\Kobold` itself is left in place.
+
 ## Screenshots
 
 <p align="center">
@@ -246,7 +297,10 @@ the new version. Settings and stored files are kept.
 - Your data is kept by default. `%AppData%\Kobold` holds `config.json`
   (settings — safe to delete), `Storage\` (**your files** — they were moved
   there, not copied) and `FolderIcons\` (what your coloured folders point at).
-  The uninstaller lists all three and asks before deleting anything.
+  The search index in `%LocalAppData%\Kobold\search-index.db` is offered with
+  the same choice. The uninstaller lists them all and asks before deleting
+  anything; **All** removes only the index files, never the whole
+  `%LocalAppData%\Kobold` folder.
 
 ## Usage
 
@@ -319,6 +373,16 @@ runners (the window/desktop-heavy checks stay local), `installer` = the
 installer self-check (logic only, temp folders, no registry writes) and
 `all` = checks + installer.
 
+The `all` matrix is **33 checks**: 31 console checks (including
+`FileSearchCheck` for the SQLite index, scanner, watcher and service), the
+config pin and the installer tests.
+
+The Release output is flat: `Kobold.exe` plus 11 runtime files, including the
+SQLite native runtime (`e_sqlite3.dll`, `Microsoft.Data.Sqlite.dll`,
+`SQLitePCLRaw.*`) and the `System.Buffers` / `System.Memory` /
+`System.Numerics.Vectors` / `System.Runtime.CompilerServices.Unsafe` support
+assemblies. `tools\package.ps1` and the installer copy that same list.
+
 A GitHub Actions workflow runs the `ci` group on every push whose HEAD commit
 mentions `[ci]` (or on manual dispatch), keeping runner usage deliberate.
 
@@ -355,6 +419,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
   settings are converted **once** into an initial panel size (they stay in the
   config file but are no longer used); **item size** keeps working.
 - Stored files: `%AppData%\Kobold\Storage`
+- Search index: `%LocalAppData%\Kobold\search-index.db` (metadata only —
+  file names and locations, never contents). Safe to delete; it rebuilds.
 
 Source layout: `Core/` (models, config, localization, design tokens,
 theme manager), `Controls/` (island + folder widget windows),
@@ -486,6 +552,43 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   降到个位数 MB，需要时自动换页回来。
 - **DPI 友好** — PerMonitorV2，200% 缩放下已验证。
 
+## 文件搜索
+
+在岛 `+` 菜单（或托盘菜单）新建**搜索**组件，即可按名称搜索固定 NTFS 磁盘上的
+文件和文件夹。
+
+- **索引位置** — `%LocalAppData%\Kobold\search-index.db`（SQLite）。原生
+  `e_sqlite3.dll` 及其托管依赖与 `Kobold.exe` 平铺在同一目录，安装器会复制全部
+  12 个运行时文件。索引只存**元数据**（路径、名称、后缀、大小、修改时间、根目录），
+  从不读取或索引文件内容。
+- **默认范围** — 默认索引文件夹、无扩展名文件，以及常见的文档 / 图片 / 视频 /
+  音频 / 压缩包 / 代码类型；勾选**全部文件**可关闭类型过滤，类型列表与追加排除
+  目录可在**设置 → 文件搜索**里修改。
+- **无需管理员** — 索引按用户存放在 `%LocalAppData%`。`WinSxS`、`node_modules`、
+  `.git`、重解析点与超长路径会被跳过，并显示跳过文件夹计数。
+- **首次引导** — 首次添加组件会出现引导卡片，列出固定磁盘和**开始索引** /
+  **稍后**；不点开始不会扫描，选过的根目录会记住。
+- **生命周期** — 全盘扫描以低于正常的优先级运行并原子发布，扫描期间旧结果仍可
+  搜索；取消会保留旧索引。文件监听增量处理创建 / 重命名 / 删除，**每 10 分钟
+  对账**一次补漏。组件菜单与设置里都有**重建索引**和**暂停索引**。
+- **结果** — 最多 300 条，虚拟化列表，显示真实匹配数（「显示前 N 条，共 M 条」）；
+  名称匹配排在仅路径匹配之前。每行可打开、打开所在位置、复制路径。
+- **三语界面** — 组件、引导、状态与设置均有中 / 英 / 日文案。
+
+### 手动全盘冒烟清单
+
+自动检查只使用临时目录；真实机器的全盘冒烟**尚未执行**，发布前请按下面清单
+走一遍：
+
+1. 在系统盘接近写满的机器上开始索引，完成后确认状态为就绪、文件数合理。
+2. 搜索中文名、超长路径、无扩展名文件。
+3. 组件打开时创建 / 重命名 / 删除文件，确认无需重建即可看到变化。
+4. 重启 Kobold，索引保留、无需重新扫描即可搜索。
+5. 点**重建索引**，扫描期间结果仍可搜索，完成后状态回到就绪。
+6. 删除或破坏 `search-index.db` 后重启，应用能隔离 / 重建并重新索引。
+7. 安装与卸载全程无 UAC；选择**全部删除**后索引文件消失，但
+   `%LocalAppData%\Kobold` 目录本身不被整个删除。
+
 > 界面预览见上方 [Screenshots](#screenshots)（灵动岛 / 深色面板 / 右键菜单 / 浅色主题）。
 
 ## 安装
@@ -509,7 +612,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   「手动删了便携版文件夹」的残留：只删属于它的自启项，不动别的东西。
 - 默认保留你的数据。`%AppData%\Kobold` 里有 `config.json`（设置，删了无害）、
   `Storage\`（**你的文件**——是被移进来的，不是复制）和 `FolderIcons\`
-  （上过色的文件夹指向这里）。卸载器会把三者列出来，删任何东西前先问你。
+  （上过色的文件夹指向这里）。`%LocalAppData%\Kobold\search-index.db` 的搜索
+  索引也走同一套选择。卸载器会把它们列出来，删任何东西前先问你；**全部删除**
+  只删索引文件，不会把整个 `%LocalAppData%\Kobold` 目录删掉。
 
 ## 用法
 
@@ -577,6 +682,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List  
 会话的检查留在本地）；`installer` = 安装器纯逻辑自检（只在临时目录，不写注册表）；
 `all` = 两者之和。
 
+`all` 矩阵共 **33 项**：31 个控制台自检（含 `FileSearchCheck`：SQLite 索引、
+扫描器、监听与服务）、配置 pin 和安装器测试。
+
+Release 输出是平铺布局：`Kobold.exe` 加 11 个运行时文件，其中包括 SQLite 原生
+运行时（`e_sqlite3.dll`、`Microsoft.Data.Sqlite.dll`、`SQLitePCLRaw.*`）和
+`System.Buffers` / `System.Memory` / `System.Numerics.Vectors` /
+`System.Runtime.CompilerServices.Unsafe` 支持程序集；`tools\package.ps1` 与
+安装器复制同一份列表。
+
 GitHub Actions 工作流在 HEAD 提交信息含 `[ci]`（或手动触发）时运行 `ci` 组，
 避免每次 push 都消耗 runner。
 
@@ -608,6 +722,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
   行数」会**一次性换算**为初始面板尺寸（旧值仍保留在配置文件里但不再使用）；
   **图标大小**继续生效。
 - 收纳文件：`%AppData%\Kobold\Storage`
+- 搜索索引：`%LocalAppData%\Kobold\search-index.db`（只存元数据——文件名与位置，
+  从不读取内容）。可以安全删除，之后会自动重建。
 
 源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
 `Windows/`（设置）、`Helpers/`（弹窗、菜单、动画、光标）、`Themes/`（XAML 控件样式）、

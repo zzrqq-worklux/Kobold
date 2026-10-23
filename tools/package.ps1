@@ -25,9 +25,12 @@ if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -F
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $zip) | Out-Null
 
-# Runtime files only - no .pdb, no obj/bin leftovers
+# Runtime files only - no .pdb, no obj/bin leftovers. The current layout is
+# flat, but a relative path would still land in its subdirectory.
 foreach ($file in $KoboldRuntimeFiles) {
-    Copy-Item -LiteralPath (Join-Path $outDir $file) -Destination $stage -Force
+    $dest = Join-Path $stage $file
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $outDir $file) -Destination $dest -Force
 }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $stage -Force
 

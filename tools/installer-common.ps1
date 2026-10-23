@@ -7,7 +7,16 @@
 $KoboldAppName = 'Kobold'
 
 # The runtime files a Kobold build ships - everything the app needs to run.
-$KoboldRuntimeFiles = @('Kobold.exe', 'Kobold.exe.config', 'Hardcodet.NotifyIcon.Wpf.dll', 'Newtonsoft.Json.dll')
+# The Release output is flat: SQLite's native e_sqlite3.dll and its managed
+# support assemblies sit beside Kobold.exe, with no runtimes\ subtree.
+$KoboldRuntimeFiles = @(
+    'Kobold.exe', 'Kobold.exe.config',
+    'Hardcodet.NotifyIcon.Wpf.dll', 'Newtonsoft.Json.dll',
+    'Microsoft.Data.Sqlite.dll', 'SQLitePCLRaw.core.dll',
+    'SQLitePCLRaw.provider.e_sqlite3.dll', 'e_sqlite3.dll',
+    'System.Buffers.dll', 'System.Memory.dll',
+    'System.Numerics.Vectors.dll', 'System.Runtime.CompilerServices.Unsafe.dll'
+)
 
 # The uninstaller travels in tools\ next to the installer and is copied flat
 # into the install folder, so the uninstall entry can point at it.
@@ -200,7 +209,12 @@ function Install-KoboldFiles {
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     foreach ($file in $KoboldRuntimeFiles) {
-        Copy-KoboldFile -Source (Join-Path $Source $file) -Destination $InstallDir
+        # The current list is flat, but a relative path keeps the installer
+        # working if a future build ships a subdirectory again.
+        $dest = Join-Path $InstallDir $file
+        $parent = Split-Path -Parent $dest
+        if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+        Copy-KoboldFile -Source (Join-Path $Source $file) -Destination $dest
     }
     foreach ($file in $KoboldUninstallerFiles) {
         Copy-KoboldFile -Source (Join-Path $ScriptsDir $file) -Destination $InstallDir
@@ -208,16 +222,20 @@ function Install-KoboldFiles {
 }
 
 <#
-The three things that live in %AppData%\Kobold, counted and weighed so the
-uninstaller can tell the user what deleting them would cost: settings, files
-that were moved into a widget, and the icons coloured folders point at.
+The user data the uninstaller can remove: settings and the files/icons under
+%AppData%\Kobold, plus the SQLite search index that lives in
+%LocalAppData%\Kobold. Counted and weighed so the user can decide.
 #>
 function Get-KoboldDataInventory {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [string]$SearchIndexPath
+    )
 
     $configFiles = @()
     $storageFiles = @()
     $iconFiles = @()
+    $searchIndexFiles = @()
     if (Test-Path -LiteralPath $Path) {
         $configFiles = @(Get-ChildItem -LiteralPath $Path -File -Filter 'config.json*' -ErrorAction SilentlyContinue)
         $storage = Join-Path $Path 'Storage'
@@ -225,22 +243,30 @@ function Get-KoboldDataInventory {
         $icons = Join-Path $Path 'FolderIcons'
         if (Test-Path -LiteralPath $icons) { $iconFiles = @(Get-ChildItem -LiteralPath $icons -File -ErrorAction SilentlyContinue) }
     }
+    if ($SearchIndexPath -and (Test-Path -LiteralPath $SearchIndexPath)) {
+        $searchIndexFiles = @(Get-ChildItem -LiteralPath $SearchIndexPath -File -Filter 'search-index.db*' -ErrorAction SilentlyContinue)
+    }
 
     [pscustomobject]@{
-        Exists       = (Test-Path -LiteralPath $Path)
-        ConfigFiles  = $configFiles
-        StorageFiles = $storageFiles
-        IconFiles    = $iconFiles
-        StorageBytes = [long](($storageFiles | Measure-Object -Property Length -Sum).Sum)
+        Exists           = (Test-Path -LiteralPath $Path)
+        ConfigFiles      = $configFiles
+        StorageFiles     = $storageFiles
+        IconFiles        = $iconFiles
+        SearchIndexFiles = $searchIndexFiles
+        StorageBytes     = [long](($storageFiles | Measure-Object -Property Length -Sum).Sum)
+        SearchIndexBytes = [long](($searchIndexFiles | Measure-Object -Property Length -Sum).Sum)
     }
 }
 
 <#
 Applies the user's data choice: Keep, ConfigOnly (settings only) or All.
+The search index is removed file-by-file from its own folder - never by
+deleting %LocalAppData%\Kobold wholesale, which could hold other data.
 #>
 function Remove-KoboldData {
     param(
         [string]$Path,
+        [string]$SearchIndexPath,
         [ValidateSet('Keep', 'ConfigOnly', 'All')][string]$Choice
     )
 
@@ -249,7 +275,12 @@ function Remove-KoboldData {
             Get-ChildItem -LiteralPath $Path -File -Filter 'config.json*' -ErrorAction SilentlyContinue | Remove-Item -Force
         }
         'All' {
-            Remove-Item -LiteralPath $Path -Recurse -Force
+            if ($SearchIndexPath -and (Test-Path -LiteralPath $SearchIndexPath)) {
+                Get-ChildItem -LiteralPath $SearchIndexPath -File -Filter 'search-index.db*' -ErrorAction SilentlyContinue | Remove-Item -Force
+            }
+            if (Test-Path -LiteralPath $Path) {
+                Remove-Item -LiteralPath $Path -Recurse -Force
+            }
         }
     }
 }

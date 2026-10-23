@@ -47,6 +47,7 @@ $checks = @(
     @{ Name = 'PanelRowsCheck';        Ci = $true  }
     @{ Name = 'AdaptiveLayoutCheck';   Ci = $true  }
     @{ Name = 'WidgetKindsCheck';      Ci = $true  }
+    @{ Name = 'FileSearchCheck';       Ci = $true  }
     @{ Name = 'TodoRolloverCheck';     Ci = $true  }
     @{ Name = 'TodoCalendarCheck';     Ci = $true  }
     @{ Name = 'LunarCalendarCheck';    Ci = $true  }
