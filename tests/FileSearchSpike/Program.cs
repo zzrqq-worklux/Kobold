@@ -24,6 +24,8 @@ namespace Kobold.FileSearchSpike
         private const int FilesPerDir = 10;
         private const int WatcherStableSeconds = 30;
         private const int WatcherProbeTimeoutMs = 10000;
+        private const double TargetP95Ms = 300;
+        private const long TargetDbBytes = 300L * 1024 * 1024;
 
         // Mixed selectivity on purpose: "txt"/"spike" hit every row, others hit a few or none.
         private static readonly string[] Keywords =
@@ -200,8 +202,10 @@ namespace Kobold.FileSearchSpike
             public QueryStats Prefix = new QueryStats { Label = "prefix" };
             public QueryStats PrefixRange = new QueryStats { Label = "prefix_range" };
             public QueryStats Infix = new QueryStats { Label = "infix" };
+            public QueryStats Infix3Plus = new QueryStats { Label = "infix_3plus" };
             public QueryStats Count = new QueryStats { Label = "count" };
-            public int InfixFirstRows;
+            public string FirstInfixKeyword;
+            public int FirstInfixRows;
             public string PlanPrefix;
             public string PlanInfix;
         }
@@ -247,6 +251,7 @@ namespace Kobold.FileSearchSpike
                 var prefix = new List<double>();
                 var prefixRange = new List<double>();
                 var infix = new List<double>();
+                var infix3Plus = new List<double>();
                 var count = new List<double>();
 
                 foreach (string kw in Keywords)
@@ -257,7 +262,14 @@ namespace Kobold.FileSearchSpike
                         prefixRange.Add(RunList(c, prefixRangeSql, "@lo", kw, "@hi", kw + "\uFFFF").Ms);
                         var run = RunList(c, infixSql, "@contains", "%" + kw + "%", null, null);
                         infix.Add(run.Ms);
-                        if (stats.InfixFirstRows == 0) stats.InfixFirstRows = run.Rows;
+                        // Same keyword set the trigram phase can answer, so the P95s are comparable.
+                        if (kw.Length >= 3) infix3Plus.Add(run.Ms);
+
+                        if (stats.FirstInfixRows == 0)
+                        {
+                            stats.FirstInfixKeyword = kw;
+                            stats.FirstInfixRows = run.Rows;
+                        }
 
                         var sw = Stopwatch.StartNew();
                         ScalarLong(c, countSql, "@contains", "%" + kw + "%");
@@ -268,14 +280,16 @@ namespace Kobold.FileSearchSpike
                 Fill(stats.Prefix, prefix);
                 Fill(stats.PrefixRange, prefixRange);
                 Fill(stats.Infix, infix);
+                Fill(stats.Infix3Plus, infix3Plus);
                 Fill(stats.Count, count);
             }
 
             PrintQuery(stats.Prefix);
             PrintQuery(stats.PrefixRange);
             PrintQuery(stats.Infix);
+            PrintQuery(stats.Infix3Plus);
             PrintQuery(stats.Count);
-            Console.WriteLine("infix_first_kw_rows=" + stats.InfixFirstRows);
+            Console.WriteLine("infix_first_kw=" + stats.FirstInfixKeyword + " rows=" + stats.FirstInfixRows);
             return stats;
         }
 
@@ -387,10 +401,17 @@ namespace Kobold.FileSearchSpike
             public string Root;
             public long Files;
             public long Dirs;
-            public long Skipped;
+            public long SkippedDirectories;   // directory could not be opened / enumerated
+            public long SkippedReparsePoints; // reparse point pruned by the walker
+            public long SkippedEntries;       // entry attributes unreadable (type unknown)
             public double Ms;
             public double EntriesPerSecond;
             public double CreateMs;
+
+            public long Skipped
+            {
+                get { return SkippedDirectories + SkippedReparsePoints + SkippedEntries; }
+            }
         }
 
         private static ScanStats ScanPhase(string scanRoot)
@@ -415,12 +436,16 @@ namespace Kobold.FileSearchSpike
             var walked = Walk(stats.Root);
             stats.Files = walked.Files;
             stats.Dirs = walked.Dirs;
-            stats.Skipped = walked.Skipped;
+            stats.SkippedDirectories = walked.SkippedDirectories;
+            stats.SkippedReparsePoints = walked.SkippedReparsePoints;
+            stats.SkippedEntries = walked.SkippedEntries;
             stats.Ms = walked.Ms;
             stats.EntriesPerSecond = walked.EntriesPerSecond;
             Console.WriteLine("scan_files=" + stats.Files);
             Console.WriteLine("scan_dirs=" + stats.Dirs);
-            Console.WriteLine("scan_skipped=" + stats.Skipped);
+            Console.WriteLine("scan_skipped_dirs=" + stats.SkippedDirectories);
+            Console.WriteLine("scan_skipped_reparse=" + stats.SkippedReparsePoints);
+            Console.WriteLine("scan_skipped_entries=" + stats.SkippedEntries);
             Console.WriteLine("scan_ms=" + (long)stats.Ms);
             Console.WriteLine("scan_entries_per_s=" + (long)stats.EntriesPerSecond);
             return stats;
@@ -446,14 +471,18 @@ namespace Kobold.FileSearchSpike
                 Root = target,
                 Files = walked.Files,
                 Dirs = walked.Dirs,
-                Skipped = walked.Skipped,
+                SkippedDirectories = walked.SkippedDirectories,
+                SkippedReparsePoints = walked.SkippedReparsePoints,
+                SkippedEntries = walked.SkippedEntries,
                 Ms = walked.Ms,
                 EntriesPerSecond = walked.EntriesPerSecond
             };
             Console.WriteLine("real_scan_root=" + stats.Root);
             Console.WriteLine("real_scan_files=" + stats.Files);
             Console.WriteLine("real_scan_dirs=" + stats.Dirs);
-            Console.WriteLine("real_scan_skipped=" + stats.Skipped);
+            Console.WriteLine("real_scan_skipped_dirs=" + stats.SkippedDirectories);
+            Console.WriteLine("real_scan_skipped_reparse=" + stats.SkippedReparsePoints);
+            Console.WriteLine("real_scan_skipped_entries=" + stats.SkippedEntries);
             Console.WriteLine("real_scan_ms=" + (long)stats.Ms);
             Console.WriteLine("real_scan_entries_per_s=" + (long)stats.EntriesPerSecond);
             return stats;
@@ -477,7 +506,7 @@ namespace Kobold.FileSearchSpike
                 }
                 catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
                 {
-                    result.Skipped++;
+                    result.SkippedDirectories++;
                     continue;
                 }
 
@@ -492,7 +521,7 @@ namespace Kobold.FileSearchSpike
                         }
                         catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
                         {
-                            result.Skipped++;
+                            result.SkippedDirectories++;
                             break;
                         }
                         if (!moved) break;
@@ -502,13 +531,13 @@ namespace Kobold.FileSearchSpike
                         {
                             if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
                             {
-                                result.Skipped++;
+                                result.SkippedReparsePoints++;
                                 continue;
                             }
                         }
                         catch (Exception ex) when (ex is UnauthorizedAccessException || ex is IOException)
                         {
-                            result.Skipped++;
+                            result.SkippedEntries++;
                             continue;
                         }
 
@@ -587,7 +616,7 @@ namespace Kobold.FileSearchSpike
                     stats.Events = Volatile.Read(ref events);
                     stats.Errors = Volatile.Read(ref errors);
                     stats.LastError = lastError;
-                    stats.Stable = stats.Errors == 0;
+                    stats.Stable = stats.ProbeEvent && stats.Errors == 0;
                 }
             }
             catch (Exception ex)
@@ -619,6 +648,7 @@ namespace Kobold.FileSearchSpike
             Console.WriteLine("| prefix_p95_ms | " + Fmt(like.Prefix.P95Ms) + " |");
             Console.WriteLine("| prefix_range_p95_ms | " + Fmt(like.PrefixRange.P95Ms) + " |");
             Console.WriteLine("| infix_p95_ms | " + Fmt(like.Infix.P95Ms) + " |");
+            Console.WriteLine("| infix_3plus_p95_ms | " + Fmt(like.Infix3Plus.P95Ms) + " |");
             Console.WriteLine("| count_p95_ms | " + Fmt(like.Count.P95Ms) + " |");
             if (fts.Available)
             {
@@ -635,10 +665,19 @@ namespace Kobold.FileSearchSpike
             Console.WriteLine("| scan_entries_per_s | " + (long)synthetic.EntriesPerSecond + " |");
             Console.WriteLine("| real_scan_root | " + real.Root + " |");
             Console.WriteLine("| real_scan_files | " + real.Files + " |");
-            Console.WriteLine("| real_scan_skipped | " + real.Skipped + " |");
+            Console.WriteLine("| real_scan_skipped_dirs | " + real.SkippedDirectories + " |");
+            Console.WriteLine("| real_scan_skipped_reparse | " + real.SkippedReparsePoints + " |");
+            Console.WriteLine("| real_scan_skipped_entries | " + real.SkippedEntries + " |");
             Console.WriteLine("| watcher_probe_event | " + watcher.ProbeEvent + " |");
             Console.WriteLine("| watcher_stable_" + WatcherStableSeconds + "s | " + watcher.Stable + " |");
             Console.WriteLine("| watcher_events_" + WatcherStableSeconds + "s | " + watcher.Events + " |");
+
+            bool queryTargetOk = like.Prefix.Ok && like.Infix.Ok
+                && like.Prefix.P95Ms < TargetP95Ms && like.Infix.P95Ms < TargetP95Ms;
+            bool sizeTargetOk = insert.DbBytes < TargetDbBytes;
+            Console.WriteLine("targets_ok=" + (queryTargetOk && sizeTargetOk));
+            Console.WriteLine("targets_detail=query_p95_lt_" + TargetP95Ms + "ms:" + queryTargetOk
+                + " db_lt_" + (TargetDbBytes / 1024 / 1024) + "MB:" + sizeTargetOk);
         }
 
         // ---------- helpers ----------
