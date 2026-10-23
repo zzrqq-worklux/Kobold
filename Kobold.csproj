@@ -12,6 +12,10 @@
     <Copyright>Copyright 2025 YusufEren97</Copyright>
     <ApplicationIcon>Resources\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Spike 6b7b561: with AnyCPU, NuGet copies the win-x86 native e_sqlite3.dll
+         and the 64-bit test process fails with BadImageFormatException. Pin x64;
+         32-bit Windows is out of scope for v1. -->
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
     <!-- Icons are embedded as WPF resources; the tray icon loads them via pack URI -->
@@ -28,6 +32,13 @@
   <ItemGroup>
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="1.1.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- SQLite for the file-search index. The Core package plus the provider and
+         native library are referenced directly instead of the Microsoft.Data.Sqlite
+         meta package, which would pull SQLitePCLRaw.bundle_e_sqlite3. The provider
+         is installed explicitly in SqliteBootstrap. Keep the provider/lib versions equal. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.30" />
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.12" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <!-- The C# runtime binder for the Shell.Application dynamic calls in
          Helpers/QuickAccess.cs - a framework assembly, not a new dependency. -->
     <Reference Include="Microsoft.CSharp" />

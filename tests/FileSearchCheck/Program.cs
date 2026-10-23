@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using Kobold.Core.FileSearch;
 using Microsoft.Win32.SafeHandles;
 
@@ -10,9 +11,9 @@ namespace Kobold.FileSearchCheck
 {
     /// <summary>
     /// Checks for the file-search core layer: settings defaults, path helpers,
-    /// type filter, directory exclusions, index entries and root resolution.
-    /// Pure logic - no UI and no SQLite.
-    /// Exit code 0 = all green; 1 = failures.
+    /// type filter, directory exclusions, index entries, root resolution and the
+    /// SQLite index store (schema, scans, reconcile, query).
+    /// No UI. Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/FileSearchCheck
     /// </summary>
     internal static class Program
@@ -52,6 +53,8 @@ namespace Kobold.FileSearchCheck
             RootCases();
             SearchDataModelCase();
             ConfigCases();
+            StoreCases();
+            StoreConcurrencyCase();
         }
 
         private static void TypeFilterCases()
@@ -326,6 +329,182 @@ namespace Kobold.FileSearchCheck
             var reloaded = Kobold.Core.AppConfig.Load(main, backup);
             Check(reloaded.FileSearch != null && reloaded.FileSearch.Configured,
                 "config: a saved FileSearch reloads");
+        }
+
+        private static void StoreCases()
+        {
+            string db = Path.Combine(_root, "store.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var rows = new List<SearchEntry>
+                {
+                    Entry(@"C:\p\Alpha.txt", "Alpha.txt", "txt", false, 10, @"C:\"),
+                    Entry(@"C:\p\alphabet.md", "alphabet.md", "md", false, 20, @"C:\"),
+                    Entry(@"C:\p\子目录", "子目录", "", true, 0, @"C:\"),
+                    Entry(@"C:\p\sub\Beta.txt", "Beta.txt", "txt", false, 30, @"C:\"),
+                };
+                store.UpsertScanBatch(rows);
+                store.CompleteFullScan(2, 1, 0, "fp");
+                Check(store.ReadStatus().HasIndex, "store: full scan publishes an index");
+                Check(store.ReadStatus().SkippedDirectories == 2 && store.ReadStatus().SettingsFingerprint == "fp"
+                      && store.ReadStatus().SchemaVersion == 1 && store.ReadStatus().LastScanUtc != null,
+                    "store: status exposes the scan counters, fingerprint, schema version and timestamp");
+                Check(store.GetDatabaseSizeBytes() > 0, "store: the database size covers the main file");
+
+                var q = store.Query("alpha", 300, CancellationToken.None);
+                Check(q.TotalMatches == 2 && q.Items.Count == 2 && q.Items[0].Name == "Alpha.txt",
+                    "store: name prefix ranks before name infix and is case-insensitive");
+                Check(!q.LimitReached, "store: the reached flag stays false while everything fits");
+                q = store.Query("beta", 300, CancellationToken.None);
+                Check(q.Items.Count == 1 && q.Items[0].Name == "Beta.txt", "store: path/name match works");
+                q = store.Query("子", 300, CancellationToken.None);
+                Check(q.Items.Count == 1 && q.Items[0].IsDirectory, "store: Chinese names and folders are searchable");
+                q = store.Query("%", 300, CancellationToken.None);
+                Check(q.TotalMatches == 0, "store: LIKE wildcards are escaped");
+                q = store.Query("a", 1, CancellationToken.None);
+                Check(q.Items.Count == 1 && q.LimitReached, "store: the 300/limit cap is reported");
+                q = store.Query("   ", 300, CancellationToken.None);
+                Check(q.Items.Count == 0 && q.TotalMatches == 0, "store: a blank query returns an empty result");
+
+                store.Delete(@"c:\P\ALPHABET.MD");
+                Check(store.Query("alpha", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: deleting one path keeps its siblings");
+                store.DeletePathAndPrefix(@"C:\p\sub");
+                Check(store.Query("beta", 300, CancellationToken.None).TotalMatches == 0,
+                    "store: deleting a directory removes its prefix subtree");
+                store.Checkpoint();
+                store.Vacuum();
+            }
+
+            string db2 = Path.Combine(_root, "cancel.db");
+            using (var store = new SearchIndexStore(db2))
+            {
+                Check(!store.ReadStatus().HasIndex, "store: a missing database reports no index");
+                Check(store.Query("a", 300, CancellationToken.None).TotalMatches == 0,
+                    "store: querying before the schema exists returns nothing");
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[] { Entry(@"C:\old\a.txt", "a.txt", "txt", false, 1, @"C:\") });
+                store.CompleteFullScan(0, 0, 0, "old");
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[] { Entry(@"C:\new\b.txt", "b.txt", "txt", false, 1, @"C:\") });
+                store.AbortFullScan();
+                Check(store.Query("a", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: aborting a full scan keeps the old index intact");
+            }
+
+            string db3 = Path.Combine(_root, "reconcile.db");
+            using (var store = new SearchIndexStore(db3))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.UpsertScanBatch(new[]
+                {
+                    Entry(@"C:\r\keep.txt", "keep.txt", "txt", false, 1, @"C:\r"),
+                    Entry(@"C:\r\gone.txt", "gone.txt", "txt", false, 1, @"C:\r"),
+                    Entry(@"C:\other\x.txt", "x.txt", "txt", false, 1, @"C:\other"),
+                });
+                store.CompleteFullScan(0, 0, 0, "fp");
+
+                store.BeginReconcile();
+                store.MarkSeenBatch(new[] { @"C:\r\keep.txt", @"C:\r\new.txt" });
+                store.UpsertScanBatch(new[] { Entry(@"C:\r\new.txt", "new.txt", "txt", false, 1, @"C:\r") });
+                store.CompleteReconcile(new[] { @"C:\r" });
+                Check(store.Query("gone", 300, CancellationToken.None).TotalMatches == 0,
+                    "store: reconcile drops rows that were not seen under its roots");
+                Check(store.Query("keep", 300, CancellationToken.None).TotalMatches == 1
+                      && store.Query("new", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: reconcile keeps seen and freshly written rows");
+                Check(store.Query("x.txt", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: reconcile leaves roots it was not given alone");
+                Check(store.ReadStatus().LastReconcileUtc != null, "store: reconcile writes its timestamp");
+
+                store.BeginReconcile();
+                store.MarkSeenBatch(new[] { @"C:\r\keep.txt" });
+                store.AbortReconcile();
+                store.BeginReconcile();
+                store.MarkSeenBatch(new[] { @"C:\r\keep.txt", @"C:\r\new.txt" });
+                store.CompleteReconcile(new[] { @"C:\r" });
+                Check(store.Query("keep", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: a reconcile can start again after an abort");
+            }
+        }
+
+        private static void StoreConcurrencyCase()
+        {
+            string db = Path.Combine(_root, "concurrent.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var rows = new List<SearchEntry>();
+                for (int i = 0; i < 300; i++)
+                {
+                    rows.Add(Entry(@"C:\c\row" + i + ".txt", "row" + i + ".txt", "txt", false, i, @"C:\c"));
+                }
+                store.UpsertScanBatch(rows);
+                store.CompleteFullScan(0, 0, 0, "fp");
+
+                Exception failure = null;
+                var writer = new Thread(() =>
+                {
+                    try
+                    {
+                        for (int i = 0; i < 120; i++)
+                        {
+                            store.Upsert(Entry(@"C:\c\live" + i + ".txt", "live" + i + ".txt", "txt", false, i, @"C:\c"));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex;
+                    }
+                });
+
+                int probes = 0;
+                writer.Start();
+                try
+                {
+                    do
+                    {
+                        var result = store.Query("row", 10, CancellationToken.None);
+                        if (result.TotalMatches < 300 || result.Items.Count != 10)
+                        {
+                            failure = new InvalidOperationException("a query saw an incomplete index during a write");
+                        }
+                        probes++;
+                    }
+                    while (writer.IsAlive);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+                writer.Join();
+
+                Check(failure == null && probes > 0,
+                    "store: read-only queries run while another thread writes"
+                    + (failure == null ? string.Empty : " (" + failure.GetType().Name + ")"));
+            }
+        }
+
+        private static SearchEntry Entry(string path, string name, string extension, bool isDirectory,
+            long size, string root)
+        {
+            return new SearchEntry
+            {
+                Path = path,
+                Name = name,
+                NameLower = name.ToLowerInvariant(),
+                Extension = extension,
+                IsDirectory = isDirectory,
+                SizeBytes = size,
+                ModifiedUtc = 1700000000,
+                Root = root
+            };
         }
 
         private static bool PathsEqual(string a, string b)
