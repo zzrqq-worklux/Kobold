@@ -30,6 +30,14 @@ namespace Kobold.Core.FileSearch
 
         void BeginReconcile();
         void MarkSeenBatch(IReadOnlyList<string> paths);
+
+        /// <summary>
+        /// Marks every existing row at or below each prefix as seen. Used when a
+        /// directory could not be read: its subtree is incomplete, so a reconcile
+        /// must not prune the rows it could not visit.
+        /// </summary>
+        void MarkSeenPathsUnder(IReadOnlyList<string> prefixes);
+
         void CompleteReconcile(IReadOnlyList<string> roots);
         void AbortReconcile();
 

@@ -31,6 +31,7 @@ namespace Kobold.Core.FileSearch
         private readonly Action<ScanProgress> _progress;
         private readonly Func<string, bool> _isForbiddenDirectory;
         private readonly Func<string, bool> _isReparsePoint;
+        private readonly Func<string, bool> _isUnreadableDirectory;
 
         /// <param name="isForbiddenDirectory">
         /// Per-directory veto on top of the configured exclusions (the service passes
@@ -40,10 +41,16 @@ namespace Kobold.Core.FileSearch
         /// Optional override for reparse detection, so callers and tests can treat a
         /// directory as a junction without creating one.
         /// </param>
+        /// <param name="isUnreadableDirectory">
+        /// Optional test hook that simulates a denied directory open without changing
+        /// real ACLs. Production never sets it; a true result is counted and reported
+        /// exactly like a real <see cref="UnauthorizedAccessException"/>.
+        /// </param>
         public DirectoryScanner(ISearchIndexStore store, FileSearchSettings settings,
             Action<ScanProgress> progress = null,
             Func<string, bool> isForbiddenDirectory = null,
-            Func<string, bool> isReparsePoint = null)
+            Func<string, bool> isReparsePoint = null,
+            Func<string, bool> isUnreadableDirectory = null)
         {
             if (store == null) throw new ArgumentNullException("store");
             if (settings == null) throw new ArgumentNullException("settings");
@@ -53,6 +60,7 @@ namespace Kobold.Core.FileSearch
             _progress = progress;
             _isForbiddenDirectory = isForbiddenDirectory;
             _isReparsePoint = isReparsePoint;
+            _isUnreadableDirectory = isUnreadableDirectory;
         }
 
         /// <summary>
@@ -100,6 +108,13 @@ namespace Kobold.Core.FileSearch
 
             string normalizedRoot = SearchPath.Normalize(root);
             if (normalizedRoot.Length == 0) normalizedRoot = normalizedDirectory;
+
+            // A junction/mount point as the renamed directory itself must not be
+            // followed: its target can sit outside the scanned tree (or loop).
+            if (IsReparsePoint(normalizedDirectory))
+            {
+                return new ScanResult { SkippedReparsePoints = 1 };
+            }
 
             var starts = new List<DirectoryNode>(1)
             {
@@ -191,13 +206,13 @@ namespace Kobold.Core.FileSearch
 
             if (_isForbiddenDirectory != null && _isForbiddenDirectory(node.Path))
             {
-                state.SkippedDirectories++;
+                state.SkippedExcluded++;
                 return false;
             }
 
             if (SearchDirectoryFilter.IsExcluded(node.Path, node.Name, _settings))
             {
-                state.SkippedDirectories++;
+                state.SkippedExcluded++;
                 return false;
             }
 
@@ -207,6 +222,13 @@ namespace Kobold.Core.FileSearch
         private void Enumerate(DirectoryNode node, Stack<DirectoryNode> stack, ScanState state,
             ScanMode mode, bool live, CancellationToken token)
         {
+            if (_isUnreadableDirectory != null && _isUnreadableDirectory(node.Path))
+            {
+                MarkUnreadable(node.Path, state);
+                state.SkippedDirectories++;
+                return;
+            }
+
             IEnumerator<FileSystemInfo> items;
             try
             {
@@ -216,6 +238,9 @@ namespace Kobold.Core.FileSearch
             catch (Exception ex) when (IsFileSystemError(ex))
             {
                 // Gone, denied or unreadable since it was pushed: skip, keep walking.
+                // Its subtree stays untouched by a reconcile (see MarkUnreadable);
+                // only a real access/IO failure qualifies, not a malformed path.
+                if (IsUnreadableError(ex)) MarkUnreadable(node.Path, state);
                 state.SkippedDirectories++;
                 return;
             }
@@ -239,7 +264,9 @@ namespace Kobold.Core.FileSearch
                     {
                         // Nothing could be listed: the directory itself is gone or
                         // unreadable. Once part of it was listed, only the unread
-                        // remainder counts as skipped entries.
+                        // remainder counts as skipped entries. Either way its
+                        // unread rows must survive a reconcile.
+                        if (IsUnreadableError(ex)) MarkUnreadable(node.Path, state);
                         if (listedAny) state.SkippedEntries++; else state.SkippedDirectories++;
                         break;
                     }
@@ -372,12 +399,39 @@ namespace Kobold.Core.FileSearch
             state.Seen.Clear();
         }
 
+        private static void MarkUnreadable(string path, ScanState state)
+        {
+            if (!state.UnreadableDirectories.Contains(path))
+                state.UnreadableDirectories.Add(path);
+        }
+
+        private bool IsReparsePoint(string path)
+        {
+            if (_isReparsePoint != null && _isReparsePoint(path)) return true;
+
+            try
+            {
+                var attributes = File.GetAttributes(SearchPath.ToExtended(path));
+                return (attributes & FileAttributes.ReparsePoint) != 0;
+            }
+            catch (Exception ex) when (IsFileSystemError(ex))
+            {
+                return false;
+            }
+        }
+
         private static bool IsFileSystemError(Exception ex)
         {
             return ex is UnauthorizedAccessException
                 || ex is IOException
                 || ex is ArgumentException
                 || ex is NotSupportedException;
+        }
+
+        private static bool IsUnreadableError(Exception ex)
+        {
+            // DirectoryNotFoundException derives from IOException.
+            return ex is UnauthorizedAccessException || ex is IOException;
         }
 
         private static void TrySetPriority(ThreadPriority priority)
@@ -434,12 +488,14 @@ namespace Kobold.Core.FileSearch
             public long Directories;
             public long Files;
             public long SkippedDirectories;
+            public long SkippedExcluded;
             public long SkippedReparsePoints;
             public long SkippedLongPaths;
             public long SkippedEntries;
             public string CurrentDirectory;
             public readonly List<SearchEntry> Batch;
             public readonly List<string> Seen;
+            public readonly List<string> UnreadableDirectories = new List<string>();
 
             /// <summary>Time since the walk started, for the progress throttle.</summary>
             public readonly Stopwatch Clock = Stopwatch.StartNew();
@@ -452,6 +508,7 @@ namespace Kobold.Core.FileSearch
                     Directories = Directories,
                     Files = Files,
                     SkippedDirectories = SkippedDirectories,
+                    SkippedExcluded = SkippedExcluded,
                     SkippedReparsePoints = SkippedReparsePoints,
                     SkippedLongPaths = SkippedLongPaths,
                     SkippedEntries = SkippedEntries,
@@ -466,10 +523,12 @@ namespace Kobold.Core.FileSearch
                     Directories = Directories,
                     Files = Files,
                     SkippedDirectories = SkippedDirectories,
+                    SkippedExcluded = SkippedExcluded,
                     SkippedReparsePoints = SkippedReparsePoints,
                     SkippedLongPaths = SkippedLongPaths,
                     SkippedEntries = SkippedEntries,
-                    Cancelled = false
+                    Cancelled = false,
+                    UnreadableDirectories = new List<string>(UnreadableDirectories)
                 };
             }
         }

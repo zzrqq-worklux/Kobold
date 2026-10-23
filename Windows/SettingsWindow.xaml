@@ -267,6 +267,9 @@
                                 <Button x:Name="FileSearchRebuildButton" Content="Rebuild now" MinHeight="32" MinWidth="96" Padding="16,0" FontSize="12"
                                         Style="{StaticResource Kobold.Style.SecondaryButton}"
                                         Click="FileSearchRebuildButton_Click"/>
+                                <Button x:Name="FileSearchCancelButton" Content="Cancel indexing" MinHeight="32" MinWidth="104" Padding="16,0" FontSize="12" Margin="8,0,0,0"
+                                        Style="{StaticResource Kobold.Style.SecondaryButton}"
+                                        Click="FileSearchCancelButton_Click"/>
                                 <Button x:Name="FileSearchPauseButton" Content="Pause" MinHeight="32" MinWidth="80" Padding="16,0" FontSize="12" Margin="8,0,0,0"
                                         Style="{StaticResource Kobold.Style.SecondaryButton}"
                                         Click="FileSearchPauseButton_Click"/>

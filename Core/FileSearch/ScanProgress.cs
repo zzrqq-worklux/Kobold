@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Kobold.Core.FileSearch
 {
@@ -22,7 +23,13 @@ namespace Kobold.Core.FileSearch
     {
         public long Directories { get; set; }
         public long Files { get; set; }
+
+        /// <summary>Directories this scan could not open or enumerate (permission/IO).</summary>
         public long SkippedDirectories { get; set; }
+
+        /// <summary>Directories pruned by the default/user exclusions or the caller's veto.</summary>
+        public long SkippedExcluded { get; set; }
+
         public long SkippedReparsePoints { get; set; }
         public long SkippedLongPaths { get; set; }
         public long SkippedEntries { get; set; }
@@ -39,10 +46,22 @@ namespace Kobold.Core.FileSearch
     {
         public long Directories { get; set; }
         public long Files { get; set; }
+
+        /// <summary>Directories this scan could not open or enumerate (permission/IO).</summary>
         public long SkippedDirectories { get; set; }
+
+        /// <summary>Directories pruned by the default/user exclusions or the caller's veto.</summary>
+        public long SkippedExcluded { get; set; }
+
         public long SkippedReparsePoints { get; set; }
         public long SkippedLongPaths { get; set; }
         public long SkippedEntries { get; set; }
         public bool Cancelled { get; set; }
+
+        /// <summary>
+        /// Directories whose subtree may be incomplete (denied or IO error). A
+        /// reconcile must mark their existing rows seen instead of pruning them.
+        /// </summary>
+        public IReadOnlyList<string> UnreadableDirectories { get; set; } = new string[0];
     }
 }

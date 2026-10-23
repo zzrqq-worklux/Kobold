@@ -42,6 +42,9 @@ namespace Kobold.Core.FileSearch
         /// <summary>True while every configured root has a live watcher; false means "reconcile only".</summary>
         public bool IncrementalAvailable { get; set; }
 
+        /// <summary>True when the last full scan was cancelled by the user (not by pause/stop).</summary>
+        public bool ScanCancelled { get; set; }
+
         public bool NeedsRebuild { get; set; }
         public string DatabasePath { get; set; }
 
@@ -292,6 +295,7 @@ namespace Kobold.Core.FileSearch
                 _status.FilesIndexed = 0;
                 _status.DirectoriesScanned = 0;
                 _status.SkippedDirectories = 0;
+                _status.ScanCancelled = false;
 
                 snapshot = SnapshotLocked();
                 handler = StatusChanged;
@@ -575,6 +579,20 @@ namespace Kobold.Core.FileSearch
                     : SearchRoots.Resolve(settings.Roots);
                 string fingerprint = settings.ComputeFingerprint(scanRoots);
 
+                // A drive that is missing/locked resolves to zero roots. Publishing the
+                // empty staging table would silently replace a usable index with nothing;
+                // abort and keep whatever was published before.
+                if (scanRoots.Count == 0)
+                {
+                    AbortScanQuietly();
+                    if (!IsCurrentGeneration(generation)) return;
+
+                    Transition(SafeHasIndexLocked() ? FileSearchState.Error : FileSearchState.NoIndex,
+                        "No configured folder is available; indexing was not started.",
+                        ResetScanCounters);
+                    return;
+                }
+
                 // Freeze the watcher before the staging table exists. Events that
                 // arrive during the walk stay queued and are applied to the new
                 // table only after the swap (or to the old one after an abort).
@@ -631,15 +649,23 @@ namespace Kobold.Core.FileSearch
                     {
                         // The old index is still live: resume incremental writes on it
                         // instead of leaving the service Ready without a watcher until
-                        // the next launch.
+                        // the next launch. A user cancel (not a pause) reports it.
                         StartIncrementalLocked(scanRoots, settings);
                         Transition(FileSearchState.Ready,
-                            "Scan cancelled; the previous index is still in use.", ResetScanCounters);
+                            "Scan cancelled; the previous index is still in use.", status =>
+                            {
+                                ResetScanCounters(status);
+                                status.ScanCancelled = true;
+                            });
                     }
                     else
                     {
                         Transition(FileSearchState.NoIndex,
-                            "Scan cancelled before any index was published.", ResetScanCounters);
+                            "Scan cancelled before any index was published.", status =>
+                            {
+                                ResetScanCounters(status);
+                                status.ScanCancelled = true;
+                            });
                     }
                 }
                 catch (Exception ex)
@@ -793,8 +819,14 @@ namespace Kobold.Core.FileSearch
 
                     store.BeginReconcile();
                     var scanner = new DirectoryScanner(store, settings);
-                    scanner.Scan(normalized, ScanMode.Reconcile, current.Token);
+                    ScanResult result = scanner.Scan(normalized, ScanMode.Reconcile, current.Token);
                     current.Token.ThrowIfCancellationRequested();
+
+                    // A denied/unreadable directory was not walked: mark the rows it
+                    // already has as seen so CompleteReconcile cannot prune them.
+                    if (result.UnreadableDirectories.Count > 0)
+                        store.MarkSeenPathsUnder(result.UnreadableDirectories);
+
                     store.CompleteReconcile(normalized);
 
                     if (IsCurrentReconcile(current))
@@ -1094,6 +1126,10 @@ namespace Kobold.Core.FileSearch
                 _reconcileWanted = false;
                 stopGeneration = _generation;
                 cancelled = _scanCts;
+                // Under the gate: a cancelled reconcile's finalizer checks identity
+                // before transitioning, so a late cancellation cannot overwrite
+                // Unconfigured with Ready.
+                _scanCts = null;
             }
 
             TryCancel(cancelled);
@@ -1139,6 +1175,9 @@ namespace Kobold.Core.FileSearch
                 _generation++;
                 _reconcileWanted = false;
                 cancelled = _scanCts;
+                // See StopForNoWidgets: identity is cleared under the gate so a
+                // late reconcile cancellation cannot turn Unconfigured into Ready.
+                _scanCts = null;
             }
 
             TryCancel(cancelled);
@@ -1371,6 +1410,9 @@ namespace Kobold.Core.FileSearch
                 if (_disposed) return;
                 _status.State = state;
                 _status.Message = message ?? string.Empty;
+                // A one-shot notice: only the transition that reports a user cancel
+                // re-sets it (through its update callback).
+                _status.ScanCancelled = false;
                 if (update != null) update(_status);
                 snapshot = SnapshotLocked();
                 handler = StatusChanged;
@@ -1408,6 +1450,7 @@ namespace Kobold.Core.FileSearch
                 // Read live: a watcher that reported an OS error during the session
                 // degrades without a state transition to carry the change.
                 IncrementalAvailable = _watcherHost != null && _watcherHost.IncrementalAvailable,
+                ScanCancelled = _status.ScanCancelled,
                 NeedsRebuild = _status.NeedsRebuild,
                 DatabasePath = _databasePath
             };

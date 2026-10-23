@@ -9066,7 +9066,8 @@ namespace Kobold.XamlLoadCheck
                 "FileSearchLastUpdatedText", "FileSearchAllFilesCheck",
                 "FileSearchExtensionlessCheck", "FileSearchFoldersCheck",
                 "FileSearchTypesBox", "FileSearchExcludesBox", "FileSearchReconcileBox",
-                "FileSearchRootsList", "FileSearchRebuildButton", "FileSearchPauseButton"
+                "FileSearchRootsList", "FileSearchRebuildButton", "FileSearchPauseButton",
+                "FileSearchCancelButton"
             })
             {
                 if (window.FindName(name) == null)
@@ -9103,6 +9104,13 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the pause button shows '" + pauseLabel + "', wanted a localized Pause/Resume label");
+            }
+
+            var cancel = window.FindName("FileSearchCancelButton") as Button;
+            if (cancel == null || cancel.Content as string != Localization.Get("Search_Cancel"))
+            {
+                throw new InvalidOperationException(
+                    "the cancel button shows '" + (cancel == null ? "null" : cancel.Content) + "'");
             }
         }
 

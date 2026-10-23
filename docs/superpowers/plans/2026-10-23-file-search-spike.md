@@ -167,11 +167,11 @@ NameLower >= @q AND NameLower <= @q || char(0x10FFFF)
 - 实测那一轮用的是 `<= @q || char(0xFFFF)`；Task 4 统一用 `char(0x10FFFF)` 作为 BMP 之上也无歧义的上界即可。
 - 外部 `ISearchIndexStore.Query` 签名不变。
 
-### 5.4 默认根：所有固定 NTFS 盘（保留现状）+ 容量上限
+### 5.4 默认根：所有固定 NTFS 盘（保留现状），v1 不设硬上限
 
 - 本机两个固定 NTFS 卷：`C:` 400 GB、`D:` 553.6 GB，均为 Fixed/NTFS/Healthy。plan 里的 `SearchRoots.FixedNtfsRoots()` 与实测吞吐（36k–91k entries/s）匹配：2,000,000 条目的首建约 22–55 s，一分钟后可查，可接受。
 - **但库大小是风险点**：合成数据 117 B/行，而合成路径（`C:\spike\123.txt`）比真实 Windows 路径短 2–3 倍。按真实路径估 200–250 B/行，**300 MB 预算 ≈ 120–150 万行**。开发机常见 100–300 万文件 → 可能顶到或超过 brief 里的 300 MB 目标。
-- 因此结论是「默认根不变，但加护栏」：`meta` 里维护行数与库大小，超过阈值时停止索引并在 UI 显示「索引超限/需缩减范围」，而不是默认把用户缩小到用户目录。降级方案（写进 Task 4 的注释/后续任务即可）：若某卷为网络盘/可移动/非 NTFS 或扫描超时，`FixedNtfsRoots()` 过滤后回退到用户目录集合。
+- **v1 决策（ledger ruling）：不设行数/库大小硬上限，也不在超限时停止索引。** 300 MB 与 300 万文件只是观察目标：`meta` 记录行数、设置页显示索引大小/最后更新时间，供真实冒烟后决定是否需要护栏。加硬上限会直接违背「所有固定 NTFS 盘可搜」，因此即使超出预算也保持全盘可搜，不静默截断根或行。降级方案（写进 Task 4 的注释/后续任务即可）：若某卷为网络盘/可移动/非 NTFS 或扫描超时，`FixedNtfsRoots()` 过滤后回退到用户目录集合。
 - 另：`D:` 本机几乎为空（553.4/553.6 GB 空闲），多卷枚举本身不是成本，实际成本在条目数。
 
 ### 5.5 Watcher：按根 watch + reconcile 兜底，不把 `C:\` 递归监听当默认策略
@@ -196,7 +196,7 @@ NameLower >= @q AND NameLower <= @q || char(0x10FFFF)
 | 任务 | 影响 |
 |---|---|
 | Task 4（store） | `Kobold.csproj` 加 `<PlatformTarget>x64</PlatformTarget>`；留意 binding redirect（本 spike 未产生）；前缀用闭区间 seek 且先小写化；不建 FTS5 表；`idx_files_name_lower` 保留 |
-| Task 4（容量） | `meta` 记录行数/库大小，超限停止并提示；不要自动缩小默认根 |
+| Task 4（容量） | `meta` 记录行数/库大小仅供设置页显示；v1 **不设硬上限**，不要自动缩小默认根或截断行 |
 | Task 5（scan） | 逐目录 `EnumerateFileSystemInfos()` + 跳 ReparsePoint + 吞权限/IO 异常；**分别统计 skipped_dirs / skipped_reparse / skipped_entries**；吞吐按 ≥30k entries/s 规划 |
 | Task 7（watcher） | 按根建 watcher，64 KB 缓冲；`Error` → `IncrementalAvailable=false` + reconcile |
 | 测试 | 只用 `%TEMP%` 小规模数据；不要断言绝对毫秒，用宽松上限（P95 目标 300 ms 有 2 倍余量） |

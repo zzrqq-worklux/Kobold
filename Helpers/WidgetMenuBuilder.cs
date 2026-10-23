@@ -239,18 +239,25 @@ namespace Kobold.Helpers
         /// </summary>
         private static void AddSearchActions(MenuBuilder menu)
         {
-            menu.AddItem("Search_Rebuild", () => FileSearchIndexService.Instance.RequestRebuild());
+            FileSearchIndexService service = FileSearchIndexService.Instance;
+            menu.AddItem("Search_Rebuild", () => service.RequestRebuild());
 
-            bool paused = FileSearchIndexService.Instance.Status.State == FileSearchState.Paused;
+            // A cancel entry only means something while a full scan is running.
+            if (service.Status.State == FileSearchState.Indexing)
+            {
+                menu.AddItem("Search_Cancel", () => service.CancelScan());
+            }
+
+            bool paused = service.Status.State == FileSearchState.Paused;
             menu.AddItem(paused ? "Search_Resume" : "Search_Pause", () =>
             {
-                if (FileSearchIndexService.Instance.Status.State == FileSearchState.Paused)
+                if (service.Status.State == FileSearchState.Paused)
                 {
-                    FileSearchIndexService.Instance.Resume();
+                    service.Resume();
                 }
                 else
                 {
-                    FileSearchIndexService.Instance.Pause();
+                    service.Pause();
                 }
             });
         }

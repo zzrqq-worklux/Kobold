@@ -243,8 +243,17 @@ namespace Kobold.Controls
         {
             if (e.Key == Key.Enter)
             {
-                if (_debounce != null) _debounce.Stop();
-                RunQuery();
+                // Spec 3.4: Enter opens the selected row; with no selection it
+                // runs the query (the first Down moves focus to the list).
+                if (ResultsList.SelectedItem is SearchResultRow)
+                {
+                    OpenSelected();
+                }
+                else
+                {
+                    if (_debounce != null) _debounce.Stop();
+                    RunQuery();
+                }
                 e.Handled = true;
                 return;
             }
@@ -397,7 +406,13 @@ namespace Kobold.Controls
 
         private static string ReadyText(FileSearchStatus status)
         {
-            string text = Localization.Get("Search_Ready");
+            string text = status != null && status.ScanCancelled
+                ? Localization.Get("Search_ScanCancelled")
+                : Localization.Get("Search_Ready");
+            if (status != null && !status.IncrementalAvailable)
+            {
+                text += " · " + Localization.Get("Search_ReconcileOnly");
+            }
             if (status != null && status.SkippedDirectories > 0)
             {
                 text += " · " + Localization.Format("Search_SkippedFolders", status.SkippedDirectories);
@@ -520,9 +535,11 @@ namespace Kobold.Controls
                     EmptyState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Visible;
-                    // The state body carries the sentence; repeating it on the
-                    // status line would just say the same thing twice.
-                    StatusText.Text = string.Empty;
+                    // The state body carries the sentence; after a user cancel the
+                    // transient status line reports why nothing was published.
+                    StatusText.Text = status.ScanCancelled
+                        ? Localization.Get("Search_ScanCancelled")
+                        : string.Empty;
                     break;
 
                 case FileSearchState.Paused:

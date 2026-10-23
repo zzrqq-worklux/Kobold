@@ -221,6 +221,7 @@ namespace Kobold.Windows
             FileSearchReconcileLabel.Text = Localization.Get("Search_SettingsReconcile");
             FileSearchRootsLabel.Text = Localization.Get("Search_SettingsRoots");
             FileSearchRebuildButton.Content = Localization.Get("Search_SettingsRebuild");
+            FileSearchCancelButton.Content = Localization.Get("Search_Cancel");
             UpdateFileSearchPauseText();
 
             // The size and last-updated values are re-rendered from a
@@ -548,6 +549,14 @@ namespace Kobold.Windows
             UpdateFileSearchStatus(_fileSearchService.Status);
         }
 
+        private void FileSearchCancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsFileSearchConfigured() || _fileSearchService == null) return;
+
+            _fileSearchService.CancelScan();
+            UpdateFileSearchStatus(_fileSearchService.Status);
+        }
+
         private void FileSearchService_StatusChanged(object sender, FileSearchStatus status)
         {
             if (_closed) return;
@@ -617,6 +626,13 @@ namespace Kobold.Windows
             FileSearchPauseButton.Content = Localization.Get(
                 paused ? "Search_SettingsResume" : "Search_SettingsPause");
             FileSearchPauseButton.IsEnabled = IsFileSearchConfigured();
+
+            if (FileSearchCancelButton != null)
+            {
+                FileSearchStatus state = _fileSearchService == null ? null : _fileSearchService.Status;
+                FileSearchCancelButton.IsEnabled = IsFileSearchConfigured()
+                    && state != null && state.State == FileSearchState.Indexing;
+            }
         }
 
         /// <summary>

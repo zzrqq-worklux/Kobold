@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Microsoft.Data.Sqlite;
 using Microsoft.Win32.SafeHandles;
 
 namespace Kobold.FileSearchCheck
@@ -34,6 +36,13 @@ namespace Kobold.FileSearchCheck
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_root);
             try { RunAll(); }
+            catch (Exception ex)
+            {
+                Console.WriteLine("UNHANDLED " + ex.GetType().FullName);
+                Console.WriteLine("MESSAGE " + ex.Message);
+                Console.WriteLine("STACK " + ex.StackTrace);
+                Errors.Add("unhandled " + ex.GetType().FullName);
+            }
             finally { try { Directory.Delete(_root, true); } catch { } }
             Console.WriteLine();
             if (Errors.Count == 0) { Console.WriteLine("ALL FILE-SEARCH CHECKS PASSED"); return 0; }
@@ -90,11 +99,16 @@ namespace Kobold.FileSearchCheck
             ScannerCases();
             ScannerSubtreeCases();
             ScannerBatchCases();
+            ReconcileUnreadableCase();
+            ReconcileWritesOnlyDifferencesCase();
+            StaleStagingTableCase();
             WatcherCases();
             ServiceCases();
             ServiceIncrementalCases();
             ServiceFreshDatabaseCase();
             ServiceCorruptionCases();
+            ServiceNoRootsCase();
+            ServiceCancelCases();
             ServiceShutdownCase();
         }
 
@@ -838,8 +852,8 @@ namespace Kobold.FileSearchCheck
                 store.CompleteFullScan(full.SkippedDirectories, full.SkippedReparsePoints,
                     full.SkippedLongPaths, fingerprint);
                 Check(full.Files == 2 && !full.Cancelled, "scan: default types index README + PDF, skip EXE");
-                Check(full.Directories == 3 && full.SkippedDirectories == 1,
-                    "scan: excluded node_modules is skipped and counted");
+                Check(full.Directories == 3 && full.SkippedExcluded == 1 && full.SkippedDirectories == 0,
+                    "scan: excluded node_modules increments SkippedExcluded, not SkippedDirectories");
                 Check(full.SkippedReparsePoints == 0 && full.SkippedLongPaths == 0,
                     "scan: a clean tree reports no skipped reparse points or long paths");
                 Check(full.SkippedEntries == 0, "scan: the result carries the skipped-entry count");
@@ -860,8 +874,8 @@ namespace Kobold.FileSearchCheck
                 var denied = guarded.Scan(new[] { tree }, ScanMode.Full, CancellationToken.None);
                 store.CompleteFullScan(denied.SkippedDirectories, denied.SkippedReparsePoints,
                     denied.SkippedLongPaths, fingerprint);
-                Check(denied.SkippedDirectories == 2 && denied.Files == 1,
-                    "scan: a denied directory is skipped and counted");
+                Check(denied.SkippedExcluded == 2 && denied.SkippedDirectories == 0 && denied.Files == 1,
+                    "scan: a vetoed directory is counted as excluded, not as a permission skip");
                 Check(!HasRow(store, Path.Combine(docs, "report.PDF"), tree),
                     "scan: files under a denied directory are not published");
                 Check(HasRow(store, Path.Combine(tree, "README"), tree),
@@ -981,6 +995,15 @@ namespace Kobold.FileSearchCheck
                     "subtree: the renamed directory row is written live");
                 Check(HasRow(store, Path.Combine(newDirectory, "child.txt"), tree),
                     "subtree: the child file under the renamed directory is written live");
+
+                int before = store.Query("child", 50, CancellationToken.None).TotalMatches;
+                var linked = new DirectoryScanner(store, settings,
+                    isReparsePoint: path => PathsEqual(path, newDirectory))
+                    .ScanSubtree(tree, newDirectory, CancellationToken.None);
+                Check(linked.Files == 0 && linked.Directories == 0 && linked.SkippedReparsePoints == 1,
+                    "subtree: a reparse-point start path is not followed");
+                Check(store.Query("child", 50, CancellationToken.None).TotalMatches == before,
+                    "subtree: skipping a reparse-point start path leaves the index unchanged");
             }
         }
 
@@ -1027,6 +1050,134 @@ namespace Kobold.FileSearchCheck
                 all = store.Query("file", FileCount + 10, CancellationToken.None);
                 Check(all.TotalMatches == FileCount && all.Items.Count == FileCount,
                     "reconcile: every flushed batch is marked as seen and survives completion");
+            }
+        }
+
+        /// <summary>
+        /// A reconcile must not prune rows under a directory it could not read: the
+        /// walk reports the directory, the store marks that subtree as seen, and
+        /// CompleteReconcile leaves those rows alone. A normal reconcile still drops
+        /// a row that is genuinely gone.
+        /// </summary>
+        private static void ReconcileUnreadableCase()
+        {
+            string tree = Path.Combine(_root, "reconcile-unreadable-tree");
+            string denied = Path.Combine(tree, "denied");
+            Directory.CreateDirectory(denied);
+            string hidden = Path.Combine(denied, "hidden.txt");
+            File.WriteAllText(hidden, "x");
+            string visible = Path.Combine(tree, "visible.txt");
+            File.WriteAllText(visible, "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            string db = Path.Combine(_root, "reconcile-unreadable.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var initial = new DirectoryScanner(store, settings).Scan(new[] { tree }, ScanMode.Full,
+                    CancellationToken.None);
+                store.CompleteFullScan(initial.SkippedDirectories, initial.SkippedReparsePoints,
+                    initial.SkippedLongPaths, settings.ComputeFingerprint(new[] { tree }));
+                Check(HasRow(store, hidden, tree),
+                    "reconcile unreadable: the denied subtree is indexed before the pass");
+
+                store.BeginReconcile();
+                var guarded = new DirectoryScanner(store, settings,
+                    isUnreadableDirectory: path => PathsEqual(path, denied));
+                var reconcile = guarded.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                Check(reconcile.UnreadableDirectories.Count == 1
+                      && PathsEqual(reconcile.UnreadableDirectories[0], denied),
+                    "reconcile unreadable: the failed directory is reported by the walk");
+                Check(reconcile.SkippedDirectories == 1 && reconcile.SkippedExcluded == 0,
+                    "reconcile unreadable: an open failure counts as a directory skip, not an exclusion");
+
+                store.MarkSeenPathsUnder(reconcile.UnreadableDirectories);
+                store.CompleteReconcile(new[] { tree });
+                Check(HasRow(store, hidden, tree),
+                    "reconcile unreadable: rows under the unreadable directory survive completion");
+                Check(HasRow(store, visible, tree),
+                    "reconcile unreadable: normal rows are still seen and kept");
+
+                string gone = Path.Combine(tree, "genuinely-gone.txt");
+                store.Upsert(Entry(gone, "genuinely-gone.txt", "txt", false, 1, tree));
+                store.BeginReconcile();
+                var normal = new DirectoryScanner(store, settings).Scan(new[] { tree }, ScanMode.Reconcile,
+                    CancellationToken.None);
+                store.MarkSeenPathsUnder(normal.UnreadableDirectories);
+                store.CompleteReconcile(new[] { tree });
+                Check(!HasRow(store, gone, tree),
+                    "reconcile unreadable: a normal reconcile still drops a genuinely missing row");
+            }
+        }
+
+        /// <summary>
+        /// The reconcile UPSERT only updates a row whose values changed. A trigger on
+        /// the files table logs every UPDATE, so an unchanged tree must log zero and
+        /// a changed size exactly one.
+        /// </summary>
+        private static void ReconcileWritesOnlyDifferencesCase()
+        {
+            string tree = Path.Combine(_root, "diff-tree");
+            Directory.CreateDirectory(tree);
+            string file = Path.Combine(tree, "diff-probe.txt");
+            File.WriteAllText(file, "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            string db = Path.Combine(_root, "diff.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                var full = new DirectoryScanner(store, settings).Scan(new[] { tree }, ScanMode.Full,
+                    CancellationToken.None);
+                store.CompleteFullScan(full.SkippedDirectories, full.SkippedReparsePoints, full.SkippedLongPaths,
+                    settings.ComputeFingerprint(new[] { tree }));
+
+                using (var connection = OpenSqlite(db))
+                {
+                    ExecuteSql(connection, "CREATE TABLE update_log (Id INTEGER PRIMARY KEY AUTOINCREMENT);");
+                    ExecuteSql(connection,
+                        "CREATE TRIGGER files_updated AFTER UPDATE ON files " +
+                        "BEGIN INSERT INTO update_log (Id) VALUES (NULL); END;");
+                }
+
+                var scanner = new DirectoryScanner(store, settings);
+                store.BeginReconcile();
+                scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                store.CompleteReconcile(new[] { tree });
+                Check(ScalarCount(db, "SELECT COUNT(*) FROM update_log;") == 0,
+                    "reconcile diff: an unchanged tree performs zero row updates");
+
+                File.WriteAllText(file, "more bytes than the first scan saw");
+                store.BeginReconcile();
+                scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                store.CompleteReconcile(new[] { tree });
+                Check(ScalarCount(db, "SELECT COUNT(*) FROM update_log;") == 1,
+                    "reconcile diff: a changed size performs exactly one row update");
+            }
+        }
+
+        /// <summary>A crashed full scan can leave files_new behind; reopening the store drops it.</summary>
+        private static void StaleStagingTableCase()
+        {
+            string db = Path.Combine(_root, "stale-staging.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                // Deliberately no Abort/Complete: simulate a process that died mid-scan.
+            }
+
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                Check(!TableExists(db, "files_new"),
+                    "store: EnsureSchema drops a leftover files_new staging table");
+                Check(!store.IsFullScanActive,
+                    "store: a reopened store is not left in a full-scan state");
             }
         }
 
@@ -1185,8 +1336,8 @@ namespace Kobold.FileSearchCheck
         /// The service side of the watcher: Ready starts incremental updates, a
         /// reconcile requested through the same path the timer uses removes a row
         /// the watcher never saw while keeping the rows it did index, and pause /
-        /// resume stops and restarts the watcher. An unwatchable root still scans
-        /// but reports incremental updates unavailable.
+        /// resume stops and restarts the watcher. A scan whose configured roots all
+        /// resolve to nothing ends NoIndex instead of publishing an empty index.
         /// </summary>
         private static void ServiceIncrementalCases()
         {
@@ -1336,8 +1487,9 @@ namespace Kobold.FileSearchCheck
                 service.ApplySettings(bad);
                 service.StartFullScan(bad, null);
                 service.WaitForIdle(TimeSpan.FromSeconds(20));
-                Check(service.Status.State == FileSearchState.Ready && !service.Status.IncrementalAvailable,
-                    "service watch: unwatchable roots degrade to periodic reconcile only");
+                Check(service.Status.State == FileSearchState.NoIndex
+                      && !service.ReadStatus().HasIndex,
+                    "service watch: a scan with no resolvable root ends NoIndex and publishes nothing");
             }
         }
 
@@ -1594,6 +1746,155 @@ namespace Kobold.FileSearchCheck
             }
         }
 
+        /// <summary>
+        /// A full scan whose configured roots all resolve to nothing must not publish
+        /// the empty staging table: the old index keeps serving and the status says
+        /// Error (or NoIndex when nothing was ever published).
+        /// </summary>
+        private static void ServiceNoRootsCase()
+        {
+            string db = Path.Combine(_root, "service-noroots.db");
+            string tree = Path.Combine(_root, "service-noroots-tree");
+            Directory.CreateDirectory(tree);
+            string probe = Path.Combine(tree, "noroots-probe.txt");
+            File.WriteAllText(probe, "x");
+
+            var good = FileSearchSettings.CreateDefault();
+            good.Roots = new[] { tree };
+            good.Configured = true;
+            good.Enabled = true;
+
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.ApplySettings(good);
+                service.StartFullScan(good, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && HasRow(service, probe),
+                    "service no roots: the baseline index is published");
+
+                var missing = FileSearchSettings.CreateDefault();
+                missing.Roots = new[] { Path.Combine(_root, "noroots-missing-" + Guid.NewGuid().ToString("N")) };
+                missing.Configured = true;
+                missing.Enabled = true;
+
+                service.StartFullScan(missing, null);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Error
+                      || service.Status.State == FileSearchState.NoIndex,
+                    "service no roots: a scan with no resolvable root ends Error/NoIndex");
+                Check(HasRow(service, probe),
+                    "service no roots: the previous index is not replaced by an empty one");
+            }
+        }
+
+        /// <summary>
+        /// A user cancel ends NoIndex when nothing was published and Ready (on the old
+        /// index) otherwise; Pause keeps its own Paused ending. The old rows survive
+        /// and no staged row is published.
+        /// </summary>
+        private static void ServiceCancelCases()
+        {
+            string tree = Path.Combine(_root, "service-cancel-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "cancel-base.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+            settings.ReconcileMinutes = 0;
+
+            // No published index yet: a cancel must end NoIndex and stay startable.
+            string emptyDb = Path.Combine(_root, "service-cancel-empty.db");
+            using (var service = new FileSearchIndexService(emptyDb))
+            {
+                bool cancelled = false;
+                EventHandler<ScanProgress> cancelOnProgress = (s, p) =>
+                {
+                    if (cancelled) return;
+                    cancelled = true;
+                    service.CancelScan();
+                };
+                service.ProgressChanged += cancelOnProgress;
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                service.ProgressChanged -= cancelOnProgress;
+
+                Check(cancelled, "service cancel: the first scan reports progress before finishing");
+                Check(service.Status.State == FileSearchState.NoIndex,
+                    "service cancel: a cancelled first scan ends NoIndex");
+                Check(service.Status.ScanCancelled,
+                    "service cancel: the status reports the user cancellation");
+                Check(!service.ReadStatus().HasIndex,
+                    "service cancel: no index was published by the cancelled first scan");
+
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && !service.Status.ScanCancelled,
+                    "service cancel: the service starts normally after a NoIndex cancel");
+            }
+
+            // An old index: a cancel ends Ready, keeps its rows and publishes nothing.
+            string db = Path.Combine(_root, "service-cancel.db");
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.ApplySettings(settings);
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service cancel: the baseline scan is ready");
+
+                File.WriteAllText(Path.Combine(tree, "cancel-new.txt"), "x");
+                bool cancelled = false;
+                EventHandler<ScanProgress> cancelOnProgress = (s, p) =>
+                {
+                    if (cancelled) return;
+                    cancelled = true;
+                    service.CancelScan();
+                };
+                service.ProgressChanged += cancelOnProgress;
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                service.ProgressChanged -= cancelOnProgress;
+
+                Check(cancelled && service.Status.State == FileSearchState.Ready,
+                    "service cancel: a cancel with an old index ends Ready");
+                Check(service.Status.ScanCancelled,
+                    "service cancel: the Ready status still reports the cancellation");
+                Check(HasRow(service, Path.Combine(tree, "cancel-base.txt")),
+                    "service cancel: the old index rows survive the cancel");
+                Check(service.Search("cancel-new", 50, CancellationToken.None).TotalMatches == 0
+                      && service.Search("cancel-base", 50, CancellationToken.None).TotalMatches == 1,
+                    "service cancel: no staged row is published and the old rows stay searchable");
+            }
+
+            // Pause during an active scan keeps the Paused ending.
+            string pauseDb = Path.Combine(_root, "service-cancel-pause.db");
+            using (var service = new FileSearchIndexService(pauseDb))
+            {
+                service.ApplySettings(settings);
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                bool paused = false;
+                EventHandler<ScanProgress> pauseOnProgress = (s, p) =>
+                {
+                    if (paused) return;
+                    paused = true;
+                    service.Pause();
+                };
+                service.ProgressChanged += pauseOnProgress;
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                service.ProgressChanged -= pauseOnProgress;
+
+                Check(paused && service.Status.State == FileSearchState.Paused,
+                    "service cancel: Pause during a scan still ends Paused");
+                Check(!service.Status.ScanCancelled,
+                    "service cancel: a pause is not reported as a user cancel");
+            }
+        }
+
         /// <summary>Shutdown is bounded by one timeout even with an open store to checkpoint.</summary>
         private static void ServiceShutdownCase()
         {
@@ -1687,6 +1988,49 @@ namespace Kobold.FileSearchCheck
                 Check(failure == null && probes > 0,
                     "store: read-only queries run while another thread writes"
                     + (failure == null ? string.Empty : " (" + failure.GetType().Name + ")"));
+            }
+        }
+
+        private static SqliteConnection OpenSqlite(string databasePath)
+        {
+            var builder = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            };
+            var connection = new SqliteConnection(builder.ToString());
+            connection.Open();
+            return connection;
+        }
+
+        private static void ExecuteSql(SqliteConnection connection, string sql)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static long ScalarCount(string databasePath, string sql)
+        {
+            using (var connection = OpenSqlite(databasePath))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static bool TableExists(string databasePath, string name)
+        {
+            using (var connection = OpenSqlite(databasePath))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText =
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name;";
+                command.Parameters.AddWithValue("@name", name);
+                return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0;
             }
         }
 

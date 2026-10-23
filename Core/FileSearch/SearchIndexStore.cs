@@ -55,6 +55,10 @@ CREATE TABLE files_new (
 CREATE TABLE reconcile_seen (Path TEXT PRIMARY KEY COLLATE NOCASE);";
 
         // {0} is "files" or "files_new"; both are internal constants, never user input.
+        // The DO UPDATE is guarded so a reconcile over an unchanged tree performs no
+        // write at all: an UPDATE would otherwise touch every row's MVCC page even
+        // when the values are identical. Path stays the conflict key and is never
+        // rewritten.
         private const string UpsertSql = @"
 INSERT INTO {0} (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root)
 VALUES (@path, @name, @nameLower, @extension, @isDirectory, @sizeBytes, @modifiedUtc, @root)
@@ -65,7 +69,14 @@ ON CONFLICT(Path) DO UPDATE SET
     IsDirectory = excluded.IsDirectory,
     SizeBytes = excluded.SizeBytes,
     ModifiedUtc = excluded.ModifiedUtc,
-    Root = excluded.Root;";
+    Root = excluded.Root
+WHERE {0}.Name IS NOT excluded.Name
+   OR {0}.NameLower IS NOT excluded.NameLower
+   OR {0}.Extension IS NOT excluded.Extension
+   OR {0}.IsDirectory IS NOT excluded.IsDirectory
+   OR {0}.SizeBytes IS NOT excluded.SizeBytes
+   OR {0}.ModifiedUtc IS NOT excluded.ModifiedUtc
+   OR {0}.Root IS NOT excluded.Root;";
 
         private const string SetMetaSql = @"
 INSERT INTO meta (Key, Value) VALUES (@key, @value)
@@ -150,6 +161,9 @@ LIMIT @remaining;";
                     Execute(connection, CreateFilesSql);
                     Execute(connection, CreateMetaSql);
                     Execute(connection, CreateIndexesSql);
+                    // A process that died mid-scan leaves its staging table behind.
+                    // It is never trusted: the next full scan recreates it from scratch.
+                    Execute(connection, "DROP TABLE IF EXISTS files_new;");
 
                     // Read before the transaction: SqliteCommand requires an enlisted
                     // transaction for every command while one is open.
@@ -299,6 +313,44 @@ LIMIT @remaining;";
             }
         }
 
+        public void MarkSeenPathsUnder(IReadOnlyList<string> prefixes)
+        {
+            if (prefixes == null || prefixes.Count == 0) return;
+
+            lock (_writeGate)
+            {
+                ThrowIfDisposed();
+                if (!_reconcileActive) throw new InvalidOperationException("No reconcile is in progress.");
+
+                using (var connection = OpenWrite())
+                using (var transaction = connection.BeginTransaction())
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = @"
+INSERT OR IGNORE INTO reconcile_seen (Path)
+SELECT Path FROM files
+ WHERE Path = @path OR Path LIKE @prefix ESCAPE '\';";
+                        var exact = command.Parameters.Add("@path", SqliteType.Text);
+                        var prefix = command.Parameters.Add("@prefix", SqliteType.Text);
+                        foreach (var value in prefixes)
+                        {
+                            if (string.IsNullOrEmpty(value)) continue;
+
+                            string path;
+                            string pattern;
+                            BuildPrefix(value, out path, out pattern);
+                            exact.Value = path;
+                            prefix.Value = pattern;
+                            command.ExecuteNonQuery();
+                        }
+                    }
+                    transaction.Commit();
+                }
+            }
+        }
+
         public void CompleteReconcile(IReadOnlyList<string> roots)
         {
             lock (_writeGate)
@@ -401,10 +453,9 @@ DELETE FROM files
                 // trailing separator is stripped so "C:\p\sub\" also matches the stored
                 // "C:\p\sub" row, while the pattern keeps it escaped: C:\p\sub never
                 // claims C:\p\submarine. A drive root keeps its separator.
-                string directory = path.TrimEnd('\\');
-                if (directory.Length == 2 && directory[1] == ':') directory += "\\";
-                string exact = directory.Length == 0 ? path : directory;
-                string prefix = SearchPath.EscapeLike(exact.TrimEnd('\\') + "\\") + "%";
+                string exact;
+                string prefix;
+                BuildPrefix(path, out exact, out prefix);
 
                 using (var connection = OpenWrite())
                 using (var command = connection.CreateCommand())
@@ -605,6 +656,14 @@ DELETE FROM files
                 connection.Dispose();
                 throw;
             }
+        }
+
+        private static void BuildPrefix(string path, out string exact, out string pattern)
+        {
+            string directory = path.TrimEnd('\\');
+            if (directory.Length == 2 && directory[1] == ':') directory += "\\";
+            exact = directory.Length == 0 ? path : directory;
+            pattern = SearchPath.EscapeLike(exact.TrimEnd('\\') + "\\") + "%";
         }
 
         private static SqliteCommand CreateUpsertCommand(SqliteConnection connection, SqliteTransaction transaction,
