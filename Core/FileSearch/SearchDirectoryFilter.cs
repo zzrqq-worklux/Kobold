@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 
 namespace Kobold.Core.FileSearch
 {
@@ -30,6 +31,27 @@ namespace Kobold.Core.FileSearch
 
         private static readonly char[] Separators = { '\\', '/' };
 
+        // The scanner asks per directory, so normalizing (GetFullPath) every user
+        // entry on every call would dominate a full scan. The settings arrays are
+        // replaced by Normalize, never edited in place, so the array itself is the key.
+        private static readonly ConditionalWeakTable<string[], UserExclusions> UserCache =
+            new ConditionalWeakTable<string[], UserExclusions>();
+
+        /// <summary>User entries split once into names (match at any depth) and normalized paths.</summary>
+        private sealed class UserExclusions
+        {
+            public static readonly UserExclusions Empty = new UserExclusions(new string[0], new string[0]);
+
+            public UserExclusions(string[] names, string[] paths)
+            {
+                Names = names;
+                Paths = paths;
+            }
+
+            public string[] Names { get; private set; }
+            public string[] Paths { get; private set; }
+        }
+
         /// <summary>
         /// True when the directory at <paramref name="path"/> (with the given leaf
         /// <paramref name="name"/>) is excluded by the defaults or by the user's
@@ -45,29 +67,58 @@ namespace Kobold.Core.FileSearch
             if (MatchesName(plainPath, leaf, DefaultExcludedNames)) return true;
             if (plainPath.Length > 0 && MatchesPath(plainPath, DefaultExcludedPaths)) return true;
 
-            string[] extra = settings == null ? null : settings.ExcludeDirectories;
-            if (extra != null)
-            {
-                for (int i = 0; i < extra.Length; i++)
-                {
-                    string candidate = extra[i];
-                    if (string.IsNullOrWhiteSpace(candidate)) continue;
-                    candidate = candidate.Trim();
-
-                    // A bare name applies at any depth; anything with a separator is
-                    // treated as a directory path (relative paths cannot match).
-                    if (candidate.IndexOfAny(Separators) < 0)
-                    {
-                        if (MatchesName(plainPath, leaf, candidate)) return true;
-                    }
-                    else if (plainPath.Length > 0 && SearchPath.IsUnder(plainPath, candidate))
-                    {
-                        return true;
-                    }
-                }
-            }
+            UserExclusions extra = GetUserExclusions(settings == null ? null : settings.ExcludeDirectories);
+            if (MatchesName(plainPath, leaf, extra.Names)) return true;
+            if (plainPath.Length > 0 && MatchesPath(plainPath, extra.Paths)) return true;
 
             return false;
+        }
+
+        private static UserExclusions GetUserExclusions(string[] configured)
+        {
+            if (configured == null || configured.Length == 0) return UserExclusions.Empty;
+            return UserCache.GetValue(configured, BuildUserExclusions);
+        }
+
+        private static UserExclusions BuildUserExclusions(string[] configured)
+        {
+            var names = new List<string>(configured.Length);
+            var paths = new List<string>(configured.Length);
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var raw in configured)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+
+                string candidate = TrimEntry(raw.Trim());
+                if (candidate.Length == 0) continue;
+
+                // A bare name applies at any depth. Anything with a separator is a
+                // directory path, normalized like every path it is compared against.
+                if (candidate.IndexOfAny(Separators) < 0)
+                {
+                    if (seenNames.Add(candidate)) names.Add(candidate);
+                    continue;
+                }
+
+                string normalized = SearchPath.Normalize(candidate);
+                if (normalized.Length > 0 && seenPaths.Add(normalized)) paths.Add(normalized);
+            }
+
+            return new UserExclusions(names.ToArray(), paths.ToArray());
+        }
+
+        /// <summary>
+        /// Trailing separators are decoration on a user entry, but trimming a drive
+        /// root to "C:" would turn it into a relative path, so that one keeps its slash.
+        /// </summary>
+        private static string TrimEntry(string value)
+        {
+            string trimmed = value.TrimEnd(Separators);
+            if (trimmed.Length == 0) return string.Empty;
+            if (trimmed.Length == 2 && trimmed[1] == ':') return trimmed + "\\";
+            return trimmed;
         }
 
         private static bool MatchesName(string path, string leaf, string[] names)

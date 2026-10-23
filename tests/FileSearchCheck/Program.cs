@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Kobold.Core.FileSearch;
+using Microsoft.Win32.SafeHandles;
 
 namespace Kobold.FileSearchCheck
 {
@@ -41,10 +43,12 @@ namespace Kobold.FileSearchCheck
         {
             TypeFilterCases();
             ExcludeCases();
+            UserExcludeCases();
             PathCases();
             SettingsDefaults();
             NormalizeCases();
             EntryCases();
+            BadTimestampCases();
             RootCases();
         }
 
@@ -84,6 +88,30 @@ namespace Kobold.FileSearchCheck
             s.ExcludeDirectories = new[] { "generated" };
             Check(SearchDirectoryFilter.IsExcluded(@"C:\p\x\generated", "generated", s),
                 "exclude: user name is excluded");
+        }
+
+        private static void UserExcludeCases()
+        {
+            var s = FileSearchSettings.CreateDefault();
+            s.ExcludeDirectories = new[] { "C:/p/private" };
+            Check(SearchDirectoryFilter.IsExcluded(@"C:\p\private\a", "a", s),
+                "exclude: a forward-slash user path excludes the same subtree");
+
+            s.ExcludeDirectories = new[] { @"C:\p\.\private" };
+            Check(SearchDirectoryFilter.IsExcluded(@"C:\p\private\a", "a", s),
+                "exclude: a dot-segment user path excludes the same subtree");
+
+            s.ExcludeDirectories = new[] { "generated\\" };
+            Check(SearchDirectoryFilter.IsExcluded(@"C:\x\generated", "generated", s),
+                "exclude: a trailing separator makes a bare name, not a path");
+
+            s.ExcludeDirectories = new[] { "private" };
+            Check(!SearchDirectoryFilter.IsExcluded(@"C:\p\privateer", "privateer", s),
+                "exclude: a bare user name still respects the name boundary");
+
+            s.ExcludeDirectories = new[] { @"C:\" };
+            Check(SearchDirectoryFilter.IsExcluded(@"C:\p", "p", s),
+                "exclude: a user drive root stays a path, not a name");
         }
 
         private static void PathCases()
@@ -173,6 +201,69 @@ namespace Kobold.FileSearchCheck
                 && entry.Path == file && entry.Root == _root,
                 "entry: extended paths are stored in their plain form");
         }
+
+        private static void BadTimestampCases()
+        {
+            string file = Path.Combine(_root, "BadStamp.txt");
+            File.WriteAllText(file, "x");
+
+            // NTFS stores any FILETIME; one just past DateTime.MaxValue makes the
+            // runtime throw ArgumentOutOfRangeException when the entry is read.
+            if (!TryPoisonTimestamp(file))
+            {
+                Console.WriteLine("SKIP entry: this volume refused an out-of-range timestamp");
+                return;
+            }
+
+            bool readThrows = false;
+            try
+            {
+                _ = new FileInfo(file).LastWriteTimeUtc;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                readThrows = true;
+            }
+            if (!readThrows)
+            {
+                Console.WriteLine("SKIP entry: this runtime tolerates an out-of-range timestamp");
+                return;
+            }
+
+            SearchEntry entry;
+            bool created;
+            try
+            {
+                created = SearchEntry.TryCreate(_root, new FileInfo(file), out entry);
+            }
+            catch (Exception ex)
+            {
+                Check(false, "entry: an out-of-range timestamp is rejected instead of thrown (" + ex.GetType().Name + ")");
+                return;
+            }
+            Check(!created && entry == null, "entry: an out-of-range timestamp is rejected instead of thrown");
+        }
+
+        private static bool TryPoisonTimestamp(string path)
+        {
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    // One tick past DateTime.MaxValue expressed as a FILETIME.
+                    long beyondMax = 2650467744000000001L;
+                    return SetFileTime(stream.SafeFileHandle, IntPtr.Zero, IntPtr.Zero, ref beyondMax);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetFileTime(SafeFileHandle handle, IntPtr creationTime,
+            IntPtr lastAccessTime, ref long lastWriteTime);
 
         private static void RootCases()
         {

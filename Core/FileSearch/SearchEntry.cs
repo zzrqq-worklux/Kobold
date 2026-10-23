@@ -59,6 +59,19 @@ namespace Kobold.Core.FileSearch
                 var file = info as FileInfo;
                 if (!isDirectory && file != null) size = file.Length;
 
+                long modifiedUtc;
+                try
+                {
+                    modifiedUtc = ToUnixSeconds(info.LastWriteTimeUtc);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    // Corrupt or FAT-era volume timestamps can sit outside DateTime's
+                    // range. This one record is unusable; the rest of the scan must
+                    // still run.
+                    return false;
+                }
+
                 entry = new SearchEntry
                 {
                     Path = plainPath,
@@ -67,7 +80,7 @@ namespace Kobold.Core.FileSearch
                     Extension = isDirectory ? string.Empty : SearchPath.GetExtension(plainPath),
                     IsDirectory = isDirectory,
                     SizeBytes = size,
-                    ModifiedUtc = ToUnixSeconds(info.LastWriteTimeUtc),
+                    ModifiedUtc = modifiedUtc,
                     Root = SearchPath.FromExtended(root)
                 };
                 return true;
