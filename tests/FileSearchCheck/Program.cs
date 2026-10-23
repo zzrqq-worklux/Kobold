@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Kobold.Core;
 using Kobold.Core.FileSearch;
 using Microsoft.Win32.SafeHandles;
 
@@ -85,6 +86,7 @@ namespace Kobold.FileSearchCheck
             ScannerCases();
             ScannerSubtreeCases();
             ScannerBatchCases();
+            ServiceCases();
         }
 
         private static void TypeFilterCases()
@@ -813,6 +815,127 @@ namespace Kobold.FileSearchCheck
                 all = store.Query("file", FileCount + 10, CancellationToken.None);
                 Check(all.TotalMatches == FileCount && all.Items.Count == FileCount,
                     "reconcile: every flushed batch is marked as seen and survives completion");
+            }
+        }
+
+        /// <summary>
+        /// The global service lifecycle: a configured full scan, pause/resume,
+        /// cancel keeps the published rows, startup on an existing database must
+        /// NOT rescan, a settings-fingerprint change only flags NeedsRebuild, an
+        /// explicit rebuild, and removing/adding the search widget closes and
+        /// reopens the store without losing the database.
+        /// </summary>
+        private static void ServiceCases()
+        {
+            string db = Path.Combine(_root, "service.db");
+            string tree = Path.Combine(_root, "service-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "serviceprobe.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+
+            int progressEvents = 0;
+
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.ProgressChanged += (s, p) => Interlocked.Increment(ref progressEvents);
+
+                service.ApplySettings(settings);
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service: a completed full scan is ready");
+                Check(service.Status.FilesIndexed >= 1,
+                    "service: a full scan reports its file count");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: a configured full scan publishes searchable rows");
+                Check(progressEvents > 0, "service: the scan forwards progress events");
+                Check(!service.Status.IncrementalAvailable,
+                    "service: incremental updates stay unavailable until the watcher lands");
+                Check(PathsEqual(service.Status.DatabasePath, Path.GetFullPath(db)),
+                    "service: the status names the database path");
+
+                service.Pause();
+                Check(service.Status.State == FileSearchState.Paused, "service: pause changes state");
+                service.Resume();
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready, "service: resume returns to ready");
+
+                int before = service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches;
+                service.StartFullScan(settings, new[] { tree });
+                service.CancelScan();
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == before,
+                    "service: cancelling a full scan keeps the old rows");
+                Check(service.Status.State != FileSearchState.Error,
+                    "service: cancelling a full scan is not an error");
+            }
+
+            var startupTransitions = new List<FileSearchState>();
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.StatusChanged += (s, status) =>
+                {
+                    lock (startupTransitions) startupTransitions.Add(status.State);
+                };
+
+                service.ApplySettings(settings);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service: startup on an existing index is ready");
+                bool sawIndexing;
+                lock (startupTransitions) sawIndexing = startupTransitions.Contains(FileSearchState.Indexing);
+                Check(!sawIndexing, "service: startup on an existing index does not start a full scan");
+                Check(!service.Status.NeedsRebuild,
+                    "service: startup with the same settings needs no rebuild");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: startup keeps the rows of the existing index");
+
+                var changed = FileSearchSettings.CreateDefault();
+                changed.Roots = new[] { tree };
+                changed.Configured = true;
+                changed.Enabled = true;
+                changed.Types = new[] { "txt" };
+                service.ApplySettings(changed);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.NeedsRebuild,
+                    "service: a changed settings fingerprint flags a rebuild");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: flagging a rebuild does not delete rows");
+                Check(File.Exists(db), "service: flagging a rebuild keeps the database file");
+
+                service.RequestRebuild();
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && !service.Status.NeedsRebuild,
+                    "service: an explicit rebuild finishes ready and clears the flag");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: an explicit rebuild publishes the rows again");
+
+                service.SyncWithWidgets(new WidgetData[0]);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Unconfigured,
+                    "service: removing the search widget unconfigures the service");
+                Check(File.Exists(db), "service: removing the search widget keeps the database");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 0,
+                    "service: removing the search widget closes the store");
+
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service: adding the search widget reopens the existing index");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: reopening after the widget returns is searchable");
+
+                service.ApplySettings(null);
+                Check(service.Status.State == FileSearchState.Unconfigured,
+                    "service: null settings are unconfigured");
             }
         }
 

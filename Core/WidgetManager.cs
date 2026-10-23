@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using Kobold.Core;
+using Kobold.Core.FileSearch;
 using Kobold.Controls;
 using Kobold.Services;
 using Kobold.Windows;
@@ -99,12 +100,19 @@ namespace Kobold.Core
         /// </summary>
         public void Initialize()
         {
+            // The index service never reads config itself: hand it the saved
+            // settings first, then let the presence of a search widget decide
+            // whether the store is opened (and whether onboarding must run).
+            FileSearchIndexService.Instance.ApplySettings(_config.FileSearch);
+
             // One window per config entry of a known kind; unknown kinds stay
             // in the config untouched but get no window.
             foreach (var data in _config.Widgets)
             {
                 CreateWidgetInternal(data);
             }
+
+            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
 
             // The island is the shared entry point that launches widget panels
             _island = new IslandWindow();
@@ -329,6 +337,9 @@ namespace Kobold.Core
                 _widgets.Remove(w);
                 _config.RemoveWidget(w.WidgetId);
                 RefreshIsland();
+                // The last search widget stops the shared index; the service keeps
+                // the database so re-adding the widget reopens it without a rescan.
+                FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
             };
 
             widget.OnDataChanged += () =>
@@ -338,6 +349,7 @@ namespace Kobold.Core
             };
 
             _widgets.Add(widget);
+            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
 
             return widget;
         }
@@ -365,6 +377,7 @@ namespace Kobold.Core
                 if (widget is Window window) window.Close();
                 _config.RemoveWidget(id);
                 RefreshIsland();
+                FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
             }
         }
 
@@ -479,6 +492,10 @@ namespace Kobold.Core
         /// </summary>
         public void Shutdown()
         {
+            // Stop the index before the widget windows close: a scan/watcher must
+            // not keep writing into the database while the UI is tearing down.
+            FileSearchIndexService.Instance.Shutdown(TimeSpan.FromSeconds(5));
+
             _fullscreenWatcher?.Dispose();
             _fullscreenWatcher = null;
             _trimTimer.Stop();
