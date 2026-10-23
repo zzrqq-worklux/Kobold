@@ -39,7 +39,7 @@ namespace Kobold.Core.FileSearch
         public long DirectoriesScanned { get; set; }
         public long SkippedDirectories { get; set; }
 
-        /// <summary>False until the watcher/reconcile host lands; a full scan is the only refresher in v1 so far.</summary>
+        /// <summary>True while every configured root has a live watcher; false means "reconcile only".</summary>
         public bool IncrementalAvailable { get; set; }
 
         public bool NeedsRebuild { get; set; }
@@ -53,15 +53,17 @@ namespace Kobold.Core.FileSearch
     }
 
     /// <summary>
-    /// Process-wide owner of <see cref="SearchIndexStore"/> and the full-scan
-    /// lifecycle. All store and directory work runs on background tasks; callers
+    /// Process-wide owner of <see cref="SearchIndexStore"/> and the file-search
+    /// lifecycle: full scans, incremental watcher writes and the periodic
+    /// reconcile. All store and directory work runs on background tasks; callers
     /// on the UI thread only change settings/state or ask for a scan. The public
     /// string constructor exists so tests can use a throwaway database; the
     /// <see cref="Instance"/> property uses <c>%LocalAppData%\Kobold\search-index.db</c>.
     ///
-    /// The watcher queue and periodic reconcile belong to a later task: this class
-    /// deliberately has no FileSystemWatcher timer yet, so every state transition
-    /// here comes from a full scan or a widget/settings change.
+    /// Incremental and full work never overlap: a full scan or reconcile pauses
+    /// <see cref="FileSystemWatcherHost"/> first, so no watcher row can land in a
+    /// staging table or be deleted by a reconcile that never saw it. Events that
+    /// arrive while paused stay queued and are applied after the table swap.
     ///
     /// Events are raised synchronously on the thread that changes state (a worker
     /// thread for scans). UI subscribers must marshal with
@@ -85,10 +87,16 @@ namespace Kobold.Core.FileSearch
         private FileSearchSettings _settings;
         private CancellationTokenSource _scanCts;
         private Task _scanTask;
+        private FileSystemWatcherHost _watcherHost;
+        private Timer _reconcileTimer;
+        private string _incrementalFingerprint;
+        private IReadOnlyList<string> _indexRoots;
+        private int _reconcileMinutes = -1;
         private int _busy;
         private long _generation;
         private bool _searchWanted;
         private bool _paused;
+        private bool _reconcilePending;
         private bool _disposed;
 
         /// <summary>The single production service. It never loads config: WidgetManager calls ApplySettings.</summary>
@@ -295,7 +303,7 @@ namespace Kobold.Core.FileSearch
             TryCancel(cancelled);
         }
 
-        /// <summary>Stops the scan/refresh hooks and reports <see cref="FileSearchState.Paused"/>.</summary>
+        /// <summary>Stops the watcher, the reconcile timer and any running scan; reports <see cref="FileSearchState.Paused"/>.</summary>
         public void Pause()
         {
             CancellationTokenSource cancelled;
@@ -306,6 +314,7 @@ namespace Kobold.Core.FileSearch
                 cancelled = _scanCts;
             }
             TryCancel(cancelled);
+            StopIncrementalQuiet();
             Transition(FileSearchState.Paused, "Paused.");
         }
 
@@ -333,6 +342,16 @@ namespace Kobold.Core.FileSearch
             }
 
             StartFullScan(settings, null);
+        }
+
+        /// <summary>
+        /// Requests one background reconcile. The periodic timer, a watcher
+        /// overflow/error and the settings UI all use this path; it is ignored
+        /// unless the service is Ready and never runs on the caller's thread.
+        /// </summary>
+        public void RequestReconcile()
+        {
+            ScheduleReconcile();
         }
 
         /// <summary>
@@ -397,6 +416,11 @@ namespace Kobold.Core.FileSearch
 
             TryCancel(cancelled);
             var clock = Stopwatch.StartNew();
+
+            // The watcher and its timer must be gone before the store is closed or
+            // a queued incremental write would race the disposal. The wait counts
+            // against the one shutdown timeout.
+            StopIncrementalQuiet();
 
             Task cleanup = Task.Run(() =>
             {
@@ -499,6 +523,13 @@ namespace Kobold.Core.FileSearch
             }
 
             bool needsRebuild = FingerprintDiffers(index, settings);
+
+            // Ready is the first moment the index can absorb live rows: start the
+            // watchers and the periodic reconcile before publishing the state so
+            // the Ready snapshot already carries IncrementalAvailable.
+            IReadOnlyList<string> roots = SearchRoots.Resolve(settings.Roots);
+            StartIncrementalLocked(roots, settings);
+
             Transition(FileSearchState.Ready, "Ready.", status =>
             {
                 status.NeedsRebuild = needsRebuild;
@@ -526,6 +557,13 @@ namespace Kobold.Core.FileSearch
                     : SearchRoots.Resolve(settings.Roots);
                 string fingerprint = settings.ComputeFingerprint(scanRoots);
 
+                // Freeze the watcher before the staging table exists. Events that
+                // arrive during the walk stay queued and are applied to the new
+                // table only after the swap (or to the old one after an abort).
+                FileSystemWatcherHost host;
+                lock (_gate) host = _watcherHost;
+                if (host != null) host.PauseProcessing();
+
                 try
                 {
                     _store.BeginFullScan();
@@ -549,6 +587,7 @@ namespace Kobold.Core.FileSearch
                     // A newer ApplySettings may have replaced the settings while this
                     // scan ran; its own comparison decides NeedsRebuild.
                     bool settingsStillCurrent = IsCurrentSettings(settings);
+                    StartIncrementalLocked(scanRoots, settings);
                     Transition(FileSearchState.Ready, "Ready.", status =>
                     {
                         status.FilesIndexed = result.Files;
@@ -572,6 +611,10 @@ namespace Kobold.Core.FileSearch
                     }
                     else if (SafeHasIndexLocked())
                     {
+                        // The old index is still live: resume incremental writes on it
+                        // instead of leaving the service Ready without a watcher until
+                        // the next launch.
+                        StartIncrementalLocked(scanRoots, settings);
                         Transition(FileSearchState.Ready,
                             "Scan cancelled; the previous index is still in use.", ResetScanCounters);
                     }
@@ -589,11 +632,349 @@ namespace Kobold.Core.FileSearch
                     if (!IsCurrentGeneration(generation)) return;
                     Transition(FileSearchState.Error, ex.Message);
                 }
+                finally
+                {
+                    if (host != null) host.ResumeProcessing();
+                }
             }
             finally
             {
                 _syncGate.Release();
             }
+        }
+
+        /// <summary>
+        /// Queues one reconcile unless work is already in flight or the service is
+        /// not Ready. Called from the timer, the watcher callback and the settings
+        /// API; the actual walk always runs on the serialized worker.
+        /// </summary>
+        private void ScheduleReconcile()
+        {
+            lock (_gate)
+            {
+                if (_disposed || _paused) return;
+                if (_status.State != FileSearchState.Ready) return;
+                if (_store == null || _reconcilePending) return;
+                _reconcilePending = true;
+            }
+
+            Schedule(() =>
+            {
+                try { RunReconcile(); }
+                finally
+                {
+                    lock (_gate) _reconcilePending = false;
+                }
+            });
+        }
+
+        /// <summary>
+        /// One reconcile pass: live rows are upserted and marked seen, then
+        /// CompleteReconcile drops the rows of this root that were not seen. The
+        /// watcher is paused for the whole pass so its writes cannot be mistaken
+        /// for stale rows, and resumed after the dead-row cleanup commits.
+        /// </summary>
+        private void RunReconcile()
+        {
+            _syncGate.Wait();
+            try
+            {
+                if (_disposed) return;
+
+                FileSearchSettings settings;
+                IReadOnlyList<string> roots;
+                ISearchIndexStore store;
+                FileSystemWatcherHost host;
+                var current = new CancellationTokenSource();
+                CancellationTokenSource previous;
+
+                lock (_gate)
+                {
+                    if (_disposed || _paused || _status.State != FileSearchState.Ready || _store == null)
+                    {
+                        current.Dispose();
+                        return;
+                    }
+
+                    settings = _settings;
+                    store = _store;
+                    host = _watcherHost;
+                    previous = _scanCts;
+                    roots = _indexRoots;
+                    _scanCts = current;
+                }
+
+                IReadOnlyList<string> normalized = NormalizeRoots(roots);
+                if (settings == null || normalized.Count == 0)
+                {
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_scanCts, current)) _scanCts = null;
+                    }
+                    current.Dispose();
+                    return;
+                }
+
+                TryCancel(previous);
+                Transition(FileSearchState.Reconciling, "Reconciling files...");
+
+                bool hostPaused = false;
+                try
+                {
+                    if (host != null)
+                    {
+                        host.PauseProcessing();
+                        hostPaused = true;
+                    }
+
+                    store.BeginReconcile();
+                    var scanner = new DirectoryScanner(store, settings);
+                    scanner.Scan(normalized, ScanMode.Reconcile, current.Token);
+                    current.Token.ThrowIfCancellationRequested();
+                    store.CompleteReconcile(normalized);
+
+                    if (IsCurrentReconcile(current))
+                    {
+                        Transition(FileSearchState.Ready, "Ready.");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    AbortReconcileQuietly();
+                    if (IsCurrentReconcile(current))
+                    {
+                        bool paused;
+                        lock (_gate) paused = _paused;
+                        if (paused)
+                        {
+                            Transition(FileSearchState.Paused, "Paused.");
+                        }
+                        else
+                        {
+                            Transition(FileSearchState.Ready,
+                                "Reconcile cancelled; the index is unchanged.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AbortReconcileQuietly();
+                    if (IsCurrentReconcile(current)) Transition(FileSearchState.Error, ex.Message);
+                }
+                finally
+                {
+                    // Resume only after CompleteReconcile/AbortReconcile returned, so
+                    // the worker's queued events drain against the final table.
+                    if (hostPaused && host != null) host.ResumeProcessing();
+
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_scanCts, current)) _scanCts = null;
+                    }
+                    current.Dispose();
+                }
+            }
+            finally
+            {
+                _syncGate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Starts (or reuses) the watcher host and the periodic reconcile timer.
+        /// Must run under the sync gate on a background thread: it may create
+        /// watchers and join their worker. Returns true only when every resolved
+        /// root is watched; a partial/failed set keeps the healthy watchers and
+        /// leaves the status degraded, with the timer as the repair path.
+        /// </summary>
+        private bool StartIncrementalLocked(IReadOnlyList<string> roots, FileSearchSettings settings)
+        {
+            if (_disposed || _store == null || settings == null) return false;
+
+            IReadOnlyList<string> normalized = NormalizeRoots(roots);
+            string fingerprint = settings.ComputeFingerprint(normalized);
+
+            FileSystemWatcherHost existing;
+            string existingFingerprint;
+            lock (_gate)
+            {
+                if (_disposed || _paused) return false;
+                existing = _watcherHost;
+                existingFingerprint = _incrementalFingerprint;
+                _indexRoots = normalized;
+            }
+
+            bool available;
+            if (existing != null && string.Equals(existingFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                // Same roots and same content rules: keep the live watchers (and any
+                // events they queued while the scan was paused).
+                available = existing.IncrementalAvailable;
+            }
+            else
+            {
+                StopIncrementalQuiet();
+
+                FileSystemWatcherHost host = null;
+                available = false;
+                try
+                {
+                    host = new FileSystemWatcherHost(_store, settings, null);
+                    host.ReconcileRequested += OnWatcherReconcileRequested;
+                    bool started = host.Start(normalized);
+                    available = started;
+
+                    if (host.WatchedRoots > 0)
+                    {
+                        lock (_gate)
+                        {
+                            // A pause/stop may have raced the start; never leave a
+                            // watcher running behind an inactive service.
+                            if (!_disposed && !_paused)
+                            {
+                                _watcherHost = host;
+                                _incrementalFingerprint = fingerprint;
+                                host = null;
+                            }
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    available = false;
+                }
+
+                if (host != null)
+                {
+                    // Nothing watches (or a stop raced): do not leak the worker thread.
+                    available = false;
+                    host.ReconcileRequested -= OnWatcherReconcileRequested;
+                    try { host.Stop(); }
+                    catch (Exception) { }
+                    try { host.Dispose(); }
+                    catch (Exception) { }
+                }
+            }
+
+            EnsureReconcileTimerLocked(settings);
+            return available;
+        }
+
+        /// <summary>
+        /// Stops the watcher and the timer. Called for pause, deactivate, no-widget
+        /// and shutdown; safe to call when nothing is running.
+        /// </summary>
+        private void StopIncrementalQuiet()
+        {
+            FileSystemWatcherHost host;
+            Timer timer;
+
+            lock (_gate)
+            {
+                host = _watcherHost;
+                _watcherHost = null;
+                _incrementalFingerprint = null;
+                timer = _reconcileTimer;
+                _reconcileTimer = null;
+                _reconcileMinutes = -1;
+            }
+
+            if (timer != null)
+            {
+                try { timer.Dispose(); }
+                catch (Exception) { }
+            }
+
+            if (host != null)
+            {
+                try { host.Stop(); }
+                catch (Exception) { }
+                try { host.Dispose(); }
+                catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// Creates the one periodic timer when the interval changes. The first tick
+        /// is 30 seconds after Ready (never immediately: a launch should settle
+        /// before a background walk); the timer callback only schedules.
+        /// </summary>
+        private void EnsureReconcileTimerLocked(FileSearchSettings settings)
+        {
+            int minutes = settings == null ? 0 : settings.ReconcileMinutes;
+            Timer previous = null;
+
+            lock (_gate)
+            {
+                if (_disposed) minutes = 0;
+                if (_reconcileTimer != null && _reconcileMinutes == minutes) return;
+
+                previous = _reconcileTimer;
+                _reconcileTimer = null;
+                _reconcileMinutes = minutes;
+
+                if (minutes > 0)
+                {
+                    try
+                    {
+                        _reconcileTimer = new Timer(OnReconcileTimer, null,
+                            TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(minutes));
+                    }
+                    catch (Exception)
+                    {
+                        _reconcileTimer = null;
+                    }
+                }
+            }
+
+            if (previous != null)
+            {
+                try { previous.Dispose(); }
+                catch (Exception) { }
+            }
+        }
+
+        private void OnReconcileTimer(object state)
+        {
+            ScheduleReconcile();
+        }
+
+        private void OnWatcherReconcileRequested(object sender, EventArgs e)
+        {
+            // Overflow/OS error handlers run on a watcher or worker thread; they
+            // may only ask for a reconcile, never run one inline.
+            ScheduleReconcile();
+        }
+
+        private void AbortReconcileQuietly()
+        {
+            try
+            {
+                if (_store != null) _store.AbortReconcile();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private bool IsCurrentReconcile(CancellationTokenSource source)
+        {
+            lock (_gate) return !_disposed && ReferenceEquals(_scanCts, source);
+        }
+
+        private static IReadOnlyList<string> NormalizeRoots(IReadOnlyList<string> roots)
+        {
+            var normalized = new List<string>();
+            if (roots == null) return normalized;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < roots.Count; i++)
+            {
+                string root = SearchPath.Normalize(roots[i]);
+                if (root.Length == 0 || !seen.Add(root)) continue;
+                normalized.Add(root);
+            }
+            return normalized;
         }
 
         private void StopForNoWidgets()
@@ -610,6 +991,7 @@ namespace Kobold.Core.FileSearch
             }
 
             TryCancel(cancelled);
+            StopIncrementalQuiet();
             Transition(FileSearchState.Unconfigured, "No search widget.");
 
             Schedule(() =>
@@ -624,7 +1006,11 @@ namespace Kobold.Core.FileSearch
                     {
                         dispose = !_disposed && !_searchWanted && _generation == stopGeneration;
                     }
-                    if (dispose) DisposeStoreLocked();
+                    if (dispose)
+                    {
+                        StopIncrementalQuiet();
+                        DisposeStoreLocked();
+                    }
                 }
                 finally
                 {
@@ -649,6 +1035,7 @@ namespace Kobold.Core.FileSearch
             }
 
             TryCancel(cancelled);
+            StopIncrementalQuiet();
             Transition(FileSearchState.Unconfigured, message);
         }
 
@@ -898,7 +1285,9 @@ namespace Kobold.Core.FileSearch
                 FilesIndexed = _status.FilesIndexed,
                 DirectoriesScanned = _status.DirectoriesScanned,
                 SkippedDirectories = _status.SkippedDirectories,
-                IncrementalAvailable = false,
+                // Read live: a watcher that reported an OS error during the session
+                // degrades without a state transition to carry the change.
+                IncrementalAvailable = _watcherHost != null && _watcherHost.IncrementalAvailable,
                 NeedsRebuild = _status.NeedsRebuild,
                 DatabasePath = _databasePath
             };

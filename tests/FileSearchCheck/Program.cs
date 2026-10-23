@@ -87,7 +87,9 @@ namespace Kobold.FileSearchCheck
             ScannerCases();
             ScannerSubtreeCases();
             ScannerBatchCases();
+            WatcherCases();
             ServiceCases();
+            ServiceIncrementalCases();
             ServiceFreshDatabaseCase();
             ServiceCorruptionCases();
             ServiceShutdownCase();
@@ -823,6 +825,161 @@ namespace Kobold.FileSearchCheck
         }
 
         /// <summary>
+        /// The watcher host on a scratch tree: a created file is indexed, a rewrite
+        /// updates its size, a renamed directory's subtree is re-indexed under the
+        /// new name, and a delete removes the row. Roots that cannot be watched
+        /// must degrade instead of throwing, and a healthy root keeps working in
+        /// the same host as a failed one.
+        /// </summary>
+        private static void WatcherCases()
+        {
+            string root = Path.Combine(_root, "watch-root");
+            Directory.CreateDirectory(root);
+            string db = Path.Combine(_root, "watch.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.BeginFullScan();
+                store.CompleteFullScan(0, 0, 0, "watch");
+                var s = FileSearchSettings.CreateDefault();
+                s.Roots = new[] { root };
+                using (var host = new FileSystemWatcherHost(store, s, null))
+                {
+                    Check(host.Start(new[] { root }), "watch: a temp root starts");
+                    Check(host.IncrementalAvailable, "watch: a healthy root reports incremental availability");
+
+                    string created = Path.Combine(root, "zebrawatch-created.txt");
+                    File.WriteAllText(created, "x");
+                    Check(WaitUntil(() => HasRow(store, created, root), 5000),
+                        "watch: created file appears in the index");
+
+                    File.WriteAllText(created, new string('y', 4000));
+                    Check(WaitUntil(() => RowSize(store, created) > 1000, 5000),
+                        "watch: a changed file updates its indexed size");
+
+                    string dir = Path.Combine(root, "zebrawatch-dir");
+                    Directory.CreateDirectory(dir);
+                    string inside = Path.Combine(dir, "zebrawatch-inside.txt");
+                    File.WriteAllText(inside, "x");
+                    string renamed = Path.Combine(root, "zebrawatch-renamed");
+                    Directory.Move(dir, renamed);
+                    string insideRenamed = Path.Combine(renamed, "zebrawatch-inside.txt");
+                    Check(WaitUntil(() => HasRow(store, insideRenamed, root) && !HasRow(store, inside, root), 5000),
+                        "watch: a renamed directory's subtree is re-indexed");
+
+                    File.Delete(created);
+                    Check(WaitUntil(() => !HasRow(store, created, root), 5000),
+                        "watch: a deleted file disappears");
+                }
+
+                string missing = Path.Combine(_root, "zebrawatch-missing-" + Guid.NewGuid().ToString("N"));
+                using (var host = new FileSystemWatcherHost(store, s, null))
+                {
+                    Check(!host.Start(new[] { missing }),
+                        "watch: an invalid root reports failure instead of throwing");
+                    Check(!host.IncrementalAvailable,
+                        "watch: an invalid root degrades incremental updates");
+                }
+
+                using (var host = new FileSystemWatcherHost(store, s, null))
+                {
+                    string partial = Path.Combine(root, "zebrawatch-partial.txt");
+                    Check(!host.Start(new[] { root, missing }),
+                        "watch: one failed root reports a degraded host");
+                    File.WriteAllText(partial, "x");
+                    Check(WaitUntil(() => HasRow(store, partial, root), 5000),
+                        "watch: a failed root does not stop the healthy roots");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The service side of the watcher: Ready starts incremental updates, a
+        /// reconcile requested through the same path the timer uses removes a row
+        /// the watcher never saw while keeping the rows it did index, and pause /
+        /// resume stops and restarts the watcher. An unwatchable root still scans
+        /// but reports incremental updates unavailable.
+        /// </summary>
+        private static void ServiceIncrementalCases()
+        {
+            string db = Path.Combine(_root, "service-watch.db");
+            string tree = Path.Combine(_root, "service-watch-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "zebrawatch-base.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+            // The manual RequestReconcile below covers the reconcile path; the timer
+            // itself would only fire after 30 seconds.
+            settings.ReconcileMinutes = 0;
+
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.ApplySettings(settings);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.NoIndex,
+                    "service watch: a fresh database has no index yet");
+
+                service.StartFullScan(settings, new[] { tree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && service.Status.IncrementalAvailable,
+                    "service watch: a completed scan starts incremental updates");
+
+                string created = Path.Combine(tree, "zebrawatch-incremental.txt");
+                File.WriteAllText(created, "x");
+                Check(WaitUntil(() => HasRow(service, created), 5000),
+                    "service watch: a created file appears without a full scan");
+
+                // A row the watcher never saw (a missed rename outside the queue)
+                // must be removed by the reconcile; real rows must survive.
+                string deadPath = @"C:\zebrawatch-dead-" + Guid.NewGuid().ToString("N") + ".txt";
+                using (var side = new SearchIndexStore(db))
+                {
+                    side.Upsert(Entry(deadPath, Path.GetFileName(deadPath), "txt", false, 1,
+                        SearchPath.Normalize(tree)));
+                }
+                Check(service.Search("zebrawatch-dead-", 50, CancellationToken.None).TotalMatches == 1,
+                    "service watch: the stale probe row is visible before the reconcile");
+
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service watch: a requested reconcile finishes ready");
+                Check(service.Search("zebrawatch-dead-", 50, CancellationToken.None).TotalMatches == 0,
+                    "service watch: a reconcile removes a row the watcher never saw");
+                Check(HasRow(service, created),
+                    "service watch: a reconcile keeps the watcher's rows");
+                Check(service.Status.IncrementalAvailable,
+                    "service watch: a reconcile keeps incremental updates available");
+
+                service.Pause();
+                Check(!service.Status.IncrementalAvailable,
+                    "service watch: pause stops incremental updates");
+                service.Resume();
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && service.Status.IncrementalAvailable,
+                    "service watch: resume restarts incremental updates");
+            }
+
+            var bad = FileSearchSettings.CreateDefault();
+            bad.Roots = new[] { Path.Combine(_root, "zebrawatch-missing-" + Guid.NewGuid().ToString("N")) };
+            bad.Configured = true;
+            bad.Enabled = true;
+            bad.ReconcileMinutes = 10;
+            using (var service = new FileSearchIndexService(Path.Combine(_root, "service-watch-bad.db")))
+            {
+                service.ApplySettings(bad);
+                service.StartFullScan(bad, null);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready && !service.Status.IncrementalAvailable,
+                    "service watch: unwatchable roots degrade to periodic reconcile only");
+            }
+        }
+
+        /// <summary>
         /// The global service lifecycle: a configured full scan, pause/resume,
         /// cancel keeps the published rows, startup on an existing database must
         /// NOT rescan, a settings-fingerprint change only flags NeedsRebuild, an
@@ -858,8 +1015,8 @@ namespace Kobold.FileSearchCheck
                 Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
                     "service: a configured full scan publishes searchable rows");
                 Check(progressEvents > 0, "service: the scan forwards progress events");
-                Check(!service.Status.IncrementalAvailable,
-                    "service: incremental updates stay unavailable until the watcher lands");
+                Check(service.Status.IncrementalAvailable,
+                    "service: a completed full scan starts the watcher");
                 Check(PathsEqual(service.Status.DatabasePath, Path.GetFullPath(db)),
                     "service: the status names the database path");
 
@@ -871,7 +1028,10 @@ namespace Kobold.FileSearchCheck
 
                 // The scanner always emits a final progress snapshot before it
                 // returns; cancelling from that callback must still abort the
-                // staging table instead of publishing the new file.
+                // staging table instead of publishing the new file. Pause first so
+                // the watcher (started by the previous scan) cannot index the new
+                // file in parallel and mask a wrongly published row.
+                service.Pause();
                 File.WriteAllText(Path.Combine(tree, "service-cancelled.txt"), "x");
                 int before = service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches;
                 bool cancelledOnProgress = false;
@@ -1182,6 +1342,53 @@ namespace Kobold.FileSearchCheck
                 ModifiedUtc = 1700000000,
                 Root = root
             };
+        }
+
+        /// <summary>
+        /// Polls a watcher-dependent condition with a generous bound. The watcher
+        /// delivers asynchronously, so no assertion may depend on absolute timing;
+        /// 50ms is short enough that a healthy host answers well inside 5s.
+        /// </summary>
+        private static bool WaitUntil(Func<bool> condition, int timeoutMs)
+        {
+            var clock = Stopwatch.StartNew();
+            do
+            {
+                try
+                {
+                    if (condition()) return true;
+                }
+                catch (Exception)
+                {
+                    // A query racing a store swap or a watcher write is retried.
+                }
+                Thread.Sleep(50);
+            }
+            while (clock.ElapsedMilliseconds < timeoutMs);
+
+            try { return condition(); }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>Indexed size of the exact row, or -1 when it is absent.</summary>
+        private static long RowSize(SearchIndexStore store, string path)
+        {
+            var result = store.Query(Path.GetFileName(path), 50, CancellationToken.None);
+            foreach (var item in result.Items)
+            {
+                if (PathsEqual(item.Path, path)) return item.SizeBytes;
+            }
+            return -1;
+        }
+
+        private static bool HasRow(FileSearchIndexService service, string path)
+        {
+            var result = service.Search(Path.GetFileName(path), 300, CancellationToken.None);
+            foreach (var item in result.Items)
+            {
+                if (PathsEqual(item.Path, path)) return true;
+            }
+            return false;
         }
 
         private static bool PathsEqual(string a, string b)
