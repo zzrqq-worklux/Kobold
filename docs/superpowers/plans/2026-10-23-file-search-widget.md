@@ -704,10 +704,19 @@ Expected: `SearchIndexStore` 未定义。
 `Kobold.csproj` 加（Task 1 若选备选 provider，按 decision record 替换）：
 
 ```xml
-<PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.30" />
-<PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.12" />
-<PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+<PropertyGroup>
+  <!-- Spike 6b7b561: AnyCPU + NuGet 会复制 win-x86 原生 DLL，x64 进程加载报 BadImageFormatException。
+       钉死 x64；32 位 Windows 不在 v1 范围。 -->
+  <PlatformTarget>x64</PlatformTarget>
+</PropertyGroup>
+<ItemGroup>
+  <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="8.0.30" />
+  <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.12" />
+  <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
+</ItemGroup>
 ```
+
+若运行/构建出现 `System.Memory`/`System.Buffers` 的 `FileLoadException`，再加 `<AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>`；Spike 本机未触发。`EnsureSchema` 启动时执行 `SELECT sqlite_version()` 并写入 `meta.sqlite_version`，便于以后核对原生库版本。
 
 `SqliteBootstrap.EnsureInitialized()`：
 
@@ -781,17 +790,33 @@ DELETE FROM files WHERE Path = @p OR Path LIKE @prefix ESCAPE '\';
 
 `Query`：
 
+Spike 实测 `LIKE 'q%'` 走全索引扫描（22.9ms），等价区间谓词走 seek（0.5ms）；所以 Query 用两段式，先取名称前缀，再补名称子串/路径：
+
 ```sql
-SELECT Path,Name,Extension,IsDirectory,SizeBytes,ModifiedUtc,Root,
-       CASE WHEN NameLower LIKE @prefix ESCAPE '\' THEN 0
-            WHEN NameLower LIKE @contains ESCAPE '\' THEN 1 ELSE 2 END AS MatchRank
+-- 总数（用于状态栏“共 N 条匹配”）
+SELECT COUNT(*) FROM files
+WHERE NameLower LIKE @contains ESCAPE '\' OR Path LIKE @contains ESCAPE '\';
+
+-- 第一段：名称前缀，走 idx_files_name_lower
+SELECT Path,Name,Extension,IsDirectory,SizeBytes,ModifiedUtc,Root,0 AS MatchRank
 FROM files
-WHERE NameLower LIKE @contains ESCAPE '\' OR Path LIKE @contains ESCAPE '\'
-ORDER BY MatchRank, NameLower, Path
+WHERE NameLower >= @q AND NameLower <= @q || char(0x10FFFF)
+ORDER BY NameLower, Path
 LIMIT @limit;
+
+-- 第二段：前缀不够 limit 时补名称子串/路径，排除已取的前缀行
+SELECT Path,Name,Extension,IsDirectory,SizeBytes,ModifiedUtc,Root,
+       CASE WHEN NameLower LIKE @contains ESCAPE '\' THEN 1 ELSE 2 END AS MatchRank
+FROM files
+WHERE (NameLower LIKE @contains ESCAPE '\' OR Path LIKE @contains ESCAPE '\')
+  AND NOT (NameLower >= @q AND NameLower <= @q || char(0x10FFFF))
+ORDER BY MatchRank, NameLower, Path
+LIMIT @remaining;
 ```
 
-先查 `COUNT(*)` 同 WHERE 得 `TotalMatches`；`LimitReached = TotalMatches > Items.Count`。`@contains` = `%` + escaped lower query + `%`，`@prefix` = escaped lower + `%`。空/空白查询直接返回空结果，不查库。查询连接用 `Mode=ReadOnly`，每个查询新建并 `using` 释放。
+`@q` 必须是 `ToLowerInvariant()` 后的 query；上界 `<= @q || char(0x10FFFF)` 与 `LIKE 'q%'` 等价（包含 `q + U+10FFFF` 自身），不要改成 `<`。`@contains` = `%` + escaped lower query + `%`。`Items = prefixRows + suffixRows`；`TotalMatches` 取 count；`LimitReached = TotalMatches > Items.Count`。空/空白查询直接返回空结果，不查库。查询连接用 `Mode=ReadOnly`，每个查询新建并 `using` 释放。
+
+容量：v1 **不设硬上限**（全盘可搜优先）；`GetDatabaseSizeBytes()` 与 `meta` 行数只用于设置页显示和 spike 后续观察。若真实冒烟发现 >300MB，再单独决定是否加护栏；不要静默截断根或行。
 
 `ReadStatus` 查 `meta` 和 `PRAGMA user_version`；`GetDatabaseSizeBytes` 返回主文件 + `-wal` + `-shm` 的总和（不存在按 0）。
 
