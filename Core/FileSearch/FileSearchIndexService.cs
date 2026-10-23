@@ -97,6 +97,7 @@ namespace Kobold.Core.FileSearch
         private bool _searchWanted;
         private bool _paused;
         private bool _reconcilePending;
+        private bool _reconcileWanted;
         private bool _disposed;
 
         /// <summary>The single production service. It never loads config: WidgetManager calls ApplySettings.</summary>
@@ -135,6 +136,8 @@ namespace Kobold.Core.FileSearch
         /// Stores normalized settings only; no SQLite or root resolution happens on
         /// the caller's thread. A fingerprint mismatch against the published index
         /// flags <see cref="FileSearchStatus.NeedsRebuild"/> without deleting rows.
+        /// The periodic reconcile interval is re-armed/stopped immediately: it is
+        /// cheap and must take effect without waiting for the next scan.
         /// </summary>
         public void ApplySettings(FileSearchSettings settings)
         {
@@ -158,6 +161,8 @@ namespace Kobold.Core.FileSearch
                 _settings = copy;
             }
 
+            RefreshReconcileTimer(copy);
+
             // Compare against an already-open store in the background. If no store
             // exists yet, the startup path performs the same check when it opens one.
             Schedule(() =>
@@ -178,6 +183,19 @@ namespace Kobold.Core.FileSearch
                     _syncGate.Release();
                 }
             });
+        }
+
+        /// <summary>
+        /// Effective periodic reconcile interval in minutes; 0 when no timer is
+        /// scheduled. Reflects <see cref="ApplySettings"/> changes immediately and
+        /// gives the settings UI (and tests) a way to observe the timer state.
+        /// </summary>
+        public int ReconcileIntervalMinutes
+        {
+            get
+            {
+                lock (_gate) return _reconcileMinutes < 0 ? 0 : _reconcileMinutes;
+            }
         }
 
         /// <summary>
@@ -644,28 +662,74 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Queues one reconcile unless work is already in flight or the service is
-        /// not Ready. Called from the timer, the watcher callback and the settings
-        /// API; the actual walk always runs on the serialized worker.
+        /// Queues one reconcile unless one is already in flight. A request that
+        /// arrives while the service is busy (scanning/reconciling) or paused is
+        /// recorded in <c>_reconcileWanted</c> and replayed when the service is
+        /// Ready again: an overflow during a full scan must not be lost.
         /// </summary>
         private void ScheduleReconcile()
         {
+            bool start = false;
             lock (_gate)
             {
-                if (_disposed || _paused) return;
-                if (_status.State != FileSearchState.Ready) return;
-                if (_store == null || _reconcilePending) return;
+                if (_disposed) return;
+
+                if (_paused || _status.State != FileSearchState.Ready || _store == null
+                    || _reconcilePending)
+                {
+                    _reconcileWanted = true;
+                    return;
+                }
+
+                _reconcileWanted = false;
                 _reconcilePending = true;
+                start = true;
             }
 
+            if (start) QueueReconcile();
+        }
+
+        private void QueueReconcile()
+        {
             Schedule(() =>
             {
                 try { RunReconcile(); }
                 finally
                 {
-                    lock (_gate) _reconcilePending = false;
+                    // A request that arrived while this pass was running gets its
+                    // own pass instead of being folded into the one that missed it.
+                    bool again;
+                    lock (_gate)
+                    {
+                        _reconcilePending = false;
+                        again = _reconcileWanted && !_disposed && !_paused
+                            && _status.State == FileSearchState.Ready && _store != null;
+                        if (again)
+                        {
+                            _reconcileWanted = false;
+                            _reconcilePending = true;
+                        }
+                    }
+                    if (again) QueueReconcile();
                 }
             });
+        }
+
+        /// <summary>Replays a reconcile that had to be deferred while the service was busy or paused.</summary>
+        private void FlushWantedReconcile()
+        {
+            bool start = false;
+            lock (_gate)
+            {
+                if (_disposed || _paused || !_reconcileWanted) return;
+                if (_status.State != FileSearchState.Ready || _store == null || _reconcilePending) return;
+
+                _reconcileWanted = false;
+                _reconcilePending = true;
+                start = true;
+            }
+
+            if (start) QueueReconcile();
         }
 
         /// <summary>
@@ -856,8 +920,49 @@ namespace Kobold.Core.FileSearch
                 }
             }
 
-            EnsureReconcileTimerLocked(settings);
+            EnsureReconcileTimerLocked(CurrentSettingsOr(settings));
             return available;
+        }
+
+        /// <summary>
+        /// Re-arms the timer for a settings change made while Ready, or stops it
+        /// when the service is paused/not ready or the interval is 0. Runs on the
+        /// caller's thread: creating/disposing a timer is cheap and touches no
+        /// SQLite or filesystem state.
+        /// </summary>
+        private void RefreshReconcileTimer(FileSearchSettings settings)
+        {
+            bool ready;
+            lock (_gate)
+            {
+                ready = !_disposed && !_paused && _status.State == FileSearchState.Ready
+                    && _store != null && settings != null && settings.Enabled;
+            }
+
+            if (ready) EnsureReconcileTimerLocked(settings);
+            else StopReconcileTimerQuiet();
+        }
+
+        private FileSearchSettings CurrentSettingsOr(FileSearchSettings fallback)
+        {
+            lock (_gate) return _settings ?? fallback;
+        }
+
+        private void StopReconcileTimerQuiet()
+        {
+            Timer timer;
+            lock (_gate)
+            {
+                timer = _reconcileTimer;
+                _reconcileTimer = null;
+                _reconcileMinutes = -1;
+            }
+
+            if (timer != null)
+            {
+                try { timer.Dispose(); }
+                catch (Exception) { }
+            }
         }
 
         /// <summary>
@@ -986,6 +1091,7 @@ namespace Kobold.Core.FileSearch
                 if (_disposed) return;
                 _searchWanted = false;
                 _generation++;
+                _reconcileWanted = false;
                 stopGeneration = _generation;
                 cancelled = _scanCts;
             }
@@ -1031,6 +1137,7 @@ namespace Kobold.Core.FileSearch
             {
                 if (_disposed) return;
                 _generation++;
+                _reconcileWanted = false;
                 cancelled = _scanCts;
             }
 
@@ -1273,6 +1380,19 @@ namespace Kobold.Core.FileSearch
             {
                 try { handler(this, snapshot); }
                 catch (Exception) { }
+            }
+
+            // Ready is where a deferred request (overflow during a scan, a request
+            // made while paused) becomes runnable again, and where a timer that was
+            // stopped by an ApplySettings during a scan is re-armed. An existing
+            // timer with the same interval is left untouched, so a normal reconcile
+            // does not restart the 30s first-tick clock.
+            if (state == FileSearchState.Ready)
+            {
+                FileSearchSettings current;
+                lock (_gate) current = _settings;
+                if (current != null) EnsureReconcileTimerLocked(current);
+                FlushWantedReconcile();
             }
         }
 

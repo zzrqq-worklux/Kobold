@@ -890,6 +890,88 @@ namespace Kobold.FileSearchCheck
                     Check(WaitUntil(() => HasRow(store, partial, root), 5000),
                         "watch: a failed root does not stop the healthy roots");
                 }
+
+                // A renamed folder must still re-index its files when folder rows are
+                // disabled: only the directory row is gated on IndexFolders, the files
+                // must follow the rename.
+                string noFoldersRoot = Path.Combine(_root, "watch-nofolders-root");
+                Directory.CreateDirectory(noFoldersRoot);
+                var noFolders = FileSearchSettings.CreateDefault();
+                noFolders.Roots = new[] { noFoldersRoot };
+                noFolders.IndexFolders = false;
+                using (var host = new FileSystemWatcherHost(store, noFolders, null))
+                {
+                    Check(host.Start(new[] { noFoldersRoot }),
+                        "watch: a no-folder root starts");
+
+                    string oldDir = Path.Combine(noFoldersRoot, "nofolders-dir");
+                    string oldChild = Path.Combine(oldDir, "nofolders-child.txt");
+                    Directory.CreateDirectory(oldDir);
+                    File.WriteAllText(oldChild, "x");
+                    Check(WaitUntil(() => HasRow(store, oldChild, noFoldersRoot), 5000),
+                        "watch: a file in a no-folder tree is indexed");
+
+                    string renamedDir = Path.Combine(noFoldersRoot, "nofolders-renamed");
+                    string renamedChild = Path.Combine(renamedDir, "nofolders-child.txt");
+                    Directory.Move(oldDir, renamedDir);
+                    Check(WaitUntil(() => HasRow(store, renamedChild, noFoldersRoot)
+                                          && !HasRow(store, oldChild, noFoldersRoot), 5000),
+                        "watch: a renamed folder's files are re-indexed with folder rows disabled");
+                    Check(!HasRow(store, renamedDir, noFoldersRoot),
+                        "watch: a renamed folder adds no directory row when folders are disabled");
+                }
+
+                // A same-volume move out of the watched tree must delete the old row
+                // and must not index the destination under the watched root.
+                string moveRoot = Path.Combine(_root, "watch-move-root");
+                string moveOutside = Path.Combine(_root, "watch-move-outside");
+                Directory.CreateDirectory(moveRoot);
+                Directory.CreateDirectory(moveOutside);
+                using (var host = new FileSystemWatcherHost(store, s, null))
+                {
+                    Check(host.Start(new[] { moveRoot }), "watch: a move root starts");
+
+                    string moveSource = Path.Combine(moveRoot, "zebrawatch-move-me.txt");
+                    string moveTarget = Path.Combine(moveOutside, "zebrawatch-move-me.txt");
+                    File.WriteAllText(moveSource, "x");
+                    Check(WaitUntil(() => HasRow(store, moveSource, moveRoot), 5000),
+                        "watch: the move source is indexed");
+
+                    File.Move(moveSource, moveTarget);
+                    Check(WaitUntil(() => !HasRow(store, moveSource, moveRoot), 5000),
+                        "watch: a move out of the root removes the old row");
+                    Check(!HasPath(store, moveTarget),
+                        "watch: a move out of the root does not index the outside path");
+                }
+
+                // A queue that is full while the worker is paused must report overflow
+                // exactly once instead of blocking the watcher callback.
+                string overflowRoot = Path.Combine(_root, "watch-overflow-root");
+                Directory.CreateDirectory(overflowRoot);
+                using (var host = new FileSystemWatcherHost(store, s, null, 1))
+                {
+                    int requested = 0;
+                    host.ReconcileRequested += (sender, args) => Interlocked.Increment(ref requested);
+
+                    // Pause before Start so the worker cannot drain a collection
+                    // window while the two files are being written: the queue
+                    // overflow is then deterministic, not a timing race.
+                    host.PauseProcessing();
+                    Check(host.Start(new[] { overflowRoot }), "watch: an overflow root starts");
+
+                    string firstOverflow = Path.Combine(overflowRoot, "zebrawatch-overflow-1.txt");
+                    string secondOverflow = Path.Combine(overflowRoot, "zebrawatch-overflow-2.txt");
+                    File.WriteAllText(firstOverflow, "x");
+                    File.WriteAllText(secondOverflow, "y");
+
+                    Check(WaitUntil(() => Volatile.Read(ref requested) > 0, 5000),
+                        "watch: a full queue requests a reconcile instead of blocking");
+
+                    host.ResumeProcessing();
+                    Check(WaitUntil(() => HasRow(store, firstOverflow, overflowRoot)
+                                          || HasRow(store, secondOverflow, overflowRoot), 5000),
+                        "watch: the paused queue drains after resume");
+                }
             }
         }
 
@@ -962,6 +1044,80 @@ namespace Kobold.FileSearchCheck
                 service.WaitForIdle(TimeSpan.FromSeconds(20));
                 Check(service.Status.State == FileSearchState.Ready && service.Status.IncrementalAvailable,
                     "service watch: resume restarts incremental updates");
+
+                // The reconcile interval is applied at runtime: 10 -> 0 stops the
+                // timer and 0 -> 2 starts it again, without waiting for a scan.
+                var timerOn = FileSearchSettings.CreateDefault();
+                timerOn.Roots = new[] { tree };
+                timerOn.Configured = true;
+                timerOn.Enabled = true;
+                timerOn.ReconcileMinutes = 10;
+                service.ApplySettings(timerOn);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.ReconcileIntervalMinutes == 10,
+                    "service watch: ApplySettings arms the periodic reconcile timer");
+
+                var timerOff = FileSearchSettings.CreateDefault();
+                timerOff.Roots = new[] { tree };
+                timerOff.Configured = true;
+                timerOff.Enabled = true;
+                timerOff.ReconcileMinutes = 0;
+                service.ApplySettings(timerOff);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.ReconcileIntervalMinutes == 0,
+                    "service watch: ApplySettings 10->0 stops the periodic timer");
+
+                var timerFast = FileSearchSettings.CreateDefault();
+                timerFast.Roots = new[] { tree };
+                timerFast.Configured = true;
+                timerFast.Enabled = true;
+                timerFast.ReconcileMinutes = 2;
+                service.ApplySettings(timerFast);
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.ReconcileIntervalMinutes == 2,
+                    "service watch: ApplySettings 0->2 starts the periodic timer");
+
+                // A request made while a full scan is already Indexing must survive
+                // the scan: the overflow path cannot be lost just because the state
+                // was busy at that moment.
+                int busyReconciles = 0;
+                EventHandler<FileSearchStatus> countBusy = (sender, status) =>
+                {
+                    if (status.State == FileSearchState.Reconciling)
+                    {
+                        Interlocked.Increment(ref busyReconciles);
+                    }
+                };
+                service.StatusChanged += countBusy;
+                service.StartFullScan(timerFast, new[] { tree });
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                service.StatusChanged -= countBusy;
+
+                Check(Volatile.Read(ref busyReconciles) > 0
+                      && service.Status.State == FileSearchState.Ready,
+                    "service watch: a reconcile requested during a full scan runs after it");
+
+                // A request that arrives while the service cannot run one (paused)
+                // must be replayed on the next Ready instead of being dropped.
+                int reconcilingTransitions = 0;
+                EventHandler<FileSearchStatus> countReconciling = (sender, status) =>
+                {
+                    if (status.State == FileSearchState.Reconciling)
+                    {
+                        Interlocked.Increment(ref reconcilingTransitions);
+                    }
+                };
+                service.StatusChanged += countReconciling;
+                service.Pause();
+                service.RequestReconcile();
+                service.Resume();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                service.StatusChanged -= countReconciling;
+
+                Check(Volatile.Read(ref reconcilingTransitions) > 0
+                      && service.Status.State == FileSearchState.Ready,
+                    "service watch: a reconcile requested while paused runs after resume");
             }
 
             var bad = FileSearchSettings.CreateDefault();
@@ -1379,6 +1535,17 @@ namespace Kobold.FileSearchCheck
                 if (PathsEqual(item.Path, path)) return item.SizeBytes;
             }
             return -1;
+        }
+
+        /// <summary>Exact path probe that ignores the Root column (moves between roots).</summary>
+        private static bool HasPath(SearchIndexStore store, string path)
+        {
+            var result = store.Query(Path.GetFileName(path), 50, CancellationToken.None);
+            foreach (var item in result.Items)
+            {
+                if (PathsEqual(item.Path, path)) return true;
+            }
+            return false;
         }
 
         private static bool HasRow(FileSearchIndexService service, string path)

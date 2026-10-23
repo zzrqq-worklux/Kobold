@@ -44,18 +44,16 @@ namespace Kobold.Core.FileSearch
 
         private sealed class WatcherEvent
         {
-            public WatcherEvent(WatcherEventKind kind, string path, string oldPath, string root)
+            public WatcherEvent(WatcherEventKind kind, string path, string oldPath)
             {
                 Kind = kind;
                 Path = path;
                 OldPath = oldPath;
-                Root = root;
             }
 
             public WatcherEventKind Kind { get; private set; }
             public string Path { get; private set; }
             public string OldPath { get; private set; }
-            public string Root { get; private set; }
         }
 
         private sealed class RootSlot
@@ -89,6 +87,7 @@ namespace Kobold.Core.FileSearch
         private int _pauseDepth;
         private int _activeBatches;
         private int _reconcilePending;
+        private readonly int _queueCapacity;
         private volatile bool _incrementalAvailable;
 
         /// <param name="progress">
@@ -96,15 +95,25 @@ namespace Kobold.Core.FileSearch
         /// rename. The index service passes null: subtree counters are local and
         /// must not replace the status counters of the last full scan.
         /// </param>
+        /// <param name="queueCapacity">
+        /// Bound of the event queue. The production default is
+        /// <see cref="QueueCapacity"/>; tests shrink it to make an overflow
+        /// deterministic.
+        /// </param>
         public FileSystemWatcherHost(ISearchIndexStore store, FileSearchSettings settings,
-            Action<ScanProgress> progress = null)
+            Action<ScanProgress> progress = null, int queueCapacity = QueueCapacity)
         {
             if (store == null) throw new ArgumentNullException("store");
             if (settings == null) throw new ArgumentNullException("settings");
+            if (queueCapacity < 1)
+            {
+                throw new ArgumentOutOfRangeException("queueCapacity", "The queue needs at least one slot.");
+            }
 
             _store = store;
             _settings = settings;
             _progress = progress;
+            _queueCapacity = queueCapacity;
 
             _databasePath = store.DatabasePath ?? string.Empty;
             _databaseWalPath = _databasePath.Length == 0 ? string.Empty : _databasePath + "-wal";
@@ -158,6 +167,15 @@ namespace Kobold.Core.FileSearch
                 _slots.Clear();
                 _incrementalAvailable = false;
 
+                // The queue exists before any watcher starts raising events: a
+                // callback that fires between EnableRaisingEvents and the worker
+                // start must find a live queue, not a null field.
+                var queue = new BlockingCollection<WatcherEvent>(_queueCapacity);
+                var cts = new CancellationTokenSource();
+                CancellationToken token = cts.Token;
+                _queue = queue;
+                _cts = cts;
+
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (roots != null)
                 {
@@ -185,12 +203,6 @@ namespace Kobold.Core.FileSearch
                     // Capture locals, not the fields: Stop may null those before the
                     // new thread starts, and reading a null field inside the thread
                     // lambda would be an unhandled exception in a background thread.
-                    var queue = new BlockingCollection<WatcherEvent>(QueueCapacity);
-                    var cts = new CancellationTokenSource();
-                    CancellationToken token = cts.Token;
-                    _queue = queue;
-                    _cts = cts;
-
                     var worker = new Thread(delegate()
                     {
                         try { WorkerLoop(queue, token); }
@@ -206,6 +218,16 @@ namespace Kobold.Core.FileSearch
                     catch (Exception) { }
                     _worker = worker;
                     worker.Start();
+                }
+                else
+                {
+                    // No watcher can raise an event: release the unused queue.
+                    _queue = null;
+                    _cts = null;
+                    try { queue.Dispose(); }
+                    catch (Exception) { }
+                    try { cts.Dispose(); }
+                    catch (Exception) { }
                 }
 
                 return _incrementalAvailable;
@@ -480,12 +502,14 @@ namespace Kobold.Core.FileSearch
                 return;
             }
 
-            // Created/Changed. Paths outside the configured scope are ignored before
-            // any store call: writing a delete for every excluded file (the index
-            // database itself, for one) would make the watcher feed on its own writes.
-            if (!InScope(path) || !IsIncludedKind(path)) return;
+            // Created/Changed. Paths outside every watched root (and excluded paths)
+            // are ignored before any store call: writing a delete for every excluded
+            // file (the index database itself, for one) would make the watcher feed
+            // on its own writes.
+            string root = FindContainingRoot(path);
+            if (root == null || !InScope(path) || !IsIncludedKind(path)) return;
 
-            if (!TryUpsert(item.Root, path))
+            if (!TryUpsert(root, path))
             {
                 // The item disappeared between the event and the stat: drop its row.
                 _store.Delete(path);
@@ -502,21 +526,49 @@ namespace Kobold.Core.FileSearch
 
             if (!InScope(path)) return;
 
+            // A rename can leave the watched tree (a same-volume move to a sibling
+            // outside the root). The old row is gone above; the destination must not
+            // be inserted under a root it does not belong to.
+            string root = FindContainingRoot(path);
+            if (root == null) return;
+
             // A directory rename is reported only for the directory itself; its
             // children are not re-enumerated by the OS watcher, so the new subtree
-            // has to be read live (no staging table involved).
+            // has to be read live (no staging table involved). ScanSubtree already
+            // gates the directory row on IndexFolders and always writes the files:
+            // skipping it here would erase a renamed folder's files when folder rows
+            // are disabled.
             bool isDirectory;
             try { isDirectory = Directory.Exists(SearchPath.ToExtended(path)); }
             catch (Exception) { isDirectory = false; }
 
             if (isDirectory)
             {
-                if (!_settings.IndexFolders) return;
-                new DirectoryScanner(_store, _settings, _progress).ScanSubtree(item.Root, path, token);
+                new DirectoryScanner(_store, _settings, _progress).ScanSubtree(root, path, token);
                 return;
             }
 
-            if (!TryUpsert(item.Root, path)) _store.Delete(path);
+            if (!TryUpsert(root, path)) _store.Delete(path);
+        }
+
+        /// <summary>
+        /// The watched root that contains <paramref name="path"/>, longest match
+        /// first so a nested configured root owns its own subtree. Null means the
+        /// path is outside every watched tree.
+        /// </summary>
+        private string FindContainingRoot(string path)
+        {
+            lock (_lifecycleGate)
+            {
+                string best = null;
+                for (int i = 0; i < _slots.Count; i++)
+                {
+                    string root = _slots[i].Root;
+                    if (!SearchPath.IsUnder(path, root)) continue;
+                    if (best == null || root.Length > best.Length) best = root;
+                }
+                return best;
+            }
         }
 
         /// <summary>False for the index database and its WAL sidecars, which live on a watched drive.</summary>
@@ -585,12 +637,12 @@ namespace Kobold.Core.FileSearch
             return true;
         }
 
-        private void Enqueue(RootSlot slot, WatcherEventKind kind, string path, string oldPath)
+        private void Enqueue(WatcherEventKind kind, string path, string oldPath)
         {
             BlockingCollection<WatcherEvent> queue = _queue;
             if (queue == null) return;
 
-            var item = new WatcherEvent(kind, path, oldPath, slot.Root);
+            var item = new WatcherEvent(kind, path, oldPath);
             try
             {
                 if (!queue.TryAdd(item))
@@ -666,19 +718,19 @@ namespace Kobold.Core.FileSearch
 
                 watcher.Created += delegate(object sender, FileSystemEventArgs args)
                 {
-                    Enqueue(slot, WatcherEventKind.Created, args.FullPath, null);
+                    Enqueue(WatcherEventKind.Created, args.FullPath, null);
                 };
                 watcher.Changed += delegate(object sender, FileSystemEventArgs args)
                 {
-                    Enqueue(slot, WatcherEventKind.Changed, args.FullPath, null);
+                    Enqueue(WatcherEventKind.Changed, args.FullPath, null);
                 };
                 watcher.Deleted += delegate(object sender, FileSystemEventArgs args)
                 {
-                    Enqueue(slot, WatcherEventKind.Deleted, args.FullPath, null);
+                    Enqueue(WatcherEventKind.Deleted, args.FullPath, null);
                 };
                 watcher.Renamed += delegate(object sender, RenamedEventArgs args)
                 {
-                    Enqueue(slot, WatcherEventKind.Renamed, args.FullPath, args.OldFullPath);
+                    Enqueue(WatcherEventKind.Renamed, args.FullPath, args.OldFullPath);
                 };
                 watcher.Error += delegate { OnWatcherError(slot); };
 
