@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Kobold.Core;
+using Microsoft.Data.Sqlite;
 
 namespace Kobold.Core.FileSearch
 {
@@ -60,6 +62,11 @@ namespace Kobold.Core.FileSearch
     /// The watcher queue and periodic reconcile belong to a later task: this class
     /// deliberately has no FileSystemWatcher timer yet, so every state transition
     /// here comes from a full scan or a widget/settings change.
+    ///
+    /// Events are raised synchronously on the thread that changes state (a worker
+    /// thread for scans). UI subscribers must marshal with
+    /// <c>Dispatcher.BeginInvoke</c>, never <c>Invoke</c>: a blocking Invoke can
+    /// deadlock against <see cref="Shutdown"/> or a scan holding the sync gate.
     /// </summary>
     public sealed class FileSearchIndexService : IDisposable
     {
@@ -80,6 +87,7 @@ namespace Kobold.Core.FileSearch
         private Task _scanTask;
         private int _busy;
         private long _generation;
+        private bool _searchWanted;
         private bool _paused;
         private bool _disposed;
 
@@ -127,16 +135,12 @@ namespace Kobold.Core.FileSearch
 
             if (copy == null || !copy.Configured)
             {
-                CancellationTokenSource cancelled;
                 lock (_gate)
                 {
                     if (_disposed) return;
                     _settings = copy;
-                    _generation++;
-                    cancelled = _scanCts;
                 }
-                TryCancel(cancelled);
-                Transition(FileSearchState.Unconfigured, "File search is not configured.");
+                Deactivate("File search is not configured.");
                 return;
             }
 
@@ -195,6 +199,7 @@ namespace Kobold.Core.FileSearch
             lock (_gate)
             {
                 if (_disposed) return;
+                _searchWanted = true;
                 paused = _paused;
                 settings = _settings;
             }
@@ -207,7 +212,10 @@ namespace Kobold.Core.FileSearch
 
             if (settings == null || !settings.Configured || !settings.Enabled)
             {
-                Transition(FileSearchState.Unconfigured, "File search is not configured.");
+                // Same store-open semantic as ApplySettings: unconfigured keeps an
+                // already-open store so onboarding can start a scan without reopening
+                // it; only "no search widget" closes it.
+                Deactivate("File search is not configured.");
                 return;
             }
 
@@ -245,6 +253,9 @@ namespace Kobold.Core.FileSearch
                 }
 
                 _settings = copy;
+                // An explicit scan is a user decision: leave the paused state instead
+                // of starting behind a stale pause flag.
+                _paused = false;
                 previous = _scanCts;
                 _scanCts = current;
                 _generation++;
@@ -362,12 +373,16 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Cancels the scan, waits for it up to <paramref name="timeout"/>, then
-        /// checkpoints and closes the store. Disposal runs on a background task so
-        /// an exit from the UI thread never opens SQLite itself.
+        /// Cancels the scan, waits at most <paramref name="timeout"/> in total, then
+        /// checkpoints and closes the store. Checkpoint/dispose run on a background
+        /// task so an exit from the UI thread never opens SQLite itself. The single
+        /// wait covers both the cancelled scan and the cleanup, so exit latency is
+        /// bounded once, not once per phase.
         /// </summary>
         public void Shutdown(TimeSpan timeout)
         {
+            if (timeout < TimeSpan.Zero) timeout = TimeSpan.Zero;
+
             CancellationTokenSource cancelled;
             Task scan;
             lock (_gate)
@@ -375,24 +390,33 @@ namespace Kobold.Core.FileSearch
                 if (_disposed) return;
                 _disposed = true;
                 _generation++;
+                _searchWanted = false;
                 cancelled = _scanCts;
                 scan = _scanTask;
             }
 
             TryCancel(cancelled);
-
-            if (scan != null)
-            {
-                try { scan.Wait(timeout); }
-                catch (AggregateException) { }
-            }
+            var clock = Stopwatch.StartNew();
 
             Task cleanup = Task.Run(() =>
             {
+                // The cancelled scan exits quickly; waiting here (rather than on the
+                // UI thread before scheduling cleanup) keeps one bounded wait below.
+                if (scan != null)
+                {
+                    try { scan.Wait(); }
+                    catch (AggregateException) { }
+                }
+
                 _syncGate.Wait();
                 try
                 {
-                    DisposeStoreLocked();
+                    if (_store != null)
+                    {
+                        try { _store.Checkpoint(); }
+                        catch (Exception) { }
+                        DisposeStoreLocked();
+                    }
                 }
                 finally
                 {
@@ -400,7 +424,9 @@ namespace Kobold.Core.FileSearch
                 }
             });
 
-            try { cleanup.Wait(timeout); }
+            TimeSpan remaining = timeout - clock.Elapsed;
+            if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+            try { cleanup.Wait(remaining); }
             catch (AggregateException) { }
 
             lock (_gate) _idleEvent.Set();
@@ -505,6 +531,11 @@ namespace Kobold.Core.FileSearch
                     _store.BeginFullScan();
                     var scanner = new DirectoryScanner(_store, settings, ReportProgress);
                     ScanResult result = scanner.Scan(scanRoots, ScanMode.Full, token);
+
+                    // The scanner reports its final progress snapshot before it
+                    // returns; a subscriber may cancel from that callback. Honour
+                    // the token before publishing the staged rows.
+                    token.ThrowIfCancellationRequested();
                     _store.CompleteFullScan(result.SkippedDirectories, result.SkippedReparsePoints,
                         result.SkippedLongPaths, fingerprint);
 
@@ -534,11 +565,21 @@ namespace Kobold.Core.FileSearch
                     bool paused;
                     lock (_gate) paused = _paused;
 
-                    if (paused) Transition(FileSearchState.Paused, "Paused.");
+                    // The aborted scan must not leave partial counters in the status.
+                    if (paused)
+                    {
+                        Transition(FileSearchState.Paused, "Paused.", ResetScanCounters);
+                    }
                     else if (SafeHasIndexLocked())
-                        Transition(FileSearchState.Ready, "Scan cancelled; the previous index is still in use.");
+                    {
+                        Transition(FileSearchState.Ready,
+                            "Scan cancelled; the previous index is still in use.", ResetScanCounters);
+                    }
                     else
-                        Transition(FileSearchState.NoIndex, "Scan cancelled before any index was published.");
+                    {
+                        Transition(FileSearchState.NoIndex,
+                            "Scan cancelled before any index was published.", ResetScanCounters);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -558,10 +599,13 @@ namespace Kobold.Core.FileSearch
         private void StopForNoWidgets()
         {
             CancellationTokenSource cancelled;
+            long stopGeneration;
             lock (_gate)
             {
                 if (_disposed) return;
+                _searchWanted = false;
                 _generation++;
+                stopGeneration = _generation;
                 cancelled = _scanCts;
             }
 
@@ -573,7 +617,14 @@ namespace Kobold.Core.FileSearch
                 _syncGate.Wait();
                 try
                 {
-                    if (!_disposed) DisposeStoreLocked();
+                    // A widget re-added before this task runs wants the store again.
+                    // The quick remove/re-add must not end Ready with a closed store.
+                    bool dispose;
+                    lock (_gate)
+                    {
+                        dispose = !_disposed && !_searchWanted && _generation == stopGeneration;
+                    }
+                    if (dispose) DisposeStoreLocked();
                 }
                 finally
                 {
@@ -583,10 +634,31 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Must be called with the sync gate held. A corrupt/unreadable database is
-        /// moved aside (<c>search-index.db.failed-yyyyMMdd-HHmmss</c>) and recreated,
-        /// then reported as Error so the UI can offer a rebuild; the old rows are
-        /// gone only after the move, never silently deleted in place.
+        /// Shared "not configured" path for null settings, Configured=false and
+        /// Enabled=false: stop a running scan but keep an already-open store (only
+        /// removing the last search widget closes it).
+        /// </summary>
+        private void Deactivate(string message)
+        {
+            CancellationTokenSource cancelled;
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _generation++;
+                cancelled = _scanCts;
+            }
+
+            TryCancel(cancelled);
+            Transition(FileSearchState.Unconfigured, message);
+        }
+
+        /// <summary>
+        /// Must be called with the sync gate held. Only a genuine corruption
+        /// (SQLITE_CORRUPT/SQLITE_NOTADB) moves the database aside
+        /// (<c>search-index.db.failed-yyyyMMdd-HHmmss</c>) and recreates it, then
+        /// reports Error so the UI can offer a rebuild. Busy/locked opens are
+        /// retried once; any other failure leaves the healthy file untouched and
+        /// reports Error.
         /// </summary>
         private bool EnsureStoreLocked()
         {
@@ -604,9 +676,42 @@ namespace Kobold.Core.FileSearch
                 try { store.Dispose(); }
                 catch (Exception) { }
 
+                var sqliteError = openError as SqliteException;
+                if (!IsCorrupt(sqliteError))
+                {
+                    // A healthy database must never be moved for a transient lock,
+                    // a full disk or an access-denied folder. Retry the common
+                    // busy/locked case once; otherwise report the error untouched.
+                    if (IsBusy(sqliteError))
+                    {
+                        Thread.Sleep(100);
+                        var retry = new SearchIndexStore(_databasePath);
+                        try
+                        {
+                            retry.EnsureSchema();
+                            _store = retry;
+                            return true;
+                        }
+                        catch (Exception retryError)
+                        {
+                            try { retry.Dispose(); }
+                            catch (Exception) { }
+                            Transition(FileSearchState.Error,
+                                "The search index is busy: " + retryError.Message);
+                            return false;
+                        }
+                    }
+
+                    Transition(FileSearchState.Error,
+                        "The search index could not be opened: " + openError.Message);
+                    return false;
+                }
+
+                // Genuine corruption (SQLITE_CORRUPT / SQLITE_NOTADB): keep the
+                // evidence, recreate an empty database and let the UI offer rebuild.
                 string quarantine = QuarantineDatabase();
                 string message = quarantine == null
-                    ? "The search index could not be opened: " + openError.Message
+                    ? "The search index was corrupt and could not be moved aside: " + openError.Message
                     : "The search index was corrupt and was reset: " + openError.Message;
 
                 var rebuilt = new SearchIndexStore(_databasePath);
@@ -627,6 +732,20 @@ namespace Kobold.Core.FileSearch
                 Transition(FileSearchState.Error, message);
                 return false;
             }
+        }
+
+        /// <summary>SQLITE_CORRUPT (11) or SQLITE_NOTADB (26); those are the only codes that justify moving the file.</summary>
+        private static bool IsCorrupt(SqliteException error)
+        {
+            return error != null
+                && (error.SqliteErrorCode == 11 || error.SqliteErrorCode == 26);
+        }
+
+        /// <summary>SQLITE_BUSY (5) or SQLITE_LOCKED (6) are worth one retry; the database is healthy.</summary>
+        private static bool IsBusy(SqliteException error)
+        {
+            return error != null
+                && (error.SqliteErrorCode == 5 || error.SqliteErrorCode == 6);
         }
 
         private string QuarantineDatabase()
@@ -739,6 +858,14 @@ namespace Kobold.Core.FileSearch
                 try { handler(this, snapshot); }
                 catch (Exception) { }
             }
+        }
+
+        /// <summary>An aborted scan has no published rows, so its partial counters must not leak into the status.</summary>
+        private static void ResetScanCounters(FileSearchStatus status)
+        {
+            status.FilesIndexed = 0;
+            status.DirectoriesScanned = 0;
+            status.SkippedDirectories = 0;
         }
 
         private void Transition(FileSearchState state, string message, Action<FileSearchStatus> update = null)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -87,6 +88,9 @@ namespace Kobold.FileSearchCheck
             ScannerSubtreeCases();
             ScannerBatchCases();
             ServiceCases();
+            ServiceFreshDatabaseCase();
+            ServiceCorruptionCases();
+            ServiceShutdownCase();
         }
 
         private static void TypeFilterCases()
@@ -865,14 +869,31 @@ namespace Kobold.FileSearchCheck
                 service.WaitForIdle(TimeSpan.FromSeconds(20));
                 Check(service.Status.State == FileSearchState.Ready, "service: resume returns to ready");
 
+                // The scanner always emits a final progress snapshot before it
+                // returns; cancelling from that callback must still abort the
+                // staging table instead of publishing the new file.
+                File.WriteAllText(Path.Combine(tree, "service-cancelled.txt"), "x");
                 int before = service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches;
+                bool cancelledOnProgress = false;
+                EventHandler<ScanProgress> cancelOnProgress = (s, p) =>
+                {
+                    if (cancelledOnProgress) return;
+                    cancelledOnProgress = true;
+                    service.CancelScan();
+                };
+                service.ProgressChanged += cancelOnProgress;
                 service.StartFullScan(settings, new[] { tree });
-                service.CancelScan();
                 service.WaitForIdle(TimeSpan.FromSeconds(20));
-                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == before,
-                    "service: cancelling a full scan keeps the old rows");
-                Check(service.Status.State != FileSearchState.Error,
-                    "service: cancelling a full scan is not an error");
+                service.ProgressChanged -= cancelOnProgress;
+
+                Check(cancelledOnProgress, "service: a scan reports progress while it is still running");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == before
+                      && service.Search("service-cancelled", 300, CancellationToken.None).TotalMatches == 0,
+                    "service: cancelling on progress keeps the old rows and publishes no partial rows");
+                Check(service.Status.State != FileSearchState.Error
+                      && service.Status.FilesIndexed == 0
+                      && service.Status.DirectoriesScanned == 0,
+                    "service: cancelling a scan resets its progress counters");
             }
 
             var startupTransitions = new List<FileSearchState>();
@@ -933,10 +954,148 @@ namespace Kobold.FileSearchCheck
                 Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
                     "service: reopening after the widget returns is searchable");
 
+                // Remove and re-add before the queued disposal can run: the
+                // disposal must not close the store the re-add is using.
+                service.SyncWithWidgets(new WidgetData[0]);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service: an immediate remove/re-add ends ready");
+                Check(service.Search("serviceprobe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: an immediate remove/re-add keeps a usable store");
+
                 service.ApplySettings(null);
                 Check(service.Status.State == FileSearchState.Unconfigured,
                     "service: null settings are unconfigured");
             }
+        }
+
+        /// <summary>
+        /// A configured search widget on a machine with no index yet: startup must
+        /// create the schema, report NoIndex and wait for onboarding to start the
+        /// first full scan (no implicit scan and no Indexing transition).
+        /// </summary>
+        private static void ServiceFreshDatabaseCase()
+        {
+            string db = Path.Combine(_root, "service-fresh.db");
+            string tree = Path.Combine(_root, "service-fresh-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "fresh-probe.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+
+            var states = new List<FileSearchState>();
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.StatusChanged += (s, status) =>
+                {
+                    lock (states) states.Add(status.State);
+                };
+
+                service.ApplySettings(settings);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.State == FileSearchState.NoIndex,
+                    "service: a fresh configured database reports no index");
+                bool sawIndexing;
+                lock (states) sawIndexing = states.Contains(FileSearchState.Indexing);
+                Check(!sawIndexing, "service: startup never starts an implicit full scan");
+                Check(File.Exists(db), "service: startup creates the missing database");
+                Check(!service.ReadStatus().HasIndex, "service: the fresh database has no published index");
+                Check(service.Search("fresh-probe", 300, CancellationToken.None).TotalMatches == 0,
+                    "service: the fresh database returns no rows");
+            }
+        }
+
+        /// <summary>
+        /// A garbage database is quarantined and recreated (then an explicit rebuild
+        /// works); a non-corruption open failure (a directory at the DB path) must
+        /// leave the path untouched. A transient busy/locked database is retried
+        /// once and never moved (not simulated here: a deterministic external lock
+        /// is not reliable in this harness).
+        /// </summary>
+        private static void ServiceCorruptionCases()
+        {
+            string tree = Path.Combine(_root, "service-corrupt-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "corrupt-probe.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+
+            string db = Path.Combine(_root, "service-corrupt.db");
+            File.WriteAllBytes(db, Encoding.UTF8.GetBytes(
+                "this is definitely not a sqlite database, it is just text that should fail the header check"));
+            using (var service = new FileSearchIndexService(db))
+            {
+                service.ApplySettings(settings);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.State == FileSearchState.Error
+                      || service.Status.State == FileSearchState.NoIndex,
+                    "service: a corrupt database is reported, not thrown");
+                Check(Directory.GetFiles(_root, "service-corrupt.db.failed-*").Length >= 1,
+                    "service: a corrupt database is kept as .failed-<timestamp> evidence");
+                Check(!service.ReadStatus().HasIndex,
+                    "service: the recreated corrupt database is empty");
+                Check(service.Search("corrupt-probe", 300, CancellationToken.None).TotalMatches == 0,
+                    "service: the recreated corrupt database has no rows");
+
+                service.RequestRebuild();
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready
+                      && service.Search("corrupt-probe", 300, CancellationToken.None).TotalMatches == 1,
+                    "service: a rebuild after corruption publishes rows");
+            }
+
+            string notADatabase = Path.Combine(_root, "service-not-a-database");
+            Directory.CreateDirectory(notADatabase);
+            using (var service = new FileSearchIndexService(notADatabase))
+            {
+                service.ApplySettings(settings);
+                service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+                Check(service.Status.State == FileSearchState.Error,
+                    "service: a non-corruption open failure reports an error");
+                Check(Directory.Exists(notADatabase),
+                    "service: a non-corruption failure does not move the database path");
+                Check(Directory.GetFiles(_root, "service-not-a-database.failed-*").Length == 0,
+                    "service: a non-corruption failure creates no quarantine file");
+            }
+        }
+
+        /// <summary>Shutdown is bounded by one timeout even with an open store to checkpoint.</summary>
+        private static void ServiceShutdownCase()
+        {
+            string db = Path.Combine(_root, "service-shutdown.db");
+            string tree = Path.Combine(_root, "service-shutdown-tree");
+            Directory.CreateDirectory(tree);
+            File.WriteAllText(Path.Combine(tree, "shutdown-probe.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.Configured = true;
+            settings.Enabled = true;
+
+            var service = new FileSearchIndexService(db);
+            service.ApplySettings(settings);
+            service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+            service.WaitForIdle(TimeSpan.FromSeconds(20));
+
+            var clock = Stopwatch.StartNew();
+            service.Shutdown(TimeSpan.FromSeconds(5));
+            clock.Stop();
+            Check(clock.Elapsed < TimeSpan.FromSeconds(5),
+                "service: shutdown returns within its supplied timeout");
+            service.Dispose(); // idempotent after Shutdown
         }
 
         private static void PublishSnapGeneration(SearchIndexStore store, int count)

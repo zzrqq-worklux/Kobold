@@ -560,13 +560,23 @@ DELETE FROM files
                 Pooling = false
             };
             var connection = new SqliteConnection(builder.ToString());
-            connection.Open();
+            try
+            {
+                connection.Open();
 
-            Execute(connection, "PRAGMA busy_timeout=" + BusyTimeoutMs.ToString(CultureInfo.InvariantCulture) + ";");
-            // WAL + NORMAL: an index can be rebuilt, so a power cut may lose the last
-            // commits but cannot corrupt the file. Not persisted in the database.
-            Execute(connection, "PRAGMA synchronous=NORMAL;");
-            return connection;
+                Execute(connection, "PRAGMA busy_timeout=" + BusyTimeoutMs.ToString(CultureInfo.InvariantCulture) + ";");
+                // WAL + NORMAL: an index can be rebuilt, so a power cut may lose the last
+                // commits but cannot corrupt the file. Not persisted in the database.
+                Execute(connection, "PRAGMA synchronous=NORMAL;");
+                return connection;
+            }
+            catch (Exception)
+            {
+                // A failed open/PRAGMA still holds the native file handle; release it
+                // before the caller tries to quarantine a corrupt database.
+                connection.Dispose();
+                throw;
+            }
         }
 
         private SqliteConnection OpenRead()
@@ -582,10 +592,19 @@ DELETE FROM files
                 Pooling = false
             };
             var connection = new SqliteConnection(builder.ToString());
-            connection.Open();
+            try
+            {
+                connection.Open();
 
-            Execute(connection, "PRAGMA busy_timeout=" + BusyTimeoutMs.ToString(CultureInfo.InvariantCulture) + ";");
-            return connection;
+                Execute(connection, "PRAGMA busy_timeout=" + BusyTimeoutMs.ToString(CultureInfo.InvariantCulture) + ";");
+                return connection;
+            }
+            catch (Exception)
+            {
+                // Do not leak the native handle when the read-only open fails.
+                connection.Dispose();
+                throw;
+            }
         }
 
         private static SqliteCommand CreateUpsertCommand(SqliteConnection connection, SqliteTransaction transaction,
