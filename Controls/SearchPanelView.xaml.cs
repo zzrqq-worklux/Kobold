@@ -172,33 +172,41 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Follows the widget colour: the focus border, the progress bar and the
-        /// selected row read the local SearchAccent brush, which is replaced here
-        /// with the configured widget colour (the same pattern DialogFactory
-        /// uses). High contrast follows the theme's accent resource, and a
-        /// missing colour falls back to the default folder colour.
+        /// Follows the widget colour: the native TextBox focus border/selection
+        /// (which resolve <c>Kobold.Brush.Accent</c>), the progress bar and the
+        /// selected row all read the accent brushes installed here - the same
+        /// "widget colour overrides the accent" pattern DialogFactory uses. High
+        /// contrast follows the theme's accent resource, and a missing colour
+        /// falls back to the default folder colour.
         /// </summary>
         private void ApplySearchAccent()
         {
+            SolidColorBrush accent;
             if (ThemeManager.IsHighContrast)
             {
                 // High contrast must follow the system highlight, not the brand
-                // blue: read the theme's accent resource (the same one the rest
-                // of the app resolves) and only fall back to the fixed brush if
-                // the app resources have not installed it.
-                Resources["SearchAccent"] =
+                // blue: read the app-level accent resource (the one
+                // ThemeManager.InstallScalarTokens installs for the system
+                // highlight) and only fall back to the fixed brush when the app
+                // resources have not installed it.
+                accent =
                     Application.Current?.TryFindResource("Kobold.Brush.Accent") as SolidColorBrush
                     ?? ThemeManager.AccentBlueBrush;
-                return;
+            }
+            else
+            {
+                string color = _data == null || string.IsNullOrEmpty(_data.Color)
+                    ? UiTokens.DefaultFolderColor
+                    : _data.Color;
+                accent = new SolidColorBrush(Utils.HexToColor(color));
+                accent.Freeze();
             }
 
-            string color = _data == null || string.IsNullOrEmpty(_data.Color)
-                ? UiTokens.DefaultFolderColor
-                : _data.Color;
-            Color tint = Utils.HexToColor(color);
-            var accent = new SolidColorBrush(tint);
-            accent.Freeze();
+            // SearchAccent drives the progress bar and the selected row; the
+            // local Kobold.Brush.Accent override gives the native TextBox
+            // template the same widget-coloured focus border and selection.
             Resources["SearchAccent"] = accent;
+            Resources["Kobold.Brush.Accent"] = accent;
         }
 
         /// <summary>

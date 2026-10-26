@@ -564,6 +564,8 @@ namespace Kobold.XamlLoadCheck
                 // restart of the index.
                 failures += TryCheck("search: the hint is a tooltip and the box draws no watermark",
                     SearchBoxHintAndStyle);
+                failures += TryCheck("search: the box uses the native TextBox template",
+                    SearchBoxStyleHasNoCustomTemplate);
                 failures += TryCheck("search: the accent follows the widget color",
                     SearchAccentFollowsWidgetColor);
                 failures += TryCheck("search: high contrast follows the theme accent",
@@ -9385,10 +9387,11 @@ namespace Kobold.XamlLoadCheck
         /// <summary>
         /// Fix round 5: the definitive IME fix is to draw no hint inside or over
         /// the box at all - the same plain TextBox the new-file dialog uses. The
-        /// hint stays discoverable as the box's tooltip, and the custom template
-        /// must contain no watermark (no TextBlock layer) while keeping the
-        /// content host, the translucent widget-accent selection and the
-        /// widget-accent focus border.
+        /// hint stays discoverable as the box's tooltip, and the native template
+        /// must contain no watermark or other text layer.
+        /// Fix round 6: the style also stops overriding the template, so the
+        /// native TextBox layout owns the text/IME geometry (the remaining
+        /// clipping/ghost came from the custom PART_ContentHost layout).
         /// </summary>
         private static void SearchBoxHintAndStyle()
         {
@@ -9413,33 +9416,18 @@ namespace Kobold.XamlLoadCheck
             }
 
             Style style = box.Style;
-            ControlTemplate template = style == null ? null : TemplateOf(style);
-            if (template == null)
+            if (style == null)
             {
-                throw new InvalidOperationException("the search box style has no template");
-            }
-
-            // The selection paints the widget accent, so a light widget colour
-            // must stay readable - the accent wash is translucent.
-            double? selectionOpacity = null;
-            foreach (Setter setter in style.Setters)
-            {
-                if (setter.Property == TextBoxBase.SelectionOpacityProperty
-                    && setter.Value is double)
-                {
-                    selectionOpacity = (double)setter.Value;
-                }
-            }
-            if (!selectionOpacity.HasValue
-                || selectionOpacity.Value <= 0 || selectionOpacity.Value >= 1)
-            {
-                throw new InvalidOperationException(
-                    "the search box selection opacity is "
-                    + (selectionOpacity.HasValue ? selectionOpacity.Value.ToString() : "<unset>")
-                    + ", wanted a translucent accent wash");
+                throw new InvalidOperationException("the search box has no style");
             }
 
             box.ApplyTemplate();
+            ControlTemplate template = box.Template;
+            if (template == null)
+            {
+                throw new InvalidOperationException("the search box has no template");
+            }
+
             if (template.FindName("Watermark", box) != null)
             {
                 throw new InvalidOperationException(
@@ -9460,29 +9448,81 @@ namespace Kobold.XamlLoadCheck
                     "the search box template still layers text inside the box");
             }
 
-            bool focusUsesSearchAccent = false;
-            foreach (TriggerBase trigger in template.Triggers)
-            {
-                var focus = trigger as Trigger;
-                if (focus == null || focus.Property != UIElement.IsKeyboardFocusWithinProperty
-                    || !(focus.Value is bool) || !(bool)focus.Value)
-                {
-                    continue;
-                }
-                foreach (Setter setter in focus.Setters)
-                {
-                    if (setter.TargetName != "Bd" || setter.Property != Border.BorderBrushProperty) continue;
-                    var resource = setter.Value as DynamicResourceExtension;
-                    if (resource != null && "SearchAccent".Equals(resource.ResourceKey))
-                    {
-                        focusUsesSearchAccent = true;
-                    }
-                }
-            }
-            if (!focusUsesSearchAccent)
+            // The native focus border/selection read Kobold.Brush.Accent; the
+            // view must have overridden that key with the widget accent.
+            var searchAccent = view.Resources["SearchAccent"];
+            var accentOverride = view.Resources["Kobold.Brush.Accent"];
+            if (searchAccent == null || !ReferenceEquals(accentOverride, searchAccent))
             {
                 throw new InvalidOperationException(
-                    "the focus border does not use the SearchAccent resource");
+                    "the view did not colour Kobold.Brush.Accent with the search accent");
+            }
+        }
+
+        /// <summary>
+        /// Fix round 6: the search box style must not set its own Template (or
+        /// caret/selection brushes): the app's native TextBox template owns the
+        /// text host layout, which is what fixes the IME clipping. Only the
+        /// translucent selection opacity stays local.
+        /// </summary>
+        private static void SearchBoxStyleHasNoCustomTemplate()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var box = view.FindName("SearchBox") as TextBox;
+            if (box == null)
+            {
+                throw new InvalidOperationException("the search panel has no SearchBox");
+            }
+
+            Style style = box.Style;
+            if (style == null)
+            {
+                throw new InvalidOperationException("the search box has no style");
+            }
+            if (TemplateOf(style) != null)
+            {
+                throw new InvalidOperationException(
+                    "the search box style overrides the native TextBox template");
+            }
+            if (style.Setters.Count != 1
+                || ((Setter)style.Setters[0]).Property != TextBoxBase.SelectionOpacityProperty)
+            {
+                throw new InvalidOperationException(
+                    "the search box style carries setters beyond SelectionOpacity ("
+                    + style.Setters.Count + ")");
+            }
+
+            var implicitStyle = Application.Current.TryFindResource(typeof(TextBox)) as Style;
+            ControlTemplate nativeTemplate = implicitStyle == null ? null : TemplateOf(implicitStyle);
+            if (nativeTemplate == null)
+            {
+                throw new InvalidOperationException("the app has no implicit TextBox template");
+            }
+            if (!ReferenceEquals(box.Template, nativeTemplate))
+            {
+                throw new InvalidOperationException(
+                    "the search box does not use the app's native TextBox template");
+            }
+
+            // The selection paints the widget accent, so a light widget colour
+            // must stay readable - the accent wash is translucent.
+            double? selectionOpacity = null;
+            foreach (Setter setter in style.Setters)
+            {
+                if (setter.Property == TextBoxBase.SelectionOpacityProperty
+                    && setter.Value is double)
+                {
+                    selectionOpacity = (double)setter.Value;
+                }
+            }
+            if (!selectionOpacity.HasValue
+                || selectionOpacity.Value <= 0 || selectionOpacity.Value >= 1)
+            {
+                throw new InvalidOperationException(
+                    "the search box selection opacity is "
+                    + (selectionOpacity.HasValue ? selectionOpacity.Value.ToString() : "<unset>")
+                    + ", wanted a translucent accent wash");
             }
         }
 
@@ -9508,10 +9548,11 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix round 2: the focus border, the progress bar and the selected
-        /// row all use the widget's own colour, not the global blue accent. The
-        /// view replaces its local SearchAccent with a frozen brush from
-        /// SearchData.Color during Attach; the progress bar resolves it.
+        /// Smoke fix round 2/6: the native TextBox focus border/selection, the
+        /// progress bar and the selected row all use the widget's own colour. The
+        /// view replaces its local SearchAccent and Kobold.Brush.Accent with a
+        /// frozen brush from SearchData.Color during Attach; the progress bar is
+        /// an explicit activity line whose PART_Indicator tracks that accent.
         /// Fix round 3: a live colour change (menu -> RefreshTheme -> UpdateUI)
         /// repaints the same view through RefreshAccent.
         /// </summary>
@@ -9535,12 +9576,62 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the widget accent is " + accent.Color + ", wanted " + wanted);
             }
+            if (!ReferenceEquals(view.Resources["Kobold.Brush.Accent"], accent))
+            {
+                throw new InvalidOperationException(
+                    "the native TextBox accent was not overridden with the widget colour");
+            }
 
             var progress = view.FindName("ScanProgress") as ProgressBar;
             if (progress == null)
             {
                 throw new InvalidOperationException("the search panel has no ScanProgress");
             }
+
+            var progressStyle = view.TryFindResource("SearchProgressStyle") as Style;
+            if (progressStyle == null)
+            {
+                throw new InvalidOperationException("the search panel has no SearchProgressStyle");
+            }
+            if (!ReferenceEquals(progress.Style, progressStyle))
+            {
+                throw new InvalidOperationException(
+                    "ScanProgress does not wear SearchProgressStyle");
+            }
+            if (progress.IsIndeterminate || progress.Maximum != 1 || progress.Value != 1)
+            {
+                throw new InvalidOperationException(
+                    "the progress bar is not a solid activity line (indeterminate="
+                    + progress.IsIndeterminate + ", max=" + progress.Maximum
+                    + ", value=" + progress.Value + ")");
+            }
+
+            double styleHeight = 0;
+            bool foregroundResource = false;
+            foreach (Setter setter in progressStyle.Setters)
+            {
+                if (setter.Property == FrameworkElement.HeightProperty && setter.Value is double)
+                {
+                    styleHeight = (double)setter.Value;
+                }
+                if (setter.Property == Control.ForegroundProperty)
+                {
+                    var resource = setter.Value as DynamicResourceExtension;
+                    foregroundResource = resource != null
+                        && "SearchAccent".Equals(resource.ResourceKey);
+                }
+            }
+            if (styleHeight != 3)
+            {
+                throw new InvalidOperationException(
+                    "the progress bar height is " + styleHeight + ", wanted 3");
+            }
+            if (!foregroundResource)
+            {
+                throw new InvalidOperationException(
+                    "the progress style foreground does not use the SearchAccent resource");
+            }
+
             if (!SameBrushColor(progress.Foreground, accent))
             {
                 throw new InvalidOperationException(
@@ -9551,6 +9642,23 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the progress bar background is not the control background");
+            }
+
+            progress.ApplyTemplate();
+            ControlTemplate progressTemplate = TemplateOf(progressStyle);
+            var indicator = progressTemplate == null
+                ? null
+                : progressTemplate.FindName("PART_Indicator", progress) as Border;
+            if (indicator == null)
+            {
+                throw new InvalidOperationException(
+                    "the progress template has no PART_Indicator border");
+            }
+            if (!SameBrushColor(indicator.Background, accent))
+            {
+                throw new InvalidOperationException(
+                    "the progress indicator is not the widget accent (got "
+                    + DescribeBrush(indicator.Background) + ")");
             }
 
             // The menu's colour picker only calls RefreshTheme -> UpdateUI, so
@@ -9567,11 +9675,22 @@ namespace Kobold.XamlLoadCheck
                     "a live colour change left the accent at "
                     + DescribeBrush(repainted) + ", wanted " + wantedGreen);
             }
+            if (!ReferenceEquals(view.Resources["Kobold.Brush.Accent"], repainted))
+            {
+                throw new InvalidOperationException(
+                    "a live colour change left the native TextBox accent behind");
+            }
             if (!SameBrushColor(progress.Foreground, repainted))
             {
                 throw new InvalidOperationException(
                     "a live colour change left the progress bar at "
                     + DescribeBrush(progress.Foreground));
+            }
+            if (!SameBrushColor(indicator.Background, repainted))
+            {
+                throw new InvalidOperationException(
+                    "a live colour change left the progress indicator at "
+                    + DescribeBrush(indicator.Background));
             }
         }
 
@@ -9624,6 +9743,11 @@ namespace Kobold.XamlLoadCheck
                 {
                     throw new InvalidOperationException(
                         "high contrast kept the fixed brand blue instead of the theme accent");
+                }
+                if (!ReferenceEquals(view.Resources["Kobold.Brush.Accent"], sentinel))
+                {
+                    throw new InvalidOperationException(
+                        "high contrast did not give the native TextBox the theme accent");
                 }
             }
             finally

@@ -11,39 +11,34 @@
         <!-- SearchAccent (the widget's own colour) is created by the code-behind:
              Attach calls ApplySearchAccent right after InitializeComponent, so the
              dynamic-resource consumers below resolve it before layout. -->
-        <!-- The search box is a plain text box (the same control the new-file
-             dialog uses): no hint is drawn inside or over it, so nothing can
-             overlap the Chinese IME composition string. The hint lives in the
-             box tooltip; the template only keeps the widget-accent focus border,
-             the accent selection and the disabled dim. -->
+        <!-- The search box is the stock TextBox (the same control the new-file
+             dialog uses): its native template owns text/IME layout, and no hint
+             is drawn inside or over it. Only the selection translucency is local;
+             the native focus border and selection follow Kobold.Brush.Accent,
+             which ApplySearchAccent overrides with the widget colour. -->
         <Style x:Key="SearchBoxStyle" TargetType="TextBox"
                BasedOn="{StaticResource {x:Type TextBox}}">
-            <Setter Property="CaretBrush" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
-            <Setter Property="SelectionBrush" Value="{DynamicResource SearchAccent}"/>
             <!-- A light widget colour would otherwise cover the selected text:
                  keep the accent but let the glyphs read through it. -->
             <Setter Property="SelectionOpacity" Value="0.35"/>
+        </Style>
+
+        <!-- A solid widget-accent activity line while a scan/reconcile runs: a
+             full-width indicator instead of the indeterminate animation, so the
+             bar is visibly the widget colour (the counts stay in the status
+             text). -->
+        <Style x:Key="SearchProgressStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="3"/>
+            <Setter Property="Background" Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SearchAccent}"/>
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="Bd" CornerRadius="8" Padding="0"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}">
-                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
-                                          HorizontalScrollBarVisibility="Hidden"
-                                          VerticalScrollBarVisibility="Hidden"
-                                          Margin="{TemplateBinding Padding}"/>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="1.5">
+                            <Border x:Name="PART_Indicator"
+                                    Background="{TemplateBinding Foreground}"
+                                    CornerRadius="1.5"/>
                         </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush"
-                                        Value="{DynamicResource SearchAccent}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -124,10 +119,10 @@
                         Click="RebuildButton_Click"
                         Style="{StaticResource Kobold.Style.SecondaryButton}"/>
             </Grid>
-            <ProgressBar x:Name="ScanProgress" Height="3" Margin="0,4,0,0"
-                         Foreground="{DynamicResource SearchAccent}"
-                         Background="{DynamicResource Kobold.Brush.ControlBackground}"
-                         IsIndeterminate="True" Visibility="Collapsed"/>
+            <ProgressBar x:Name="ScanProgress" Margin="0,4,0,0"
+                         Style="{StaticResource SearchProgressStyle}"
+                         IsIndeterminate="False" Maximum="1" Value="1"
+                         Visibility="Collapsed"/>
         </StackPanel>
 
         <Grid Grid.Row="2" Margin="8,0,8,4">
