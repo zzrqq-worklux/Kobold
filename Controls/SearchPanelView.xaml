@@ -8,12 +8,9 @@
          Only one of the state panels is visible at a time; the code-behind
          owns the 200ms debounce and marshals every query result back here. -->
     <UserControl.Resources>
-        <!-- The search accent is the widget's own colour: the default matches
-             UiTokens.DefaultFolderColor and Attach replaces this brush with the
-             configured widget colour (frozen), so the focus border, the progress
-             bar and the selected row all follow the widget. -->
-        <SolidColorBrush x:Key="SearchAccent" Color="#3B82F6"/>
-
+        <!-- SearchAccent (the widget's own colour) is created by the code-behind:
+             Attach calls ApplySearchAccent right after InitializeComponent, so the
+             dynamic-resource consumers below resolve it before layout. -->
         <!-- The search box carries its hint inside the TextBox template: a
              watermark TextBlock under the content host. It is only visible for
              empty, unfocused text, so the IME composition string never sits
