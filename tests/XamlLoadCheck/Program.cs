@@ -571,6 +571,8 @@ namespace Kobold.XamlLoadCheck
                     SearchRowStyleUsesThemeBrushes);
                 failures += TryCheck("search: a reconcile is labelled separately from indexing",
                     SearchStatusLabelsReconcileSeparately);
+                failures += TryCheck("settings: the file-search state labels reconcile separately",
+                    SettingsFileSearchStateLabels);
 
                 // Task T11 pins: the list state - the cards (title / modified
                 // time / two-line excerpt / task progress), the modified-time
@@ -9633,6 +9635,67 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        /// <summary>
+        /// Fix round 1: the Settings window's file-search status line used to
+        /// call a reconcile "indexing". The private label helper is the single
+        /// mapper; Indexing keeps the counts, Reconciling says reconcile and
+        /// both still carry the needs-rebuild suffix.
+        /// </summary>
+        private static void SettingsFileSearchStateLabels()
+        {
+            ThemeManager.Initialize("dark");
+            var label = typeof(SettingsWindow).GetMethod("FileSearchStateLabel",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (label == null)
+            {
+                throw new InvalidOperationException("SettingsWindow.FileSearchStateLabel was not found");
+            }
+
+            var indexing = new FileSearchStatus
+            {
+                State = FileSearchState.Indexing,
+                FilesIndexed = 12,
+                DirectoriesScanned = 4
+            };
+            string indexingLabel = (string)label.Invoke(null, new object[] { indexing });
+            string wantedIndexing = Localization.Format("Search_Indexing", 12, 4);
+            if (indexingLabel != wantedIndexing)
+            {
+                throw new InvalidOperationException(
+                    "the settings indexing label is '" + indexingLabel + "', wanted '" + wantedIndexing + "'");
+            }
+
+            var reconciling = new FileSearchStatus
+            {
+                State = FileSearchState.Reconciling,
+                FilesIndexed = 12,
+                DirectoriesScanned = 4
+            };
+            string reconcilingLabel = (string)label.Invoke(null, new object[] { reconciling });
+            string wantedReconciling = Localization.Get("Search_Reconciling");
+            if (reconcilingLabel != wantedReconciling)
+            {
+                throw new InvalidOperationException(
+                    "the settings reconcile label is '" + reconcilingLabel
+                    + "', wanted '" + wantedReconciling + "'");
+            }
+            if (reconcilingLabel == indexingLabel)
+            {
+                throw new InvalidOperationException(
+                    "the settings reconcile label still shows the indexing text");
+            }
+
+            reconciling.NeedsRebuild = true;
+            string rebuildLabel = (string)label.Invoke(null, new object[] { reconciling });
+            string wantedRebuild = wantedReconciling + " · " + Localization.Get("Search_NeedsRebuild");
+            if (rebuildLabel != wantedRebuild)
+            {
+                throw new InvalidOperationException(
+                    "the reconcile label with a pending rebuild is '" + rebuildLabel
+                    + "', wanted '" + wantedRebuild + "'");
+            }
+        }
+
         private static void CollectTextBlocks(DependencyObject root, List<TextBlock> found)
         {
             var block = root as TextBlock;
@@ -9644,7 +9707,6 @@ namespace Kobold.XamlLoadCheck
                 CollectTextBlocks(VisualTreeHelper.GetChild(root, i), found);
             }
         }
-
         #endregion
 
         #region Task T11: note list pins

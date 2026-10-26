@@ -590,9 +590,13 @@ namespace Kobold.Windows
             switch (status.State)
             {
                 case FileSearchState.Indexing:
-                case FileSearchState.Reconciling:
                     label = Localization.Format("Search_Indexing",
                         status.FilesIndexed, status.DirectoriesScanned);
+                    break;
+                case FileSearchState.Reconciling:
+                    // Its own status: after a full scan the periodic reconcile
+                    // must not read as the index starting over.
+                    label = Localization.Get("Search_Reconciling");
                     break;
                 case FileSearchState.Ready:
                     label = status.FilesIndexed > 0
