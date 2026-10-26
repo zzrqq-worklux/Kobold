@@ -22,6 +22,9 @@
                BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="CaretBrush" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
             <Setter Property="SelectionBrush" Value="{DynamicResource SearchAccent}"/>
+            <!-- A light widget colour would otherwise cover the selected text:
+                 keep the accent but let the glyphs read through it. -->
+            <Setter Property="SelectionOpacity" Value="0.35"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">

@@ -64,6 +64,9 @@ namespace Kobold.Controls
             base.UpdateUI();
             _view?.RefreshLocalization();
             _view?.RefreshStatus();
+            // A live colour change arrives through RefreshTheme -> UpdateUI;
+            // the accent must follow without closing and reopening the panel.
+            _view?.RefreshAccent();
         }
 
         /// <summary>The search box takes focus as soon as the panel is shown.</summary>

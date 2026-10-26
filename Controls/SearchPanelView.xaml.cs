@@ -175,14 +175,20 @@ namespace Kobold.Controls
         /// Follows the widget colour: the focus border, the progress bar and the
         /// selected row read the local SearchAccent brush, which is replaced here
         /// with the configured widget colour (the same pattern DialogFactory
-        /// uses). High contrast keeps the theme accent, and a missing colour
-        /// falls back to the default folder colour.
+        /// uses). High contrast follows the theme's accent resource, and a
+        /// missing colour falls back to the default folder colour.
         /// </summary>
         private void ApplySearchAccent()
         {
             if (ThemeManager.IsHighContrast)
             {
-                Resources["SearchAccent"] = ThemeManager.AccentBlueBrush;
+                // High contrast must follow the system highlight, not the brand
+                // blue: read the theme's accent resource (the same one the rest
+                // of the app resolves) and only fall back to the fixed brush if
+                // the app resources have not installed it.
+                Resources["SearchAccent"] =
+                    Application.Current?.TryFindResource("Kobold.Brush.Accent") as SolidColorBrush
+                    ?? ThemeManager.AccentBlueBrush;
                 return;
             }
 
@@ -193,6 +199,17 @@ namespace Kobold.Controls
             var accent = new SolidColorBrush(tint);
             accent.Freeze();
             Resources["SearchAccent"] = accent;
+        }
+
+        /// <summary>
+        /// Re-applies the accent brush to the live view: a colour change from
+        /// the widget menu goes through RefreshTheme -> UpdateUI, and a
+        /// high-contrast toggle must repaint too, so the focus ring, progress
+        /// bar and selected row follow without reopening the panel.
+        /// </summary>
+        public void RefreshAccent()
+        {
+            ApplySearchAccent();
         }
 
         private void ApplyLocalization()

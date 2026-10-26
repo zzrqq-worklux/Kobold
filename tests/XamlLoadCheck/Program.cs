@@ -566,6 +566,8 @@ namespace Kobold.XamlLoadCheck
                     SearchBoxWatermark);
                 failures += TryCheck("search: the accent follows the widget color",
                     SearchAccentFollowsWidgetColor);
+                failures += TryCheck("search: high contrast follows the theme accent",
+                    SearchAccentFollowsSystemAccent);
                 failures += TryCheck("search: a dragged row carries its path as FileDrop",
                     SearchDragPayloadCarriesFileDrop);
                 failures += TryCheck("search: the controls wear the shared button styles",
@@ -9412,6 +9414,26 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the search box style has no template");
             }
 
+            // Fix round 3: the selection paints the widget accent, so a light
+            // widget colour must stay readable - the accent wash is translucent.
+            double? selectionOpacity = null;
+            foreach (Setter setter in style.Setters)
+            {
+                if (setter.Property == TextBoxBase.SelectionOpacityProperty
+                    && setter.Value is double)
+                {
+                    selectionOpacity = (double)setter.Value;
+                }
+            }
+            if (!selectionOpacity.HasValue
+                || selectionOpacity.Value <= 0 || selectionOpacity.Value >= 1)
+            {
+                throw new InvalidOperationException(
+                    "the search box selection opacity is "
+                    + (selectionOpacity.HasValue ? selectionOpacity.Value.ToString() : "<unset>")
+                    + ", wanted a translucent accent wash");
+            }
+
             box.ApplyTemplate();
             var watermark = template.FindName("Watermark", box) as TextBlock;
             if (watermark == null)
@@ -9525,12 +9547,15 @@ namespace Kobold.XamlLoadCheck
         /// row all use the widget's own colour, not the global blue accent. The
         /// view replaces its local SearchAccent with a frozen brush from
         /// SearchData.Color during Attach; the progress bar resolves it.
+        /// Fix round 3: a live colour change (menu -> RefreshTheme -> UpdateUI)
+        /// repaints the same view through RefreshAccent.
         /// </summary>
         private static void SearchAccentFollowsWidgetColor()
         {
             ThemeManager.Initialize("dark");
             const string orange = "#F97316";
-            var widget = new SearchWidget(new SearchData { Color = orange });
+            var data = new SearchData { Color = orange };
+            var widget = new SearchWidget(data);
             var view = widget.PanelView;
 
             var accent = view.Resources["SearchAccent"] as SolidColorBrush;
@@ -9561,6 +9586,86 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "the progress bar background is not the control background");
+            }
+
+            // The menu's colour picker only calls RefreshTheme -> UpdateUI, so
+            // the same live view must pick the new colour up without a restart.
+            const string green = "#22C55E";
+            data.Color = green;
+            widget.UpdateUI();
+
+            Color wantedGreen = Utils.HexToColor(green);
+            var repainted = view.Resources["SearchAccent"] as SolidColorBrush;
+            if (repainted == null || repainted.Color != wantedGreen)
+            {
+                throw new InvalidOperationException(
+                    "a live colour change left the accent at "
+                    + DescribeBrush(repainted) + ", wanted " + wantedGreen);
+            }
+            if (!SameBrushColor(progress.Foreground, repainted))
+            {
+                throw new InvalidOperationException(
+                    "a live colour change left the progress bar at "
+                    + DescribeBrush(progress.Foreground));
+            }
+        }
+
+        /// <summary>
+        /// Fix round 3: high contrast must follow the theme's accent resource
+        /// (the system highlight), not the fixed brand blue. The state has no
+        /// public setter (it comes from SystemParameters), so the check forces
+        /// <see cref="ThemeManager.IsHighContrast"/> through its private setter
+        /// and swaps the app accent for a sentinel brush - the lookup itself is
+        /// what gets pinned. Both are restored in the finally block, so the pin
+        /// does not depend on the machine's contrast setting.
+        /// </summary>
+        private static void SearchAccentFollowsSystemAccent()
+        {
+            ThemeManager.Initialize("dark");
+
+            PropertyInfo property = typeof(ThemeManager).GetProperty(
+                "IsHighContrast", BindingFlags.Static | BindingFlags.Public);
+            MethodInfo setter = property == null ? null : property.GetSetMethod(true);
+            if (setter == null)
+            {
+                throw new InvalidOperationException("ThemeManager.IsHighContrast has no setter");
+            }
+
+            var resources = Application.Current == null ? null : Application.Current.Resources;
+            if (resources == null)
+            {
+                throw new InvalidOperationException("the app resources are missing");
+            }
+
+            var sentinel = new SolidColorBrush(Utils.HexToColor("#00FF7F"));
+            sentinel.Freeze();
+            object installed = resources["Kobold.Brush.Accent"];
+
+            var view = new SearchWidget(new SearchData { Color = "#F97316" }).PanelView;
+            try
+            {
+                setter.Invoke(null, new object[] { true });
+                resources["Kobold.Brush.Accent"] = sentinel;
+                view.RefreshAccent();
+
+                var accent = view.Resources["SearchAccent"] as SolidColorBrush;
+                if (accent == null || !ReferenceEquals(accent, sentinel))
+                {
+                    throw new InvalidOperationException(
+                        "the high-contrast accent is '" + DescribeBrush(accent)
+                        + "', wanted the theme accent resource");
+                }
+                if (ReferenceEquals(accent, ThemeManager.AccentBlueBrush))
+                {
+                    throw new InvalidOperationException(
+                        "high contrast kept the fixed brand blue instead of the theme accent");
+                }
+            }
+            finally
+            {
+                resources["Kobold.Brush.Accent"] = installed;
+                setter.Invoke(null, new object[] { false });
+                ThemeManager.Initialize("dark"); // rebuild the live theme brushes
             }
         }
 
