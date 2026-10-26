@@ -8,6 +8,62 @@
          Only one of the state panels is visible at a time; the code-behind
          owns the 200ms debounce and marshals every query result back here. -->
     <UserControl.Resources>
+        <!-- The search accent is the widget's own colour: the default matches
+             UiTokens.DefaultFolderColor and Attach replaces this brush with the
+             configured widget colour (frozen), so the focus border, the progress
+             bar and the selected row all follow the widget. -->
+        <SolidColorBrush x:Key="SearchAccent" Color="#3B82F6"/>
+
+        <!-- The search box carries its hint inside the TextBox template: a
+             watermark TextBlock under the content host. It is only visible for
+             empty, unfocused text, so the IME composition string never sits
+             under an overlay. The tag carries the localized hint. -->
+        <Style x:Key="SearchBoxStyle" TargetType="TextBox"
+               BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="CaretBrush" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
+            <Setter Property="SelectionBrush" Value="{DynamicResource SearchAccent}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" CornerRadius="8" Padding="0"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid>
+                                <TextBlock x:Name="Watermark" Text="{TemplateBinding Tag}"
+                                           Margin="{TemplateBinding Padding}"
+                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                           VerticalAlignment="Center"
+                                           IsHitTestVisible="False"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="Collapsed"/>
+                                <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                              HorizontalScrollBarVisibility="Hidden"
+                                              VerticalScrollBarVisibility="Hidden"
+                                              Margin="{TemplateBinding Padding}"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="Text" Value=""/>
+                                    <Condition Property="IsKeyboardFocusWithin" Value="False"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Watermark" Property="Visibility" Value="Visible"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush"
+                                        Value="{DynamicResource SearchAccent}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- The themed result row: no default blue ListBoxItem selection. The
              row surface is transparent at rest, the secondary button surface on
              hover, and the control background plus an accent border while
@@ -34,7 +90,7 @@
                                 <Setter TargetName="Row" Property="Background"
                                         Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
                                 <Setter TargetName="Row" Property="BorderBrush"
-                                        Value="{DynamicResource Kobold.Brush.Accent}"/>
+                                        Value="{DynamicResource SearchAccent}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -57,15 +113,11 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBox x:Name="SearchBox" Height="34" FontSize="13" VerticalContentAlignment="Center"
-                     TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown"
-                     GotKeyboardFocus="SearchBox_GotKeyboardFocus"
-                     LostKeyboardFocus="SearchBox_LostKeyboardFocus"/>
+                     Style="{StaticResource SearchBoxStyle}"
+                     TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown"/>
             <Button x:Name="ClearButton" Grid.Column="1" Content="✕" Width="30" Height="30"
                     Margin="6,0,0,0" Click="ClearButton_Click"
                     Style="{StaticResource Kobold.Style.CloseButton}"/>
-            <TextBlock x:Name="PlaceholderText" Text="Search files and folders"
-                       IsHitTestVisible="False" Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                       Margin="10,0,0,0" VerticalAlignment="Center"/>
         </Grid>
 
         <StackPanel Grid.Row="1" Margin="12,0,12,6">
@@ -88,6 +140,8 @@
                         Style="{StaticResource Kobold.Style.SecondaryButton}"/>
             </Grid>
             <ProgressBar x:Name="ScanProgress" Height="3" Margin="0,4,0,0"
+                         Foreground="{DynamicResource SearchAccent}"
+                         Background="{DynamicResource Kobold.Brush.ControlBackground}"
                          IsIndeterminate="True" Visibility="Collapsed"/>
         </StackPanel>
 

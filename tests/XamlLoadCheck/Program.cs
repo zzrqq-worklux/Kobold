@@ -555,14 +555,17 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("search: a configured onboarding start reaches the scan path", SearchConfiguredOnboardingStarts);
                 failures += TryCheck("search: the widget menu offers rebuild and pause", SearchMenuOffersRebuildAndPause);
 
-                // Smoke-fix round pins: the placeholder helper hides the hint
-                // while the box has keyboard focus (the IME overlap), a result
-                // row publishes a FileDrop payload when dragged, the controls
-                // wear the shared button styles, the rows use the theme brushes
-                // instead of the default blue selection, and a reconcile is
-                // labelled as reconcile rather than a restart of the index.
-                failures += TryCheck("search: the placeholder hides while the box is focused",
-                    SearchPlaceholderShouldShow);
+                // Smoke-fix round pins: the search box shows its hint through a
+                // TextBox-template watermark (no overlay), a dragged row
+                // publishes a FileDrop payload, the controls wear the shared
+                // button styles, the rows use the theme brushes instead of the
+                // default blue selection, the accent follows the widget colour,
+                // and a reconcile is labelled as reconcile rather than a
+                // restart of the index.
+                failures += TryCheck("search: the box tag drives a template watermark",
+                    SearchBoxWatermark);
+                failures += TryCheck("search: the accent follows the widget color",
+                    SearchAccentFollowsWidgetColor);
                 failures += TryCheck("search: a dragged row carries its path as FileDrop",
                     SearchDragPayloadCarriesFileDrop);
                 failures += TryCheck("search: the controls wear the shared button styles",
@@ -9059,7 +9062,7 @@ namespace Kobold.XamlLoadCheck
             {
                 "EmptyState", "NoIndexState", "OnboardingPanel", "StartIndexButton",
                 "OnboardingStartButton", "OnboardingLaterButton", "RootsList", "ScopeHint",
-                "SearchBox", "ClearButton", "PlaceholderText", "StatusText", "ScanProgress"
+                "SearchBox", "ClearButton", "StatusText", "ScanProgress"
             })
             {
                 if (widget.PanelView.FindName(name) == null)
@@ -9378,32 +9381,194 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix: the placeholder is only a hint for the unfocused, empty
-        /// box. While the box has keyboard focus the hint must disappear even
-        /// when the text is empty, or it overlaps the IME composition string.
+        /// Smoke fix round 2: the hint is a TextBox-template watermark driven by
+        /// the box's Tag, not a TextBlock laid over the box (which the IME
+        /// composition string used to collide with). The MultiTrigger shows the
+        /// watermark only for empty, unfocused text, the focus trigger repaints
+        /// the border with the widget accent, and the content host is the
+        /// template's scroll viewer.
         /// </summary>
-        private static void SearchPlaceholderShouldShow()
+        private static void SearchBoxWatermark()
         {
-            if (!SearchPlaceholder.ShouldShow(string.Empty, false))
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var box = view.FindName("SearchBox") as TextBox;
+            if (box == null)
             {
-                throw new InvalidOperationException("an empty, unfocused box hid its placeholder");
+                throw new InvalidOperationException("the search panel has no SearchBox");
             }
-            if (SearchPlaceholder.ShouldShow(string.Empty, true))
+
+            string wanted = Localization.Get("Search_Placeholder");
+            if ((box.Tag as string) != wanted)
             {
-                throw new InvalidOperationException("a focused empty box kept the placeholder");
+                throw new InvalidOperationException(
+                    "the search box tag is '" + (box.Tag as string) + "', wanted '" + wanted + "'");
             }
-            if (SearchPlaceholder.ShouldShow("report", false))
+
+            Style style = box.Style;
+            ControlTemplate template = style == null ? null : TemplateOf(style);
+            if (template == null)
             {
-                throw new InvalidOperationException("a non-empty unfocused box kept the placeholder");
+                throw new InvalidOperationException("the search box style has no template");
             }
-            if (SearchPlaceholder.ShouldShow("report", true))
+
+            box.ApplyTemplate();
+            var watermark = template.FindName("Watermark", box) as TextBlock;
+            if (watermark == null)
             {
-                throw new InvalidOperationException("a focused non-empty box kept the placeholder");
+                throw new InvalidOperationException("the search box template has no Watermark");
             }
-            if (!SearchPlaceholder.ShouldShow(null, false))
+            if (template.FindName("PART_ContentHost", box) as ScrollViewer == null)
             {
-                throw new InvalidOperationException("a null text hid the placeholder");
+                throw new InvalidOperationException(
+                    "the search box template has no PART_ContentHost scroll viewer");
             }
+            if (watermark.Text != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the watermark shows '" + watermark.Text + "', wanted '" + wanted + "'");
+            }
+            if (watermark.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException(
+                    "the empty, unfocused box hid its watermark (" + watermark.Visibility + ")");
+            }
+
+            // The trigger actually drives the hint: typing hides it again.
+            box.Text = "report";
+            if (watermark.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a filled box kept the watermark visible");
+            }
+            box.Text = string.Empty;
+            if (watermark.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("clearing the box did not restore the watermark");
+            }
+
+            bool showsOnEmptyAndUnfocused = false;
+            bool focusUsesSearchAccent = false;
+            foreach (TriggerBase trigger in template.Triggers)
+            {
+                var multi = trigger as MultiTrigger;
+                if (multi != null)
+                {
+                    bool empty = false;
+                    bool unfocused = false;
+                    bool shows = false;
+                    foreach (Condition condition in multi.Conditions)
+                    {
+                        if (condition.Property == TextBox.TextProperty
+                            && string.Equals(condition.Value as string, string.Empty, StringComparison.Ordinal))
+                        {
+                            empty = true;
+                        }
+                        if (condition.Property == UIElement.IsKeyboardFocusWithinProperty
+                            && condition.Value is bool && !(bool)condition.Value)
+                        {
+                            unfocused = true;
+                        }
+                    }
+                    foreach (Setter setter in multi.Setters)
+                    {
+                        if (setter.TargetName == "Watermark"
+                            && setter.Property == UIElement.VisibilityProperty
+                            && setter.Value is Visibility
+                            && (Visibility)setter.Value == Visibility.Visible)
+                        {
+                            shows = true;
+                        }
+                    }
+                    if (empty && unfocused && shows) showsOnEmptyAndUnfocused = true;
+                }
+
+                var focus = trigger as Trigger;
+                if (focus == null || focus.Property != UIElement.IsKeyboardFocusWithinProperty
+                    || !(focus.Value is bool) || !(bool)focus.Value)
+                {
+                    continue;
+                }
+                foreach (Setter setter in focus.Setters)
+                {
+                    if (setter.TargetName != "Bd" || setter.Property != Border.BorderBrushProperty) continue;
+                    var resource = setter.Value as DynamicResourceExtension;
+                    if (resource != null && "SearchAccent".Equals(resource.ResourceKey))
+                    {
+                        focusUsesSearchAccent = true;
+                    }
+                }
+            }
+
+            if (!showsOnEmptyAndUnfocused)
+            {
+                throw new InvalidOperationException(
+                    "the watermark has no empty-text + unfocused multi-trigger");
+            }
+            if (!focusUsesSearchAccent)
+            {
+                throw new InvalidOperationException(
+                    "the focus border does not use the SearchAccent resource");
+            }
+        }
+
+        private static ControlTemplate TemplateOf(Style style)
+        {
+            foreach (Setter setter in style.Setters)
+            {
+                if (setter.Property == Control.TemplateProperty) return setter.Value as ControlTemplate;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Smoke fix round 2: the focus border, the progress bar and the selected
+        /// row all use the widget's own colour, not the global blue accent. The
+        /// view replaces its local SearchAccent with a frozen brush from
+        /// SearchData.Color during Attach; the progress bar resolves it.
+        /// </summary>
+        private static void SearchAccentFollowsWidgetColor()
+        {
+            ThemeManager.Initialize("dark");
+            const string orange = "#F97316";
+            var widget = new SearchWidget(new SearchData { Color = orange });
+            var view = widget.PanelView;
+
+            var accent = view.Resources["SearchAccent"] as SolidColorBrush;
+            if (accent == null)
+            {
+                throw new InvalidOperationException(
+                    "the view did not replace its SearchAccent brush");
+            }
+            Color wanted = Utils.HexToColor(orange);
+            if (accent.Color != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the widget accent is " + accent.Color + ", wanted " + wanted);
+            }
+
+            var progress = view.FindName("ScanProgress") as ProgressBar;
+            if (progress == null)
+            {
+                throw new InvalidOperationException("the search panel has no ScanProgress");
+            }
+            if (!SameBrushColor(progress.Foreground, accent))
+            {
+                throw new InvalidOperationException(
+                    "the progress bar foreground is not the widget accent (got "
+                    + DescribeBrush(progress.Foreground) + ")");
+            }
+            if (!SameBrushColor(progress.Background, ThemeManager.ControlBackgroundBrush))
+            {
+                throw new InvalidOperationException(
+                    "the progress bar background is not the control background");
+            }
+        }
+
+        private static string DescribeBrush(Brush brush)
+        {
+            var solid = brush as SolidColorBrush;
+            if (solid != null) return solid.Color.ToString();
+            return brush == null ? "null" : brush.GetType().Name;
         }
 
         /// <summary>
@@ -9515,6 +9680,11 @@ namespace Kobold.XamlLoadCheck
                 ContentTemplate = list.ItemTemplate
             };
             var host = new Grid();
+            // The row style's selected border asks for the view-local
+            // SearchAccent; mirror it onto the offscreen host so the lookup
+            // resolves exactly as it does inside the panel.
+            var accent = view.Resources["SearchAccent"];
+            if (accent != null) host.Resources["SearchAccent"] = accent;
             host.Children.Add(container);
             host.Measure(new Size(360, 44));
             host.Arrange(new Rect(0, 0, 360, 44));
@@ -9557,10 +9727,12 @@ namespace Kobold.XamlLoadCheck
 
             container.IsSelected = true;
             host.UpdateLayout();
-            if (!SameBrushColor(frame.BorderBrush, ThemeManager.AccentBlueBrush))
+            var widgetAccent = view.Resources["SearchAccent"] as SolidColorBrush;
+            if (widgetAccent == null || !SameBrushColor(frame.BorderBrush, widgetAccent))
             {
                 throw new InvalidOperationException(
-                    "the selected row border is not the accent brush");
+                    "the selected row border is not the widget accent brush (got "
+                    + DescribeBrush(frame.BorderBrush) + ")");
             }
             if (!SameBrushColor(frame.Background, ThemeManager.ControlBackgroundBrush))
             {

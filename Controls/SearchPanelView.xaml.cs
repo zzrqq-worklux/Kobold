@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
@@ -90,6 +91,8 @@ namespace Kobold.Controls
             _data = data;
             _host = host;
 
+            ApplySearchAccent();
+
             _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DebounceMilliseconds) };
             _debounce.Tick += Debounce_Tick;
 
@@ -168,9 +171,33 @@ namespace Kobold.Controls
             ApplyLocalization();
         }
 
+        /// <summary>
+        /// Follows the widget colour: the focus border, the progress bar and the
+        /// selected row read the local SearchAccent brush, which is replaced here
+        /// with the configured widget colour (the same pattern DialogFactory
+        /// uses). High contrast keeps the theme accent, and a missing colour
+        /// falls back to the default folder colour.
+        /// </summary>
+        private void ApplySearchAccent()
+        {
+            if (ThemeManager.IsHighContrast)
+            {
+                Resources["SearchAccent"] = ThemeManager.AccentBlueBrush;
+                return;
+            }
+
+            string color = _data == null || string.IsNullOrEmpty(_data.Color)
+                ? UiTokens.DefaultFolderColor
+                : _data.Color;
+            Color tint = Utils.HexToColor(color);
+            var accent = new SolidColorBrush(tint);
+            accent.Freeze();
+            Resources["SearchAccent"] = accent;
+        }
+
         private void ApplyLocalization()
         {
-            PlaceholderText.Text = Localization.Get("Search_Placeholder");
+            SearchBox.Tag = Localization.Get("Search_Placeholder");
             ClearButton.ToolTip = Localization.Get("Search_Clear");
 
             EmptyText.Text = Localization.Get("Search_Empty");
@@ -186,24 +213,6 @@ namespace Kobold.Controls
             if (_openMenuItem != null) _openMenuItem.Header = Localization.Get("Search_Open");
             if (_locationMenuItem != null) _locationMenuItem.Header = Localization.Get("Search_OpenLocation");
             if (_copyMenuItem != null) _copyMenuItem.Header = Localization.Get("Search_CopyPath");
-
-            UpdatePlaceholder();
-        }
-
-        /// <summary>
-        /// The single placeholder rule: only an unfocused, empty box shows the
-        /// hint, so the IME composition string never sits under it. The helper
-        /// is pure (XamlLoadCheck pins it) and the view only maps it to a
-        /// visibility.
-        /// </summary>
-        private void UpdatePlaceholder()
-        {
-            if (_detached || PlaceholderText == null || SearchBox == null) return;
-
-            PlaceholderText.Visibility = SearchPlaceholder.ShouldShow(
-                SearchBox.Text, SearchBox.IsKeyboardFocusWithin)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -251,26 +260,9 @@ namespace Kobold.Controls
         {
             if (!_attached) return;
 
-            UpdatePlaceholder();
-
             if (_debounce == null) return;
             _debounce.Stop();
             _debounce.Start();
-        }
-
-        /// <summary>
-        /// The hint leaves the box as soon as it takes keyboard focus: an empty
-        /// box under an IME composition must not draw the placeholder over the
-        /// composing text.
-        /// </summary>
-        private void SearchBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
-        {
-            UpdatePlaceholder();
-        }
-
-        private void SearchBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
-        {
-            UpdatePlaceholder();
         }
 
         private void Debounce_Tick(object sender, EventArgs e)
