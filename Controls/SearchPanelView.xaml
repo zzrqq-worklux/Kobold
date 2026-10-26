@@ -8,9 +8,38 @@
          Only one of the state panels is visible at a time; the code-behind
          owns the 200ms debounce and marshals every query result back here. -->
     <UserControl.Resources>
+        <!-- The themed result row: no default blue ListBoxItem selection. The
+             row surface is transparent at rest, the secondary button surface on
+             hover, and the control background plus an accent border while
+             selected; the text brushes stay live. -->
         <Style x:Key="SearchResultRowStyle" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
+            <Setter Property="Background" Value="Transparent"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Background="{TemplateBinding Background}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}"
+                                BorderThickness="1" BorderBrush="Transparent">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background"
+                                        Value="{DynamicResource Kobold.Brush.ButtonSecondary}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background"
+                                        Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
+                                <Setter TargetName="Row" Property="BorderBrush"
+                                        Value="{DynamicResource Kobold.Brush.Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </UserControl.Resources>
 
@@ -27,10 +56,13 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchBox" Height="34" VerticalContentAlignment="Center"
-                     TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown"/>
+            <TextBox x:Name="SearchBox" Height="34" FontSize="13" VerticalContentAlignment="Center"
+                     TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown"
+                     GotKeyboardFocus="SearchBox_GotKeyboardFocus"
+                     LostKeyboardFocus="SearchBox_LostKeyboardFocus"/>
             <Button x:Name="ClearButton" Grid.Column="1" Content="✕" Width="30" Height="30"
-                    Margin="6,0,0,0" Click="ClearButton_Click"/>
+                    Margin="6,0,0,0" Click="ClearButton_Click"
+                    Style="{StaticResource Kobold.Style.CloseButton}"/>
             <TextBlock x:Name="PlaceholderText" Text="Search files and folders"
                        IsHitTestVisible="False" Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
                        Margin="10,0,0,0" VerticalAlignment="Center"/>
@@ -51,8 +83,9 @@
                            TextTrimming="CharacterEllipsis" Margin="8,0,0,0"
                            Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
                 <Button x:Name="RebuildButton" Grid.Column="2" Content="Rebuild index"
-                        FontSize="11" Padding="8,2" Margin="8,0,0,0" Visibility="Collapsed"
-                        Click="RebuildButton_Click"/>
+                        FontSize="11" Height="24" MinWidth="72" Margin="8,0,0,0" Visibility="Collapsed"
+                        Click="RebuildButton_Click"
+                        Style="{StaticResource Kobold.Style.SecondaryButton}"/>
             </Grid>
             <ProgressBar x:Name="ScanProgress" Height="3" Margin="0,4,0,0"
                          IsIndeterminate="True" Visibility="Collapsed"/>
@@ -65,6 +98,7 @@
                      ScrollViewer.CanContentScroll="True"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      BorderThickness="0" Background="Transparent"
+                     Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
                      SelectionMode="Single"
                      ItemContainerStyle="{StaticResource SearchResultRowStyle}"
                      MouseDoubleClick="ResultsList_MouseDoubleClick"
@@ -78,9 +112,11 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="{Binding Glyph}" FontSize="16" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Glyph}" FontSize="16" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Kobold.Brush.TextPrimary}"/>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
                                            TextTrimming="CharacterEllipsis"/>
                                 <TextBlock Text="{Binding Path}" FontSize="11"
                                            Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
@@ -107,8 +143,9 @@
                         Visibility="Collapsed">
                 <TextBlock x:Name="NoIndexText" Text="Search index is not built yet" TextWrapping="Wrap"
                            MaxWidth="300" TextAlignment="Center"/>
-                <Button x:Name="StartIndexButton" Content="Start indexing" Margin="0,10,0,0"
-                        Click="StartIndexButton_Click"/>
+                <Button x:Name="StartIndexButton" Content="Start indexing" Height="30" MinWidth="96"
+                        Margin="0,10,0,0" Click="StartIndexButton_Click"
+                        Style="{StaticResource Kobold.Style.PrimaryButton}"/>
             </StackPanel>
 
             <ScrollViewer x:Name="OnboardingPanel" Visibility="Collapsed"
@@ -120,9 +157,13 @@
                                Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <Button x:Name="OnboardingStartButton" Content="Start indexing"
-                                Click="OnboardingStartButton_Click" Margin="0,0,8,0"/>
+                                Height="30" MinWidth="96"
+                                Click="OnboardingStartButton_Click" Margin="0,0,8,0"
+                                Style="{StaticResource Kobold.Style.PrimaryButton}"/>
                         <Button x:Name="OnboardingLaterButton" Content="Later"
-                                Click="OnboardingLaterButton_Click"/>
+                                Height="30" MinWidth="64"
+                                Click="OnboardingLaterButton_Click"
+                                Style="{StaticResource Kobold.Style.SecondaryButton}"/>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

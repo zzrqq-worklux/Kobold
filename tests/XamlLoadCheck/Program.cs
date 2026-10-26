@@ -555,6 +555,23 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("search: a configured onboarding start reaches the scan path", SearchConfiguredOnboardingStarts);
                 failures += TryCheck("search: the widget menu offers rebuild and pause", SearchMenuOffersRebuildAndPause);
 
+                // Smoke-fix round pins: the placeholder helper hides the hint
+                // while the box has keyboard focus (the IME overlap), a result
+                // row publishes a FileDrop payload when dragged, the controls
+                // wear the shared button styles, the rows use the theme brushes
+                // instead of the default blue selection, and a reconcile is
+                // labelled as reconcile rather than a restart of the index.
+                failures += TryCheck("search: the placeholder hides while the box is focused",
+                    SearchPlaceholderShouldShow);
+                failures += TryCheck("search: a dragged row carries its path as FileDrop",
+                    SearchDragPayloadCarriesFileDrop);
+                failures += TryCheck("search: the controls wear the shared button styles",
+                    SearchButtonsUseAppStyles);
+                failures += TryCheck("search: the result rows use the theme brushes",
+                    SearchRowStyleUsesThemeBrushes);
+                failures += TryCheck("search: a reconcile is labelled separately from indexing",
+                    SearchStatusLabelsReconcileSeparately);
+
                 // Task T11 pins: the list state - the cards (title / modified
                 // time / two-line excerpt / task progress), the modified-time
                 // order, the row menu's delete with its multi-step undo (capped
@@ -9355,6 +9372,276 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the search actions must sit before the delete separator (" +
                     rebuildIndex + "/" + pauseIndex + " vs " + separatorIndex + ")");
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix: the placeholder is only a hint for the unfocused, empty
+        /// box. While the box has keyboard focus the hint must disappear even
+        /// when the text is empty, or it overlaps the IME composition string.
+        /// </summary>
+        private static void SearchPlaceholderShouldShow()
+        {
+            if (!SearchPlaceholder.ShouldShow(string.Empty, false))
+            {
+                throw new InvalidOperationException("an empty, unfocused box hid its placeholder");
+            }
+            if (SearchPlaceholder.ShouldShow(string.Empty, true))
+            {
+                throw new InvalidOperationException("a focused empty box kept the placeholder");
+            }
+            if (SearchPlaceholder.ShouldShow("report", false))
+            {
+                throw new InvalidOperationException("a non-empty unfocused box kept the placeholder");
+            }
+            if (SearchPlaceholder.ShouldShow("report", true))
+            {
+                throw new InvalidOperationException("a focused non-empty box kept the placeholder");
+            }
+            if (!SearchPlaceholder.ShouldShow(null, false))
+            {
+                throw new InvalidOperationException("a null text hid the placeholder");
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix: dragging a result row publishes the plain FileDrop list
+        /// Explorer and the folder widget already understand - one entry, the
+        /// row's own path, for a file and for a directory.
+        /// </summary>
+        private static void SearchDragPayloadCarriesFileDrop()
+        {
+            const string file = @"C:\work\report.pdf";
+            DataObject filePayload = SearchDragPayload.Create(file);
+            if (!filePayload.GetDataPresent(DataFormats.FileDrop, true))
+            {
+                throw new InvalidOperationException("the drag payload carries no FileDrop list");
+            }
+            StringCollection files = filePayload.GetFileDropList();
+            if (files == null || files.Count != 1 || files[0] != file)
+            {
+                throw new InvalidOperationException(
+                    "the drag payload lost its single path (count="
+                    + (files == null ? "null" : files.Count.ToString()) + ")");
+            }
+
+            const string folder = @"C:\work\folder\";
+            DataObject folderPayload = SearchDragPayload.Create(folder);
+            StringCollection folders = folderPayload.GetFileDropList();
+            if (folders == null || folders.Count != 1 || folders[0] != folder)
+            {
+                throw new InvalidOperationException(
+                    "a directory drag lost its path (count="
+                    + (folders == null ? "null" : folders.Count.ToString()) + ")");
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix: clear uses the close style, rebuild / later the secondary
+        /// style and the two start buttons the primary style - the same instances
+        /// the rest of the app resolves from the app resources.
+        /// </summary>
+        private static void SearchButtonsUseAppStyles()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+
+            AssertButtonStyle(view, "ClearButton", "Kobold.Style.CloseButton");
+            AssertButtonStyle(view, "RebuildButton", "Kobold.Style.SecondaryButton");
+            AssertButtonStyle(view, "StartIndexButton", "Kobold.Style.PrimaryButton");
+            AssertButtonStyle(view, "OnboardingStartButton", "Kobold.Style.PrimaryButton");
+            AssertButtonStyle(view, "OnboardingLaterButton", "Kobold.Style.SecondaryButton");
+        }
+
+        private static void AssertButtonStyle(SearchPanelView view, string name, string styleKey)
+        {
+            var button = view.FindName(name) as Button;
+            if (button == null)
+            {
+                throw new InvalidOperationException("the search panel has no " + name);
+            }
+
+            var wanted = Application.Current.TryFindResource(styleKey) as Style;
+            if (wanted == null)
+            {
+                throw new InvalidOperationException("the app resources have no " + styleKey);
+            }
+            if (!ReferenceEquals(button.Style, wanted))
+            {
+                throw new InvalidOperationException(
+                    name + " does not wear " + styleKey
+                    + " (style=" + (button.Style == null ? "null" : "another instance") + ")");
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix: the row template replaces the default blue ListBoxItem
+        /// selection with a themed row - primary ink for the name/glyph,
+        /// secondary for path/size/time, the secondary surface on hover and the
+        /// control background plus an accent border while selected. The row is
+        /// built offscreen and the resolved brushes are compared with the live
+        /// theme, so a static colour cannot pass.
+        /// </summary>
+        private static void SearchRowStyleUsesThemeBrushes()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var list = view.FindName("ResultsList") as ListBox;
+            if (list == null)
+            {
+                throw new InvalidOperationException("the search panel has no ResultsList");
+            }
+            if (list.ItemContainerStyle == null)
+            {
+                throw new InvalidOperationException("the result list has no item container style");
+            }
+
+            var row = new SearchResultRow
+            {
+                Entry = new SearchEntry { Path = @"C:\work\report.pdf", Name = "report.pdf" },
+                Glyph = "📄",
+                Name = "report.pdf",
+                Path = @"C:\work",
+                SizeText = "12 KB",
+                ModifiedText = "2026-10-26 10:00"
+            };
+
+            var container = new ListBoxItem
+            {
+                Style = list.ItemContainerStyle,
+                Content = row,
+                ContentTemplate = list.ItemTemplate
+            };
+            var host = new Grid();
+            host.Children.Add(container);
+            host.Measure(new Size(360, 44));
+            host.Arrange(new Rect(0, 0, 360, 44));
+            host.UpdateLayout();
+            container.ApplyTemplate();
+
+            var frame = container.Template.FindName("Row", container) as Border;
+            if (frame == null)
+            {
+                throw new InvalidOperationException("the row template has no themed Row border");
+            }
+            if (frame.BorderThickness.Left != 1 || frame.CornerRadius.TopLeft != 6)
+            {
+                throw new InvalidOperationException(
+                    "the row border is " + frame.BorderThickness.Left + "px / radius "
+                    + frame.CornerRadius.TopLeft + ", wanted 1px / 6");
+            }
+
+            var textBlocks = new List<TextBlock>();
+            CollectTextBlocks(container, textBlocks);
+            if (textBlocks.Count != 5)
+            {
+                throw new InvalidOperationException(
+                    "the row has " + textBlocks.Count + " text block(s), wanted 5");
+            }
+
+            int primary = 0;
+            int secondary = 0;
+            foreach (TextBlock block in textBlocks)
+            {
+                if (SameBrushColor(block.Foreground, ThemeManager.TextBrush)) primary++;
+                else if (SameBrushColor(block.Foreground, ThemeManager.SecondaryTextBrush)) secondary++;
+            }
+            if (primary != 2 || secondary != 3)
+            {
+                throw new InvalidOperationException(
+                    "the row ink is " + primary + " primary / " + secondary
+                    + " secondary, wanted 2 / 3");
+            }
+
+            container.IsSelected = true;
+            host.UpdateLayout();
+            if (!SameBrushColor(frame.BorderBrush, ThemeManager.AccentBlueBrush))
+            {
+                throw new InvalidOperationException(
+                    "the selected row border is not the accent brush");
+            }
+            if (!SameBrushColor(frame.Background, ThemeManager.ControlBackgroundBrush))
+            {
+                throw new InvalidOperationException(
+                    "the selected row background is not the control background");
+            }
+        }
+
+        /// <summary>
+        /// Smoke fix: after a full scan the periodic reconcile used to claim it
+        /// was indexing; the status line must say reconcile for that state while
+        /// a full scan keeps the progress counts.
+        /// </summary>
+        private static void SearchStatusLabelsReconcileSeparately()
+        {
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var update = typeof(SearchPanelView).GetMethod("UpdateStatus",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (update == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.UpdateStatus was not found");
+            }
+
+            var status = view.FindName("StatusText") as TextBlock;
+            var progress = view.FindName("ScanProgress") as ProgressBar;
+            if (status == null || progress == null)
+            {
+                throw new InvalidOperationException("the search status line is missing");
+            }
+
+            update.Invoke(view, new object[]
+            {
+                new FileSearchStatus
+                {
+                    State = FileSearchState.Indexing,
+                    FilesIndexed = 7,
+                    DirectoriesScanned = 3
+                }
+            });
+            string indexing = status.Text;
+            string wantedIndexing = Localization.Format("Search_Indexing", 7, 3);
+            if (indexing != wantedIndexing)
+            {
+                throw new InvalidOperationException(
+                    "the indexing line is '" + indexing + "', wanted '" + wantedIndexing + "'");
+            }
+
+            update.Invoke(view, new object[]
+            {
+                new FileSearchStatus
+                {
+                    State = FileSearchState.Reconciling,
+                    FilesIndexed = 7,
+                    DirectoriesScanned = 3
+                }
+            });
+            string reconciling = status.Text;
+            string wantedReconciling = Localization.Get("Search_Reconciling");
+            if (reconciling != wantedReconciling)
+            {
+                throw new InvalidOperationException(
+                    "the reconcile line is '" + reconciling + "', wanted '" + wantedReconciling + "'");
+            }
+            if (reconciling == indexing)
+            {
+                throw new InvalidOperationException(
+                    "a reconcile still shows the indexing label");
+            }
+            if (progress.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("a reconcile hides the progress bar");
+            }
+        }
+
+        private static void CollectTextBlocks(DependencyObject root, List<TextBlock> found)
+        {
+            var block = root as TextBlock;
+            if (block != null) found.Add(block);
+
+            int children = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < children; i++)
+            {
+                CollectTextBlocks(VisualTreeHelper.GetChild(root, i), found);
             }
         }
 

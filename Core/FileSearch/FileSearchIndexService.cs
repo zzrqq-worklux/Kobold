@@ -1032,9 +1032,10 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Creates the one periodic timer when the interval changes. The first tick
-        /// is 30 seconds after Ready (never immediately: a launch should settle
-        /// before a background walk); the timer callback only schedules.
+        /// Creates the one periodic timer when the interval changes. The first
+        /// tick is one full interval after Ready: the launch already settled on
+        /// the scan it just finished, so the reconcile must not look like the
+        /// index restarted 30 seconds later; the timer callback only schedules.
         /// </summary>
         private void EnsureReconcileTimerLocked(FileSearchSettings settings)
         {
@@ -1055,7 +1056,7 @@ namespace Kobold.Core.FileSearch
                     try
                     {
                         _reconcileTimer = new Timer(OnReconcileTimer, null,
-                            TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(minutes));
+                            TimeSpan.FromMinutes(minutes), TimeSpan.FromMinutes(minutes));
                     }
                     catch (Exception)
                     {

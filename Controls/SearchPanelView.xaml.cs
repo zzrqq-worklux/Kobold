@@ -11,6 +11,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
@@ -54,6 +55,9 @@ namespace Kobold.Controls
         private bool _detached;
         private bool _hasQuery;
         private bool _onboardingDismissed;
+        private FileSearchState _viewState;
+        private Point _dragStart;
+        private SearchResultRow _dragRow;
         private MenuItem _openMenuItem;
         private MenuItem _locationMenuItem;
         private MenuItem _copyMenuItem;
@@ -94,6 +98,11 @@ namespace Kobold.Controls
 
             ResultsList.ContextMenu = BuildResultMenu();
             ResultsList.PreviewMouseRightButtonDown += ResultsList_PreviewMouseRightButtonDown;
+            // Drag-out source: the handlers never mark the press handled, so
+            // selection and the double-click-to-open path keep working.
+            ResultsList.PreviewMouseLeftButtonDown += ResultsList_PreviewMouseLeftButtonDown;
+            ResultsList.PreviewMouseMove += ResultsList_PreviewMouseMove;
+            ResultsList.PreviewMouseLeftButtonUp += ResultsList_PreviewMouseLeftButtonUp;
 
             ApplyLocalization();
             _attached = true;
@@ -129,7 +138,11 @@ namespace Kobold.Controls
             if (ResultsList != null)
             {
                 ResultsList.PreviewMouseRightButtonDown -= ResultsList_PreviewMouseRightButtonDown;
+                ResultsList.PreviewMouseLeftButtonDown -= ResultsList_PreviewMouseLeftButtonDown;
+                ResultsList.PreviewMouseMove -= ResultsList_PreviewMouseMove;
+                ResultsList.PreviewMouseLeftButtonUp -= ResultsList_PreviewMouseLeftButtonUp;
             }
+            _dragRow = null;
         }
 
         /// <summary>Re-reads the service's in-memory status snapshot for a re-open.</summary>
@@ -174,7 +187,21 @@ namespace Kobold.Controls
             if (_locationMenuItem != null) _locationMenuItem.Header = Localization.Get("Search_OpenLocation");
             if (_copyMenuItem != null) _copyMenuItem.Header = Localization.Get("Search_CopyPath");
 
-            PlaceholderText.Visibility = string.IsNullOrEmpty(SearchBox.Text)
+            UpdatePlaceholder();
+        }
+
+        /// <summary>
+        /// The single placeholder rule: only an unfocused, empty box shows the
+        /// hint, so the IME composition string never sits under it. The helper
+        /// is pure (XamlLoadCheck pins it) and the view only maps it to a
+        /// visibility.
+        /// </summary>
+        private void UpdatePlaceholder()
+        {
+            if (_detached || PlaceholderText == null || SearchBox == null) return;
+
+            PlaceholderText.Visibility = SearchPlaceholder.ShouldShow(
+                SearchBox.Text, SearchBox.IsKeyboardFocusWithin)
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
@@ -224,13 +251,26 @@ namespace Kobold.Controls
         {
             if (!_attached) return;
 
-            PlaceholderText.Visibility = string.IsNullOrEmpty(SearchBox.Text)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            UpdatePlaceholder();
 
             if (_debounce == null) return;
             _debounce.Stop();
             _debounce.Start();
+        }
+
+        /// <summary>
+        /// The hint leaves the box as soon as it takes keyboard focus: an empty
+        /// box under an IME composition must not draw the placeholder over the
+        /// composing text.
+        /// </summary>
+        private void SearchBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            UpdatePlaceholder();
+        }
+
+        private void SearchBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            UpdatePlaceholder();
         }
 
         private void Debounce_Tick(object sender, EventArgs e)
@@ -487,7 +527,11 @@ namespace Kobold.Controls
             PostToUi(() =>
             {
                 if (_detached || ScanProgress.Visibility != Visibility.Visible) return;
-                StatusText.Text = Localization.Format("Search_Indexing", progress.Files, progress.Directories);
+                // A reconcile reports its own label: after a full scan it must
+                // never look like the index restarted.
+                StatusText.Text = _viewState == FileSearchState.Reconciling
+                    ? Localization.Get("Search_Reconciling")
+                    : Localization.Format("Search_Indexing", progress.Files, progress.Directories);
             });
         }
 
@@ -502,10 +546,10 @@ namespace Kobold.Controls
         {
             if (_detached || status == null) return;
 
+            _viewState = status.State;
             switch (status.State)
             {
                 case FileSearchState.Indexing:
-                case FileSearchState.Reconciling:
                     HideOnboarding();
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
@@ -513,6 +557,16 @@ namespace Kobold.Controls
                     ScanProgress.Visibility = Visibility.Visible;
                     StatusText.Text = Localization.Format("Search_Indexing",
                         status.FilesIndexed, status.DirectoriesScanned);
+                    break;
+
+                case FileSearchState.Reconciling:
+                    HideOnboarding();
+                    EmptyState.Visibility = Visibility.Collapsed;
+                    NoIndexState.Visibility = Visibility.Collapsed;
+                    RebuildButton.Visibility = Visibility.Collapsed;
+                    ScanProgress.Visibility = Visibility.Visible;
+                    // Its own status: a reconcile is not the index starting over.
+                    StatusText.Text = Localization.Get("Search_Reconciling");
                     break;
 
                 case FileSearchState.Ready:
@@ -905,6 +959,70 @@ namespace Kobold.Controls
             var container = ItemsControl.ContainerFromElement(
                 ResultsList, e.OriginalSource as DependencyObject) as ListBoxItem;
             if (container != null) container.IsSelected = true;
+        }
+
+        /// <summary>
+        /// Arms a drag for the row under the press. The event stays unhandled so
+        /// the ListBox keeps its selection and the double-click open path; a
+        /// press on the empty area or a scrollbar finds no container and stays a
+        /// no-op.
+        /// </summary>
+        private void ResultsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _dragRow = null;
+            _dragStart = e.GetPosition(ResultsList);
+
+            var container = ItemsControl.ContainerFromElement(
+                ResultsList, e.OriginalSource as DependencyObject) as ListBoxItem;
+            if (container == null) return;
+
+            var row = container.DataContext as SearchResultRow;
+            if (row == null || row.Entry == null || string.IsNullOrEmpty(row.Entry.Path)) return;
+            _dragRow = row;
+        }
+
+        /// <summary>
+        /// Starts the drag once the pointer leaves the system drag rectangle.
+        /// The payload is a plain FileDrop list: a folder widget adds it as a
+        /// reference, Explorer applies its own copy/move rules.
+        /// </summary>
+        private void ResultsList_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            SearchResultRow row = _dragRow;
+            if (row == null) return;
+
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _dragRow = null;
+                return;
+            }
+
+            Point position = e.GetPosition(ResultsList);
+            if (Math.Abs(position.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+                && Math.Abs(position.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            {
+                return;
+            }
+
+            // One drag per press: a drop inside the list must not re-arm it.
+            _dragRow = null;
+            if (row.Entry == null || string.IsNullOrEmpty(row.Entry.Path)) return;
+
+            try
+            {
+                DragDrop.DoDragDrop(ResultsList,
+                    SearchDragPayload.Create(row.Entry.Path),
+                    DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link);
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = Localization.Get("Search_Error") + ": " + ex.Message;
+            }
+        }
+
+        private void ResultsList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            _dragRow = null;
         }
 
         private void OpenLocationSelected()
