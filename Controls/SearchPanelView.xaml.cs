@@ -214,7 +214,10 @@ namespace Kobold.Controls
 
         private void ApplyLocalization()
         {
-            SearchBox.Tag = Localization.Get("Search_Placeholder");
+            // The hint is only discoverable through the tooltip: nothing is
+            // drawn inside the box, so the IME composition string is never
+            // overlaid.
+            SearchBox.ToolTip = Localization.Get("Search_Placeholder");
             ClearButton.ToolTip = Localization.Get("Search_Clear");
 
             EmptyText.Text = Localization.Get("Search_Empty");

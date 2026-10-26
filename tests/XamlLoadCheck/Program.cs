@@ -555,15 +555,15 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("search: a configured onboarding start reaches the scan path", SearchConfiguredOnboardingStarts);
                 failures += TryCheck("search: the widget menu offers rebuild and pause", SearchMenuOffersRebuildAndPause);
 
-                // Smoke-fix round pins: the search box shows its hint through a
-                // TextBox-template watermark (no overlay), a dragged row
+                // Smoke-fix round pins: the search box hint lives only in its
+                // tooltip (a plain box, no overlay/watermark), a dragged row
                 // publishes a FileDrop payload, the controls wear the shared
                 // button styles, the rows use the theme brushes instead of the
                 // default blue selection, the accent follows the widget colour,
                 // and a reconcile is labelled as reconcile rather than a
                 // restart of the index.
-                failures += TryCheck("search: the box tag drives a template watermark",
-                    SearchBoxWatermark);
+                failures += TryCheck("search: the hint is a tooltip and the box draws no watermark",
+                    SearchBoxHintAndStyle);
                 failures += TryCheck("search: the accent follows the widget color",
                     SearchAccentFollowsWidgetColor);
                 failures += TryCheck("search: high contrast follows the theme accent",
@@ -9383,14 +9383,14 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix round 2: the hint is a TextBox-template watermark driven by
-        /// the box's Tag, not a TextBlock laid over the box (which the IME
-        /// composition string used to collide with). The MultiTrigger shows the
-        /// watermark only for empty, unfocused text, the focus trigger repaints
-        /// the border with the widget accent, and the content host is the
-        /// template's scroll viewer.
+        /// Fix round 5: the definitive IME fix is to draw no hint inside or over
+        /// the box at all - the same plain TextBox the new-file dialog uses. The
+        /// hint stays discoverable as the box's tooltip, and the custom template
+        /// must contain no watermark (no TextBlock layer) while keeping the
+        /// content host, the translucent widget-accent selection and the
+        /// widget-accent focus border.
         /// </summary>
-        private static void SearchBoxWatermark()
+        private static void SearchBoxHintAndStyle()
         {
             ThemeManager.Initialize("dark");
             var view = new SearchWidget(new SearchData()).PanelView;
@@ -9401,10 +9401,15 @@ namespace Kobold.XamlLoadCheck
             }
 
             string wanted = Localization.Get("Search_Placeholder");
-            if ((box.Tag as string) != wanted)
+            if (!string.Equals(box.ToolTip as string, wanted, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
-                    "the search box tag is '" + (box.Tag as string) + "', wanted '" + wanted + "'");
+                    "the search box tooltip is '" + (box.ToolTip as string) + "', wanted '" + wanted + "'");
+            }
+            if (box.Tag != null)
+            {
+                throw new InvalidOperationException(
+                    "the search box still carries a tag ('" + box.Tag + "')");
             }
 
             Style style = box.Style;
@@ -9414,8 +9419,8 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the search box style has no template");
             }
 
-            // Fix round 3: the selection paints the widget accent, so a light
-            // widget colour must stay readable - the accent wash is translucent.
+            // The selection paints the widget accent, so a light widget colour
+            // must stay readable - the accent wash is translucent.
             double? selectionOpacity = null;
             foreach (Setter setter in style.Setters)
             {
@@ -9435,75 +9440,29 @@ namespace Kobold.XamlLoadCheck
             }
 
             box.ApplyTemplate();
-            var watermark = template.FindName("Watermark", box) as TextBlock;
-            if (watermark == null)
+            if (template.FindName("Watermark", box) != null)
             {
-                throw new InvalidOperationException("the search box template has no Watermark");
+                throw new InvalidOperationException(
+                    "the search box template still draws a watermark");
             }
             if (template.FindName("PART_ContentHost", box) as ScrollViewer == null)
             {
                 throw new InvalidOperationException(
                     "the search box template has no PART_ContentHost scroll viewer");
             }
-            if (watermark.Text != wanted)
+
+            // No text layer at all: the template's own tree carries no TextBlock
+            // that could sit under the IME composition string.
+            var root = template.LoadContent() as DependencyObject;
+            if (root == null || ContainsTextBlock(root))
             {
                 throw new InvalidOperationException(
-                    "the watermark shows '" + watermark.Text + "', wanted '" + wanted + "'");
-            }
-            if (watermark.Visibility != Visibility.Visible)
-            {
-                throw new InvalidOperationException(
-                    "the empty, unfocused box hid its watermark (" + watermark.Visibility + ")");
+                    "the search box template still layers text inside the box");
             }
 
-            // The trigger actually drives the hint: typing hides it again.
-            box.Text = "report";
-            if (watermark.Visibility != Visibility.Collapsed)
-            {
-                throw new InvalidOperationException("a filled box kept the watermark visible");
-            }
-            box.Text = string.Empty;
-            if (watermark.Visibility != Visibility.Visible)
-            {
-                throw new InvalidOperationException("clearing the box did not restore the watermark");
-            }
-
-            bool showsOnEmptyAndUnfocused = false;
             bool focusUsesSearchAccent = false;
             foreach (TriggerBase trigger in template.Triggers)
             {
-                var multi = trigger as MultiTrigger;
-                if (multi != null)
-                {
-                    bool empty = false;
-                    bool unfocused = false;
-                    bool shows = false;
-                    foreach (Condition condition in multi.Conditions)
-                    {
-                        if (condition.Property == TextBox.TextProperty
-                            && string.Equals(condition.Value as string, string.Empty, StringComparison.Ordinal))
-                        {
-                            empty = true;
-                        }
-                        if (condition.Property == UIElement.IsKeyboardFocusWithinProperty
-                            && condition.Value is bool && !(bool)condition.Value)
-                        {
-                            unfocused = true;
-                        }
-                    }
-                    foreach (Setter setter in multi.Setters)
-                    {
-                        if (setter.TargetName == "Watermark"
-                            && setter.Property == UIElement.VisibilityProperty
-                            && setter.Value is Visibility
-                            && (Visibility)setter.Value == Visibility.Visible)
-                        {
-                            shows = true;
-                        }
-                    }
-                    if (empty && unfocused && shows) showsOnEmptyAndUnfocused = true;
-                }
-
                 var focus = trigger as Trigger;
                 if (focus == null || focus.Property != UIElement.IsKeyboardFocusWithinProperty
                     || !(focus.Value is bool) || !(bool)focus.Value)
@@ -9520,17 +9479,23 @@ namespace Kobold.XamlLoadCheck
                     }
                 }
             }
-
-            if (!showsOnEmptyAndUnfocused)
-            {
-                throw new InvalidOperationException(
-                    "the watermark has no empty-text + unfocused multi-trigger");
-            }
             if (!focusUsesSearchAccent)
             {
                 throw new InvalidOperationException(
                     "the focus border does not use the SearchAccent resource");
             }
+        }
+
+        private static bool ContainsTextBlock(DependencyObject root)
+        {
+            if (root is TextBlock) return true;
+
+            int children = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < children; i++)
+            {
+                if (ContainsTextBlock(VisualTreeHelper.GetChild(root, i))) return true;
+            }
+            return false;
         }
 
         private static ControlTemplate TemplateOf(Style style)

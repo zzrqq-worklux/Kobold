@@ -11,10 +11,11 @@
         <!-- SearchAccent (the widget's own colour) is created by the code-behind:
              Attach calls ApplySearchAccent right after InitializeComponent, so the
              dynamic-resource consumers below resolve it before layout. -->
-        <!-- The search box carries its hint inside the TextBox template: a
-             watermark TextBlock under the content host. It is only visible for
-             empty, unfocused text, so the IME composition string never sits
-             under an overlay. The tag carries the localized hint. -->
+        <!-- The search box is a plain text box (the same control the new-file
+             dialog uses): no hint is drawn inside or over it, so nothing can
+             overlap the Chinese IME composition string. The hint lives in the
+             box tooltip; the template only keeps the widget-accent focus border,
+             the accent selection and the disabled dim. -->
         <Style x:Key="SearchBoxStyle" TargetType="TextBox"
                BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="CaretBrush" Value="{DynamicResource Kobold.Brush.TextPrimary}"/>
@@ -29,28 +30,12 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}">
-                            <Grid>
-                                <TextBlock x:Name="Watermark" Text="{TemplateBinding Tag}"
-                                           Margin="{TemplateBinding Padding}"
-                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                           VerticalAlignment="Center"
-                                           IsHitTestVisible="False"
-                                           TextTrimming="CharacterEllipsis"
-                                           Visibility="Collapsed"/>
-                                <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
-                                              HorizontalScrollBarVisibility="Hidden"
-                                              VerticalScrollBarVisibility="Hidden"
-                                              Margin="{TemplateBinding Padding}"/>
-                            </Grid>
+                            <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
+                                          HorizontalScrollBarVisibility="Hidden"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          Margin="{TemplateBinding Padding}"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="Text" Value=""/>
-                                    <Condition Property="IsKeyboardFocusWithin" Value="False"/>
-                                </MultiTrigger.Conditions>
-                                <Setter TargetName="Watermark" Property="Visibility" Value="Visible"/>
-                            </MultiTrigger>
                             <Trigger Property="IsKeyboardFocusWithin" Value="True">
                                 <Setter TargetName="Bd" Property="BorderBrush"
                                         Value="{DynamicResource SearchAccent}"/>
