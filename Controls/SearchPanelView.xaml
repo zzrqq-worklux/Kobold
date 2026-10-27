@@ -11,37 +11,27 @@
         <!-- SearchAccent (the widget's own colour) is created by the code-behind:
              Attach calls ApplySearchAccent right after InitializeComponent, so the
              dynamic-resource consumers below resolve it before layout. -->
-        <!-- The search box is the stock TextBox (the same control the new-file
-             dialog uses): its native template owns text/IME layout, and no hint
-             is drawn inside or over it. Only the selection translucency is local;
-             the native focus border and selection follow Kobold.Brush.Accent,
-             which ApplySearchAccent overrides with the widget colour. -->
+        <!-- The search box is the shared app TextBox (the same control the
+             new-file dialog uses). The app's shared template in
+             Themes/Controls.xaml (a Border plus the PART_ContentHost
+             ScrollViewer) owns the text/IME layout and is not overridden
+             locally; no hint is drawn inside or over it, and only
+             SelectionOpacity is local. The template's focus trigger and the
+             SelectionBrush read Kobold.Brush.Accent, which ApplySearchAccent
+             overrides with the widget colour.
+             The box itself sets Padding="10,0": it is a fixed 34 DIP high and
+             VerticalContentAlignment="Center" supplies the vertical inset, while
+             the shared TextBox style's 6+6 vertical padding would leave
+             PART_ContentHost only 20 DIP for a ~17.5 DIP line and clip the text
+             (painted taller than its DIP metrics) under
+             TextFormattingMode="Display".
+             It is the row's only child, so it spans the full inset width; there
+             is no clear button (Esc/select-all-delete is the platform gesture). -->
         <Style x:Key="SearchBoxStyle" TargetType="TextBox"
                BasedOn="{StaticResource {x:Type TextBox}}">
             <!-- A light widget colour would otherwise cover the selected text:
                  keep the accent but let the glyphs read through it. -->
             <Setter Property="SelectionOpacity" Value="0.35"/>
-        </Style>
-
-        <!-- A solid widget-accent activity line while a scan/reconcile runs: a
-             full-width indicator instead of the indeterminate animation, so the
-             bar is visibly the widget colour (the counts stay in the status
-             text). -->
-        <Style x:Key="SearchProgressStyle" TargetType="ProgressBar">
-            <Setter Property="Height" Value="3"/>
-            <Setter Property="Background" Value="{DynamicResource Kobold.Brush.ControlBackground}"/>
-            <Setter Property="Foreground" Value="{DynamicResource SearchAccent}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ProgressBar">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="1.5">
-                            <Border x:Name="PART_Indicator"
-                                    Background="{TemplateBinding Foreground}"
-                                    CornerRadius="1.5"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
         <!-- The themed result row: no default blue ListBoxItem selection. The
@@ -88,16 +78,10 @@
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Margin="12,10,12,6">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchBox" Height="34" FontSize="13" VerticalContentAlignment="Center"
+            <TextBox x:Name="SearchBox" Height="34" FontSize="13" Padding="10,0"
+                     VerticalContentAlignment="Center"
                      Style="{StaticResource SearchBoxStyle}"
                      TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown"/>
-            <Button x:Name="ClearButton" Grid.Column="1" Content="✕" Width="30" Height="30"
-                    Margin="6,0,0,0" Click="ClearButton_Click"
-                    Style="{StaticResource Kobold.Style.CloseButton}"/>
         </Grid>
 
         <StackPanel Grid.Row="1" Margin="12,0,12,6">
@@ -119,10 +103,6 @@
                         Click="RebuildButton_Click"
                         Style="{StaticResource Kobold.Style.SecondaryButton}"/>
             </Grid>
-            <ProgressBar x:Name="ScanProgress" Margin="0,4,0,0"
-                         Style="{StaticResource SearchProgressStyle}"
-                         IsIndeterminate="False" Maximum="1" Value="1"
-                         Visibility="Collapsed"/>
         </StackPanel>
 
         <Grid Grid.Row="2" Margin="8,0,8,4">

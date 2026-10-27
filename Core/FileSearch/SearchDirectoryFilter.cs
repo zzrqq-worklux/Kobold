@@ -9,7 +9,9 @@ namespace Kobold.Core.FileSearch
     /// Decides whether a directory is out of scope. Names match at any depth
     /// (a <c>node_modules</c> five levels down is still cache); full paths match
     /// the directory and its whole subtree, with a separator boundary so
-    /// <c>C:\p\private</c> never claims <c>C:\p\privateer</c>.
+    /// <c>C:\p\private</c> never claims <c>C:\p\privateer</c>. A Store package's
+    /// volatile children (<c>LocalCache</c>, <c>TempState</c>, <c>AC</c>) match by
+    /// their position under <c>%LocalAppData%\Packages\&lt;package&gt;</c>.
     /// Kept free of UI and storage dependencies.
     /// </summary>
     public static class SearchDirectoryFilter
@@ -23,11 +25,26 @@ namespace Kobold.Core.FileSearch
         };
 
         /// <summary>
-        /// OS directories that are large, volatile or inaccessible when a whole
-        /// drive is scanned. %TEMP% normally resolves to
-        /// <c>C:\Users\&lt;user&gt;\AppData\Local\Temp</c>.
+        /// Environment-derived directories that are large, volatile or inaccessible
+        /// when a whole drive is scanned: the OS and temporary trees, browser
+        /// profiles, the Windows internet caches and IDE caches.
+        /// %TEMP% normally resolves to <c>C:\Users\&lt;user&gt;\AppData\Local\Temp</c>.
+        /// Store app data is not one of these paths: only the volatile children of a
+        /// package are excluded (see <see cref="StoreVolatileNames"/>), so the user's
+        /// own files under <c>Packages\&lt;app&gt;\LocalState</c> stay searchable.
         /// </summary>
         public static readonly string[] DefaultExcludedPaths = BuildDefaultExcludedPaths();
+
+        /// <summary>
+        /// The volatile children of a Store (UWP) package directory under
+        /// <c>%LocalAppData%\Packages\&lt;package&gt;</c>: caches, temp files and the app
+        /// container's scratch area. Excluding the package root instead would hide the
+        /// user-visible files in its <c>LocalState</c>.
+        /// </summary>
+        private static readonly string[] StoreVolatileNames = { "LocalCache", "TempState", "AC" };
+
+        /// <summary><c>%LocalAppData%\Packages</c>, or "" when the shell hides it.</summary>
+        private static readonly string PackagesRoot = BuildPackagesRoot();
 
         private static readonly char[] Separators = { '\\', '/' };
 
@@ -66,6 +83,7 @@ namespace Kobold.Core.FileSearch
 
             if (MatchesName(plainPath, leaf, DefaultExcludedNames)) return true;
             if (plainPath.Length > 0 && MatchesPath(plainPath, DefaultExcludedPaths)) return true;
+            if (plainPath.Length > 0 && IsStoreVolatilePath(plainPath)) return true;
 
             UserExclusions extra = GetUserExclusions(settings == null ? null : settings.ExcludeDirectories);
             if (MatchesName(plainPath, leaf, extra.Names)) return true;
@@ -172,6 +190,48 @@ namespace Kobold.Core.FileSearch
             return false;
         }
 
+        /// <summary>
+        /// True when <paramref name="path"/> is
+        /// <c>&lt;LocalAppData&gt;\Packages\&lt;package&gt;\&lt;volatile&gt;</c> or anything
+        /// below it. One prefix comparison for every path outside Packages, then a
+        /// two-segment parse: the package directory itself and its <c>LocalState</c>
+        /// stay in scope.
+        /// </summary>
+        private static bool IsStoreVolatilePath(string path)
+        {
+            string packages = PackagesRoot;
+            if (packages.Length == 0 || !SearchPath.IsUnder(path, packages)) return false;
+
+            int index = packages.Length;
+            if (index >= path.Length || !IsSeparator(path[index])) return false;
+
+            // Skip the package segment, then compare the segment after it.
+            int nameStart = SegmentEnd(path, index + 1) + 1;
+            if (nameStart >= path.Length) return false;
+
+            int nameEnd = SegmentEnd(path, nameStart);
+            int length = nameEnd - nameStart;
+            for (int i = 0; i < StoreVolatileNames.Length; i++)
+            {
+                string candidate = StoreVolatileNames[i];
+                if (length == candidate.Length &&
+                    string.Compare(path, nameStart, candidate, 0, length,
+                        StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Index just past the segment that starts at <paramref name="start"/>.</summary>
+        private static int SegmentEnd(string path, int start)
+        {
+            int index = start;
+            while (index < path.Length && !IsSeparator(path[index])) index++;
+            return index;
+        }
+
         private static string LeafOf(string path)
         {
             if (string.IsNullOrEmpty(path)) return string.Empty;
@@ -186,9 +246,24 @@ namespace Kobold.Core.FileSearch
             return c == '\\' || c == '/';
         }
 
+        /// <summary><c>%LocalAppData%\Packages</c>, the Store app data root.</summary>
+        private static string BuildPackagesRoot()
+        {
+            try
+            {
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(local)) return string.Empty;
+                return SearchPath.Normalize(Path.Combine(local, "Packages"));
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
+        }
+
         private static string[] BuildDefaultExcludedPaths()
         {
-            var paths = new List<string>(5);
+            var paths = new List<string>(16);
             try
             {
                 string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -200,6 +275,26 @@ namespace Kobold.Core.FileSearch
                     AddPath(paths, Path.Combine(windows, "Temp"));
                 }
                 AddPath(paths, Path.GetTempPath());
+
+                // Browser profiles, the Windows internet caches and IDE caches.
+                // Derived from the environment, never from a user name. Firefox keeps
+                // its profiles in Roaming (Profile Groups also leave a Local copy).
+                // A missing leaf is still excluded: the folder is created the first
+                // time the app runs, and the entry only costs a prefix comparison.
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+                AddUnder(paths, local, "Google", "Chrome", "User Data");
+                AddUnder(paths, local, "Microsoft", "Edge", "User Data");
+                AddUnder(paths, roaming, "Mozilla", "Firefox", "Profiles");
+                AddUnder(paths, local, "Mozilla", "Firefox", "Profiles");
+                AddUnder(paths, local, "Microsoft", "Windows", "INetCache");
+                AddUnder(paths, local, "Microsoft", "Windows", "WebCache");
+                AddUnder(paths, local, "JetBrains");
+                AddUnder(paths, roaming, "Code");
+                AddUnder(paths, profile, ".vscode");
+                AddUnder(paths, profile, ".cache");
             }
             catch (Exception)
             {
@@ -208,6 +303,23 @@ namespace Kobold.Core.FileSearch
             }
 
             return paths.ToArray();
+        }
+
+        /// <summary>
+        /// Adds <paramref name="basePath"/> plus <paramref name="segments"/>. A missing
+        /// special folder (the empty answer of a locked-down shell) skips the entry:
+        /// there is no prefix to compare against.
+        /// </summary>
+        private static void AddUnder(List<string> paths, string basePath, params string[] segments)
+        {
+            if (string.IsNullOrEmpty(basePath) || segments == null) return;
+
+            string combined = basePath;
+            for (int i = 0; i < segments.Length; i++)
+            {
+                combined = Path.Combine(combined, segments[i]);
+            }
+            AddPath(paths, combined);
         }
 
         private static void AddPath(List<string> paths, string path)

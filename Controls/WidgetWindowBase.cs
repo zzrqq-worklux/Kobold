@@ -94,6 +94,14 @@ namespace Kobold.Controls
         protected WidgetChrome Chrome { get; private set; }
 
         /// <summary>
+        /// The shared chrome for a hosted content view (the search view drives
+        /// the chrome's query glow); null before <see cref="AttachChrome"/> ran.
+        /// Internal: only a view in this assembly (and the pins) needs it, so the
+        /// window keeps its public surface unchanged.
+        /// </summary>
+        internal WidgetChrome PanelChrome => Chrome;
+
+        /// <summary>
         /// Wires the chrome to this window's shared behaviour. Subclasses call
         /// this right after InitializeComponent, once the chrome exists.
         /// </summary>

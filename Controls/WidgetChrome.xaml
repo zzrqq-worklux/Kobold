@@ -145,5 +145,26 @@
                 </Canvas>
             </Border>
         </Grid>
+
+        <!-- Loading glow: a comet ring on the panel's outer rounded edge,
+             shown while a query or an index scan/reconcile runs. The five
+             paths share one inset rounded-rectangle geometry (rebuilt on size
+             changes in the code-behind); the dim track covers the normal
+             border, the four meteor layers are dashes that travel one
+             perimeter per GlowSeconds, and the halo is a thick faint path -
+             never a blur effect. Painted last so it sits over the shell
+             border, and non-hit-testing so the resize bands keep working. -->
+        <Grid x:Name="GlowLayer" IsHitTestVisible="False" Visibility="Collapsed">
+            <Path x:Name="GlowTrack"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+            <Path x:Name="GlowHalo"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+            <Path x:Name="GlowTail"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+            <Path x:Name="GlowMid"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+            <Path x:Name="GlowHead"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+        </Grid>
     </Grid>
 </UserControl>

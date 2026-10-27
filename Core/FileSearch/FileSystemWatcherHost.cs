@@ -34,7 +34,7 @@ namespace Kobold.Core.FileSearch
         /// <summary>Wall clock budget for collecting a batch after its first event.</summary>
         public const int BatchWindowMilliseconds = 200;
 
-        private enum WatcherEventKind
+        internal enum WatcherEventKind
         {
             Created,
             Changed,
@@ -42,7 +42,7 @@ namespace Kobold.Core.FileSearch
             Renamed
         }
 
-        private sealed class WatcherEvent
+        internal sealed class WatcherEvent
         {
             public WatcherEvent(WatcherEventKind kind, string path, string oldPath)
             {
@@ -452,13 +452,14 @@ namespace Kobold.Core.FileSearch
 
             try
             {
-                for (int i = 0; i < batch.Count; i++)
+                List<WatcherEvent> collapsed = Coalesce(batch);
+                for (int i = 0; i < collapsed.Count; i++)
                 {
                     if (token.IsCancellationRequested) break;
 
                     try
                     {
-                        ApplyEvent(batch[i], token);
+                        ApplyEvent(collapsed[i], token);
                     }
                     catch (OperationCanceledException)
                     {
@@ -485,6 +486,39 @@ namespace Kobold.Core.FileSearch
             }
         }
 
+        /// <summary>
+        /// Collapses a batch to its last <c>Created/Changed/Deleted</c> event per path,
+        /// so a burst on one file costs one stat and one upsert. A
+        /// <see cref="WatcherEventKind.Renamed"/> is never collapsed away: it carries
+        /// the delete of its old path and the subtree scan of the destination, so
+        /// dropping it when a Created for the destination lands in the same batch would
+        /// lose a whole subtree. The order between different paths is preserved.
+        /// </summary>
+        private static List<WatcherEvent> Coalesce(List<WatcherEvent> batch)
+        {
+            // The worker also hands over one-event batches; those already are their
+            // own collapse and must not pay for a dictionary and its hashing.
+            if (batch.Count < 2) return batch;
+
+            var last = new Dictionary<string, int>(batch.Count, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < batch.Count; i++)
+            {
+                if (batch[i].Kind == WatcherEventKind.Renamed) continue;
+                last[batch[i].Path ?? string.Empty] = i;
+            }
+
+            var collapsed = new List<WatcherEvent>(batch.Count);
+            for (int i = 0; i < batch.Count; i++)
+            {
+                WatcherEvent item = batch[i];
+                if (item.Kind == WatcherEventKind.Renamed || last[item.Path ?? string.Empty] == i)
+                {
+                    collapsed.Add(item);
+                }
+            }
+            return collapsed;
+        }
+
         private void ApplyEvent(WatcherEvent item, CancellationToken token)
         {
             string path = SearchPath.Normalize(item.Path);
@@ -507,12 +541,20 @@ namespace Kobold.Core.FileSearch
             // file (the index database itself, for one) would make the watcher feed
             // on its own writes.
             string root = FindContainingRoot(path);
-            if (root == null || !InScope(path) || !IsIncludedKind(path)) return;
+            if (root == null || !InScope(path)) return;
 
-            if (!TryUpsert(root, path))
+            // The type filter is string-only, so the common case costs no stat. Only a
+            // name it rejects can still be a directory (C:\dir\v1.2): one stat decides
+            // that, and a directory then follows the folder gate.
+            if (!SearchTypeFilter.IsFileIncluded(path, _settings) && !IsIncludedDirectory(path)) return;
+
+            bool isDirectory;
+            if (!TryUpsert(root, path, out isDirectory) && !isDirectory)
             {
-                // The item disappeared between the event and the stat: drop its row.
-                _store.Delete(path);
+                // The item disappeared between the event and the stat, so nothing tells
+                // us whether it was a file or a directory: the prefix delete covers the
+                // row and, for a directory, the children it took with it.
+                _store.DeletePathAndPrefix(path);
             }
         }
 
@@ -548,7 +590,7 @@ namespace Kobold.Core.FileSearch
                 return;
             }
 
-            if (!TryUpsert(root, path)) _store.Delete(path);
+            if (!TryUpsert(root, path, out _)) _store.Delete(path);
         }
 
         /// <summary>
@@ -592,29 +634,33 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Cheap pre-filter so an excluded type never reaches the store. Directory
-        /// events still need the stat below because the name alone cannot tell the
-        /// two apart.
+        /// True when a path the string type check rejected is a directory the settings
+        /// index. One stat, reached only when the name alone says no; with folder rows
+        /// disabled the answer is already no, so no stat is paid at all.
         /// </summary>
-        private bool IsIncludedKind(string path)
+        private bool IsIncludedDirectory(string path)
         {
-            bool isDirectory;
-            try { isDirectory = Directory.Exists(SearchPath.ToExtended(path)); }
-            catch (Exception) { isDirectory = false; }
+            if (!_settings.IndexFolders) return false;
 
-            if (isDirectory) return _settings.IndexFolders;
-            return SearchTypeFilter.IsFileIncluded(path, _settings);
+            try { return Directory.Exists(SearchPath.ToExtended(path)); }
+            catch (Exception) { return false; }
         }
 
-        private bool TryUpsert(string root, string path)
+        /// <summary>
+        /// Writes one row from one stat: <see cref="SearchEntry.TryCreate"/> reads the
+        /// attributes, size and timestamp together and reports <c>IsDirectory</c>, so a
+        /// <see cref="FileInfo"/> covers a directory too. False means nothing was
+        /// written - the item vanished or the settings keep it out; <paramref name="isDirectory"/>
+        /// tells the two apart, so a folder event is never mistaken for a deleted file.
+        /// </summary>
+        private bool TryUpsert(string root, string path, out bool isDirectory)
         {
+            isDirectory = false;
+
             FileSystemInfo info;
             try
             {
-                string extended = SearchPath.ToExtended(path);
-                info = Directory.Exists(extended)
-                    ? (FileSystemInfo)new DirectoryInfo(extended)
-                    : new FileInfo(extended);
+                info = new FileInfo(SearchPath.ToExtended(path));
             }
             catch (Exception)
             {
@@ -624,6 +670,7 @@ namespace Kobold.Core.FileSearch
             SearchEntry entry;
             if (!SearchEntry.TryCreate(root, info, out entry) || entry == null) return false;
 
+            isDirectory = entry.IsDirectory;
             if (entry.IsDirectory)
             {
                 if (!_settings.IndexFolders) return false;
@@ -659,6 +706,16 @@ namespace Kobold.Core.FileSearch
             {
                 // CompleteAdding during Stop: the event is covered by the scan.
             }
+        }
+
+        /// <summary>
+        /// Test hook: applies an event batch on the calling thread through the same
+        /// gates as the worker, so a check can assert the store writes without
+        /// racing the OS watcher. Production never calls it.
+        /// </summary>
+        internal void ApplyBatchForChecks(IReadOnlyList<WatcherEvent> batch)
+        {
+            ApplyBatch(new List<WatcherEvent>(batch), CancellationToken.None);
         }
 
         private void RequestReconcile()

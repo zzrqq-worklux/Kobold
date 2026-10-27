@@ -205,6 +205,9 @@ namespace Kobold.Controls
             try
             {
                 Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+                // The single funnel for file opens; a directory never counts
+                // (Record ignores anything that is not an existing file).
+                FrequentFiles.Record(path);
             }
             catch (Exception ex)
             {

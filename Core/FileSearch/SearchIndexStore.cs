@@ -21,6 +21,15 @@ namespace Kobold.Core.FileSearch
     {
         private const int BusyTimeoutMs = 10000;
 
+        /// <summary>
+        /// Schema generation. 1 was the first published table; 2 adds the derived
+        /// <c>Parent</c> column (and its index) that makes a directory's direct
+        /// children one equality seek instead of a subtree scan. The numeric form is
+        /// what <c>PRAGMA user_version</c> carries; keep the two in step.
+        /// </summary>
+        private const int SchemaVersion = 2;
+        private const string SchemaVersionText = "2";
+
         private const string CreateFilesSql = @"
 CREATE TABLE IF NOT EXISTS files (
     Path TEXT PRIMARY KEY COLLATE NOCASE,
@@ -30,7 +39,8 @@ CREATE TABLE IF NOT EXISTS files (
     IsDirectory INTEGER NOT NULL,
     SizeBytes INTEGER NOT NULL,
     ModifiedUtc INTEGER NOT NULL,
-    Root TEXT NOT NULL);";
+    Root TEXT NOT NULL,
+    Parent TEXT NOT NULL DEFAULT '' COLLATE NOCASE);";
 
         private const string CreateMetaSql = @"
 CREATE TABLE IF NOT EXISTS meta (Key TEXT PRIMARY KEY, Value TEXT);";
@@ -38,7 +48,8 @@ CREATE TABLE IF NOT EXISTS meta (Key TEXT PRIMARY KEY, Value TEXT);";
         private const string CreateIndexesSql = @"
 CREATE INDEX IF NOT EXISTS idx_files_name_lower ON files(NameLower);
 CREATE INDEX IF NOT EXISTS idx_files_extension ON files(Extension);
-CREATE INDEX IF NOT EXISTS idx_files_root ON files(Root);";
+CREATE INDEX IF NOT EXISTS idx_files_root ON files(Root);
+CREATE INDEX IF NOT EXISTS idx_files_parent ON files(Parent);";
 
         private const string CreateStagingSql = @"
 CREATE TABLE files_new (
@@ -49,10 +60,68 @@ CREATE TABLE files_new (
     IsDirectory INTEGER NOT NULL,
     SizeBytes INTEGER NOT NULL,
     ModifiedUtc INTEGER NOT NULL,
-    Root TEXT NOT NULL);";
+    Root TEXT NOT NULL,
+    Parent TEXT NOT NULL DEFAULT '' COLLATE NOCASE);";
 
         private const string CreateSeenSql = @"
 CREATE TABLE reconcile_seen (Path TEXT PRIMARY KEY COLLATE NOCASE);";
+
+        // v1 -> v2, in place. Parent is derived, so the default is only what existing
+        // rows carry between the ALTER and the UPDATE that follows it. The fresh
+        // tables declare the same default: a v1 8-column INSERT into a v2 file then
+        // succeeds with Parent='', and the version-guarded backfill repairs those rows
+        // on the next v2 launch instead of wedging the old build.
+        private const string AddParentColumnSql =
+            @"ALTER TABLE files ADD COLUMN Parent TEXT NOT NULL DEFAULT '' COLLATE NOCASE;";
+
+        // Written in the same transaction as the backfill. A v2 file reopened by a v1
+        // build is stamped back to 1 while the v1 8-column INSERT leaves Parent at the
+        // '' default, so the version alone is not enough to see those rows; the pair
+        // (user_version, stamp) is, and re-running the idempotent backfill repairs them.
+        private const string ParentBackfillStampKey = "parent_filled";
+
+        // ParentOf in SQL, for every row whose Parent may be missing or stale.
+        //
+        // Step 1 is the plain last-separator rule: rtrim(Path, '\') drops any trailing
+        // separator, and rtrim(<that>, <every non-separator character>) trims back to the
+        // last separator, leaving the directory plus exactly one separator. A drive root
+        // ("C:\") trims all the way to "" here, so the rule already yields the parentless
+        // value for both "C:\" and "C:\\".
+        //
+        // Step 2 extends that to a UNC share root: "\\server\share" computes to
+        // "\\server\" in step 1, but the server namespace is not a directory inside the
+        // index, so it has no parent either (exactly what ParentOf returns). A parent key
+        // that is only the server root has exactly three separators: the two leading ones
+        // and the one before the share.
+        //
+        // Both forms are pinned against each other on seeded v1 tables, including the
+        // double-separator and UNC cases.
+        private const string BackfillParentSql = @"
+UPDATE files SET Parent = rtrim(rtrim(Path, '\'), replace(rtrim(Path, '\'), '\', ''));
+UPDATE files SET Parent = ''
+WHERE substr(Parent, 1, 2) = '\\'
+  AND length(Parent) - length(replace(Parent, '\', '')) <= 3;";
+
+        // The direct children of one directory, by its parent key: every row stores the
+        // containing directory with one trailing separator (see ParentOf), so this is
+        // one equality seek on idx_files_parent instead of a range scan that returns
+        // the whole subtree (42.5k directories read ~2.0M descendant rows that way).
+        // The column is NOCASE like Path, so a caller's case variant still matches.
+        private const string ChildrenSql = @"
+SELECT Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root
+FROM files
+WHERE Parent = @p;";
+
+        private const string DeleteSql = @"DELETE FROM files WHERE Path = @path;";
+
+        // A directory delete removes the row itself (Path = @path) plus its whole
+        // subtree. The subtree is the prefix range [@start, @end): @start is the
+        // directory with one trailing separator (so "C:\p\sub" never claims
+        // "C:\p\submarine") and @end is its exclusive successor. Path is the NOCASE
+        // primary key, so this seeks; "Path LIKE @prefix ESCAPE '\'" could not. The
+        // reconcile "mark seen under" copy uses the same predicate.
+        private const string DeletePrefixSql =
+            @"DELETE FROM files WHERE Path = @path OR (Path >= @start AND Path < @end);";
 
         // {0} is "files" or "files_new"; both are internal constants, never user input.
         // The DO UPDATE is guarded so a reconcile over an unchanged tree performs no
@@ -60,8 +129,8 @@ CREATE TABLE reconcile_seen (Path TEXT PRIMARY KEY COLLATE NOCASE);";
         // when the values are identical. Path stays the conflict key and is never
         // rewritten.
         private const string UpsertSql = @"
-INSERT INTO {0} (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root)
-VALUES (@path, @name, @nameLower, @extension, @isDirectory, @sizeBytes, @modifiedUtc, @root)
+INSERT INTO {0} (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root, Parent)
+VALUES (@path, @name, @nameLower, @extension, @isDirectory, @sizeBytes, @modifiedUtc, @root, @parent)
 ON CONFLICT(Path) DO UPDATE SET
     Name = excluded.Name,
     NameLower = excluded.NameLower,
@@ -69,14 +138,16 @@ ON CONFLICT(Path) DO UPDATE SET
     IsDirectory = excluded.IsDirectory,
     SizeBytes = excluded.SizeBytes,
     ModifiedUtc = excluded.ModifiedUtc,
-    Root = excluded.Root
+    Root = excluded.Root,
+    Parent = excluded.Parent
 WHERE {0}.Name IS NOT excluded.Name
    OR {0}.NameLower IS NOT excluded.NameLower
    OR {0}.Extension IS NOT excluded.Extension
    OR {0}.IsDirectory IS NOT excluded.IsDirectory
    OR {0}.SizeBytes IS NOT excluded.SizeBytes
    OR {0}.ModifiedUtc IS NOT excluded.ModifiedUtc
-   OR {0}.Root IS NOT excluded.Root;";
+   OR {0}.Root IS NOT excluded.Root
+   OR {0}.Parent IS NOT excluded.Parent;";
 
         private const string SetMetaSql = @"
 INSERT INTO meta (Key, Value) VALUES (@key, @value)
@@ -105,11 +176,16 @@ WHERE (NameLower LIKE @contains ESCAPE '\' OR Path LIKE @contains ESCAPE '\')
 ORDER BY MatchRank, NameLower, Path
 LIMIT @remaining;";
 
-        private readonly object _writeGate = new object();
+        // A semaphore, not a Monitor: a reconcile session holds the gate for a whole
+        // pass, and its commit/dispose must be able to release it even when the caller
+        // hands the pass to another thread. Monitor.Exit on a foreign thread throws
+        // SynchronizationLockException and would wedge every later writer forever.
+        private readonly SemaphoreSlim _writeGate = new SemaphoreSlim(1, 1);
         private readonly string _databasePath;
 
         private bool _fullScanActive;
         private bool _reconcileActive;
+        private bool _reconcileSessionActive;
         private bool _disposed;
 
         public SearchIndexStore(string databasePath)
@@ -130,7 +206,7 @@ LIMIT @remaining;";
         {
             get
             {
-                lock (_writeGate)
+                using (EnterWriteGate())
                 {
                     ThrowIfDisposed();
                     return _fullScanActive;
@@ -144,9 +220,40 @@ LIMIT @remaining;";
             _disposed = true;
         }
 
+        /// <summary>
+        /// Holds the single-writer gate for the scope of a <c>using</c>. Released on
+        /// any thread, which is what a reconcile session needs: it owns the gate for a
+        /// whole pass and must release it from commit/dispose (and even from a
+        /// finalizer-like cleanup path) without thread affinity.
+        /// </summary>
+        private WriteLock EnterWriteGate()
+        {
+            _writeGate.Wait();
+            return new WriteLock(_writeGate);
+        }
+
+        /// <summary>One acquisition of <see cref="_writeGate"/>; release exactly once.</summary>
+        private struct WriteLock : IDisposable
+        {
+            private SemaphoreSlim _gate;
+
+            public WriteLock(SemaphoreSlim gate)
+            {
+                _gate = gate;
+            }
+
+            public void Dispose()
+            {
+                SemaphoreSlim gate = _gate;
+                if (gate == null) return;
+                _gate = null;
+                gate.Release();
+            }
+        }
+
         public void EnsureSchema()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -156,10 +263,13 @@ LIMIT @remaining;";
                 using (var connection = OpenWrite())
                 {
                     ExecuteScalar(connection, "PRAGMA journal_mode=WAL;");
-                    Execute(connection, "PRAGMA user_version=1;");
 
                     Execute(connection, CreateFilesSql);
                     Execute(connection, CreateMetaSql);
+                    // A v1 table is upgraded in place: the parent column is additive, so
+                    // an existing index must not cost a rebuild just for it. A fresh
+                    // database already has the column and pays one idempotent UPDATE.
+                    MigrateParentColumn(connection);
                     Execute(connection, CreateIndexesSql);
                     // A process that died mid-scan leaves its staging table behind.
                     // It is never trusted: the next full scan recreates it from scratch.
@@ -174,16 +284,55 @@ LIMIT @remaining;";
                     {
                         // Recorded so a bug report can tell which native library shipped.
                         SetMeta(connection, transaction, "sqlite_version", sqliteVersion);
-                        SetMeta(connection, transaction, "schema_version", "1");
+                        SetMeta(connection, transaction, "schema_version", SchemaVersionText);
                         transaction.Commit();
                     }
+
+                    // Stamped last, after the migration committed: a database that was
+                    // interrupted between the ALTER and this PRAGMA keeps the old number
+                    // and is simply migrated again (the backfill is idempotent).
+                    Execute(connection, "PRAGMA user_version=" + SchemaVersionText + ";");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Adds the derived parent column to a table that predates it and fills it for
+        /// every existing row, in one transaction: no row is re-read, no scan metadata
+        /// is touched and nothing is rebuilt.
+        ///
+        /// The guard is deliberately not the column alone. A v1 build that opens a v2
+        /// file adds nothing (it does not know the column) but inserts its 8 columns,
+        /// which leaves <c>Parent=''</c> because of the NOT NULL default, and its
+        /// <c>EnsureSchema</c> stamps <c>user_version</c> back to 1. Column-presence
+        /// alone would leave those rows invisible to <c>ReadChildren</c> forever. So the
+        /// backfill also runs when the file is not at version 2 or does not carry the
+        /// migration stamp; it is idempotent, so running it over correct rows is a
+        /// no-op in value and costs one UPDATE over the table.
+        /// </summary>
+        private static void MigrateParentColumn(SqliteConnection connection)
+        {
+            bool hasColumn = ColumnExists(connection, "files", "Parent");
+            long userVersion = ScalarLong(ExecuteScalar(connection, "PRAGMA user_version;"));
+            string stamp = ReadMetaValue(connection, ParentBackfillStampKey);
+
+            bool needsBackfill = !hasColumn
+                || userVersion < SchemaVersion
+                || !string.Equals(stamp, SchemaVersionText, StringComparison.Ordinal);
+            if (!needsBackfill) return;
+
+            using (var transaction = connection.BeginTransaction())
+            {
+                if (!hasColumn) Execute(connection, AddParentColumnSql, transaction);
+                Execute(connection, BackfillParentSql, transaction);
+                SetMeta(connection, transaction, ParentBackfillStampKey, SchemaVersionText);
+                transaction.Commit();
             }
         }
 
         public void BeginFullScan()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -200,7 +349,7 @@ LIMIT @remaining;";
         {
             if (entries == null || entries.Count == 0) return;
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -225,7 +374,7 @@ LIMIT @remaining;";
         public void CompleteFullScan(long skippedDirectories, long skippedReparsePoints, long skippedLongPaths,
             string fingerprint)
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
                 if (!_fullScanActive) throw new InvalidOperationException("No full scan is in progress.");
@@ -238,6 +387,7 @@ LIMIT @remaining;";
                     Execute(connection, "CREATE INDEX idx_files_name_lower ON files(NameLower);", transaction);
                     Execute(connection, "CREATE INDEX idx_files_extension ON files(Extension);", transaction);
                     Execute(connection, "CREATE INDEX idx_files_root ON files(Root);", transaction);
+                    Execute(connection, "CREATE INDEX idx_files_parent ON files(Parent);", transaction);
 
                     SetMeta(connection, transaction, "last_scan_utc", UtcNowText());
                     SetMeta(connection, transaction, "skipped_dirs", AsText(skippedDirectories));
@@ -257,7 +407,7 @@ LIMIT @remaining;";
 
         public void AbortFullScan()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -271,7 +421,7 @@ LIMIT @remaining;";
 
         public void BeginReconcile()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -288,7 +438,7 @@ LIMIT @remaining;";
         {
             if (paths == null || paths.Count == 0) return;
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
                 if (!_reconcileActive) throw new InvalidOperationException("No reconcile is in progress.");
@@ -317,7 +467,7 @@ LIMIT @remaining;";
         {
             if (prefixes == null || prefixes.Count == 0) return;
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
                 if (!_reconcileActive) throw new InvalidOperationException("No reconcile is in progress.");
@@ -331,18 +481,21 @@ LIMIT @remaining;";
                         command.CommandText = @"
 INSERT OR IGNORE INTO reconcile_seen (Path)
 SELECT Path FROM files
- WHERE Path = @path OR Path LIKE @prefix ESCAPE '\';";
+ WHERE Path = @path OR (Path >= @start AND Path < @end);";
                         var exact = command.Parameters.Add("@path", SqliteType.Text);
-                        var prefix = command.Parameters.Add("@prefix", SqliteType.Text);
+                        var start = command.Parameters.Add("@start", SqliteType.Text);
+                        var end = command.Parameters.Add("@end", SqliteType.Text);
                         foreach (var value in prefixes)
                         {
                             if (string.IsNullOrEmpty(value)) continue;
 
                             string path;
-                            string pattern;
-                            BuildPrefix(value, out path, out pattern);
+                            string from;
+                            string to;
+                            BuildPrefix(value, out path, out from, out to);
                             exact.Value = path;
-                            prefix.Value = pattern;
+                            start.Value = from;
+                            end.Value = to;
                             command.ExecuteNonQuery();
                         }
                     }
@@ -353,7 +506,7 @@ SELECT Path FROM files
 
         public void CompleteReconcile(IReadOnlyList<string> roots)
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
                 if (!_reconcileActive) throw new InvalidOperationException("No reconcile is in progress.");
@@ -391,7 +544,7 @@ DELETE FROM files
 
         public void AbortReconcile()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -403,12 +556,68 @@ DELETE FROM files
             }
         }
 
+        /// <summary>
+        /// Opens a reconcile session. The single-writer gate is held for the session's
+        /// whole lifetime, so no other write can interleave with the pass. A second
+        /// session on any thread throws instead of sharing the connection. Commit and
+        /// dispose release the gate from whatever thread calls them.
+        /// </summary>
+        public IReconcileSession OpenReconcileSession()
+        {
+            // Fail fast before waiting: a semaphore is not re-entrant, so a second
+            // session on the opening thread would otherwise block forever instead of
+            // reporting the programming error. The check inside the gate is the
+            // authoritative one (another thread may hold the session right now).
+            ThrowIfDisposed();
+            if (_reconcileSessionActive)
+                throw new InvalidOperationException("A reconcile session is already open.");
+
+            _writeGate.Wait();
+            bool opened = false;
+            SqliteConnection connection = null;
+            SqliteTransaction transaction = null;
+            try
+            {
+                ThrowIfDisposed();
+                if (_reconcileSessionActive)
+                    throw new InvalidOperationException("A reconcile session is already open.");
+
+                // WAL + one transaction for the whole pass: a cancel or an error rolls
+                // back to the exact pre-pass index, and queries keep reading the last
+                // committed snapshot until the commit.
+                connection = OpenWrite();
+                transaction = connection.BeginTransaction();
+                var session = new ReconcileSession(this, connection, transaction);
+                _reconcileSessionActive = true;
+                opened = true;
+                return session;
+            }
+            catch (Exception)
+            {
+                // Dispose commands first: they are children of the connection.
+                if (transaction != null) transaction.Dispose();
+                if (connection != null) connection.Dispose();
+                throw;
+            }
+            finally
+            {
+                if (!opened) _writeGate.Release();
+            }
+        }
+
+        /// <summary>Called exactly once by the session's commit/dispose; any thread.</summary>
+        private void EndReconcileSession()
+        {
+            _reconcileSessionActive = false;
+            _writeGate.Release();
+        }
+
         public void Upsert(SearchEntry entry)
         {
             if (entry == null || string.IsNullOrEmpty(entry.Path))
                 throw new ArgumentException("An entry with a path is required.", "entry");
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -427,7 +636,7 @@ DELETE FROM files
         {
             if (string.IsNullOrEmpty(path)) return;
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -445,24 +654,26 @@ DELETE FROM files
         {
             if (string.IsNullOrEmpty(path)) return;
 
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
                 // A directory delete removes the row itself and its whole subtree. The
                 // trailing separator is stripped so "C:\p\sub\" also matches the stored
-                // "C:\p\sub" row, while the pattern keeps it escaped: C:\p\sub never
-                // claims C:\p\submarine. A drive root keeps its separator.
+                // "C:\p\sub" row, while the range starts at "C:\p\sub\" so it never
+                // claims "C:\p\submarine". A drive root keeps its separator.
                 string exact;
-                string prefix;
-                BuildPrefix(path, out exact, out prefix);
+                string start;
+                string end;
+                BuildPrefix(path, out exact, out start, out end);
 
                 using (var connection = OpenWrite())
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = @"DELETE FROM files WHERE Path = @path OR Path LIKE @prefix ESCAPE '\';";
+                    command.CommandText = DeletePrefixSql;
                     command.Parameters.AddWithValue("@path", exact);
-                    command.Parameters.AddWithValue("@prefix", prefix);
+                    command.Parameters.AddWithValue("@start", start);
+                    command.Parameters.AddWithValue("@end", end);
                     command.ExecuteNonQuery();
                 }
             }
@@ -574,7 +785,7 @@ DELETE FROM files
 
         public void Checkpoint()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -588,7 +799,7 @@ DELETE FROM files
 
         public void Vacuum()
         {
-            lock (_writeGate)
+            using (EnterWriteGate())
             {
                 ThrowIfDisposed();
 
@@ -658,12 +869,53 @@ DELETE FROM files
             }
         }
 
-        private static void BuildPrefix(string path, out string exact, out string pattern)
+        /// <summary>
+        /// The parent key of one indexed row: <c>C:\dir\file.txt</c> becomes
+        /// <c>C:\dir\</c>, <c>C:\dir</c> becomes <c>C:\</c>, a drive root becomes
+        /// "" (the value a parentless root row stores), and so does a UNC share root
+        /// (<c>\\server\share</c>: its only remaining "parent" is the server
+        /// namespace, which is not a directory in the index). The key is the
+        /// containing directory with exactly one trailing separator, which is what
+        /// makes the parent lookup an index equality seek instead of a subtree scan.
+        /// Trailing separators are all stripped first, so <c>C:\dir\\</c> keys to
+        /// <c>C:\</c> and can never yield <c>C:\dir\\</c>.
+        ///
+        /// The v1 -> v2 backfill mirrors this rule in SQL; the two must stay equal.
+        /// </summary>
+        internal static string ParentOf(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+
+            string value = path.TrimEnd('\\');
+
+            // "C:" is all that is left of a drive root: it has no parent.
+            if (value.Length == 2 && value[1] == ':') return string.Empty;
+
+            int separator = value.LastIndexOf('\\');
+            if (separator < 0) return string.Empty;
+
+            string parent = value.Substring(0, separator + 1);
+            // "\\server\" is what is left of a UNC share root: a server namespace
+            // has no parent inside the index. Three separators are the two leading
+            // ones plus the one before the share.
+            if (parent.Length >= 2 && parent[0] == '\\' && parent[1] == '\\'
+                && parent.Length - parent.Replace("\\", string.Empty).Length <= 3)
+            {
+                return string.Empty;
+            }
+            return parent;
+        }
+
+        private static void BuildPrefix(string path, out string exact, out string start, out string end)
         {
             string directory = path.TrimEnd('\\');
             if (directory.Length == 2 && directory[1] == ':') directory += "\\";
             exact = directory.Length == 0 ? path : directory;
-            pattern = SearchPath.EscapeLike(exact.TrimEnd('\\') + "\\") + "%";
+            // The subtree is the prefix range [@start, @end): every stored path that
+            // begins with "<directory>\" sorts at or after @start and before the
+            // successor of that separator (0x5C + 1 = ']'), and nothing else does.
+            start = exact.TrimEnd('\\') + "\\";
+            end = start.Substring(0, start.Length - 1) + (char)(start[start.Length - 1] + 1);
         }
 
         private static SqliteCommand CreateUpsertCommand(SqliteConnection connection, SqliteTransaction transaction,
@@ -680,6 +932,7 @@ DELETE FROM files
             command.Parameters.Add("@sizeBytes", SqliteType.Integer);
             command.Parameters.Add("@modifiedUtc", SqliteType.Integer);
             command.Parameters.Add("@root", SqliteType.Text);
+            command.Parameters.Add("@parent", SqliteType.Text);
             return command;
         }
 
@@ -695,6 +948,9 @@ DELETE FROM files
             command.Parameters["@sizeBytes"].Value = entry.SizeBytes;
             command.Parameters["@modifiedUtc"].Value = entry.ModifiedUtc;
             command.Parameters["@root"].Value = entry.Root ?? string.Empty;
+            // Derived here (not on SearchEntry): the scanner never has to know about
+            // the storage layout, and every write path gets the same value.
+            command.Parameters["@parent"].Value = ParentOf(entry.Path);
         }
 
         private static void ReadEntries(SqliteCommand command, List<SearchEntry> items, CancellationToken token)
@@ -738,6 +994,20 @@ DELETE FROM files
         {
             string value;
             return meta.TryGetValue(key, out value) && value != null ? value : string.Empty;
+        }
+
+        /// <summary>One meta value read on its own, or null when the key is absent.</summary>
+        private static string ReadMetaValue(SqliteConnection connection, string key)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Value FROM meta WHERE Key = @key;";
+                command.Parameters.AddWithValue("@key", key);
+                object value = command.ExecuteScalar();
+                return value == null || value == DBNull.Value
+                    ? null
+                    : Convert.ToString(value, CultureInfo.InvariantCulture);
+            }
         }
 
         private static long ParseLong(string value)
@@ -786,6 +1056,31 @@ DELETE FROM files
             {
                 return 0;
             }
+        }
+
+        /// <summary>
+        /// True when <paramref name="table"/> has <paramref name="column"/>. The
+        /// migration needs this as well as the version stamp: a table that a previous
+        /// build created without the stamp still gets the column, and a database whose
+        /// stamp says 2 but whose table lost the column is still repaired.
+        /// </summary>
+        private static bool ColumnExists(SqliteConnection connection, string table, string column)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                // The table name is an internal constant, never user input.
+                command.CommandText = "PRAGMA table_info(" + table + ");";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        // Column 1 of table_info is the column name.
+                        if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                }
+            }
+            return false;
         }
 
         private static bool TableExists(SqliteConnection connection, string name)
@@ -847,6 +1142,189 @@ DELETE FROM files
         private void ThrowIfDisposed()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
+        }
+
+        /// <summary>
+        /// One write connection and transaction for a whole reconcile pass. The
+        /// commands are created once and only rebound, so reading a directory's rows
+        /// is one parent-key equality seek and writing a difference is one statement.
+        /// </summary>
+        private sealed class ReconcileSession : IReconcileSession
+        {
+            private readonly SearchIndexStore _store;
+            private readonly SqliteConnection _connection;
+            private readonly SqliteTransaction _transaction;
+            private readonly SqliteCommand _children;
+            private readonly SqliteCommand _upsert;
+            private readonly SqliteCommand _delete;
+            private readonly SqliteCommand _deletePrefix;
+            private bool _committed;
+            private int _closed;
+
+            public ReconcileSession(SearchIndexStore store, SqliteConnection connection,
+                SqliteTransaction transaction)
+            {
+                _store = store;
+                _connection = connection;
+                _transaction = transaction;
+
+                _children = connection.CreateCommand();
+                _children.Transaction = transaction;
+                _children.CommandText = ChildrenSql;
+                _children.Parameters.Add("@p", SqliteType.Text);
+
+                _upsert = CreateUpsertCommand(connection, transaction, "files");
+
+                _delete = connection.CreateCommand();
+                _delete.Transaction = transaction;
+                _delete.CommandText = DeleteSql;
+                _delete.Parameters.Add("@path", SqliteType.Text);
+
+                _deletePrefix = connection.CreateCommand();
+                _deletePrefix.Transaction = transaction;
+                _deletePrefix.CommandText = DeletePrefixSql;
+                _deletePrefix.Parameters.Add("@path", SqliteType.Text);
+                _deletePrefix.Parameters.Add("@start", SqliteType.Text);
+                _deletePrefix.Parameters.Add("@end", SqliteType.Text);
+            }
+
+            public IReadOnlyList<SearchEntry> ReadChildren(string directory, CancellationToken token)
+            {
+                ThrowIfDone();
+                if (string.IsNullOrEmpty(directory)) return new SearchEntry[0];
+
+                // The parent key of the directory's children is the directory itself
+                // plus one separator; a drive root already ends with its separator
+                // ("C:\"), so appending a second one would read nothing.
+                string parent = directory.EndsWith("\\", StringComparison.Ordinal)
+                    ? directory
+                    : directory + "\\";
+                _children.Parameters["@p"].Value = parent;
+
+                var children = new List<SearchEntry>();
+                int rows = 0;
+                using (var reader = _children.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        // A reconcile pass spans every directory: a cancel must not wait
+                        // for one directory to finish marshalling.
+                        if ((rows++ & 1023) == 0) token.ThrowIfCancellationRequested();
+
+                        string path = reader.GetString(0);
+                        // Belt and braces: the parent key already excludes descendants,
+                        // so this only guards a row whose Parent was written by hand.
+                        if (path.Length <= parent.Length) continue;
+                        if (path.IndexOf('\\', parent.Length) >= 0) continue;
+
+                        children.Add(new SearchEntry
+                        {
+                            Path = path,
+                            Name = reader.GetString(1),
+                            NameLower = reader.GetString(2),
+                            Extension = reader.GetString(3),
+                            IsDirectory = reader.GetInt64(4) != 0,
+                            SizeBytes = reader.GetInt64(5),
+                            ModifiedUtc = reader.GetInt64(6),
+                            Root = reader.GetString(7)
+                        });
+                    }
+                }
+                return children;
+            }
+
+            public void Upsert(SearchEntry entry)
+            {
+                ThrowIfDone();
+                if (entry == null || string.IsNullOrEmpty(entry.Path))
+                    throw new ArgumentException("An entry with a path is required.", "entry");
+
+                BindUpsert(_upsert, entry);
+                _upsert.ExecuteNonQuery();
+            }
+
+            public void Delete(string path)
+            {
+                ThrowIfDone();
+                if (string.IsNullOrEmpty(path)) return;
+
+                _delete.Parameters["@path"].Value = path;
+                _delete.ExecuteNonQuery();
+            }
+
+            public void DeletePathAndPrefix(string path)
+            {
+                ThrowIfDone();
+                if (string.IsNullOrEmpty(path)) return;
+
+                string exact;
+                string start;
+                string end;
+                BuildPrefix(path, out exact, out start, out end);
+                _deletePrefix.Parameters["@path"].Value = exact;
+                _deletePrefix.Parameters["@start"].Value = start;
+                _deletePrefix.Parameters["@end"].Value = end;
+                _deletePrefix.ExecuteNonQuery();
+            }
+
+            public void Commit()
+            {
+                ThrowIfDone();
+
+                // The timestamp the legacy CompleteReconcile wrote: ReadStatus keeps
+                // reporting the last pass, so nothing downstream sees it as stale.
+                SetMeta(_connection, _transaction, "last_reconcile_utc", UtcNowText());
+                _transaction.Commit();
+                _committed = true;
+                Close();
+            }
+
+            public void Dispose()
+            {
+                Close();
+            }
+
+            private void ThrowIfDone()
+            {
+                if (Volatile.Read(ref _closed) != 0) throw new ObjectDisposedException(GetType().Name);
+                if (_committed)
+                    throw new InvalidOperationException("The reconcile session is already committed.");
+            }
+
+            private void Close()
+            {
+                // Exactly once, whichever thread gets here first: the gate is a counting
+                // semaphore, so a second Release would silently widen the writer gate.
+                if (Interlocked.Exchange(ref _closed, 1) != 0) return;
+
+                DisposeQuietly(_children);
+                DisposeQuietly(_upsert);
+                DisposeQuietly(_delete);
+                DisposeQuietly(_deletePrefix);
+
+                try
+                {
+                    // No commit means no pass: roll every write of this session back.
+                    if (!_committed) _transaction.Rollback();
+                }
+                catch (Exception)
+                {
+                }
+
+                try { _transaction.Dispose(); }
+                catch (Exception) { }
+                try { _connection.Dispose(); }
+                catch (Exception) { }
+
+                _store.EndReconcileSession();
+            }
+
+            private static void DisposeQuietly(IDisposable value)
+            {
+                if (value == null) return;
+                try { value.Dispose(); }
+                catch (Exception) { }
+            }
         }
     }
 }

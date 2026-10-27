@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using Kobold.Core;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
@@ -89,6 +91,13 @@ namespace Kobold.Controls
             ResizeGrip.LostMouseCapture += (s, e) => _isResizeActive = false;
 
             ApplyTheme();
+
+            // The glow ring is built from the chrome's own size: the geometry,
+            // the dash pattern and the animation all follow its perimeter.
+            ApplyGlowDefaults();
+            ApplyGlowBrushes();
+            SizeChanged += (s, e) => UpdateGlowGeometry();
+            Loaded += (s, e) => UpdateGlowGeometry();
         }
 
         /// <summary>Header caption.</summary>
@@ -164,6 +173,10 @@ namespace Kobold.Controls
             UpdatePanelBackground();
             TitleText.Foreground = ThemeManager.TextBrush;
             TitleChevronGlyph.Foreground = ThemeManager.SecondaryTextBrush;
+
+            // A high-contrast toggle changes the accent source: keep a running
+            // comet on the new theme without stopping it.
+            if (_isGlowActive) ApplyGlowBrushes();
         }
 
         /// <summary>
@@ -270,6 +283,289 @@ namespace Kobold.Controls
             pulse.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(320))));
             LockButtonScale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
             LockButtonScale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
+        }
+
+        #endregion
+
+        #region Glow (the search widget's loading meteor: query, scan or reconcile)
+
+        private readonly Dictionary<Path, DoubleAnimation> _glowAnimations =
+            new Dictionary<Path, DoubleAnimation>();
+
+        private string _glowColor;
+        private bool _isGlowActive;
+
+        // The timing the running clocks were built from. StartGlow compares
+        // against these so a repeat call with unchanged parameters does not
+        // rebuild the animations (a rebuild re-applies From = the dash length,
+        // which snaps the comet back to the ring origin).
+        private bool _glowApplied;
+        private double _appliedGlowSeconds;
+        private double _appliedGlowTailFraction;
+
+        /// <summary>
+        /// Seconds for one revolution of the loading comet. Values that are not
+        /// positive fall back to the token default.
+        /// </summary>
+        public double GlowSeconds { get; set; } = UiTokens.GlowSeconds;
+
+        /// <summary>
+        /// Fraction of the ring perimeter the faint tail sweeps. Values outside
+        /// (0, <see cref="UiTokens.GlowMaxTailFraction"/>] are clamped: a fraction
+        /// of 1 would leave the tail layer with no gap and no travel.
+        /// </summary>
+        public double GlowTailFraction { get; set; } = UiTokens.GlowTailFraction;
+
+        /// <summary>True while the loading glow is running (query, scan or reconcile).</summary>
+        public bool IsGlowActive => _isGlowActive;
+
+        /// <summary>
+        /// Starts (or refreshes) the comet on the panel's outer rounded border:
+        /// the layer becomes visible and its colour is repainted. Idempotent - a
+        /// second call while the comet runs and its timing is unchanged only
+        /// repaints the colour, so the dash phase keeps travelling instead of
+        /// snapping back to the ring origin. A size change or a changed
+        /// <see cref="GlowSeconds"/> / <see cref="GlowTailFraction"/> rebuilds the
+        /// geometry and the clocks.
+        /// </summary>
+        public void StartGlow()
+        {
+            _isGlowActive = true;
+            GlowLayer.Visibility = Visibility.Visible;
+            ApplyGlowBrushes();
+
+            if (_glowApplied
+                && _appliedGlowSeconds == EffectiveGlowSeconds()
+                && _appliedGlowTailFraction == EffectiveGlowTailFraction())
+            {
+                return;
+            }
+
+            UpdateGlowGeometry();
+        }
+
+        /// <summary>
+        /// Hides the comet and drops its animation clocks, so a hidden panel
+        /// does no animation work. The layer stays reusable: StartGlow rebuilds
+        /// the geometry, the dash pattern and the clocks.
+        /// </summary>
+        public void StopGlow()
+        {
+            _isGlowActive = false;
+            _glowApplied = false;
+            if (GlowLayer != null) GlowLayer.Visibility = Visibility.Collapsed;
+
+            Path[] meteors = MeteorPaths();
+            for (int i = 0; i < meteors.Length; i++)
+            {
+                meteors[i].BeginAnimation(Shape.StrokeDashOffsetProperty, null);
+            }
+            _glowAnimations.Clear();
+        }
+
+        /// <summary>
+        /// Recolours the comet from the widget colour. High contrast follows the
+        /// theme accent (the same rule as the search view's own accent): a
+        /// missing or malformed colour falls back to the default folder colour.
+        /// Safe to call before the layer is shown, so a live colour change can
+        /// repaint a running comet.
+        /// </summary>
+        public void ApplyGlowColor(string widgetColor)
+        {
+            _glowColor = widgetColor;
+            ApplyGlowBrushes();
+        }
+
+        /// <summary>The five glow paths, meteors in paint order (halo first).</summary>
+        private Path[] MeteorPaths()
+        {
+            return new[] { GlowHalo, GlowTail, GlowMid, GlowHead };
+        }
+
+        /// <summary>Applies the token widths and the layer opacities once.</summary>
+        private void ApplyGlowDefaults()
+        {
+            GlowTrack.StrokeThickness = UiTokens.GlowTrackThickness;
+            GlowTrack.Opacity = 1;
+
+            GlowHalo.StrokeThickness = UiTokens.GlowHaloThickness;
+            GlowHalo.Opacity = UiTokens.GlowHaloAlpha;
+
+            GlowTail.StrokeThickness = UiTokens.GlowCoreThickness;
+            GlowTail.Opacity = UiTokens.GlowTailAlpha;
+
+            GlowMid.StrokeThickness = UiTokens.GlowCoreThickness;
+            GlowMid.Opacity = UiTokens.GlowMidAlpha;
+
+            GlowHead.StrokeThickness = UiTokens.GlowCoreThickness;
+            GlowHead.Opacity = 1;
+        }
+
+        private void ApplyGlowBrushes()
+        {
+            if (GlowLayer == null) return;
+
+            Color accent = ResolveGlowAccent();
+            SolidColorBrush solid = FrozenGlowBrush(accent, 1.0);
+            GlowHalo.Stroke = solid;
+            GlowTail.Stroke = solid;
+            GlowMid.Stroke = solid;
+            GlowHead.Stroke = solid;
+
+            // The track is a dim wash over the normal border: its alpha (not
+            // its Opacity) carries the dimming, so the border still reads.
+            GlowTrack.Stroke = FrozenGlowBrush(accent, UiTokens.GlowTrackAlpha);
+        }
+
+        /// <summary>
+        /// The accent the comet wears: the widget colour, or the theme accent in
+        /// high contrast (the system highlight, like the search box's focus
+        /// ring).
+        /// </summary>
+        private Color ResolveGlowAccent()
+        {
+            if (ThemeManager.IsHighContrast)
+            {
+                SolidColorBrush themeAccent = Application.Current == null
+                    ? null
+                    : Application.Current.TryFindResource("Kobold.Brush.Accent") as SolidColorBrush;
+                if (themeAccent == null) themeAccent = ThemeManager.AccentBlueBrush;
+                return themeAccent.Color;
+            }
+
+            string color = string.IsNullOrEmpty(_glowColor) ? UiTokens.DefaultFolderColor : _glowColor;
+            return Utils.HexToColor(color);
+        }
+
+        private static SolidColorBrush FrozenGlowBrush(Color color, double alpha)
+        {
+            double clamped = Math.Max(0, Math.Min(1, alpha));
+            var brush = new SolidColorBrush(
+                Color.FromArgb((byte)Math.Round(byte.MaxValue * clamped), color.R, color.G, color.B));
+            brush.Freeze();
+            return brush;
+        }
+
+        /// <summary>
+        /// Rebuilds the five ring geometries from the chrome's own size. The
+        /// centreline is inset by half the stroke width so the ink stays inside
+        /// the window; the radius is clamped so a tiny panel still has a valid
+        /// rounded rectangle.
+        /// </summary>
+        private void UpdateGlowGeometry()
+        {
+            if (GlowLayer == null) return;
+
+            double width = ActualWidth;
+            double height = ActualHeight;
+            if (width <= 0 || height <= 0) return;
+
+            GlowTrack.Data = BuildGlowRing(width, height, GlowTrack.StrokeThickness / 2);
+
+            // The meteors share one centreline: a wider halo is centred on the
+            // same line as the 2.5 DIP core, not inset by its own width.
+            double meteorInset = UiTokens.GlowCoreThickness / 2;
+            Path[] meteors = MeteorPaths();
+            for (int i = 0; i < meteors.Length; i++)
+            {
+                meteors[i].Data = BuildGlowRing(width, height, meteorInset);
+            }
+
+            // The dash pattern and its animation are derived from the
+            // perimeter, so a resize has to rebuild both.
+            RestartGlowAnimations();
+        }
+
+        private static RectangleGeometry BuildGlowRing(double width, double height, double inset)
+        {
+            double radius = Math.Min(UiTokens.GlowRadius, Math.Min(width, height) / 2 - inset);
+            if (radius < 0) radius = 0;
+
+            var rect = new Rect(inset, inset,
+                Math.Max(0, width - 2 * inset), Math.Max(0, height - 2 * inset));
+            var geometry = new RectangleGeometry(rect, radius, radius);
+            geometry.Freeze();
+            return geometry;
+        }
+
+        /// <summary>The perimeter of a rounded rectangle: runs plus quarter arcs.</summary>
+        private static double RingPerimeter(RectangleGeometry geometry)
+        {
+            Rect rect = geometry.Rect;
+            double radius = geometry.RadiusX;
+            return 2 * (rect.Width + rect.Height) - 8 * radius + 2 * Math.PI * radius;
+        }
+
+        /// <summary>
+        /// (Re)builds every meteor's dash pattern and one-perimeter animation.
+        /// Dash units are multiples of the stroke width; the pattern length is
+        /// exactly one perimeter, so the loop is seamless. Each layer starts one
+        /// dash-length before the ring origin, which puts every leading edge on
+        /// the same point: the bright head leads and the faint tail follows it,
+        /// while the shrinking offset advances the pattern clockwise.
+        /// </summary>
+        private void RestartGlowAnimations()
+        {
+            if (!_isGlowActive) return;
+
+            _appliedGlowSeconds = EffectiveGlowSeconds();
+            _appliedGlowTailFraction = EffectiveGlowTailFraction();
+            _glowApplied = true;
+
+            ApplyGlowAnimation(GlowHalo, UiTokens.GlowHaloShare);
+            ApplyGlowAnimation(GlowTail, UiTokens.GlowTailShare);
+            ApplyGlowAnimation(GlowMid, UiTokens.GlowMidShare);
+            ApplyGlowAnimation(GlowHead, UiTokens.GlowHeadShare);
+        }
+
+        /// <summary>One revolution in seconds, with a non-positive value repaired.</summary>
+        private double EffectiveGlowSeconds()
+        {
+            double seconds = GlowSeconds;
+            return double.IsNaN(seconds) || seconds <= 0 ? UiTokens.GlowSeconds : seconds;
+        }
+
+        /// <summary>
+        /// The tail fraction every layer is built from, clamped to a usable range:
+        /// a fraction of 1 would make the tail's dash as long as the whole ring,
+        /// so that layer would have no gap left to travel through.
+        /// </summary>
+        private double EffectiveGlowTailFraction()
+        {
+            double fraction = GlowTailFraction;
+            if (double.IsNaN(fraction) || fraction <= 0) fraction = UiTokens.GlowTailFraction;
+            if (fraction > UiTokens.GlowMaxTailFraction) fraction = UiTokens.GlowMaxTailFraction;
+            return fraction;
+        }
+
+        private void ApplyGlowAnimation(Path path, double share)
+        {
+            var geometry = path.Data as RectangleGeometry;
+            if (geometry == null || path.StrokeThickness <= 0) return;
+
+            double thickness = path.StrokeThickness;
+            double perimeter = RingPerimeter(geometry);
+            double periodUnits = perimeter / thickness;
+
+            double dashUnits = EffectiveGlowTailFraction() * perimeter * share / thickness;
+            // Every layer must keep a gap, or StrokeDashOffset has nothing to
+            // move through and the layer silently disappears from the comet.
+            if (dashUnits >= periodUnits) dashUnits = periodUnits * UiTokens.GlowMaxTailFraction;
+            if (dashUnits <= 0) return;
+
+            path.StrokeDashArray = new DoubleCollection { dashUnits, periodUnits - dashUnits };
+
+            var animation = new DoubleAnimation
+            {
+                From = dashUnits,
+                To = dashUnits - periodUnits,
+                Duration = new Duration(TimeSpan.FromSeconds(EffectiveGlowSeconds())),
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = null
+            };
+
+            _glowAnimations[path] = animation;
+            path.BeginAnimation(Shape.StrokeDashOffsetProperty, animation);
         }
 
         #endregion

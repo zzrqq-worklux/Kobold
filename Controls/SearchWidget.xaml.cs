@@ -67,12 +67,34 @@ namespace Kobold.Controls
             // A live colour change arrives through RefreshTheme -> UpdateUI;
             // the accent must follow without closing and reopening the panel.
             _view?.RefreshAccent();
+            // The comet wears the widget colour too: repaint it while a query
+            // or an index scan/reconcile runs, so a menu colour change is
+            // visible without closing the panel.
+            if (SearchChrome != null && SearchChrome.IsGlowActive)
+            {
+                SearchChrome.ApplyGlowColor(Data?.Color);
+            }
+        }
+
+        /// <summary>
+        /// A hidden panel must not keep the loading glow running: deactivation
+        /// hides the panel while a query or a scan may still be in flight.
+        /// </summary>
+        protected override void OnPanelHidden()
+        {
+            base.OnPanelHidden();
+            if (SearchChrome != null) SearchChrome.StopGlow();
         }
 
         /// <summary>The search box takes focus as soon as the panel is shown.</summary>
         protected override void OnPanelShown()
         {
             base.OnPanelShown();
+            // ShowPanel runs UpdateUI (and with it RefreshStatus) while
+            // IsPanelOpen is still false, so a scan/reconcile glow was recorded
+            // but not painted. The panel is open now: refresh again so a reopen
+            // mid-scan relights the comet.
+            _view?.RefreshStatus();
             // ShowPanel raises this before Show(); queue the focus until the
             // window is actually visible.
             Dispatcher.BeginInvoke(new Action(() =>

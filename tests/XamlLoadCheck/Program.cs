@@ -12,6 +12,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Kobold.Controls;
@@ -562,10 +563,26 @@ namespace Kobold.XamlLoadCheck
                 // default blue selection, the accent follows the widget colour,
                 // and a reconcile is labelled as reconcile rather than a
                 // restart of the index.
-                failures += TryCheck("search: the hint is a tooltip and the box draws no watermark",
+                failures += TryCheck("search: the box draws no hint and carries no tooltip",
                     SearchBoxHintAndStyle);
                 failures += TryCheck("search: the box uses the native TextBox template",
                     SearchBoxStyleHasNoCustomTemplate);
+                failures += TryCheck("search: the box gives its single line room",
+                    SearchBoxLineFits);
+
+                // Task 3 pins (2026-10-26): the panel's outer ring glows while a
+                // query is in flight (a meteor, not a blur), the view owns that
+                // glow lifecycle, and Space hands the selected result to
+                // QuickLook while every unusable row leaves the key alone.
+                failures += TryCheck("search: the panel glows while a query runs",
+                    SearchPanelGlowsWhileQuerying);
+                failures += TryCheck("search: a query drives the panel glow",
+                    SearchQueryDrivesTheGlow);
+                failures += TryCheck("search: a reconcile drives the panel glow",
+                    SearchReconcileDrivesTheGlow);
+                failures += TryCheck("search: space previews the selected result",
+                    SearchSpacePreviewsSelectedResult);
+
                 failures += TryCheck("search: the accent follows the widget color",
                     SearchAccentFollowsWidgetColor);
                 failures += TryCheck("search: high contrast follows the theme accent",
@@ -578,6 +595,19 @@ namespace Kobold.XamlLoadCheck
                     SearchRowStyleUsesThemeBrushes);
                 failures += TryCheck("search: a reconcile is labelled separately from indexing",
                     SearchStatusLabelsReconcileSeparately);
+                failures += TryCheck("search: the panel has no internal progress bar",
+                    SearchPanelHasNoProgressBar);
+
+                // Task 6 pins (2026-10-26): the clear button is gone and the box
+                // spans the row, reopening the panel during a real index /
+                // reconcile relights the comet, and a scan progress snapshot
+                // only rewrites an index/reconcile line.
+                failures += TryCheck("search: the search box fills the row with no clear button",
+                    SearchBoxFillsTheRow);
+                failures += TryCheck("search: reopening the panel mid-scan relights the glow",
+                    SearchReopenRelightsTheGlow);
+                failures += TryCheck("search: scan progress only refreshes an index line", SearchProgressOnlyRefreshesAnIndexLine);
+
                 failures += TryCheck("settings: the file-search state labels reconcile separately",
                     SettingsFileSearchStateLabels);
 
@@ -7498,6 +7528,13 @@ namespace Kobold.XamlLoadCheck
             return (T)field.GetValue(target);
         }
 
+        private static void SetPrivateField<T>(object target, string name, T value)
+        {
+            var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException(name + " field not found");
+            field.SetValue(target, value);
+        }
+
         /// <summary>
         /// The widget's attached chrome (a protected base property), for pins
         /// that inspect the shared header.
@@ -9066,7 +9103,7 @@ namespace Kobold.XamlLoadCheck
             {
                 "EmptyState", "NoIndexState", "OnboardingPanel", "StartIndexButton",
                 "OnboardingStartButton", "OnboardingLaterButton", "RootsList", "ScopeHint",
-                "SearchBox", "ClearButton", "StatusText", "ScanProgress"
+                "SearchBox", "StatusText"
             })
             {
                 if (widget.PanelView.FindName(name) == null)
@@ -9386,12 +9423,12 @@ namespace Kobold.XamlLoadCheck
 
         /// <summary>
         /// Fix round 5: the definitive IME fix is to draw no hint inside or over
-        /// the box at all - the same plain TextBox the new-file dialog uses. The
-        /// hint stays discoverable as the box's tooltip, and the native template
-        /// must contain no watermark or other text layer.
+        /// the box at all - the same plain TextBox the new-file dialog uses.
         /// Fix round 6: the style also stops overriding the template, so the
         /// native TextBox layout owns the text/IME geometry (the remaining
         /// clipping/ghost came from the custom PART_ContentHost layout).
+        /// Task 3 (2026-10-26): the user no longer wants a tooltip either, so
+        /// the box is a bare TextBox - no tooltip, no tag, no hint anywhere.
         /// </summary>
         private static void SearchBoxHintAndStyle()
         {
@@ -9403,11 +9440,10 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the search panel has no SearchBox");
             }
 
-            string wanted = Localization.Get("Search_Placeholder");
-            if (!string.Equals(box.ToolTip as string, wanted, StringComparison.Ordinal))
+            if (box.ToolTip != null)
             {
                 throw new InvalidOperationException(
-                    "the search box tooltip is '" + (box.ToolTip as string) + "', wanted '" + wanted + "'");
+                    "the search box still carries a tooltip ('" + box.ToolTip + "')");
             }
             if (box.Tag != null)
             {
@@ -9526,6 +9562,908 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        /// <summary>
+        /// Fix round 7: the box is a fixed 34 DIP high, so the content host
+        /// (PART_ContentHost) only gets the height its border and padding leave
+        /// over. The shared TextBox style's 6+6 vertical padding starved it to
+        /// 20 DIP for a 17.5 DIP line under TextFormattingMode=Display, so the
+        /// text view painted outside the host was clipped to a sliver. The box
+        /// therefore drops the vertical padding (VerticalContentAlignment=Center
+        /// supplies the inset): the host must have one and a half line heights.
+        /// The Height == 34 footprint assertion also passes on the old code: the
+        /// content-host check is the red-then-green guard, the footprint check
+        /// only blocks future shrinkage.
+        /// </summary>
+        private static void SearchBoxLineFits()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var box = view.FindName("SearchBox") as TextBox;
+            if (box == null)
+            {
+                throw new InvalidOperationException("the search panel has no SearchBox");
+            }
+
+            // The line the box has to show: the box's real typeface and size,
+            // measured at the harness's 96 DPI (the pin is structural - the
+            // content host's height, not a rendered bitmap, is what clips).
+            var typeface = new Typeface(box.FontFamily, box.FontStyle, box.FontWeight, box.FontStretch);
+            var formatted = new FormattedText("abc \u4e3b,", CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight, typeface, box.FontSize, Brushes.Black, 1.0);
+
+            double line = formatted.Height;
+            double content = box.Height - box.BorderThickness.Top - box.BorderThickness.Bottom
+                             - box.Padding.Top - box.Padding.Bottom;
+
+            if (content < line * 1.5)
+            {
+                throw new InvalidOperationException(
+                    "the search box content host is " + content.ToString("0.##") + " DIP for a "
+                    + line.ToString("0.##") + " DIP line (height " + box.Height + ", padding "
+                    + box.Padding + "): the line is clipped");
+            }
+
+            if (box.Height != 34)
+            {
+                throw new InvalidOperationException(
+                    "the search box is " + box.Height + " DIP high, wanted the plan's 34");
+            }
+        }
+
+        /// <summary>
+        /// Task 6: the user wants the box to span the whole search row, so the
+        /// clear button and its <c>Auto</c> column are gone. The pin lays the
+        /// view out offscreen at the 422-DIP design width and measures: the box
+        /// is the row grid's only child and its width is the row width - the
+        /// row's own 12+12 DIP inset.
+        /// </summary>
+        private static void SearchBoxFillsTheRow()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+
+            if (view.FindName("ClearButton") != null)
+            {
+                throw new InvalidOperationException("the search panel still has a clear button");
+            }
+
+            var box = view.FindName("SearchBox") as TextBox;
+            if (box == null) throw new InvalidOperationException("the search panel has no SearchBox");
+
+            // Layout offscreen at the design width: the row's own width is what
+            // the box has to fill.
+            view.Measure(new Size(422, 562));
+            view.Arrange(new Rect(0, 0, 422, 562));
+            view.UpdateLayout();
+
+            var row = box.Parent as Grid;
+            if (row == null)
+            {
+                throw new InvalidOperationException("the search box's row grid was not found");
+            }
+            if (row.Children.Count != 1 || !ReferenceEquals(row.Children[0], box))
+            {
+                throw new InvalidOperationException(
+                    "the search box is not the only child of its row (" + row.Children.Count
+                    + " children)");
+            }
+
+            double wanted = view.ActualWidth - row.Margin.Left - row.Margin.Right;
+            if (Math.Abs(row.ActualWidth - wanted) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the search row is " + row.ActualWidth.ToString("0.##")
+                    + " DIP wide in a " + view.ActualWidth.ToString("0.##")
+                    + " DIP view, wanted " + wanted.ToString("0.##"));
+            }
+            if (Math.Abs(box.ActualWidth - wanted) > 0.5)
+            {
+                throw new InvalidOperationException(
+                    "the search box is " + box.ActualWidth.ToString("0.##") + " DIP wide in a "
+                    + row.ActualWidth.ToString("0.##") + " DIP row, wanted "
+                    + wanted.ToString("0.##"));
+            }
+        }
+
+        /// <summary>
+        /// Task 3 (2026-10-26): the panel's outer rounded border carries a
+        /// "loading meteor" while a search query is in flight - a dim base ring
+        /// plus four dash layers (halo / tail / mid / head) that travel one
+        /// perimeter per GlowSeconds, no blur effect anywhere. Stopping hides
+        /// the layer and drops the animation clocks (nothing ticks unseen).
+        /// </summary>
+        private static void SearchPanelGlowsWhileQuerying()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var chrome = widget.FindName("SearchChrome") as WidgetChrome;
+            if (chrome == null) chrome = widget.Content as WidgetChrome;
+            if (chrome == null) throw new InvalidOperationException("the search widget has no chrome");
+
+            var layer = chrome.FindName("GlowLayer") as Grid;
+            if (layer == null) throw new InvalidOperationException("the chrome has no GlowLayer");
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("the glow layer is visible before any query");
+            }
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("the glow is active before any query");
+            }
+
+            var track = GlowPath(chrome, "GlowTrack");
+            var halo = GlowPath(chrome, "GlowHalo");
+            var tail = GlowPath(chrome, "GlowTail");
+            var mid = GlowPath(chrome, "GlowMid");
+            var head = GlowPath(chrome, "GlowHead");
+
+            // The ring is built from the chrome's own size: give it the search
+            // panel's default footprint (422x562) before starting the glow.
+            ArrangeChrome(chrome, 422, 562);
+
+            // Fix round 1: non-default timing (the tokens are 1.2 s / 0.28), so
+            // an implementation that ignored either property fails the pin.
+            chrome.ApplyGlowColor("#F97316");
+            chrome.GlowSeconds = 2.0;
+            chrome.GlowTailFraction = 0.5;
+            chrome.StartGlow();
+
+            if (!chrome.IsGlowActive) throw new InvalidOperationException("StartGlow did not activate the glow");
+            if (layer.Visibility != Visibility.Visible) throw new InvalidOperationException("StartGlow left the layer hidden");
+
+            var paths = new[] { track, halo, tail, mid, head };
+            foreach (var path in paths)
+            {
+                if (path.Stroke == null) throw new InvalidOperationException(path.Name + " has no stroke");
+
+                var geometry = path.Data as RectangleGeometry;
+                if (geometry == null) throw new InvalidOperationException(path.Name + " has no rectangle geometry");
+
+                // The track hugs the border with half its own width; the four
+                // meteor layers share the 2.5 DIP core centreline (the halo is
+                // a wider band centred on it, not inset by its own width).
+                double inset = ReferenceEquals(path, track)
+                    ? path.StrokeThickness / 2
+                    : UiTokens.GlowCoreThickness / 2;
+                if (Math.Abs(geometry.RadiusX - 16) > 1e-6 || Math.Abs(geometry.RadiusY - 16) > 1e-6)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " radius is " + geometry.RadiusX + "x" + geometry.RadiusY + ", wanted 16");
+                }
+                if (Math.Abs(geometry.Rect.X - inset) > 1e-6 || Math.Abs(geometry.Rect.Y - inset) > 1e-6
+                    || Math.Abs(geometry.Rect.Width - (422 - 2 * inset)) > 1e-6
+                    || Math.Abs(geometry.Rect.Height - (562 - 2 * inset)) > 1e-6)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " ring does not hug the border (rect " + geometry.Rect
+                        + ", inset " + inset + ")");
+                }
+            }
+
+            // The head rides a linear one-perimeter animation: the loop is
+            // seamless only when the travel equals the ring perimeter in dash
+            // units (perimeter / thickness).
+            var headGeometry = (RectangleGeometry)head.Data;
+            double headPerimeter = RingPerimeter(headGeometry);
+            double headPeriod = headPerimeter / head.StrokeThickness;
+
+            DoubleAnimation animation = GlowAnimation(chrome, head);
+            if (animation == null) throw new InvalidOperationException("the head carries no animation");
+
+            // WPF reports an attached clock through HasAnimatedProperties (the
+            // per-property IsAnimated flag only flips on the first render tick,
+            // which the headless harness never runs). StopGlow later clears
+            // exactly StrokeDashOffset, so the pair proves the clock sits on
+            // that property: any other animated property would keep the flag.
+            if (!head.HasAnimatedProperties)
+            {
+                throw new InvalidOperationException("the head carries no animation clock");
+            }
+            if ((double)head.GetAnimationBaseValue(Shape.StrokeDashOffsetProperty) != 0)
+            {
+                throw new InvalidOperationException(
+                    "the head dash offset carries a local value instead of the animated one");
+            }
+            if (Math.Abs(animation.Duration.TimeSpan.TotalSeconds - 2.0) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    "the glow duration is " + animation.Duration + ", wanted the configured 2.0s");
+            }
+            if (!animation.RepeatBehavior.Equals(RepeatBehavior.Forever))
+            {
+                throw new InvalidOperationException(
+                    "the glow does not repeat forever (" + animation.RepeatBehavior + ")");
+            }
+            if (!animation.To.HasValue || animation.To.Value >= 0)
+            {
+                throw new InvalidOperationException(
+                    "the head dash offset does not travel backwards (" + animation.To + ")");
+            }
+            if (Math.Abs((animation.From.Value - animation.To.Value) - headPeriod) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    "the glow advances " + (animation.From.Value - animation.To.Value)
+                    + " dash units, wanted one perimeter (" + headPeriod + ")");
+            }
+            if (animation.EasingFunction != null)
+            {
+                throw new InvalidOperationException("the glow is not linear");
+            }
+
+            // Bright head, softer mid, faint tail, faintest halo; the track is
+            // exempt (its colour carries the alpha).
+            if (!(head.Opacity > mid.Opacity && mid.Opacity > tail.Opacity && tail.Opacity > halo.Opacity))
+            {
+                throw new InvalidOperationException(
+                    "the glow layer opacities are out of order (head " + head.Opacity + ", mid "
+                    + mid.Opacity + ", tail " + tail.Opacity + ", halo " + halo.Opacity + ")");
+            }
+
+            // Every meteor layer's dash + gap is exactly one perimeter and the
+            // tail is longer than the head - a comet with a tail, not a dot.
+            // Each layer's animation must start one dash-length before the ring
+            // origin: that is what puts all four leading edges on the same
+            // point (head at the front, tail behind it).
+            foreach (var path in new[] { halo, tail, mid, head })
+            {
+                if (path.StrokeDashArray == null || path.StrokeDashArray.Count != 2)
+                {
+                    throw new InvalidOperationException(path.Name + " has no two-part dash pattern");
+                }
+                double period = path.StrokeDashArray[0] + path.StrokeDashArray[1];
+                double wanted = RingPerimeter((RectangleGeometry)path.Data) / path.StrokeThickness;
+                if (Math.Abs(period - wanted) > 1e-6)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " dash + gap is " + period + " units, wanted one perimeter (" + wanted + ")");
+                }
+
+                DoubleAnimation meteorAnimation = GlowAnimation(chrome, path);
+                if (meteorAnimation == null || !meteorAnimation.From.HasValue)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " carries no dash-offset animation");
+                }
+                if (Math.Abs(meteorAnimation.From.Value - path.StrokeDashArray[0]) > 1e-9)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " does not start at its leading edge (From " + meteorAnimation.From.Value
+                        + ", dash " + path.StrokeDashArray[0] + ")");
+                }
+            }
+            if (!(tail.StrokeDashArray[0] > head.StrokeDashArray[0]))
+            {
+                throw new InvalidOperationException(
+                    "the tail is not longer than the head (" + tail.StrokeDashArray[0]
+                    + " vs " + head.StrokeDashArray[0] + ")");
+            }
+
+            // The configured fraction (0.5, not the 0.28 token) is what the tail
+            // sweeps: the tail layer's share is the whole comet.
+            double tailPeriod = RingPerimeter((RectangleGeometry)tail.Data) / tail.StrokeThickness;
+            if (Math.Abs(tail.StrokeDashArray[0] - 0.5 * tailPeriod) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    "the tail sweeps " + tail.StrokeDashArray[0] + " of " + tailPeriod
+                    + " dash units, wanted the configured 0.5 of the perimeter");
+            }
+
+            // The comet wears the widget colour: a full-alpha head and a dimmed
+            // base ring that covers the normal border while loading.
+            var headBrush = head.Stroke as SolidColorBrush;
+            var trackBrush = track.Stroke as SolidColorBrush;
+            if (headBrush == null || trackBrush == null)
+            {
+                throw new InvalidOperationException("the glow strokes are not solid colour brushes");
+            }
+            Color orange = Utils.HexToColor("#F97316");
+            if (headBrush.Color.R != orange.R || headBrush.Color.G != orange.G || headBrush.Color.B != orange.B
+                || headBrush.Color.A != 255)
+            {
+                throw new InvalidOperationException(
+                    "the glow head is not the widget colour at full alpha (" + headBrush.Color + ")");
+            }
+            if (trackBrush.Color.A >= headBrush.Color.A)
+            {
+                throw new InvalidOperationException(
+                    "the glow track is not dimmer than the head (" + trackBrush.Color + ")");
+            }
+
+            // Fix round 1: a second StartGlow while the comet already runs must
+            // keep the same clocks. The view calls it on every keystroke and on
+            // every RunQuery; re-applying an animation whose From is the dash
+            // length snaps the head back to the ring origin (a visible stutter).
+            DoubleAnimation runningHead = GlowAnimation(chrome, head);
+            object runningGeometry = head.Data;
+            chrome.StartGlow();
+            if (!ReferenceEquals(GlowAnimation(chrome, head), runningHead))
+            {
+                throw new InvalidOperationException("a second StartGlow restarted the glow animations");
+            }
+            if (!ReferenceEquals(head.Data, runningGeometry))
+            {
+                throw new InvalidOperationException("a second StartGlow rebuilt the glow geometry");
+            }
+
+            // ...but a changed timing parameter must rebuild: the running clocks
+            // were built for the old seconds/tail fraction.
+            chrome.GlowSeconds = 2.5;
+            chrome.StartGlow();
+            DoubleAnimation reboundHead = GlowAnimation(chrome, head);
+            if (ReferenceEquals(reboundHead, runningHead))
+            {
+                throw new InvalidOperationException(
+                    "a changed GlowSeconds did not rebuild the glow animations");
+            }
+            if (Math.Abs(reboundHead.Duration.TimeSpan.TotalSeconds - 2.5) > 1e-6)
+            {
+                throw new InvalidOperationException(
+                    "the rebuilt glow duration is " + reboundHead.Duration + ", wanted 2.5s");
+            }
+            chrome.GlowSeconds = 2.0;
+            chrome.StartGlow();
+            DoubleAnimation restoredHead = GlowAnimation(chrome, head);
+            if (ReferenceEquals(restoredHead, reboundHead))
+            {
+                throw new InvalidOperationException(
+                    "restoring GlowSeconds did not rebuild the glow animations");
+            }
+
+            chrome.StopGlow();
+            if (chrome.IsGlowActive) throw new InvalidOperationException("StopGlow left the glow active");
+            if (layer.Visibility != Visibility.Collapsed) throw new InvalidOperationException("StopGlow left the layer visible");
+            if (head.HasAnimatedProperties)
+            {
+                throw new InvalidOperationException("StopGlow left the head animation ticking");
+            }
+
+            // A stop/start cycle is a real restart: the stopped clocks are gone,
+            // so a new animation instance has to be allocated.
+            chrome.StartGlow();
+            DoubleAnimation restartedHead = GlowAnimation(chrome, head);
+            if (restartedHead == null || ReferenceEquals(restartedHead, restoredHead))
+            {
+                throw new InvalidOperationException("a restart reused a stopped glow animation");
+            }
+            chrome.StopGlow();
+
+            // Fix round 1: the whole documented range must keep a usable pattern.
+            // GlowTailFraction = 1 used to make the tail's dash exactly one
+            // perimeter (no gap, no travel) and silently drop that layer.
+            chrome.GlowTailFraction = 1.0;
+            chrome.StartGlow();
+            foreach (var path in new[] { halo, tail, mid, head })
+            {
+                if (GlowAnimation(chrome, path) == null)
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " lost its animation at GlowTailFraction = 1");
+                }
+                if (path.StrokeDashArray == null || path.StrokeDashArray.Count != 2
+                    || !(path.StrokeDashArray[1] > 0))
+                {
+                    throw new InvalidOperationException(
+                        path.Name + " has no gap left at GlowTailFraction = 1");
+                }
+            }
+            chrome.StopGlow();
+        }
+
+        /// <summary>
+        /// Task 3: the view owns the query lifecycle - it turns the chrome glow
+        /// on while a query is pending and off once the query settles. The pin
+        /// drives the private switch directly (no live search service).
+        /// Fix round 1: a hidden panel never lights up, and only the generation
+        /// that owns the glow may settle it (a stale superseded query must leave
+        /// the newer query's comet running).
+        /// </summary>
+        private static void SearchQueryDrivesTheGlow()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var chrome = widget.FindName("SearchChrome") as WidgetChrome;
+            if (chrome == null) chrome = widget.Content as WidgetChrome;
+            if (chrome == null) throw new InvalidOperationException("the search widget has no chrome");
+            ArrangeChrome(chrome, 422, 562);
+
+            var setGlow = typeof(SearchPanelView).GetMethod("SetQueryGlow",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (setGlow == null) throw new InvalidOperationException("SearchPanelView.SetQueryGlow was not found");
+            var settleGlow = typeof(SearchPanelView).GetMethod("SettleQueryGlow",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (settleGlow == null) throw new InvalidOperationException("SearchPanelView.SettleQueryGlow was not found");
+
+            var layer = chrome.FindName("GlowLayer") as Grid;
+            if (layer == null) throw new InvalidOperationException("the chrome has no GlowLayer");
+
+            // A fresh widget has never shown its panel: the debounce can tick
+            // after the panel collapsed, so a hidden host must not light up.
+            setGlow.Invoke(view, new object[] { true });
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a hidden panel started the query glow");
+            }
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a hidden panel lit the glow layer");
+            }
+
+            // Open the panel: the view is now the owner of the comet.
+            SetPrivateBaseField(widget, "_isExpanded", true);
+
+            setGlow.Invoke(view, new object[] { true });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a pending query did not start the panel glow");
+            }
+            if (layer.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("a pending query left the glow layer hidden");
+            }
+
+            setGlow.Invoke(view, new object[] { false });
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a settled query left the panel glow running");
+            }
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a settled query left the glow layer visible");
+            }
+
+            // The generation rule: a superseded query's continuation sees a newer
+            // _queryGeneration and must not stop the current comet; the owning
+            // generation does.
+            setGlow.Invoke(view, new object[] { true });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("the second pending query did not start the panel glow");
+            }
+
+            int owner = PrivateField<int>(view, "_queryGeneration");
+            SetPrivateField(view, "_queryGeneration", owner + 1);
+            settleGlow.Invoke(view, new object[] { owner });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a stale query generation settled the panel glow");
+            }
+            if (layer.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("a stale query generation hid the glow layer");
+            }
+
+            settleGlow.Invoke(view, new object[] { owner + 1 });
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("the owning query generation did not settle the panel glow");
+            }
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("the owning query generation left the glow layer visible");
+            }
+        }
+
+        /// <summary>
+        /// Task 4: the glow is not query-only. A full scan (Indexing) and the
+        /// periodic reconcile (Reconciling) drive it too, so the loading state
+        /// shows even when no query runs; the orange progress line stays. The
+        /// query flag is the other input: it wins over a Ready status until it
+        /// is cleared, and clearing it settles the comet.
+        /// </summary>
+        private static void SearchReconcileDrivesTheGlow()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var chrome = widget.FindName("SearchChrome") as WidgetChrome;
+            if (chrome == null) chrome = widget.Content as WidgetChrome;
+            if (chrome == null) throw new InvalidOperationException("the search widget has no chrome");
+            ArrangeChrome(chrome, 422, 562);
+
+            var update = typeof(SearchPanelView).GetMethod("UpdateStatus",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (update == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.UpdateStatus was not found");
+            }
+            var setGlow = typeof(SearchPanelView).GetMethod("SetQueryGlow",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (setGlow == null) throw new InvalidOperationException("SearchPanelView.SetQueryGlow was not found");
+
+            var layer = chrome.FindName("GlowLayer") as Grid;
+            if (layer == null) throw new InvalidOperationException("the chrome has no GlowLayer");
+
+            SetPrivateBaseField(widget, "_isExpanded", true);
+
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Reconciling } });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a reconcile did not start the panel glow");
+            }
+            if (layer.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("a reconcile left the glow layer hidden");
+            }
+
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Indexing } });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("an index scan did not start the panel glow");
+            }
+
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Ready } });
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a ready index left the panel glow running");
+            }
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a ready index left the glow layer visible");
+            }
+
+            // The query flag is the other input: while it lasts it wins over a
+            // Ready status, and clearing it settles the comet.
+            setGlow.Invoke(view, new object[] { true });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a pending query did not start the panel glow");
+            }
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Ready } });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a Ready status settled a pending query's glow");
+            }
+
+            setGlow.Invoke(view, new object[] { false });
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("a settled query left the panel glow running");
+            }
+            if (layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a settled query left the glow layer visible");
+            }
+        }
+
+        /// <summary>
+        /// Task 6 (critical): reopening the panel during a real index scan or
+        /// reconcile must relight the comet. The real order is the trap:
+        /// <see cref="WidgetWindowBase.ShowPanel"/> calls <c>UpdateUI()</c> -
+        /// hence RefreshStatus -> UpdateStatus -> UpdateGlowState - while
+        /// <c>_isExpanded</c> is still false, so the state is recorded but
+        /// nothing is painted; only <c>_isExpanded = true</c> + OnPanelShown
+        /// follow. The pin replays exactly that order and requires the glow
+        /// after OnPanelShown (and darkness before it).
+        /// </summary>
+        private static void SearchReopenRelightsTheGlow()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var chrome = widget.FindName("SearchChrome") as WidgetChrome;
+            if (chrome == null) chrome = widget.Content as WidgetChrome;
+            if (chrome == null) throw new InvalidOperationException("the search widget has no chrome");
+            var layer = chrome.FindName("GlowLayer") as Grid;
+            if (layer == null) throw new InvalidOperationException("the chrome has no GlowLayer");
+
+            var update = typeof(SearchPanelView).GetMethod("UpdateStatus",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (update == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.UpdateStatus was not found");
+            }
+            var shown = typeof(SearchWidget).GetMethod("OnPanelShown",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (shown == null)
+            {
+                throw new InvalidOperationException("SearchWidget.OnPanelShown was not found");
+            }
+
+            // The view's status snapshot comes from its service; a throwaway
+            // service (no database file until a scan starts) reports a running
+            // full scan, so the refresh path has a live state to read.
+            var service = new FileSearchIndexService(IO.Path.Combine(IO.Path.GetTempPath(),
+                "kobold-reopen-" + Guid.NewGuid().ToString("N") + ".db"));
+            var serviceStatus = PrivateField<FileSearchStatus>(service, "_status");
+            serviceStatus.State = FileSearchState.Indexing;
+            SetPrivateField(view, "_service", service);
+
+            // The scan state is known while the panel is still closed.
+            update.Invoke(view, new object[] { service.Status });
+
+            // ShowPanel's own first step, with the panel still closed.
+            SetPrivateBaseField(widget, "_isExpanded", false);
+            widget.UpdateUI();
+            if (chrome.IsGlowActive || layer.Visibility != Visibility.Collapsed)
+            {
+                throw new InvalidOperationException("a closed panel lit the scan glow");
+            }
+
+            // ... and then the panel really opens.
+            SetPrivateBaseField(widget, "_isExpanded", true);
+            shown.Invoke(widget, new object[0]);
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException(
+                    "reopening the panel mid-scan did not relight the glow");
+            }
+            if (layer.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException(
+                    "reopening the panel mid-scan left the glow layer hidden");
+            }
+        }
+
+        /// <summary>
+        /// Task 6: the scan-progress gate. A progress snapshot only rewrites the
+        /// status line while the view state is Indexing or Reconciling - the
+        /// count line follows the snapshot's own counters - and is ignored in
+        /// every other state (a ready line must survive a late progress event),
+        /// while a reconcile keeps its own label. The gate is
+        /// <c>ApplyProgress</c>, the body of the handler's dispatcher callback;
+        /// the pin drives it directly, because pumping the queue here would run
+        /// a pending application-shutdown callback (queued by an earlier island
+        /// pin when the last window closed) and kill the rest of the run. The
+        /// event adapter is checked on the side: raising it must not write.
+        /// </summary>
+        private static void SearchProgressOnlyRefreshesAnIndexLine()
+        {
+            ThemeManager.Initialize("dark");
+
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var status = view.FindName("StatusText") as TextBlock;
+            if (status == null) throw new InvalidOperationException("the search status line is missing");
+
+            var update = typeof(SearchPanelView).GetMethod("UpdateStatus",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (update == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.UpdateStatus was not found");
+            }
+            var apply = typeof(SearchPanelView).GetMethod("ApplyProgress",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (apply == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.ApplyProgress was not found");
+            }
+            var handler = typeof(SearchPanelView).GetMethod("Service_ProgressChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (handler == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.Service_ProgressChanged was not found");
+            }
+
+            var scan = new ScanProgress { Files = 12, Directories = 4 };
+
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Indexing } });
+            string zeroLine = Localization.Format("Search_Indexing", 0, 0);
+            if (status.Text != zeroLine)
+            {
+                throw new InvalidOperationException(
+                    "the indexing line is '" + status.Text + "', wanted '" + zeroLine + "'");
+            }
+
+            // The status snapshot was built without counters, so the count line
+            // can only come from the progress snapshot.
+            apply.Invoke(view, new object[] { scan });
+            string counted = Localization.Format("Search_Indexing", 12, 4);
+            if (status.Text != counted)
+            {
+                throw new InvalidOperationException(
+                    "a scan progress snapshot left the count line at '" + status.Text
+                    + "', wanted '" + counted + "'");
+            }
+
+            // The event is the marshalled entry point: it may only post, so the
+            // line stays where it was until the callback runs.
+            handler.Invoke(view, new object[] { null, new ScanProgress { Files = 99, Directories = 9 } });
+            if (status.Text != counted)
+            {
+                throw new InvalidOperationException(
+                    "a scan progress event wrote the line on the raising thread ('" + status.Text + "')");
+            }
+
+            // A ready line is not an index state: a late progress snapshot must
+            // not overwrite it with stale counters.
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Ready } });
+            string ready = status.Text;
+            apply.Invoke(view, new object[] { new ScanProgress { Files = 99, Directories = 9 } });
+            if (status.Text != ready)
+            {
+                throw new InvalidOperationException(
+                    "a scan progress snapshot overwrote the ready line ('" + status.Text
+                    + "' instead of '" + ready + "')");
+            }
+
+            // A reconcile reports its own label, never the indexing counters.
+            update.Invoke(view, new object[] { new FileSearchStatus { State = FileSearchState.Reconciling } });
+            apply.Invoke(view, new object[] { new ScanProgress { Files = 99, Directories = 9 } });
+            string reconciling = Localization.Get("Search_Reconciling");
+            if (status.Text != reconciling)
+            {
+                throw new InvalidOperationException(
+                    "a reconcile shows '" + status.Text + "' after a progress snapshot, wanted '"
+                    + reconciling + "'");
+            }
+            if (status.Text == Localization.Format("Search_Indexing", 99, 9))
+            {
+                throw new InvalidOperationException(
+                    "a reconcile shows the indexing counters after a progress snapshot");
+            }
+        }
+
+        /// <summary>
+        /// Task 3: Space on a selected result previews it through QuickLook. The
+        /// decision lives in TryPreviewSelected so the pin can drive it with a
+        /// selected row instead of synthesising key events. A directory, a
+        /// missing path, no selection and a refused request all return false so
+        /// Space stays unhandled for the scroller.
+        /// </summary>
+        private static void SearchSpacePreviewsSelectedResult()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var list = view.FindName("ResultsList") as ListBox;
+            if (list == null) throw new InvalidOperationException("the search panel has no ResultsList");
+
+            var requestProperty = typeof(SearchPanelView).GetProperty("PreviewRequestForChecks",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (requestProperty == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.PreviewRequestForChecks was not found");
+            }
+            var tryPreview = typeof(SearchPanelView).GetMethod("TryPreviewSelected",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (tryPreview == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.TryPreviewSelected was not found");
+            }
+
+            string file = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-preview-" + Guid.NewGuid().ToString("N") + ".txt");
+            string directory = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-preview-" + Guid.NewGuid().ToString("N"));
+            string missing = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-preview-" + Guid.NewGuid().ToString("N") + ".txt");
+
+            IO.Directory.CreateDirectory(directory);
+            IO.File.WriteAllText(file, "preview");
+
+            // Task 7 fix round 1: a successful preview records one frequent-file
+            // entry, a refused request records none. Run on a cleared list in the
+            // sandbox config and restore the saved block afterwards.
+            AppConfig config = WidgetManager.Instance.Config;
+            List<FrequentFile> savedFrequent = config.FrequentFiles;
+            try
+            {
+                config.FrequentFiles = null;
+
+                // The row must be in the list for the selection to stick.
+                var rows = new List<SearchResultRow>();
+                list.ItemsSource = rows;
+
+                string seen = null;
+                requestProperty.SetValue(view, new Func<string, bool>(
+                    p => { seen = p; return true; }));
+
+                if (!SelectAndPreview(list, rows, tryPreview, view,
+                        new SearchResultRow { Entry = new SearchEntry { Path = file, IsDirectory = false } }))
+                {
+                    throw new InvalidOperationException("a selected file result was not previewed");
+                }
+                if (!string.Equals(seen, file, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "the preview got '" + seen + "', wanted '" + file + "'");
+                }
+                if (config.FrequentFiles == null || config.FrequentFiles.Count != 1
+                    || !string.Equals(config.FrequentFiles[0].Path, file,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        "a previewed file was not recorded as one frequent-file entry");
+                }
+
+                seen = null;
+                if (SelectAndPreview(list, rows, tryPreview, view,
+                        new SearchResultRow { Entry = new SearchEntry { Path = directory, IsDirectory = true } }))
+                {
+                    throw new InvalidOperationException("a directory result was previewed");
+                }
+                if (seen != null) throw new InvalidOperationException("a directory reached QuickLook ('" + seen + "')");
+
+                seen = null;
+                if (SelectAndPreview(list, rows, tryPreview, view,
+                        new SearchResultRow { Entry = new SearchEntry { Path = missing, IsDirectory = false } }))
+                {
+                    throw new InvalidOperationException("a missing path was previewed");
+                }
+                if (seen != null) throw new InvalidOperationException("a missing path reached QuickLook ('" + seen + "')");
+
+                rows.Clear();
+                list.SelectedItem = null;
+                if ((bool)tryPreview.Invoke(view, null))
+                {
+                    throw new InvalidOperationException("Space was handled with no selection");
+                }
+
+                // A row with no entry (or no path) is not previewable either.
+                if (SelectAndPreview(list, rows, tryPreview, view, new SearchResultRow()))
+                {
+                    throw new InvalidOperationException("an empty row was previewed");
+                }
+
+                // QuickLook refusing (not installed) must leave Space to the
+                // scroller: the handled flag follows the request's answer.
+                string refused = null;
+                config.FrequentFiles = null;
+                requestProperty.SetValue(view, new Func<string, bool>(
+                    p => { refused = p; return false; }));
+                if (SelectAndPreview(list, rows, tryPreview, view,
+                        new SearchResultRow { Entry = new SearchEntry { Path = file, IsDirectory = false } }))
+                {
+                    throw new InvalidOperationException("a refused preview marked Space handled");
+                }
+                if (!string.Equals(refused, file, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "the refused preview got '" + refused + "', wanted '" + file + "'");
+                }
+                if (config.FrequentFiles != null)
+                {
+                    throw new InvalidOperationException(
+                        "a refused preview was recorded as a frequent file");
+                }
+            }
+            finally
+            {
+                config.FrequentFiles = savedFrequent;
+                requestProperty.SetValue(view, null);
+                try { IO.File.Delete(file); } catch (Exception) { }
+                try { IO.Directory.Delete(directory, true); } catch (Exception) { }
+            }
+        }
+
+        /// <summary>Puts one row in the result list, selects it and asks the view.</summary>
+        private static bool SelectAndPreview(ListBox list, List<SearchResultRow> rows, MethodInfo tryPreview,
+            SearchPanelView view, SearchResultRow row)
+        {
+            rows.Clear();
+            rows.Add(row);
+            list.SelectedItem = row;
+            return (bool)tryPreview.Invoke(view, null);
+        }
+
+        private static Path GlowPath(WidgetChrome chrome, string name)
+        {
+            var path = chrome.FindName(name) as Path;
+            if (path == null) throw new InvalidOperationException("the chrome has no " + name);
+            return path;
+        }
+
+        private static DoubleAnimation GlowAnimation(WidgetChrome chrome, Path path)
+        {
+            var animations = PrivateField<Dictionary<Path, DoubleAnimation>>(chrome, "_glowAnimations");
+            if (animations == null) return null;
+            DoubleAnimation animation;
+            return animations.TryGetValue(path, out animation) ? animation : null;
+        }
+
+        /// <summary>
+        /// The perimeter of a rounded rectangle: the four straight runs plus the
+        /// four quarter-circle corners.
+        /// </summary>
+        private static double RingPerimeter(RectangleGeometry geometry)
+        {
+            Rect rect = geometry.Rect;
+            double radius = geometry.RadiusX;
+            return 2 * (rect.Width + rect.Height) - 8 * radius + 2 * Math.PI * radius;
+        }
+
         private static bool ContainsTextBlock(DependencyObject root)
         {
             if (root is TextBlock) return true;
@@ -9548,11 +10486,10 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix round 2/6: the native TextBox focus border/selection, the
-        /// progress bar and the selected row all use the widget's own colour. The
-        /// view replaces its local SearchAccent and Kobold.Brush.Accent with a
-        /// frozen brush from SearchData.Color during Attach; the progress bar is
-        /// an explicit activity line whose PART_Indicator tracks that accent.
+        /// Smoke fix round 2/6: the native TextBox focus border/selection and
+        /// the selected row think in the widget's own colour. The view replaces
+        /// its local SearchAccent and Kobold.Brush.Accent with a frozen brush
+        /// from SearchData.Color during Attach.
         /// Fix round 3: a live colour change (menu -> RefreshTheme -> UpdateUI)
         /// repaints the same view through RefreshAccent.
         /// </summary>
@@ -9582,85 +10519,6 @@ namespace Kobold.XamlLoadCheck
                     "the native TextBox accent was not overridden with the widget colour");
             }
 
-            var progress = view.FindName("ScanProgress") as ProgressBar;
-            if (progress == null)
-            {
-                throw new InvalidOperationException("the search panel has no ScanProgress");
-            }
-
-            var progressStyle = view.TryFindResource("SearchProgressStyle") as Style;
-            if (progressStyle == null)
-            {
-                throw new InvalidOperationException("the search panel has no SearchProgressStyle");
-            }
-            if (!ReferenceEquals(progress.Style, progressStyle))
-            {
-                throw new InvalidOperationException(
-                    "ScanProgress does not wear SearchProgressStyle");
-            }
-            if (progress.IsIndeterminate || progress.Maximum != 1 || progress.Value != 1)
-            {
-                throw new InvalidOperationException(
-                    "the progress bar is not a solid activity line (indeterminate="
-                    + progress.IsIndeterminate + ", max=" + progress.Maximum
-                    + ", value=" + progress.Value + ")");
-            }
-
-            double styleHeight = 0;
-            bool foregroundResource = false;
-            foreach (Setter setter in progressStyle.Setters)
-            {
-                if (setter.Property == FrameworkElement.HeightProperty && setter.Value is double)
-                {
-                    styleHeight = (double)setter.Value;
-                }
-                if (setter.Property == Control.ForegroundProperty)
-                {
-                    var resource = setter.Value as DynamicResourceExtension;
-                    foregroundResource = resource != null
-                        && "SearchAccent".Equals(resource.ResourceKey);
-                }
-            }
-            if (styleHeight != 3)
-            {
-                throw new InvalidOperationException(
-                    "the progress bar height is " + styleHeight + ", wanted 3");
-            }
-            if (!foregroundResource)
-            {
-                throw new InvalidOperationException(
-                    "the progress style foreground does not use the SearchAccent resource");
-            }
-
-            if (!SameBrushColor(progress.Foreground, accent))
-            {
-                throw new InvalidOperationException(
-                    "the progress bar foreground is not the widget accent (got "
-                    + DescribeBrush(progress.Foreground) + ")");
-            }
-            if (!SameBrushColor(progress.Background, ThemeManager.ControlBackgroundBrush))
-            {
-                throw new InvalidOperationException(
-                    "the progress bar background is not the control background");
-            }
-
-            progress.ApplyTemplate();
-            ControlTemplate progressTemplate = TemplateOf(progressStyle);
-            var indicator = progressTemplate == null
-                ? null
-                : progressTemplate.FindName("PART_Indicator", progress) as Border;
-            if (indicator == null)
-            {
-                throw new InvalidOperationException(
-                    "the progress template has no PART_Indicator border");
-            }
-            if (!SameBrushColor(indicator.Background, accent))
-            {
-                throw new InvalidOperationException(
-                    "the progress indicator is not the widget accent (got "
-                    + DescribeBrush(indicator.Background) + ")");
-            }
-
             // The menu's colour picker only calls RefreshTheme -> UpdateUI, so
             // the same live view must pick the new colour up without a restart.
             const string green = "#22C55E";
@@ -9679,18 +10537,6 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException(
                     "a live colour change left the native TextBox accent behind");
-            }
-            if (!SameBrushColor(progress.Foreground, repainted))
-            {
-                throw new InvalidOperationException(
-                    "a live colour change left the progress bar at "
-                    + DescribeBrush(progress.Foreground));
-            }
-            if (!SameBrushColor(indicator.Background, repainted))
-            {
-                throw new InvalidOperationException(
-                    "a live colour change left the progress indicator at "
-                    + DescribeBrush(indicator.Background));
             }
         }
 
@@ -9798,16 +10644,16 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Smoke fix: clear uses the close style, rebuild / later the secondary
-        /// style and the two start buttons the primary style - the same instances
-        /// the rest of the app resolves from the app resources.
+        /// Smoke fix: rebuild / later use the secondary style and the two start
+        /// buttons the primary style - the same instances the rest of the app
+        /// resolves from the app resources. Task 6: the clear button is gone, so
+        /// it has no style to assert.
         /// </summary>
         private static void SearchButtonsUseAppStyles()
         {
             ThemeManager.Initialize("dark");
             var view = new SearchWidget(new SearchData()).PanelView;
 
-            AssertButtonStyle(view, "ClearButton", "Kobold.Style.CloseButton");
             AssertButtonStyle(view, "RebuildButton", "Kobold.Style.SecondaryButton");
             AssertButtonStyle(view, "StartIndexButton", "Kobold.Style.PrimaryButton");
             AssertButtonStyle(view, "OnboardingStartButton", "Kobold.Style.PrimaryButton");
@@ -9951,8 +10797,7 @@ namespace Kobold.XamlLoadCheck
             }
 
             var status = view.FindName("StatusText") as TextBlock;
-            var progress = view.FindName("ScanProgress") as ProgressBar;
-            if (status == null || progress == null)
+            if (status == null)
             {
                 throw new InvalidOperationException("the search status line is missing");
             }
@@ -9995,10 +10840,87 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "a reconcile still shows the indexing label");
             }
-            if (progress.Visibility != Visibility.Visible)
+        }
+
+        /// <summary>
+        /// Task 5: the panel's internal activity bar is gone for good - loading
+        /// feedback is the chrome's edge glow alone. The old named element and
+        /// its SearchProgressStyle resource must be absent, and no ProgressBar
+        /// may survive anywhere in the panel's logical or visual tree (a bar
+        /// could come back unnamed or inside a template).
+        /// </summary>
+        private static void SearchPanelHasNoProgressBar()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+
+            if (view.FindName("ScanProgress") != null)
             {
-                throw new InvalidOperationException("a reconcile hides the progress bar");
+                throw new InvalidOperationException(
+                    "the search panel still has a ScanProgress element");
             }
+            if (view.TryFindResource("SearchProgressStyle") != null)
+            {
+                throw new InvalidOperationException(
+                    "the search panel still has a SearchProgressStyle resource");
+            }
+
+            // Build the visual tree before scanning it: a bar inside a template
+            // only appears once the panel has been measured and arranged.
+            view.Measure(new Size(422, 562));
+            view.Arrange(new Rect(0, 0, 422, 562));
+            view.UpdateLayout();
+
+            // Positive control: the walk must reach the status line the bar sat
+            // under, so an empty traversal cannot pass this pin by accident.
+            if (FindInLogicalTree(view, d => Named(d, "StatusText")) == null)
+            {
+                throw new InvalidOperationException(
+                    "the pin could not reach the search status line");
+            }
+
+            DependencyObject bar = FindInLogicalTree(view, d => d is ProgressBar)
+                ?? FindInVisualTree(view, d => d is ProgressBar);
+            if (bar != null)
+            {
+                var element = bar as FrameworkElement;
+                throw new InvalidOperationException(
+                    "the search panel still contains a ProgressBar ("
+                    + (element == null ? string.Empty : element.Name) + ")");
+            }
+        }
+
+        private static bool Named(DependencyObject node, string name)
+        {
+            var element = node as FrameworkElement;
+            return element != null && element.Name == name;
+        }
+
+        private static DependencyObject FindInLogicalTree(
+            DependencyObject root, Func<DependencyObject, bool> match)
+        {
+            if (root == null) return null;
+            if (match(root)) return root;
+            foreach (object child in LogicalTreeHelper.GetChildren(root))
+            {
+                var found = FindInLogicalTree(child as DependencyObject, match);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static DependencyObject FindInVisualTree(
+            DependencyObject root, Func<DependencyObject, bool> match)
+        {
+            if (root == null) return null;
+            if (match(root)) return root;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = FindInVisualTree(VisualTreeHelper.GetChild(root, i), match);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         /// <summary>

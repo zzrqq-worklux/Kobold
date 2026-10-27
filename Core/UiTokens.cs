@@ -210,5 +210,52 @@ namespace Kobold.Core
         public const double MenuTintBorder = 0.25;
 
         #endregion
+
+        #region Panel glow (the search widget's query-in-flight meteor)
+
+        /// <summary>One revolution of the loading comet, in seconds.</summary>
+        public const double GlowSeconds = 1.2;
+
+        /// <summary>Fraction of the ring perimeter the faint tail sweeps.</summary>
+        public const double GlowTailFraction = 0.28;
+
+        /// <summary>
+        /// Largest fraction a layer's dash may span. A fraction of 1 would make
+        /// the tail's dash as long as the ring: no gap, nothing to animate.
+        /// </summary>
+        public const double GlowMaxTailFraction = 0.9;
+
+        /// <summary>Radius of the glow ring: matches the chrome shell's corner.</summary>
+        public const double GlowRadius = RadiusPanel;
+
+        /// <summary>Base ring width (DIP): covers the shell border while loading.</summary>
+        public const double GlowTrackThickness = 1;
+
+        /// <summary>Soft halo width (DIP) behind the comet head.</summary>
+        public const double GlowHaloThickness = 6;
+
+        /// <summary>Head / mid / tail core width (DIP).</summary>
+        public const double GlowCoreThickness = 2.5;
+
+        /// <summary>Track alpha over the shell border.</summary>
+        public const double GlowTrackAlpha = 0.35;
+
+        /// <summary>Layer opacities: the head is opaque, the halo faintest.</summary>
+        public const double GlowHaloAlpha = 0.12;
+
+        public const double GlowTailAlpha = 0.15;
+
+        public const double GlowMidAlpha = 0.45;
+
+        /// <summary>Dash-length shares of the tail: head / mid / tail / halo.</summary>
+        public const double GlowHeadShare = 0.1;
+
+        public const double GlowMidShare = 0.35;
+
+        public const double GlowTailShare = 1.0;
+
+        public const double GlowHaloShare = 0.45;
+
+        #endregion
     }
 }

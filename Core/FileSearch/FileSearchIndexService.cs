@@ -759,10 +759,10 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// One reconcile pass: live rows are upserted and marked seen, then
-        /// CompleteReconcile drops the rows of this root that were not seen. The
-        /// watcher is paused for the whole pass so its writes cannot be mistaken
-        /// for stale rows, and resumed after the dead-row cleanup commits.
+        /// One reconcile pass: the walk diffs every directory against the index inside
+        /// a single store session and the commit publishes the result. The watcher is
+        /// paused for the whole pass so its writes cannot be mistaken for stale rows,
+        /// and resumed after the session is committed or rolled back.
         /// </summary>
         private void RunReconcile()
         {
@@ -817,17 +817,7 @@ namespace Kobold.Core.FileSearch
                         hostPaused = true;
                     }
 
-                    store.BeginReconcile();
-                    var scanner = new DirectoryScanner(store, settings);
-                    ScanResult result = scanner.Scan(normalized, ScanMode.Reconcile, current.Token);
-                    current.Token.ThrowIfCancellationRequested();
-
-                    // A denied/unreadable directory was not walked: mark the rows it
-                    // already has as seen so CompleteReconcile cannot prune them.
-                    if (result.UnreadableDirectories.Count > 0)
-                        store.MarkSeenPathsUnder(result.UnreadableDirectories);
-
-                    store.CompleteReconcile(normalized);
+                    RunReconcileSession(store, settings, normalized, current.Token);
 
                     if (IsCurrentReconcile(current))
                     {
@@ -859,7 +849,7 @@ namespace Kobold.Core.FileSearch
                 }
                 finally
                 {
-                    // Resume only after CompleteReconcile/AbortReconcile returned, so
+                    // Resume only after the session was committed or rolled back, so
                     // the worker's queued events drain against the final table.
                     if (hostPaused && host != null) host.ResumeProcessing();
 
@@ -1088,10 +1078,40 @@ namespace Kobold.Core.FileSearch
         {
             try
             {
+                // A session pass rolls back when its session is disposed, so this only
+                // clears what a legacy pass (or a crashed one) left behind. The store
+                // accepts the call when no reconcile is active.
                 if (_store != null) _store.AbortReconcile();
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// The pass itself: one store session, one transaction. The walk writes only
+        /// the per-directory differences, and leaving the session without a commit
+        /// (cancel, error) rolls the whole pass back, so the index is exactly what it
+        /// was before the pass started.
+        /// </summary>
+        private static void RunReconcileSession(ISearchIndexStore store, FileSearchSettings settings,
+            IReadOnlyList<string> roots, CancellationToken token)
+        {
+            IReconcileSession session = store.OpenReconcileSession();
+            bool committed = false;
+            try
+            {
+                var scanner = new DirectoryScanner(store, settings, reconcileSession: session);
+                scanner.Scan(roots, ScanMode.Reconcile, token);
+                token.ThrowIfCancellationRequested();
+
+                session.Commit();
+                committed = true;
+            }
+            finally
+            {
+                // Also runs when the commit itself failed: then nothing was published.
+                if (!committed) session.Dispose();
             }
         }
 

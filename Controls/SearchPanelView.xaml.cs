@@ -55,7 +55,9 @@ namespace Kobold.Controls
         private bool _subscribed;
         private bool _detached;
         private bool _hasQuery;
+        private bool _queryGlowOn;
         private bool _onboardingDismissed;
+        private int _queryGeneration;
         private FileSearchState _viewState;
         private Point _dragStart;
         private SearchResultRow _dragRow;
@@ -70,6 +72,9 @@ namespace Kobold.Controls
         /// Production never sets it.
         /// </summary>
         internal Action<FileSearchSettings, IReadOnlyList<string>> StartScanForChecks { get; set; }
+
+        /// <summary>Test seam for the QuickLook decision; null means the real request.</summary>
+        internal Func<string, bool> PreviewRequestForChecks { get; set; }
 
         public SearchPanelView()
         {
@@ -101,6 +106,9 @@ namespace Kobold.Controls
 
             ResultsList.ContextMenu = BuildResultMenu();
             ResultsList.PreviewMouseRightButtonDown += ResultsList_PreviewMouseRightButtonDown;
+            // Space previews the selected result in QuickLook (tunnelling, so
+            // the list's ScrollViewer never eats it for a page-down).
+            ResultsList.PreviewKeyDown += ResultsList_PreviewKeyDown;
             // Drag-out source: the handlers never mark the press handled, so
             // selection and the double-click-to-open path keep working.
             ResultsList.PreviewMouseLeftButtonDown += ResultsList_PreviewMouseLeftButtonDown;
@@ -127,6 +135,10 @@ namespace Kobold.Controls
             }
 
             CancelQuery();
+            _queryGeneration++;
+            // Clears both glow inputs at once, so a live scan state cannot
+            // leave the comet running after the view is gone.
+            SetQueryGlow(false);
 
             if (_service != null && _subscribed)
             {
@@ -141,10 +153,12 @@ namespace Kobold.Controls
             if (ResultsList != null)
             {
                 ResultsList.PreviewMouseRightButtonDown -= ResultsList_PreviewMouseRightButtonDown;
+                ResultsList.PreviewKeyDown -= ResultsList_PreviewKeyDown;
                 ResultsList.PreviewMouseLeftButtonDown -= ResultsList_PreviewMouseLeftButtonDown;
                 ResultsList.PreviewMouseMove -= ResultsList_PreviewMouseMove;
                 ResultsList.PreviewMouseLeftButtonUp -= ResultsList_PreviewMouseLeftButtonUp;
             }
+            PreviewRequestForChecks = null;
             _dragRow = null;
         }
 
@@ -173,11 +187,11 @@ namespace Kobold.Controls
 
         /// <summary>
         /// Follows the widget colour: the native TextBox focus border/selection
-        /// (which resolve <c>Kobold.Brush.Accent</c>), the progress bar and the
-        /// selected row all read the accent brushes installed here - the same
-        /// "widget colour overrides the accent" pattern DialogFactory uses. High
-        /// contrast follows the theme's accent resource, and a missing colour
-        /// falls back to the default folder colour.
+        /// (which resolve <c>Kobold.Brush.Accent</c>) and the selected result row
+        /// read the accent brushes installed here - the same "widget colour
+        /// overrides the accent" pattern DialogFactory uses. High contrast
+        /// follows the theme's accent resource, and a missing colour falls back
+        /// to the default folder colour.
         /// </summary>
         private void ApplySearchAccent()
         {
@@ -202,9 +216,9 @@ namespace Kobold.Controls
                 accent.Freeze();
             }
 
-            // SearchAccent drives the progress bar and the selected row; the
-            // local Kobold.Brush.Accent override gives the native TextBox
-            // template the same widget-coloured focus border and selection.
+            // SearchAccent drives the selected result row; the local
+            // Kobold.Brush.Accent override gives the native TextBox template the
+            // same widget-coloured focus border and selection.
             Resources["SearchAccent"] = accent;
             Resources["Kobold.Brush.Accent"] = accent;
         }
@@ -212,8 +226,8 @@ namespace Kobold.Controls
         /// <summary>
         /// Re-applies the accent brush to the live view: a colour change from
         /// the widget menu goes through RefreshTheme -> UpdateUI, and a
-        /// high-contrast toggle must repaint too, so the focus ring, progress
-        /// bar and selected row follow without reopening the panel.
+        /// high-contrast toggle must repaint too, so the focus ring and the
+        /// selected row follow without reopening the panel.
         /// </summary>
         public void RefreshAccent()
         {
@@ -222,11 +236,9 @@ namespace Kobold.Controls
 
         private void ApplyLocalization()
         {
-            // The hint is only discoverable through the tooltip: nothing is
-            // drawn inside the box, so the IME composition string is never
-            // overlaid.
-            SearchBox.ToolTip = Localization.Get("Search_Placeholder");
-            ClearButton.ToolTip = Localization.Get("Search_Clear");
+            // No hint inside, over or beside the box: nothing is drawn and no
+            // tooltip is attached, so the IME composition string is never
+            // overlaid and the box stays a plain TextBox.
 
             EmptyText.Text = Localization.Get("Search_Empty");
             NoIndexText.Text = Localization.Get("Search_NoIndex");
@@ -291,6 +303,44 @@ namespace Kobold.Controls
             if (_debounce == null) return;
             _debounce.Stop();
             _debounce.Start();
+
+            // The glow follows the pending text, but only where the query loop
+            // will really dispatch a query: on a state panel (no index /
+            // unconfigured / paused / error) the debounce would stop it again
+            // 200 ms later, i.e. a blink per keystroke. RunQuery stays the
+            // authority for the dispatch path; the bumped generation keeps an
+            // older query's continuation from switching the glow off.
+            _queryGeneration++;
+            SetQueryGlow(HasQueryText() && QueryIsDispatchable());
+        }
+
+        private bool HasQueryText()
+        {
+            return (SearchBox.Text ?? string.Empty).Trim().Length > 0;
+        }
+
+        /// <summary>
+        /// True when a query typed now would be dispatched. A view without its
+        /// service yet cannot read a state: the debounce's RunQuery decides once
+        /// it resolves the service.
+        /// </summary>
+        private bool QueryIsDispatchable()
+        {
+            if (_detached || _service == null) return false;
+            return CanDispatchQuery(_service.Status.State);
+        }
+
+        /// <summary>
+        /// The states a query can be dispatched from. Everything else keeps the
+        /// state panel (no index / unconfigured / paused / error) and dispatches
+        /// nothing.
+        /// </summary>
+        private static bool CanDispatchQuery(FileSearchState state)
+        {
+            return state != FileSearchState.NoIndex
+                && state != FileSearchState.Unconfigured
+                && state != FileSearchState.Paused
+                && state != FileSearchState.Error;
         }
 
         private void Debounce_Tick(object sender, EventArgs e)
@@ -326,14 +376,6 @@ namespace Kobold.Controls
             }
         }
 
-        private void ClearButton_Click(object sender, RoutedEventArgs e)
-        {
-            SearchBox.Text = string.Empty;
-            SearchBox.Focus();
-            if (_debounce != null) _debounce.Stop();
-            RunQuery();
-        }
-
         private void RunQuery()
         {
             if (_detached) return;
@@ -343,6 +385,8 @@ namespace Kobold.Controls
 
             if (text.Length == 0)
             {
+                _queryGeneration++;
+                SetQueryGlow(false);
                 _hasQuery = false;
                 ResultsList.ItemsSource = null;
                 EmptyState.Visibility = Visibility.Collapsed;
@@ -354,10 +398,12 @@ namespace Kobold.Controls
             if (_service == null) _service = FileSearchIndexService.Instance;
 
             FileSearchState state = _service.Status.State;
-            if (state == FileSearchState.NoIndex || state == FileSearchState.Unconfigured
-                || state == FileSearchState.Paused || state == FileSearchState.Error)
+            if (!CanDispatchQuery(state))
             {
-                // Nothing to query yet: keep the state panel and its message.
+                // Nothing to query yet: keep the state panel and its message and
+                // leave no glow running for a query that will never dispatch.
+                _queryGeneration++;
+                SetQueryGlow(false);
                 UpdateStatus(_service.Status);
                 return;
             }
@@ -367,6 +413,14 @@ namespace Kobold.Controls
             CancellationToken token = cts.Token;
             string query = text;
             FileSearchIndexService service = _service;
+            // This generation owns the glow: only it (or a newer one) may turn
+            // it off.
+            int generation = ++_queryGeneration;
+
+            // The comet runs while the query is in flight, alongside the
+            // "searching" line; an index scan or reconcile drives the same
+            // comet through UpdateGlowState.
+            SetQueryGlow(true);
 
             _hasQuery = true;
             EmptyState.Visibility = Visibility.Collapsed;
@@ -384,6 +438,9 @@ namespace Kobold.Controls
                 }
                 catch (OperationCanceledException)
                 {
+                    // Superseded: the newer query already owns the glow. A
+                    // cancellation that is still current settles it here.
+                    PostToUi(() => SettleQueryGlow(generation));
                     return;
                 }
                 catch (Exception ex)
@@ -392,13 +449,18 @@ namespace Kobold.Controls
                     error = ex;
                 }
 
-                if (token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested)
+                {
+                    PostToUi(() => SettleQueryGlow(generation));
+                    return;
+                }
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_detached || token.IsCancellationRequested) return;
                     if (!ReferenceEquals(_queryCts, cts)) return;
                     ApplyQueryResult(result, error);
+                    SettleQueryGlow(generation);
                 }));
             }, token);
         }
@@ -418,6 +480,10 @@ namespace Kobold.Controls
         private void ClearResults()
         {
             CancelQuery();
+            // A state change that cancels the query leaves nothing to settle:
+            // no glow may outlive the query it belonged to.
+            _queryGeneration++;
+            SetQueryGlow(false);
             _hasQuery = false;
             if (ResultsList != null) ResultsList.ItemsSource = null;
             if (EmptyState != null) EmptyState.Visibility = Visibility.Collapsed;
@@ -544,15 +610,25 @@ namespace Kobold.Controls
         private void Service_ProgressChanged(object sender, ScanProgress progress)
         {
             if (progress == null) return;
-            PostToUi(() =>
-            {
-                if (_detached || ScanProgress.Visibility != Visibility.Visible) return;
-                // A reconcile reports its own label: after a full scan it must
-                // never look like the index restarted.
-                StatusText.Text = _viewState == FileSearchState.Reconciling
-                    ? Localization.Get("Search_Reconciling")
-                    : Localization.Format("Search_Indexing", progress.Files, progress.Directories);
-            });
+            PostToUi(() => ApplyProgress(progress));
+        }
+
+        /// <summary>
+        /// The gate a throttled scan snapshot goes through: only an index scan
+        /// or a reconcile owns the status line, so a late snapshot never
+        /// rewrites another state's line; a reconcile keeps its own label
+        /// instead of the indexing counters. Split out of the dispatcher
+        /// callback (like <see cref="TryPreviewSelected"/>) so the pins can
+        /// drive it without pumping the queue.
+        /// </summary>
+        private void ApplyProgress(ScanProgress progress)
+        {
+            if (progress == null || _detached || !IsIndexState(_viewState)) return;
+            // A reconcile reports its own label: after a full scan it must
+            // never look like the index restarted.
+            StatusText.Text = _viewState == FileSearchState.Reconciling
+                ? Localization.Get("Search_Reconciling")
+                : Localization.Format("Search_Indexing", progress.Files, progress.Directories);
         }
 
         private void PostToUi(Action action)
@@ -574,7 +650,6 @@ namespace Kobold.Controls
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
-                    ScanProgress.Visibility = Visibility.Visible;
                     StatusText.Text = Localization.Format("Search_Indexing",
                         status.FilesIndexed, status.DirectoriesScanned);
                     break;
@@ -584,14 +659,12 @@ namespace Kobold.Controls
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
-                    ScanProgress.Visibility = Visibility.Visible;
                     // Its own status: a reconcile is not the index starting over.
                     StatusText.Text = Localization.Get("Search_Reconciling");
                     break;
 
                 case FileSearchState.Ready:
                     HideOnboarding();
-                    ScanProgress.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = status.NeedsRebuild ? Visibility.Visible : Visibility.Collapsed;
                     if (!_hasQuery)
@@ -605,7 +678,6 @@ namespace Kobold.Controls
                 case FileSearchState.NoIndex:
                     ClearResults();
                     HideOnboarding();
-                    ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Visible;
@@ -619,7 +691,6 @@ namespace Kobold.Controls
                 case FileSearchState.Paused:
                     ClearResults();
                     HideOnboarding();
-                    ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
@@ -629,7 +700,6 @@ namespace Kobold.Controls
                 case FileSearchState.Error:
                     ClearResults();
                     HideOnboarding();
-                    ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Visible;
@@ -641,7 +711,6 @@ namespace Kobold.Controls
                 default:
                     ClearResults();
                     HideOnboarding();
-                    ScanProgress.Visibility = Visibility.Collapsed;
                     EmptyState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
                     if (IsConfigured())
@@ -666,6 +735,12 @@ namespace Kobold.Controls
                     }
                     break;
             }
+
+            // After the state panels have settled: a scan or reconcile lights
+            // the comet, every other state clears it unless a query is in
+            // flight. RefreshStatus routes here too, so reopening the panel
+            // mid-reconcile resumes the glow.
+            UpdateGlowState();
         }
 
         #endregion
@@ -891,7 +966,116 @@ namespace Kobold.Controls
 
         #endregion
 
+        #region Query glow
+
+        /// <summary>
+        /// Records the query half of the glow input and repaints from the
+        /// derived state. The query flag is one of two inputs: a full scan or a
+        /// reconcile lights the same comet, so the view only decides the
+        /// combined state. A bare view - no host, or a host without a chrome -
+        /// simply has nothing to paint, and starting is a no-op while the host
+        /// panel is closed: the debounce can tick after a deactivate collapsed
+        /// the panel, and nothing may light up unseen.
+        /// </summary>
+        private void SetQueryGlow(bool on)
+        {
+            _queryGlowOn = on;
+            UpdateGlowState();
+        }
+
+        /// <summary>The states that show the loading comet: a full scan and the periodic reconcile.</summary>
+        private static bool IsIndexState(FileSearchState state)
+        {
+            return state == FileSearchState.Indexing || state == FileSearchState.Reconciling;
+        }
+
+        /// <summary>
+        /// Paints the one glow state derived from both inputs: a query in
+        /// flight, or an index/reconcile running. A detached view owns nothing,
+        /// so no status may relight it.
+        /// </summary>
+        private void UpdateGlowState()
+        {
+            bool on = !_detached && (_queryGlowOn || IsIndexState(_viewState));
+
+            WidgetWindowBase host = _host;
+            WidgetChrome chrome = host == null ? null : host.PanelChrome;
+            if (chrome == null) return;
+
+            if (on)
+            {
+                if (!host.IsPanelOpen)
+                {
+                    // A hidden panel paints nothing - and it must not keep a
+                    // clock either: a hide path that bypasses OnPanelHidden
+                    // must not leave the comet ticking for a whole scan.
+                    chrome.StopGlow();
+                    return;
+                }
+
+                // The comet wears the widget colour; a live colour change while
+                // a query or a scan runs repaints it through the same call.
+                chrome.ApplyGlowColor(_data == null ? null : _data.Color);
+                chrome.StartGlow();
+            }
+            else
+            {
+                chrome.StopGlow();
+            }
+        }
+
+        /// <summary>
+        /// Switches the glow off only for the query that is still current: a
+        /// newer text or a superseding query owns the glow now.
+        /// </summary>
+        private void SettleQueryGlow(int generation)
+        {
+            if (generation != _queryGeneration) return;
+            SetQueryGlow(false);
+        }
+
+        #endregion
+
         #region Open / context menu
+
+        /// <summary>
+        /// Space previews the selected result through QuickLook. Tunnelling,
+        /// because the list's ScrollViewer also claims Space (page down) once
+        /// it has focus. A directory, a missing path or a refused request
+        /// leaves the key unhandled for the scroller.
+        /// </summary>
+        private void ResultsList_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return;
+
+            // Holding Space repeats this event; QuickLook toggles on a repeated
+            // request, so without this the preview would strobe.
+            if (e.IsRepeat) return;
+
+            if (TryPreviewSelected()) e.Handled = true;
+        }
+
+        /// <summary>
+        /// The QuickLook decision for the selected row, split out so the pins
+        /// drive it without synthetic key events. Only an existing file is
+        /// previewable.
+        /// </summary>
+        private bool TryPreviewSelected()
+        {
+            var row = ResultsList.SelectedItem as SearchResultRow;
+            if (row == null || row.Entry == null) return false;
+
+            string path = row.Entry.Path;
+            if (string.IsNullOrEmpty(path)) return false;
+            if (row.Entry.IsDirectory || Directory.Exists(path)) return false;
+            if (!File.Exists(path)) return false;
+
+            Func<string, bool> request = PreviewRequestForChecks;
+            bool previewed = request != null ? request(path) : QuickLookPreview.Request(path);
+            // A QuickLook preview counts as an open of that file.
+            if (previewed) FrequentFiles.Record(path);
+            return previewed;
+        }
 
         private void ResultsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
@@ -939,6 +1123,9 @@ namespace Kobold.Controls
                         FileName = row.Entry.Path,
                         UseShellExecute = true
                     });
+                    // Only a successful file open is usage evidence; a folder
+                    // (the branch above) never counts.
+                    FrequentFiles.Record(row.Entry.Path);
                 }
             }
             catch (Exception ex)

@@ -29,6 +29,14 @@ namespace Kobold.Core
         public List<WidgetData> Widgets { get; set; }
 
         /// <summary>
+        /// Usage counters for the files opened from the widgets ("frequent
+        /// files"); null until something is opened, which keeps an untouched
+        /// config free of the block.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<FrequentFile> FrequentFiles { get; set; }
+
+        /// <summary>
         /// Read-only migration entrance for configs written before widget
         /// kinds existed. Never written back: <see cref="Load"/> moves its
         /// entries into <see cref="Widgets"/> and clears it.
@@ -393,6 +401,24 @@ namespace Kobold.Core
                     System.Diagnostics.Debug.WriteLine("[Kobold] config save failed: " + ex.Message);
                     SaveFailed?.Invoke(ex.Message);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> under the same gate <see cref="Save"/>
+        /// holds while it serializes the config. A caller that mutates a list
+        /// (the frequent-files block) uses this so a debounced save can never
+        /// observe Add/Sort/RemoveAt and throw "Collection was modified".
+        /// The action must not call back into <see cref="Save"/> or
+        /// <see cref="SaveDebounced"/> - that would nest the gate; schedule the
+        /// write after it returns.
+        /// </summary>
+        internal void WithSaveLock(Action action)
+        {
+            if (action == null) return;
+            lock (_saveLock)
+            {
+                action();
             }
         }
 

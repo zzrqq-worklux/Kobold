@@ -53,7 +53,7 @@ namespace Kobold.Core.FileSearch
                 IndexFolders = true,
                 IndexExtensionless = true,
                 ExcludeDirectories = new string[0],
-                ReconcileMinutes = 10
+                ReconcileMinutes = 30
             };
         }
 

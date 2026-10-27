@@ -209,6 +209,14 @@ files and folders by name across your fixed NTFS drives.
   list of common document, image, video, audio, archive and code types.
   **All files** turns the type filter off; the type list and extra excluded
   folders are editable in **Settings → File search**.
+- **Skipped by default** — ten cache trees stay out of both the scan and the
+  watcher: Chrome and Edge `User Data`, Firefox `Profiles` (Roaming, plus the
+  Local copy Profile Groups leave), the Store apps' volatile directories
+  (`%LocalAppData%\Packages\<app>\LocalCache`, `TempState`, `AC` — `LocalState`
+  is still searched), `INetCache`, `WebCache`, JetBrains caches, and the
+  `%AppData%\Code`, `~\.vscode` and `~\.cache` folders. Rows an older build
+  indexed under them are removed by the next reconcile, so a reconcile interval
+  of 0 keeps them until the next rebuild.
 - **No admin rights** — the index is per-user under `%LocalAppData%`. System
   and build folders (`WinSxS`, `node_modules`, `.git`), reparse points and
   over-long paths are skipped, and the skipped-folder count is shown with the
@@ -219,7 +227,7 @@ files and folders by name across your fixed NTFS drives.
 - **Lifecycle** — a full scan runs at below-normal priority and publishes
   atomically, so the old results stay searchable until it finishes; cancelling
   keeps the old index. A watcher applies creates, renames and deletes
-  incrementally, and a **10-minute reconcile** catches missed changes.
+  incrementally, and a **30-minute reconcile** catches missed changes.
   **Rebuild index** and **Pause indexing** live in the widget menu and
   Settings.
 - **Results** — up to 300 rows in a virtualized list with the true match count
@@ -564,12 +572,18 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
 - **默认范围** — 默认索引文件夹、无扩展名文件，以及常见的文档 / 图片 / 视频 /
   音频 / 压缩包 / 代码类型；勾选**全部文件**可关闭类型过滤，类型列表与追加排除
   目录可在**设置 → 文件搜索**里修改。
+- **默认跳过** — 以下十类缓存目录既不扫描也不监听：Chrome / Edge 的
+  `User Data`、Firefox 的 `Profiles`（Roaming，以及 Profile Groups 留在 Local
+  的副本）、Store 应用的易变目录（`%LocalAppData%\Packages\<应用>\LocalCache`、
+  `TempState`、`AC`；`LocalState` 仍会被搜索）、`INetCache`、`WebCache`、
+  JetBrains 缓存，以及 `%AppData%\Code`、`~\.vscode`、`~\.cache`。旧版本已索引
+  的这些行由下一次对账清理；对账间隔为 0 时这些行会保留到下次重建索引。
 - **无需管理员** — 索引按用户存放在 `%LocalAppData%`。`WinSxS`、`node_modules`、
   `.git`、重解析点与超长路径会被跳过，并显示跳过文件夹计数。
 - **首次引导** — 首次添加组件会出现引导卡片，列出固定磁盘和**开始索引** /
   **稍后**；不点开始不会扫描，选过的根目录会记住。
 - **生命周期** — 全盘扫描以低于正常的优先级运行并原子发布，扫描期间旧结果仍可
-  搜索；取消会保留旧索引。文件监听增量处理创建 / 重命名 / 删除，**每 10 分钟
+  搜索；取消会保留旧索引。文件监听增量处理创建 / 重命名 / 删除，**每 30 分钟
   对账**一次补漏。组件菜单与设置里都有**重建索引**和**暂停索引**。
 - **结果** — 最多 300 条，虚拟化列表，显示真实匹配数（「显示前 N 条，共 M 条」）；
   名称匹配排在仅路径匹配之前。每行可打开、打开所在位置、复制路径。

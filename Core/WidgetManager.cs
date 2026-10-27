@@ -442,7 +442,9 @@ namespace Kobold.Core
         /// <summary>
         /// The same synchronous save, but only when the singleton already
         /// exists: exit paths must never construct a manager (and load the
-        /// user's real config) just to save it.
+        /// user's real config) just to save it. Exit paths only - per-open
+        /// bookkeeping schedules a debounced write through
+        /// <see cref="SaveConfig"/> instead.
         /// </summary>
         public static void SaveConfigIfLoaded()
         {

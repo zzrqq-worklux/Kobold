@@ -35,6 +35,14 @@ namespace Kobold.FileSearchCheck
             _root = Path.Combine(FindRepoRoot(), ".superpowers", "sdd", "file-search-check",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_root);
+
+            // The usage pins read the WidgetManager singleton, whose first
+            // access loads and later saves a config. Redirect it to a throwaway
+            // sandbox here, before RunAll: a pin that reached Instance before
+            // this install would make OverrideConfigPathsForChecks throw.
+            WidgetManager.OverrideConfigPathsForChecks(
+                Path.Combine(UsageSandboxDir(), "config.json"),
+                Path.Combine(UsageSandboxDir(), "config.json.backup"));
             try { RunAll(); }
             catch (Exception ex)
             {
@@ -75,12 +83,51 @@ namespace Kobold.FileSearchCheck
             return directory.FullName;
         }
 
+        /// <summary>The throwaway config directory the singleton is pinned to in Main.</summary>
+        private static string UsageSandboxDir()
+        {
+            return Path.Combine(_root, "usage-config");
+        }
+
+        /// <summary>True when the file exists and already carries the marker.</summary>
+        private static bool ConfigContains(string path, string marker)
+        {
+            try
+            {
+                return File.Exists(path) && File.ReadAllText(path).Contains(marker);
+            }
+            catch (IOException)
+            {
+                // AtomicFile may be replacing the file right now.
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Waits for a scheduled debounced save to land: reads the sandbox file
+        /// until it carries the marker. The force-save cap (ForceSaveIntervalMs,
+        /// set before the record) is the flush helper - the record itself only
+        /// schedules the write, so this proves the debounced path ran.
+        /// </summary>
+        private static bool WaitForConfigContains(string path, string marker, int timeoutMs)
+        {
+            var clock = Stopwatch.StartNew();
+            while (clock.ElapsedMilliseconds < timeoutMs)
+            {
+                if (ConfigContains(path, marker)) return true;
+                Thread.Sleep(50);
+            }
+            return false;
+        }
+
         private static void RunAll()
         {
             TypeFilterCases();
             ExcludeCases();
             UserExcludeCases();
+            CacheDefaultExclusionCases();
             PathCases();
+            ParentCases();
             SettingsDefaults();
             NormalizeCases();
             EntryCases();
@@ -90,7 +137,15 @@ namespace Kobold.FileSearchCheck
             SearchDataCases();
             SettingsUiCases();
             ConfigCases();
+            UsageCases();
+            UsageKeepCases();
+            UsageProbationCases();
+            UsageGuardCases();
+            UsageTopCases();
             StoreCases();
+            StoreSchemaMigrationCases();
+            StoreMigrationVersionResetCase();
+            StoreMigrationVersionAheadCase();
             StoreSuffixCases();
             StoreDeleteBoundaryCases();
             BoundaryCases();
@@ -101,8 +156,19 @@ namespace Kobold.FileSearchCheck
             ScannerBatchCases();
             ReconcileUnreadableCase();
             ReconcileWritesOnlyDifferencesCase();
+            ReconcileSessionCases();
+            ReconcileScannerDiffCases();
+            ReconcileEmojiNameCases();
+            ReconcileExcludedDirectoryCases();
+            ReconcileNewDefaultExcludedCase();
+            ReconcileRootRepairCase();
+            ReconcileNoFolderRowsCase();
+            ReconcilePartialListingCase();
+            ReconcileOrphanRowCase();
+            ReconcileCancelRollbackCase();
             StaleStagingTableCase();
             WatcherCases();
+            WatcherStatDietCases();
             ServiceCases();
             ServiceIncrementalCases();
             ServiceFreshDatabaseCase();
@@ -174,6 +240,77 @@ namespace Kobold.FileSearchCheck
                 "exclude: a user drive root stays a path, not a name");
         }
 
+        /// <summary>
+        /// The environment-derived cache defaults: browser profiles, the Store apps'
+        /// volatile directories, the Windows internet caches and IDE caches are out of
+        /// scope without a user exclusion. Every probe is a fake child under the real
+        /// environment root, so the pin does not depend on Chrome (or any app) being
+        /// installed.
+        /// </summary>
+        private static void CacheDefaultExclusionCases()
+        {
+            var s = FileSearchSettings.CreateDefault();
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            var probes = new List<string>();
+            AddCacheProbe(probes, local, "Google", "Chrome", "User Data", "KoboldFake", "Cache");
+            AddCacheProbe(probes, local, "Microsoft", "Edge", "User Data", "KoboldFake");
+            // Firefox keeps its profiles in Roaming; Profile Groups leave a Local copy.
+            AddCacheProbe(probes, roaming, "Mozilla", "Firefox", "Profiles", "KoboldFake");
+            AddCacheProbe(probes, local, "Mozilla", "Firefox", "Profiles", "KoboldFake");
+            // Only the volatile children of a Store package are cache.
+            AddCacheProbe(probes, local, "Packages", "KoboldFake", "LocalCache", "KoboldFake");
+            AddCacheProbe(probes, local, "Packages", "KoboldFake", "TempState", "KoboldFake");
+            AddCacheProbe(probes, local, "Packages", "KoboldFake", "AC", "KoboldFake");
+            AddCacheProbe(probes, local, "Microsoft", "Windows", "INetCache", "KoboldFake");
+            AddCacheProbe(probes, local, "Microsoft", "Windows", "WebCache", "KoboldFake");
+            AddCacheProbe(probes, local, "JetBrains", "KoboldFake");
+            AddCacheProbe(probes, roaming, "Code", "KoboldFake");
+            AddCacheProbe(probes, profile, ".vscode", "KoboldFake");
+            AddCacheProbe(probes, profile, ".cache", "KoboldFake");
+
+            bool allExcluded = probes.Count >= 10;
+            foreach (string probe in probes)
+            {
+                if (!SearchDirectoryFilter.IsExcluded(probe, null, s)) allExcluded = false;
+            }
+            Check(allExcluded, "search: cache paths are excluded by default");
+
+            Check(!SearchDirectoryFilter.IsExcluded(Path.Combine(local, "KoboldFakeNormal"), null, s),
+                "search: a normal folder under the same root is not excluded");
+
+            // Narrowing the Store default: the package directory and the user-visible
+            // LocalState files stay in scope, so only the volatile children are cache.
+            string package = Path.Combine(local, "Packages", "KoboldFake");
+            Check(!SearchDirectoryFilter.IsExcluded(package, null, s),
+                "search: a Store package directory itself is not excluded");
+            Check(!SearchDirectoryFilter.IsExcluded(Path.Combine(package, "LocalState"), "LocalState", s)
+                  && !SearchDirectoryFilter.IsExcluded(
+                      Path.Combine(package, "LocalState", "notes.txt"), null, s),
+                "search: a Store package's LocalState files are still searched");
+            Check(!SearchDirectoryFilter.IsExcluded(
+                    Path.Combine(package, "LocalState", "LocalCache", "notes.txt"), null, s),
+                "search: a LocalState child named LocalCache is not confused with the volatile one");
+
+            string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            Check(SearchDirectoryFilter.IsExcluded(Path.Combine(windows, "WinSxS", "x"), "x", s)
+                  && SearchDirectoryFilter.IsExcluded(Path.Combine(Path.GetTempPath(), "KoboldFake"), null, s)
+                  && SearchDirectoryFilter.IsExcluded(@"C:\p\node_modules\a", "a", s)
+                  && SearchDirectoryFilter.IsExcluded(@"C:\p\.git\objects", "objects", s),
+                "search: the existing default exclusions still match");
+        }
+
+        private static void AddCacheProbe(List<string> probes, string basePath, params string[] segments)
+        {
+            if (string.IsNullOrEmpty(basePath)) return;
+
+            string path = basePath;
+            for (int i = 0; i < segments.Length; i++) path = Path.Combine(path, segments[i]);
+            probes.Add(path);
+        }
+
         private static void PathCases()
         {
             Check(SearchPath.GetExtension(@"C:\a\report.PDF") == "pdf", "path: extension is lowercase without the dot");
@@ -192,13 +329,49 @@ namespace Kobold.FileSearchCheck
             Check(SearchPath.EscapeLike(@"a%b_c\d") == @"a\%b\_c\\d", "path: LIKE wildcards and the escape character are escaped");
         }
 
+        /// <summary>
+        /// The parent key of one indexed row: the containing directory ending with
+        /// exactly one separator, or "" for a drive root. Every write derives it from
+        /// the path (upsert) and the v1 backfill mirrors it in SQL, so this table is
+        /// the contract both sides are pinned to.
+        /// </summary>
+        private static void ParentCases()
+        {
+            Check(SearchIndexStore.ParentOf(@"C:\dir\file.txt") == @"C:\dir\",
+                "parent: a nested file is keyed by its directory");
+            Check(SearchIndexStore.ParentOf(@"C:\dir") == @"C:\",
+                "parent: a nested directory is keyed by its own parent");
+            Check(SearchIndexStore.ParentOf(@"C:\file.txt") == @"C:\",
+                "parent: a file in a drive root is keyed by the root");
+            Check(SearchIndexStore.ParentOf(@"C:\") == "",
+                "parent: the drive root has no parent");
+            Check(SearchIndexStore.ParentOf(@"D:\") == "",
+                "parent: another drive root has no parent");
+            Check(SearchIndexStore.ParentOf(@"C:\dir\") == @"C:\",
+                "parent: a stored trailing separator is stripped, never doubled");
+            Check(SearchIndexStore.ParentOf(@"C:\dir\\") == @"C:\",
+                "parent: every trailing separator is stripped before the last one counts");
+            Check(SearchIndexStore.ParentOf(@"C:\\") == "",
+                "parent: a drive root with a doubled separator still has no parent");
+            Check(SearchIndexStore.ParentOf(@"\\server\share\dir\file") == @"\\server\share\dir\",
+                "parent: a UNC file is keyed by its directory");
+            Check(SearchIndexStore.ParentOf(@"\\server\share\dir") == @"\\server\share\",
+                "parent: a UNC directory is keyed by its own parent");
+            Check(SearchIndexStore.ParentOf(@"\\server\share") == "",
+                "parent: a UNC share root has no parent (the server namespace is not a directory)");
+            Check(SearchIndexStore.ParentOf(@"\\server\share\") == "",
+                "parent: a UNC share root with a trailing separator has no parent either");
+            Check(SearchIndexStore.ParentOf(string.Empty) == "",
+                "parent: an empty path has no parent");
+        }
+
         private static void SettingsDefaults()
         {
             var s = FileSearchSettings.CreateDefault();
             Check(s.Types != null && Array.IndexOf(s.Types, "pdf") >= 0 && Array.IndexOf(s.Types, "cs") >= 0,
                 "settings: default types include the spec's document and code types");
-            Check(s.IndexFolders && s.IndexExtensionless && !s.IndexAllFiles && s.ReconcileMinutes == 10,
-                "settings: defaults are folders/extensionless on, all-files off, reconcile 10");
+            Check(s.IndexFolders && s.IndexExtensionless && !s.IndexAllFiles && s.ReconcileMinutes == 30,
+                "settings: defaults are folders/extensionless on, all-files off, reconcile 30");
             string a = s.ComputeFingerprint(new[] { @"C:\" });
             s.Types = new[] { "pdf" };
             string b = s.ComputeFingerprint(new[] { @"C:\" });
@@ -428,6 +601,245 @@ namespace Kobold.FileSearchCheck
                 "config: a saved FileSearch reloads");
         }
 
+        /// <summary>
+        /// Task 7: the pure usage update increments the entry a file already has
+        /// (a different case is the same file), refreshes its timestamp and
+        /// orders by count, then recency, then path.
+        /// </summary>
+        private static void UsageCases()
+        {
+            var list = new List<FrequentFile>();
+            var start = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+            FrequentFiles.Record(list, @"C:\usage\a.txt", start, FrequentFiles.Keep);
+            FrequentFiles.Record(list, @"C:\usage\a.txt", start.AddMinutes(1), FrequentFiles.Keep);
+            FrequentFiles.Record(list, @"C:\usage\b.txt", start.AddMinutes(2), FrequentFiles.Keep);
+            FrequentFiles.Record(list, @"C:\USAGE\A.TXT", start.AddMinutes(3), FrequentFiles.Keep);
+
+            var a = list.Find(f => f != null && f.Path.EndsWith("a.txt", StringComparison.OrdinalIgnoreCase));
+            var b = list.Find(f => f != null && f.Path.EndsWith("b.txt", StringComparison.OrdinalIgnoreCase));
+            Check(list.Count == 2 && a != null && b != null && a.Count == 3 && b.Count == 1 && list[0] == a,
+                "usage: an open increments and reorders the list");
+            Check(a != null && a.LastOpenedUtc == start.AddMinutes(3),
+                "usage: an open refreshes the last-opened timestamp");
+            Check(a != null && string.Equals(a.Path, Path.GetFullPath(@"C:\usage\a.txt"),
+                    StringComparison.OrdinalIgnoreCase),
+                "usage: the stored path is absolute");
+        }
+
+        /// <summary>
+        /// Task 7: the config keeps only the most-used entries, so a long tail of
+        /// one-off opens can never grow without bound.
+        /// </summary>
+        private static void UsageKeepCases()
+        {
+            var list = new List<FrequentFile>();
+            var start = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+            // The i-th file is opened (i + 1) times: 30 files with counts 1..30.
+            // The clock advances with every open, so recency is unambiguous.
+            var now = start;
+            for (int i = 0; i < 30; i++)
+            {
+                string path = @"C:\usage\keep\file" + i.ToString("D2") + ".txt";
+                for (int open = 0; open <= i; open++)
+                {
+                    FrequentFiles.Record(list, path, now, FrequentFiles.Keep);
+                    now = now.AddSeconds(1);
+                }
+            }
+
+            Check(list.Count == FrequentFiles.Keep
+                  && list[0].Count == 30
+                  && list[list.Count - 1].Count == 11
+                  && list.TrueForAll(f => f.Count >= 11),
+                "usage: only the most-used entries are kept");
+        }
+
+        /// <summary>
+        /// Task 7: the guarded public record ignores anything that is not an
+        /// existing file, writes into the singleton's config (a throwaway
+        /// sandbox) and the list survives a JSON round-trip. Task 7 fix round 1:
+        /// an open only schedules the debounced write (never a synchronous one)
+        /// and that write persists the block, while a default config writes no
+        /// block at all.
+        /// </summary>
+        private static void UsageGuardCases()
+        {
+            // The singleton was redirected to this directory in Main.
+            string sandbox = UsageSandboxDir();
+            Directory.CreateDirectory(sandbox);
+            string configPath = Path.Combine(sandbox, "config.json");
+
+            string folder = Path.Combine(_root, "usage-folder");
+            Directory.CreateDirectory(folder);
+            string missing = Path.Combine(_root, "usage-missing.txt");
+            string realFile = Path.Combine(_root, "usage-real.txt");
+            File.WriteAllText(realFile, "recorded");
+
+            try
+            {
+                AppConfig config = WidgetManager.Instance.Config;
+                config.FrequentFiles = null;
+
+                string bare = Newtonsoft.Json.JsonConvert.SerializeObject(new AppConfig());
+                Check(!bare.Contains("FrequentFiles"),
+                    "usage: a default config writes no frequent-files block");
+
+                FrequentFiles.Record(folder);
+                FrequentFiles.Record(missing);
+                Check(config.FrequentFiles == null,
+                    "usage: a missing file or a directory is not recorded");
+
+                // Keep the force cap well clear of the observation below; the
+                // idle debounce still lands the write and the wait polls for it.
+                config.ForceSaveIntervalMs = 5000;
+                FrequentFiles.Record(realFile);
+                Check(!ConfigContains(configPath, "\"FrequentFiles\""),
+                    "usage: an open does not write the config synchronously");
+
+                bool recorded = config.FrequentFiles != null && config.FrequentFiles.Count == 1;
+                Check(recorded && string.Equals(config.FrequentFiles[0].Path,
+                        Path.GetFullPath(realFile), StringComparison.OrdinalIgnoreCase)
+                      && config.FrequentFiles[0].Count == 1,
+                    "usage: a real file is recorded once");
+                Check(FrequentFiles.Top(10).Count == (recorded ? 1 : 0),
+                    "usage: the top view reads the recorded entry");
+
+                bool persisted = WaitForConfigContains(configPath, "\"FrequentFiles\"", 8000);
+                var block = persisted
+                    ? Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(configPath))["FrequentFiles"]
+                        as Newtonsoft.Json.Linq.JArray
+                    : null;
+                Check(block != null && block.Count == 1
+                      && string.Equals((string)block[0]["Path"], Path.GetFullPath(realFile),
+                          StringComparison.OrdinalIgnoreCase),
+                    "usage: the debounced save persists the block");
+            }
+            finally
+            {
+                try { File.Delete(realFile); } catch { }
+                try { Directory.Delete(folder, true); } catch { }
+            }
+
+            var stored = new AppConfig();
+            var stamp = new DateTime(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+            stored.FrequentFiles = new List<FrequentFile>
+            {
+                new FrequentFile { Path = @"C:\usage\one.txt", Count = 4, LastOpenedUtc = stamp },
+                new FrequentFile { Path = @"C:\usage\two.txt", Count = 2, LastOpenedUtc = stamp.AddDays(-1) }
+            };
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(stored);
+            var back = Newtonsoft.Json.JsonConvert.DeserializeObject<AppConfig>(json);
+            Check(back.FrequentFiles != null && back.FrequentFiles.Count == 2
+                  && back.FrequentFiles[0].Path == @"C:\usage\one.txt"
+                  && back.FrequentFiles[0].Count == 4
+                  && back.FrequentFiles[0].LastOpenedUtc == stamp
+                  && back.FrequentFiles[1].Path == @"C:\usage\two.txt",
+                "usage: the config round-trips the list");
+        }
+
+        /// <summary>
+        /// Task 7 fix round 1: a full list keeps one probation slot. The
+        /// newcomer survives at count 1 and the second-lowest entry (count 2)
+        /// is evicted, so a first open is not undone on the spot.
+        /// </summary>
+        private static void UsageProbationCases()
+        {
+            var list = new List<FrequentFile>();
+            var now = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+            // FrequentFiles.Keep entries at counts 2..21: file00 is the lowest
+            // and file01 the second-lowest.
+            for (int i = 0; i < FrequentFiles.Keep; i++)
+            {
+                string path = @"C:\usage\probation\file" + i.ToString("D2") + ".txt";
+                for (int open = 0; open < i + 2; open++)
+                {
+                    FrequentFiles.Record(list, path, now, FrequentFiles.Keep);
+                    now = now.AddSeconds(1);
+                }
+            }
+
+            Check(list.Count == FrequentFiles.Keep,
+                "usage: the probation pin starts from a full list");
+
+            FrequentFiles.Record(list, @"C:\usage\probation\newcomer.txt", now, FrequentFiles.Keep);
+            var newcomer = list.Find(f => f != null && f.Path.EndsWith("newcomer.txt", StringComparison.OrdinalIgnoreCase));
+            var lowest = list.Find(f => f != null && f.Path.EndsWith("file00.txt", StringComparison.OrdinalIgnoreCase));
+            var secondLowest = list.Find(f => f != null && f.Path.EndsWith("file01.txt", StringComparison.OrdinalIgnoreCase));
+            Check(list.Count == FrequentFiles.Keep && newcomer != null && newcomer.Count == 1
+                  && lowest == null && secondLowest != null,
+                "usage: a full list keeps one probation slot for a new file");
+        }
+
+        /// <summary>
+        /// Task 7 fix round 1: the top view orders by count, then recency, then
+        /// path ordinal, hands out copies of the entries, ignores a non-positive
+        /// count and hides entries whose file is gone; the next record prunes
+        /// those dead entries from the stored list.
+        /// </summary>
+        private static void UsageTopCases()
+        {
+            string dir = Path.Combine(_root, "usage-top");
+            Directory.CreateDirectory(dir);
+            string a = Path.Combine(dir, "a.txt");
+            string b = Path.Combine(dir, "b.txt");
+            string c = Path.Combine(dir, "c.txt");
+            string d = Path.Combine(dir, "d.txt");
+            foreach (var path in new[] { a, b, c, d }) File.WriteAllText(path, "x");
+            string dead = Path.Combine(dir, "deleted.txt");
+
+            AppConfig config = WidgetManager.Instance.Config;
+            List<FrequentFile> saved = config.FrequentFiles;
+            var t0 = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            try
+            {
+                config.FrequentFiles = new List<FrequentFile>
+                {
+                    new FrequentFile { Path = a, Count = 1, LastOpenedUtc = t0 },
+                    new FrequentFile { Path = b, Count = 1, LastOpenedUtc = t0 },
+                    new FrequentFile { Path = c, Count = 2, LastOpenedUtc = t0 },
+                    new FrequentFile { Path = d, Count = 2, LastOpenedUtc = t0.AddMinutes(1) }
+                };
+
+                var top = FrequentFiles.Top(10);
+                Check(top.Count == 4 && top[0].Path == d && top[1].Path == c
+                      && top[2].Path == a && top[3].Path == b,
+                    "usage: the top view orders by count, then recency, then path");
+
+                top[0].Count = 99;
+                top[0].Path = a;
+                var live = config.FrequentFiles.Find(f => f.Path == d);
+                Check(live != null && live.Count == 2 && live.Path == d,
+                    "usage: the top view hands out copies, not the live entries");
+
+                Check(FrequentFiles.Top(0).Count == 0 && FrequentFiles.Top(-1).Count == 0,
+                    "usage: a non-positive top view is empty");
+
+                // A deleted file disappears from the view at once ...
+                config.FrequentFiles = new List<FrequentFile>
+                {
+                    new FrequentFile { Path = dead, Count = 9, LastOpenedUtc = t0 },
+                    new FrequentFile { Path = a, Count = 1, LastOpenedUtc = t0 }
+                };
+                var pruned = FrequentFiles.Top(10);
+                Check(pruned.Count == 1 && pruned[0].Path == a,
+                    "usage: the top view hides a deleted file");
+
+                // ... and the next record prunes it from the stored list.
+                FrequentFiles.Record(a);
+                Check(config.FrequentFiles.Count == 1 && config.FrequentFiles[0].Path == a
+                      && config.FrequentFiles[0].Count == 2,
+                    "usage: the next record prunes a deleted file");
+            }
+            finally
+            {
+                config.FrequentFiles = saved;
+                try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+
         private static void StoreCases()
         {
             string db = Path.Combine(_root, "store.db");
@@ -447,8 +859,15 @@ namespace Kobold.FileSearchCheck
                 store.CompleteFullScan(2, 1, 0, "fp");
                 Check(store.ReadStatus().HasIndex, "store: full scan publishes an index");
                 Check(store.ReadStatus().SkippedDirectories == 2 && store.ReadStatus().SettingsFingerprint == "fp"
-                      && store.ReadStatus().SchemaVersion == 1 && store.ReadStatus().LastScanUtc != null,
+                      && store.ReadStatus().SchemaVersion == 2 && store.ReadStatus().LastScanUtc != null,
                     "store: status exposes the scan counters, fingerprint, schema version and timestamp");
+                Check(RowParent(db, @"C:\p\Alpha.txt") == @"C:\p\"
+                      && RowParent(db, @"C:\p\子目录") == @"C:\p\"
+                      && RowParent(db, @"C:\p\sub\Beta.txt") == @"C:\p\sub\",
+                    "store: every published row carries the parent of its path");
+                Check(ScalarCount(db,
+                          "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_files_parent';") == 1,
+                    "store: the published table carries the parent index");
                 Check(store.GetDatabaseSizeBytes() > 0, "store: the database size covers the main file");
 
                 var q = store.Query("alpha", 300, CancellationToken.None);
@@ -530,6 +949,225 @@ namespace Kobold.FileSearchCheck
             }
         }
 
+        /// <summary>
+        /// The v1 files table: today's schema without the Parent column, including the
+        /// three indexes the v1 build created after a full scan.
+        /// </summary>
+        private const string LegacyFilesSql = @"
+CREATE TABLE files (
+    Path TEXT PRIMARY KEY COLLATE NOCASE,
+    Name TEXT NOT NULL,
+    NameLower TEXT NOT NULL,
+    Extension TEXT NOT NULL,
+    IsDirectory INTEGER NOT NULL,
+    SizeBytes INTEGER NOT NULL,
+    ModifiedUtc INTEGER NOT NULL,
+    Root TEXT NOT NULL);
+CREATE INDEX idx_files_name_lower ON files(NameLower);
+CREATE INDEX idx_files_extension ON files(Extension);
+CREATE INDEX idx_files_root ON files(Root);
+CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
+
+        /// <summary>
+        /// v1 -> v2 without a full rebuild: a database written before the Parent
+        /// column existed gets the column added in place, every row backfilled with
+        /// the value <see cref="SearchIndexStore.ParentOf"/> derives, the parent index
+        /// created and the version bumped. The seeded rows are exactly the cases the
+        /// backfill SQL has to agree with C# on (drive root, a file in that root, a
+        /// nested directory and file, doubled trailing separators, a UNC file), and
+        /// both sides are asserted. A rebuild would lose the published scan, so the
+        /// row count and the scan timestamp are pinned too.
+        /// </summary>
+        private static void StoreSchemaMigrationCases()
+        {
+            string db = Path.Combine(_root, "migrate-v1.db");
+            using (var connection = OpenSqlite(db))
+            {
+                ExecuteSql(connection, LegacyFilesSql);
+                ExecuteSql(connection, @"INSERT INTO files
+                    (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root) VALUES
+                    ('C:\', 'C:\', 'c:\', '', 1, 0, 1700000000, 'C:\'),
+                    ('C:\dir', 'dir', 'dir', '', 1, 0, 1700000000, 'C:\'),
+                    ('C:\dir\file.txt', 'file.txt', 'file.txt', 'txt', 0, 10, 1700000000, 'C:\'),
+                    ('C:\top.txt', 'top.txt', 'top.txt', 'txt', 0, 20, 1700000000, 'C:\'),
+                    ('C:\\', 'C:\', 'c:\', '', 1, 0, 1700000000, 'C:\'),
+                    ('C:\dir\\', 'dir', 'dir', '', 1, 0, 1700000000, 'C:\'),
+                    ('\\server\share\dir\file.txt', 'file.txt', 'file.txt', 'txt', 0, 30, 1700000000,
+                     '\\server\share');");
+                ExecuteSql(connection, @"INSERT INTO meta (Key, Value) VALUES
+                    ('schema_version', '1'), ('last_scan_utc', '2026-01-02T03:04:05.0000000Z'),
+                    ('settings_fingerprint', 'v1-fp'), ('row_count', '7');");
+                ExecuteSql(connection, "PRAGMA user_version=1;");
+            }
+
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                IndexStatus status = store.ReadStatus();
+                Check(status.SchemaVersion == 2 && MetaValue(db, "schema_version") == "2",
+                    "migrate: a v1 index is stamped as schema version 2");
+                Check(ScalarCount(db, "PRAGMA user_version;") == 2 && status.HasIndex,
+                    "migrate: user_version itself reports 2 and the index stays published");
+
+                string[] paths =
+                {
+                    @"C:\", @"C:\dir", @"C:\dir\file.txt", @"C:\top.txt", @"C:\\", @"C:\dir\\",
+                    @"\\server\share\dir\file.txt"
+                };
+                bool backfillMatchesParentOf = true;
+                for (int i = 0; i < paths.Length; i++)
+                {
+                    if (!string.Equals(RowParent(db, paths[i]), SearchIndexStore.ParentOf(paths[i]),
+                            StringComparison.Ordinal))
+                    {
+                        backfillMatchesParentOf = false;
+                    }
+                }
+                Check(backfillMatchesParentOf,
+                    "migrate: the SQL backfill matches ParentOf for every seeded row");
+                Check(RowParent(db, @"C:\") == "" && RowParent(db, @"C:\dir") == @"C:\"
+                      && RowParent(db, @"C:\dir\file.txt") == @"C:\dir\"
+                      && RowParent(db, @"C:\top.txt") == @"C:\"
+                      && RowParent(db, @"C:\\") == ""
+                      && RowParent(db, @"C:\dir\\") == @"C:\"
+                      && RowParent(db, @"\\server\share\dir\file.txt") == @"\\server\share\dir\",
+                    "migrate: the backfilled parents are the expected values");
+                Check(ScalarCount(db, "SELECT COUNT(*) FROM files;") == 7
+                      && status.LastScanUtc != null && status.SettingsFingerprint == "v1-fp",
+                    "migrate: the migration keeps every row and the published scan (no rebuild)");
+                Check(ScalarCount(db,
+                          "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_files_parent';") == 1,
+                    "migrate: the migration creates the parent index");
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    var rootChildren = session.ReadChildren(@"C:\", CancellationToken.None);
+                    var dirChildren = session.ReadChildren(@"C:\dir", CancellationToken.None);
+                    var uncChildren = session.ReadChildren(@"\\server\share\dir", CancellationToken.None);
+                    // The seeded "C:\dir\\" row has the backfilled parent "C:\" but is
+                    // dropped by the belt-and-braces direct-child filter (its path has
+                    // another separator after the parent), so it is not a child here.
+                    Check(rootChildren.Count == 2 && HasEntry(rootChildren, @"C:\dir")
+                          && HasEntry(rootChildren, @"C:\top.txt")
+                          && !HasEntry(rootChildren, @"C:\dir\file.txt"),
+                        "migrate: ReadChildren on the migrated drive root returns its direct children only");
+                    Check(dirChildren.Count == 1 && HasEntry(dirChildren, @"C:\dir\file.txt"),
+                        "migrate: ReadChildren on a migrated nested directory returns its file only");
+                    Check(uncChildren.Count == 1 && HasEntry(uncChildren, @"\\server\share\dir\file.txt"),
+                        "migrate: ReadChildren on a migrated UNC directory returns its file only");
+                }
+
+                // The migration is done: a second open is a no-op and must not re-stamp
+                // or rebuild an already migrated index.
+                DateTime? scanBefore = status.LastScanUtc;
+                store.EnsureSchema();
+                IndexStatus again = store.ReadStatus();
+                Check(again.SchemaVersion == 2 && again.LastScanUtc == scanBefore
+                      && ScalarCount(db, "SELECT COUNT(*) FROM files;") == 7,
+                    "migrate: a second EnsureSchema on a v2 index neither migrates nor rebuilds");
+            }
+        }
+
+        /// <summary>
+        /// The guard is not column-presence. A v2 index reopened by a v1 build still has
+        /// the Parent column (the v1 build does not know it), but the v1 8-column INSERT
+        /// leaves it at the NOT NULL <c>''</c> default and the v1 EnsureSchema stamps
+        /// <c>user_version</c> back to 1. Those rows are invisible to ReadChildren and
+        /// would never be pruned, so a version below 2 must re-run the idempotent
+        /// backfill even though the column exists. Non-vacuous: under the old
+        /// column-only guard the row keeps Parent='' and stays invisible.
+        /// </summary>
+        private static void StoreMigrationVersionResetCase()
+        {
+            string db = Path.Combine(_root, "migrate-reset.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                store.Upsert(Entry(@"C:\dir\file.txt", "file.txt", "txt", false, 10, @"C:\"));
+            }
+            Check(MetaValue(db, "parent_filled") == "2",
+                "migrate reset: the v2 stamp is written on a fresh index");
+            Check(RowParent(db, @"C:\dir\file.txt") == @"C:\dir\",
+                "migrate reset: a v2 upsert carries its parent");
+
+            using (var connection = OpenSqlite(db))
+            {
+                // Exactly what a v1 build does to a v2 file: an 8-column INSERT (Parent
+                // falls back to '') and a stamp reset to schema version 1.
+                ExecuteSql(connection, @"INSERT INTO files
+                    (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root)
+                    VALUES ('C:\dir\new.txt', 'new.txt', 'new.txt', 'txt', 0, 5, 1700000000, 'C:\');");
+                ExecuteSql(connection, "UPDATE meta SET Value = '1' WHERE Key = 'schema_version';");
+                ExecuteSql(connection, "PRAGMA user_version=1;");
+            }
+            Check(RowParent(db, @"C:\dir\new.txt") == "",
+                "migrate reset: the v1-written row starts on the empty default");
+            Check(MetaValue(db, "parent_filled") == "2",
+                "migrate reset: the reset leaves the old backfill stamp behind");
+
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                Check(RowParent(db, @"C:\dir\new.txt") == @"C:\dir\",
+                    "migrate reset: a column-present index with user_version 1 is backfilled again");
+                Check(ScalarCount(db, "PRAGMA user_version;") == 2
+                      && MetaValue(db, "schema_version") == "2",
+                    "migrate reset: the repaired index is stamped as version 2 again");
+                using (var session = store.OpenReconcileSession())
+                {
+                    var children = session.ReadChildren(@"C:\dir", CancellationToken.None);
+                    Check(children.Count == 2 && HasEntry(children, @"C:\dir\new.txt"),
+                        "migrate reset: the repaired row is visible to ReadChildren again");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The other direction: a file stamped version 2 whose table still lacks the
+        /// column (an interrupted migration, or a hand-made table carrying the new
+        /// stamp). The column is additive, so it must appear and be backfilled; the
+        /// version alone must not be trusted.
+        /// </summary>
+        private static void StoreMigrationVersionAheadCase()
+        {
+            string db = Path.Combine(_root, "migrate-ahead.db");
+            using (var connection = OpenSqlite(db))
+            {
+                ExecuteSql(connection, LegacyFilesSql);
+                ExecuteSql(connection, @"INSERT INTO files
+                    (Path, Name, NameLower, Extension, IsDirectory, SizeBytes, ModifiedUtc, Root) VALUES
+                    ('C:\', 'C:\', 'c:\', '', 1, 0, 1700000000, 'C:\'),
+                    ('C:\dir', 'dir', 'dir', '', 1, 0, 1700000000, 'C:\'),
+                    ('C:\dir\file.txt', 'file.txt', 'file.txt', 'txt', 0, 10, 1700000000, 'C:\');");
+                ExecuteSql(connection, @"INSERT INTO meta (Key, Value) VALUES
+                    ('schema_version', '2'), ('parent_filled', '2');");
+                ExecuteSql(connection, "PRAGMA user_version=2;");
+            }
+            Check(ScalarCount(db,
+                      "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'Parent';") == 0,
+                "migrate ahead: the seeded table really has no parent column");
+
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                Check(ScalarCount(db,
+                          "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'Parent';") == 1,
+                    "migrate ahead: a version-2 stamp does not hide a missing column");
+                Check(RowParent(db, @"C:\dir\file.txt") == @"C:\dir\"
+                      && RowParent(db, @"C:\dir") == @"C:\"
+                      && RowParent(db, @"C:\") == "",
+                    "migrate ahead: the added column is backfilled for every row");
+                Check(ScalarCount(db, "PRAGMA user_version;") == 2,
+                    "migrate ahead: the version stays 2");
+                using (var session = store.OpenReconcileSession())
+                {
+                    var children = session.ReadChildren(@"C:\dir", CancellationToken.None);
+                    Check(children.Count == 1 && HasEntry(children, @"C:\dir\file.txt"),
+                        "migrate ahead: ReadChildren works on the repaired table");
+                }
+            }
+        }
+
         private static void StoreSuffixCases()
         {
             string db = Path.Combine(_root, "suffix.db");
@@ -574,9 +1212,22 @@ namespace Kobold.FileSearchCheck
                     Entry(@"C:\p\submarine\Gamma.txt", "Gamma.txt", "txt", false, 20, @"C:\p"),
                     Entry(@"C:\Root.txt", "Root.txt", "txt", false, 30, @"C:\"),
                     Entry(@"C:\x\y.txt", "y.txt", "txt", false, 40, @"C:\"),
+                    Entry(@"C:\p\a_b", "a_b", "", true, 0, @"C:\p"),
+                    Entry(@"C:\p\a_b\inside.txt", "inside.txt", "txt", false, 60, @"C:\p"),
+                    Entry(@"C:\p\axb", "axb", "", false, 70, @"C:\p"),
                     Entry(@"D:\other.txt", "other.txt", "txt", false, 50, @"D:\"),
                 });
                 store.CompleteFullScan(0, 0, 0, "fp");
+
+                // The subtree delete must seek, not scan: both the equality and the
+                // prefix range are planned as index searches on the Path primary key
+                // (SQLite reports them as MULTI-INDEX OR). A LIKE predicate on a NOCASE
+                // column degrades to "SCAN files" here.
+                string plan = QueryPlan(db,
+                    "DELETE FROM files WHERE Path = @path OR (Path >= @start AND Path < @end);");
+                Check(plan.IndexOf("SEARCH files USING", StringComparison.OrdinalIgnoreCase) >= 0
+                      && plan.IndexOf("SCAN files", StringComparison.OrdinalIgnoreCase) < 0,
+                    "store: the subtree delete seeks the Path index instead of scanning");
 
                 store.DeletePathAndPrefix(@"C:\p\sub\");
                 var subRows = store.Query("sub", 300, CancellationToken.None);
@@ -593,6 +1244,11 @@ namespace Kobold.FileSearchCheck
                     "store: deleting C:\\p\\sub leaves C:\\p\\submarine");
                 Check(store.Query("submarine", 300, CancellationToken.None).TotalMatches == 1,
                     "store: a prefix delete does not claim a sibling with the same stem");
+
+                store.DeletePathAndPrefix(@"C:\p\a_b");
+                Check(store.Query("inside", 300, CancellationToken.None).TotalMatches == 0
+                      && store.Query("axb", 300, CancellationToken.None).TotalMatches == 1,
+                    "store: a wildcard-looking directory name matches literally, not as a LIKE pattern");
 
                 store.DeletePathAndPrefix(@"C:\");
                 Check(store.Query("root", 300, CancellationToken.None).TotalMatches == 0
@@ -1160,6 +1816,689 @@ namespace Kobold.FileSearchCheck
             }
         }
 
+        /// <summary>
+        /// The reconcile session is one connection and one transaction over a whole
+        /// pass: children are read per directory, a commit publishes everything and a
+        /// dispose without one leaves the index exactly as it was.
+        /// </summary>
+        private static void ReconcileSessionCases()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "session-tree"));
+            string sub = Path.Combine(tree, "Sub");
+            string deep = Path.Combine(sub, "Deep");
+            Directory.CreateDirectory(deep);
+            string a = Path.Combine(tree, "a.txt");
+            string b = Path.Combine(sub, "b.txt");
+            string c = Path.Combine(deep, "c.txt");
+            File.WriteAllText(a, "a");
+            File.WriteAllText(b, "b");
+            File.WriteAllText(c, "c");
+
+            string db = Path.Combine(_root, "session.db");
+            string rolledBack = Path.Combine(tree, "rolled-back.txt");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(Entry(tree, "session-tree", string.Empty, true, 0, tree));
+                    session.Upsert(Entry(sub, "Sub", string.Empty, true, 0, tree));
+                    session.Upsert(Entry(deep, "Deep", string.Empty, true, 0, tree));
+                    session.Upsert(Entry(a, "a.txt", "txt", false, 1, tree));
+                    session.Upsert(Entry(b, "b.txt", "txt", false, 2, tree));
+                    session.Upsert(Entry(c, "c.txt", "txt", false, 3, tree));
+                    session.Commit();
+                }
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    bool threw = false;
+                    try
+                    {
+                        using (var second = store.OpenReconcileSession())
+                        {
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        threw = true;
+                    }
+                    Check(threw, "session: a second concurrent session throws instead of sharing the connection");
+                }
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    var children = session.ReadChildren(tree, CancellationToken.None);
+                    Check(children.Count == 2 && HasEntry(children, a) && HasEntry(children, sub)
+                          && !HasEntry(children, deep) && !HasEntry(children, c),
+                        "session: ReadChildren returns the direct children only (never grandchildren)");
+
+                    var mixed = session.ReadChildren(tree.ToUpperInvariant(), CancellationToken.None);
+                    Check(mixed.Count == 2 && HasEntry(mixed, a),
+                        "session: ReadChildren matches mixed-case directory paths");
+
+                    // The walk normalizes a directory without its trailing separator, but
+                    // ReadChildren is called with whatever the caller has: both forms must
+                    // read the same direct children (a "C:\\" root keeps its one separator).
+                    var trailing = session.ReadChildren(tree + "\\", CancellationToken.None);
+                    Check(trailing.Count == children.Count && HasEntry(trailing, a) && HasEntry(trailing, sub),
+                        "session: ReadChildren treats a trailing separator like no separator");
+
+                    var cancelled = new CancellationToken(true);
+                    bool tokenThrew = false;
+                    try { session.ReadChildren(tree, cancelled); }
+                    catch (OperationCanceledException) { tokenThrew = true; }
+                    Check(tokenThrew, "session: ReadChildren honours the pass token");
+                }
+
+                // A drive root keeps its own separator: "C:\" must not turn into "C:\\".
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(Entry(@"C:\session-probe.txt", "session-probe.txt", "txt", false, 1, @"C:\"));
+                    session.Commit();
+                }
+                using (var session = store.OpenReconcileSession())
+                {
+                    Check(HasEntry(session.ReadChildren(@"C:\", CancellationToken.None), @"C:\session-probe.txt"),
+                        "session: a drive-root child is read from the drive's own range");
+                }
+
+                string added = Path.Combine(tree, "added.txt");
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(Entry(added, "added.txt", "txt", false, 4, tree));
+                    session.Upsert(Entry(a, "a.txt", "txt", false, 99, tree));
+                    session.Commit();
+                }
+                Check(HasPath(store, added) && RowSize(store, a) == 99,
+                    "session: Upsert inserts a new row and updates a changed one");
+
+                long before = ScalarCount(db, "SELECT COUNT(*) FROM files;");
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(Entry(rolledBack, "rolled-back.txt", "txt", false, 7, tree));
+                    session.Upsert(Entry(a, "a.txt", "txt", false, 777, tree));
+                    // Deliberately no Commit: the whole pass must disappear.
+                }
+                Check(ScalarCount(db, "SELECT COUNT(*) FROM files;") == before
+                      && RowSize(store, a) == 99 && !HasPath(store, rolledBack),
+                    "session: dispose without commit rolls the whole pass back");
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Delete(c);
+                    session.Commit();
+                }
+                Check(!HasPath(store, c) && HasPath(store, b),
+                    "session: Delete removes one row and nothing else");
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.DeletePathAndPrefix(sub);
+                    session.Commit();
+                }
+                Check(!HasPath(store, sub) && !HasPath(store, b) && HasPath(store, a),
+                    "session: DeletePathAndPrefix removes the subtree and nothing beside it");
+            }
+
+            using (var reopened = new SearchIndexStore(db))
+            {
+                reopened.EnsureSchema();
+                Check(HasPath(reopened, a) && !HasPath(reopened, c) && !HasPath(reopened, rolledBack),
+                    "session: a commit is durable across a reopen and a rollback leaves no trace");
+            }
+        }
+
+        /// <summary>
+        /// The reconcile diff path: an unchanged tree writes nothing at all, and each
+        /// kind of change writes exactly the row it touched. The fake records both the
+        /// session calls and the legacy batch/seen writes, so "writes nothing" also
+        /// fails when the walk falls back to upserting everything.
+        /// </summary>
+        private static void ReconcileScannerDiffCases()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "diff-scan-tree"));
+            string sub = Path.Combine(tree, "sub");
+            Directory.CreateDirectory(sub);
+            string a = Path.Combine(tree, "a.txt");
+            File.WriteAllText(a, "hello");
+            File.WriteAllText(Path.Combine(sub, "b.txt"), "hi");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            var store = new DiffStore();
+            SeedChildren(store, tree, tree);
+            var scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+            var walk = scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+
+            Check(walk.Files == 2 && walk.Directories == 2,
+                "reconcile diff: the walk still counts the files and directories it saw");
+            Check(store.Upserts.Count == 0 && store.Deletes.Count == 0 && store.PrefixDeletes.Count == 0
+                  && store.BatchedRows == 0 && store.SeenRows == 0,
+                "reconcile diff: an unchanged tree writes nothing");
+
+            // A new file in the tree root: creating it only touches the root's own
+            // mtime, and the root row is not indexed, so this is exactly one upsert.
+            store = new DiffStore();
+            SeedChildren(store, tree, tree);
+            string added = Path.Combine(tree, "added.txt");
+            File.WriteAllText(added, "new");
+            scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+            scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(store.Upserts.Count == 1 && PathsEqual(store.Upserts[0].Path, added)
+                  && store.Deletes.Count == 0 && store.PrefixDeletes.Count == 0,
+                "reconcile diff: a new file is exactly one upsert");
+            File.Delete(added);
+
+            store = new DiffStore();
+            SeedChildren(store, tree, tree);
+            File.WriteAllText(a, "much longer content than hello");
+            scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+            scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(store.Upserts.Count == 1 && PathsEqual(store.Upserts[0].Path, a)
+                  && store.Deletes.Count == 0 && store.PrefixDeletes.Count == 0,
+                "reconcile diff: a size/mtime change is exactly one upsert");
+
+            store = new DiffStore();
+            string doomed = Path.Combine(tree, "doomed.txt");
+            File.WriteAllText(doomed, "x");
+            SeedChildren(store, tree, tree);
+            File.Delete(doomed);
+            scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+            scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(store.Deletes.Count == 1 && PathsEqual(store.Deletes[0], doomed)
+                  && store.Upserts.Count == 0 && store.PrefixDeletes.Count == 0,
+                "reconcile diff: a deleted file is exactly one delete");
+
+            store = new DiffStore();
+            SeedChildren(store, tree, tree);
+            Directory.Delete(sub, true);
+            scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+            scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(store.PrefixDeletes.Count == 1 && PathsEqual(store.PrefixDeletes[0], sub)
+                  && store.Deletes.Count == 0 && store.Upserts.Count == 0,
+                "reconcile diff: a deleted child directory is exactly one prefix delete");
+
+            // Unreadable directory: its rows stay because the walk never saw them.
+            string guardedTree = SearchPath.Normalize(Path.Combine(_root, "diff-scan-guarded"));
+            string denied = Path.Combine(guardedTree, "denied");
+            Directory.CreateDirectory(denied);
+            File.WriteAllText(Path.Combine(denied, "kept.txt"), "x");
+            string ghost = Path.Combine(denied, "vanished.txt");
+            string ghostDir = Path.Combine(denied, "vanished-dir");
+
+            var guardedSettings = FileSearchSettings.CreateDefault();
+            guardedSettings.Roots = new[] { guardedTree };
+
+            store = new DiffStore();
+            SeedChildren(store, guardedTree, guardedTree);
+            store.Children[denied].Add(Entry(ghost, "vanished.txt", "txt", false, 1, guardedTree));
+            store.Children[denied].Add(Entry(ghostDir, "vanished-dir", string.Empty, true, 0, guardedTree));
+            var guarded = new DirectoryScanner(store, guardedSettings,
+                isUnreadableDirectory: path => PathsEqual(path, denied), reconcileSession: store);
+            var guardedWalk = guarded.Scan(new[] { guardedTree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(guardedWalk.UnreadableDirectories.Count == 1,
+                "reconcile diff: the unreadable directory is still reported by the walk");
+            Check(store.Deletes.Count == 0 && store.PrefixDeletes.Count == 0,
+                "reconcile diff: an unreadable directory prunes nothing");
+
+            // Control: a readable walk of the same tree prunes those rows, so the pin
+            // above is not vacuous.
+            var control = new DiffStore();
+            SeedChildren(control, guardedTree, guardedTree);
+            control.Children[denied].Add(Entry(ghost, "vanished.txt", "txt", false, 1, guardedTree));
+            var plain = new DirectoryScanner(control, guardedSettings, reconcileSession: control);
+            plain.Scan(new[] { guardedTree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(control.Deletes.Count == 1 && PathsEqual(control.Deletes[0], ghost),
+                "reconcile diff: a readable directory prunes the vanished file");
+        }
+
+        /// <summary>
+        /// A non-BMP (surrogate-pair) name was missed by the old prefix-range
+        /// <c>ReadChildren</c>, so a deleted emoji file kept its row and a deleted emoji
+        /// directory leaked its whole subtree. The read is now one parent-key equality
+        /// seek, and the prunes run against the real store so the SQL lookup and the
+        /// walk are proven together.
+        /// </summary>
+        private static void ReconcileEmojiNameCases()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "session-emoji-tree"));
+            Directory.CreateDirectory(tree);
+            string emojiFile = Path.Combine(tree, "\U0001F600.txt");
+            File.WriteAllText(emojiFile, "x");
+            string emojiDir = Path.Combine(tree, "\U0001F642");
+            string emojiChild = Path.Combine(emojiDir, "inside.txt");
+            Directory.CreateDirectory(emojiDir);
+            File.WriteAllText(emojiChild, "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            string db = Path.Combine(_root, "session-emoji.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(DiskEntry(tree, emojiFile));
+                    session.Upsert(DiskEntry(tree, emojiDir));
+                    session.Upsert(DiskEntry(tree, emojiChild));
+                    session.Commit();
+                }
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    var children = session.ReadChildren(tree, CancellationToken.None);
+                    Check(HasEntry(children, emojiFile) && HasEntry(children, emojiDir),
+                        "session: ReadChildren returns non-BMP (emoji) direct children");
+                }
+
+                File.Delete(emojiFile);
+                using (var counted = new CountingSession(store.OpenReconcileSession()))
+                {
+                    new DirectoryScanner(store, settings, reconcileSession: counted)
+                        .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                    Check(counted.Deletes.Count == 1 && PathsEqual(counted.Deletes[0], emojiFile)
+                          && counted.PrefixDeletes.Count == 0,
+                        "session: a deleted non-BMP file is exactly one delete");
+                    counted.Commit();
+                }
+                Check(!HasPath(store, emojiFile), "session: the deleted non-BMP file row is gone");
+
+                Directory.Delete(emojiDir, true);
+                using (var counted = new CountingSession(store.OpenReconcileSession()))
+                {
+                    new DirectoryScanner(store, settings, reconcileSession: counted)
+                        .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                    Check(counted.PrefixDeletes.Count == 1 && PathsEqual(counted.PrefixDeletes[0], emojiDir)
+                          && counted.Deletes.Count == 0,
+                        "session: a deleted non-BMP directory is exactly one prefix delete");
+                    counted.Commit();
+                }
+                Check(!HasPath(store, emojiDir) && !HasPath(store, emojiChild),
+                    "session: a deleted non-BMP directory takes its indexed subtree with it");
+            }
+        }
+
+        /// <summary>
+        /// A settings exclusion is a decision: the rows a previous pass indexed under
+        /// the folder are stale and are pruned by the prefix delete, like the legacy
+        /// root-wide anti-join did. A veto (pause/stop here) is transient and must keep
+        /// them, otherwise pressing pause would silently drop rows.
+        /// </summary>
+        private static void ReconcileExcludedDirectoryCases()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "excluded-tree"));
+            string kept = Path.Combine(tree, "kept");
+            string excluded = Path.Combine(tree, "sub");
+            Directory.CreateDirectory(kept);
+            Directory.CreateDirectory(excluded);
+            File.WriteAllText(Path.Combine(kept, "kept.txt"), "x");
+            File.WriteAllText(Path.Combine(excluded, "cache.txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.ExcludeDirectories = new[] { excluded };
+
+            // ReadChildren(tree) is canned: the excluded child plus its old descendant
+            // rows, which only a prefix delete can remove because the walk never reads
+            // (or walks) the excluded directory.
+            Func<DiffStore> seeded = () =>
+            {
+                var store = new DiffStore();
+                store.Children[tree] = new List<SearchEntry>
+                {
+                    DiskEntry(tree, excluded), DiskEntry(tree, kept)
+                };
+                store.Children[excluded] = new List<SearchEntry>
+                {
+                    Entry(Path.Combine(excluded, "cache.txt"), "cache.txt", "txt", false, 1, tree)
+                };
+                store.Children[kept] = new List<SearchEntry>
+                {
+                    DiskEntry(tree, Path.Combine(kept, "kept.txt"))
+                };
+                return store;
+            };
+
+            var excludedStore = seeded();
+            var walk = new DirectoryScanner(excludedStore, settings, reconcileSession: excludedStore)
+                .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(walk.SkippedExcluded == 1 && walk.Directories == 2,
+                "reconcile excluded: the excluded child is skipped and the kept one is walked");
+            Check(excludedStore.PrefixDeletes.Count == 1 && PathsEqual(excludedStore.PrefixDeletes[0], excluded)
+                  && excludedStore.Deletes.Count == 0 && excludedStore.Upserts.Count == 0,
+                "reconcile excluded: an excluded child directory is exactly one prefix delete");
+
+            // Same tree, same canned rows, but the directory is vetoed (pause/stop
+            // here) instead of excluded: it keeps everything it has indexed.
+            var vetoSettings = FileSearchSettings.CreateDefault();
+            vetoSettings.Roots = new[] { tree };
+
+            var vetoedStore = seeded();
+            new DirectoryScanner(vetoedStore, vetoSettings,
+                    isForbiddenDirectory: path => PathsEqual(path, excluded), reconcileSession: vetoedStore)
+                .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(vetoedStore.PrefixDeletes.Count == 0 && vetoedStore.Deletes.Count == 0
+                  && vetoedStore.Upserts.Count == 0,
+                "reconcile excluded: a vetoed directory keeps its indexed rows");
+        }
+
+        /// <summary>
+        /// A default that now excludes a cache tree must also clean the rows an older
+        /// pass indexed under it: the reconcile prune is the only repair, and it must
+        /// fire for a directory the walk never reads (the fake session supplies the
+        /// parent's listing, because the real cache tree is outside the scratch root).
+        /// </summary>
+        private static void ReconcileNewDefaultExcludedCase()
+        {
+            string excluded;
+            if (!TryCreateStoreScratch("LocalCache", out excluded))
+            {
+                Console.WriteLine("SKIP search: reconcile prunes rows under a newly default-excluded path (Packages is not writable)");
+                return;
+            }
+
+            string packageRoot = Path.GetDirectoryName(excluded);
+            string tree = SearchPath.Normalize(Path.Combine(_root, "cache-excluded-tree"));
+            Directory.CreateDirectory(tree);
+
+            try
+            {
+                var store = new DiffStore();
+                store.Children[tree] = new List<SearchEntry> { DiskEntry(tree, excluded) };
+                store.Children[excluded] = new List<SearchEntry>
+                {
+                    Entry(Path.Combine(excluded, "state.dat"), "state.dat", "dat", false, 1, tree)
+                };
+
+                var settings = FileSearchSettings.CreateDefault();
+                settings.Roots = new[] { tree };
+
+                var scanner = new DirectoryScanner(store, settings, reconcileSession: store);
+                scanner.EnumerateForChecks = path => PathsEqual(path, tree)
+                    ? new FileSystemInfo[] { new DirectoryInfo(excluded) }
+                    : null;
+
+                var walk = scanner.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                Check(walk.SkippedExcluded == 1 && walk.Directories == 1,
+                    "search: the newly default-excluded cache path is skipped by the walk");
+                Check(store.PrefixDeletes.Count == 1 && PathsEqual(store.PrefixDeletes[0], excluded)
+                      && store.Deletes.Count == 0 && store.Upserts.Count == 0,
+                    "search: reconcile prunes rows under a newly default-excluded path");
+            }
+            finally
+            {
+                TryDeleteTree(packageRoot);
+            }
+        }
+
+        /// <summary>
+        /// The upsert writes Root, so an otherwise unchanged row indexed under a stale
+        /// root must be repaired; otherwise a settings change that re-homes a path would
+        /// leave the old root on the row forever.
+        /// </summary>
+        private static void ReconcileRootRepairCase()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "root-repair-tree"));
+            Directory.CreateDirectory(tree);
+            string file = Path.Combine(tree, "root-probe.txt");
+            File.WriteAllText(file, "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            var store = new DiffStore();
+            SearchEntry stale = DiskEntry(tree, file);
+            stale.Root = @"C:\old-root";
+            store.Children[tree] = new List<SearchEntry> { stale };
+
+            new DirectoryScanner(store, settings, reconcileSession: store)
+                .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+
+            Check(store.Upserts.Count == 1 && PathsEqual(store.Upserts[0].Path, file)
+                  && PathsEqual(store.Upserts[0].Root, tree)
+                  && store.Deletes.Count == 0 && store.PrefixDeletes.Count == 0,
+                "reconcile diff: a stale Root on an otherwise unchanged row is repaired");
+        }
+
+        /// <summary>
+        /// With folder rows disabled a child directory writes no row of its own. A row
+        /// an earlier pass indexed (folder rows were on) must be dropped on its own: if
+        /// it stayed in the parent's map the prune would prefix-delete the whole subtree
+        /// and the child's own walk would rewrite every file in it.
+        /// </summary>
+        private static void ReconcileNoFolderRowsCase()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "nofolders-diff-tree"));
+            string sub = Path.Combine(tree, "sub");
+            Directory.CreateDirectory(sub);
+            string top = Path.Combine(tree, "top.txt");
+            string inside = Path.Combine(sub, "inside.txt");
+            File.WriteAllText(top, "x");
+            File.WriteAllText(inside, "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            settings.IndexFolders = false;
+
+            var store = new DiffStore();
+            store.Children[tree] = new List<SearchEntry> { DiskEntry(tree, sub), DiskEntry(tree, top) };
+            store.Children[sub] = new List<SearchEntry> { DiskEntry(tree, inside) };
+
+            var walk = new DirectoryScanner(store, settings, reconcileSession: store)
+                .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+
+            Check(walk.Files == 2 && walk.Directories == 2,
+                "reconcile no-folders: the walk still counts both files and both directories");
+            Check(store.PrefixDeletes.Count == 0 && store.Upserts.Count == 0,
+                "reconcile no-folders: the parent prune does not prefix-delete the child subtree");
+            Check(store.Deletes.Count == 1 && PathsEqual(store.Deletes[0], sub),
+                "reconcile no-folders: only the stale child-directory row itself is deleted");
+        }
+
+        /// <summary>
+        /// A listing that fails half-way has not seen the rest of its contents, so a
+        /// reconcile must prune nothing for it (the <c>listedCompletely</c> branch). The
+        /// scanner hook replaces the real enumeration, because a directory that is
+        /// revoked mid-read cannot be produced on demand.
+        /// </summary>
+        private static void ReconcilePartialListingCase()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "partial-listing-tree"));
+            Directory.CreateDirectory(tree);
+            string seen = Path.Combine(tree, "seen.txt");
+            File.WriteAllText(seen, "x");
+            string ghost = Path.Combine(tree, "ghost.txt");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            Func<DiffStore> seeded = () =>
+            {
+                var store = new DiffStore();
+                store.Children[tree] = new List<SearchEntry>
+                {
+                    DiskEntry(tree, seen), Entry(ghost, "ghost.txt", "txt", false, 1, tree)
+                };
+                return store;
+            };
+
+            var partialStore = seeded();
+            var partial = new DirectoryScanner(partialStore, settings, reconcileSession: partialStore);
+            partial.EnumerateForChecks = path => PartialListing(seen);
+            var walk = partial.Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+
+            Check(walk.UnreadableDirectories.Count == 1 && PathsEqual(walk.UnreadableDirectories[0], tree),
+                "reconcile partial: a half-listed directory is reported as unreadable");
+            Check(partialStore.Deletes.Count == 0 && partialStore.PrefixDeletes.Count == 0,
+                "reconcile partial: a half-listed directory prunes nothing");
+            Check(partialStore.Upserts.Count == 0,
+                "reconcile partial: the rows it did list are still diffed (no rewrite)");
+
+            // Control: the same rows are pruned by a complete listing, so the pin above
+            // is not vacuous.
+            var control = seeded();
+            new DirectoryScanner(control, settings, reconcileSession: control)
+                .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+            Check(control.Deletes.Count == 1 && PathsEqual(control.Deletes[0], ghost),
+                "reconcile partial: a complete listing prunes the row the half-listing missed");
+        }
+
+        /// <summary>
+        /// The per-directory diff only prunes inside directories it actually walks, so a
+        /// row outside every configured root (another drive, a folder the user just
+        /// removed from the settings) survives a reconcile. The legacy root-wide
+        /// anti-join deleted it. The same pass still prunes inside the tree, so the pin
+        /// is not vacuous.
+        /// </summary>
+        private static void ReconcileOrphanRowCase()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "orphan-tree"));
+            string outside = SearchPath.Normalize(Path.Combine(_root, "orphan-outside"));
+            Directory.CreateDirectory(tree);
+            Directory.CreateDirectory(outside);
+            string baseFile = Path.Combine(tree, "orphan-base.txt");
+            File.WriteAllText(baseFile, "x");
+            string orphan = Path.Combine(outside, "orphan-outside.txt");
+            string staleInside = Path.Combine(tree, "orphan-stale.txt");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            string db = Path.Combine(_root, "orphan.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(DiskEntry(tree, baseFile));
+                    session.Upsert(Entry(orphan, "orphan-outside.txt", "txt", false, 1, outside));
+                    session.Upsert(Entry(staleInside, "orphan-stale.txt", "txt", false, 1, tree));
+                    session.Commit();
+                }
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    new DirectoryScanner(store, settings, reconcileSession: session)
+                        .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                    session.Commit();
+                }
+
+                Check(HasPath(store, orphan),
+                    "reconcile orphan: a row outside every walked directory survives the pass");
+                Check(!HasPath(store, staleInside),
+                    "reconcile orphan: the same pass still prunes inside the walked tree");
+            }
+        }
+
+        /// <summary>
+        /// The headline safety property of a session pass: what it already wrote is
+        /// rolled back when the token fires mid-walk, so the index is exactly what it was
+        /// before the pass. The veto callback is the deterministic cancel point the walk
+        /// already exposes (the reconcile itself raises no progress events, so a
+        /// progress-driven cancel is not available at store level).
+        /// </summary>
+        private static void ReconcileCancelRollbackCase()
+        {
+            string tree = SearchPath.Normalize(Path.Combine(_root, "rolled-tree"));
+            string sub = Path.Combine(tree, "sub");
+            Directory.CreateDirectory(sub);
+            string kept = Path.Combine(tree, "kept.txt");
+            string subFile = Path.Combine(sub, "sub.txt");
+            File.WriteAllText(kept, "x");
+            File.WriteAllText(subFile, "x");
+            string gone = Path.Combine(tree, "gone.txt");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+
+            string db = Path.Combine(_root, "rolled.db");
+            using (var store = new SearchIndexStore(db))
+            {
+                store.EnsureSchema();
+                using (var session = store.OpenReconcileSession())
+                {
+                    session.Upsert(DiskEntry(tree, kept));
+                    session.Upsert(DiskEntry(tree, sub));
+                    session.Upsert(DiskEntry(tree, subFile));
+                    session.Upsert(Entry(gone, "gone.txt", "txt", false, 1, tree));
+                    session.Commit();
+                }
+
+                var source = new CancellationTokenSource();
+                int directoryChecks = 0;
+                using (var session = store.OpenReconcileSession())
+                {
+                    var scanner = new DirectoryScanner(store, settings,
+                        isForbiddenDirectory: path =>
+                        {
+                            // Root first, then sub: by the second check the root's diff
+                            // has already issued the delete of "gone.txt" inside the
+                            // session's transaction, so the rollback has real work.
+                            if (++directoryChecks == 2) source.Cancel();
+                            return false;
+                        },
+                        reconcileSession: session);
+
+                    bool threw = false;
+                    try { scanner.Scan(new[] { tree }, ScanMode.Reconcile, source.Token); }
+                    catch (OperationCanceledException) { threw = true; }
+                    Check(threw, "reconcile cancel: the walk observes a mid-pass cancel");
+                    // No Commit on purpose: disposing rolls the whole pass back.
+                }
+                Check(HasPath(store, gone),
+                    "reconcile cancel: a delete already issued by the pass is rolled back");
+
+                using (var session = store.OpenReconcileSession())
+                {
+                    new DirectoryScanner(store, settings, reconcileSession: session)
+                        .Scan(new[] { tree }, ScanMode.Reconcile, CancellationToken.None);
+                    session.Commit();
+                }
+                Check(!HasPath(store, gone),
+                    "reconcile cancel: an uncancelled pass does prune the stale row (control)");
+            }
+        }
+
+        /// <summary>
+        /// Fills a fake session with the tree as it is on disk: the rows a completed
+        /// scan of this tree would have indexed. The entries come from the production
+        /// factory, so name/size/timestamp match what the walk produces.
+        /// </summary>
+        private static void SeedChildren(DiffStore store, string root, string directory)
+        {
+            var rows = new List<SearchEntry>();
+            foreach (string path in Directory.GetFileSystemEntries(directory))
+            {
+                FileSystemInfo info = Directory.Exists(path)
+                    ? (FileSystemInfo)new DirectoryInfo(path)
+                    : new FileInfo(path);
+
+                SearchEntry entry;
+                if (SearchEntry.TryCreate(root, info, out entry) && entry != null) rows.Add(entry);
+            }
+            store.Children[directory] = rows;
+
+            foreach (string child in Directory.GetDirectories(directory))
+            {
+                SeedChildren(store, root, child);
+            }
+        }
+
+        private static bool HasEntry(IReadOnlyList<SearchEntry> rows, string path)
+        {
+            if (rows == null) return false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i] != null && PathsEqual(rows[i].Path, path)) return true;
+            }
+            return false;
+        }
+
+
         /// <summary>A crashed full scan can leave files_new behind; reopening the store drops it.</summary>
         private static void StaleStagingTableCase()
         {
@@ -1333,6 +2672,308 @@ namespace Kobold.FileSearchCheck
         }
 
         /// <summary>
+        /// The stat diet and the per-path coalescing, asserted against a fake store:
+        /// an excluded path never reaches it, an included path is exactly one write,
+        /// a dotted directory still falls back to the folder gate, and a burst on one
+        /// path collapses to one upsert. Events are injected synchronously, and files
+        /// are created before Start, so no pin races the OS watcher. Counts are
+        /// filtered by the injected path: the live watcher on the same root may write
+        /// rows the pin does not own.
+        /// </summary>
+        private static void WatcherStatDietCases()
+        {
+            string root = Path.Combine(_root, "watch-diet-root");
+            Directory.CreateDirectory(root);
+
+            // A cache path the defaults exclude must cost the store nothing. The event
+            // has to name an *indexable* existing file, otherwise it would be dropped
+            // by the type filter or the vanished-file fallback with no exclusion at
+            // all. It also has to sit in a Store volatile child: the package directory
+            // and its LocalState are in scope by design.
+            string storeCacheDir;
+            if (!TryCreateStoreScratch("LocalCache", out storeCacheDir))
+            {
+                Console.WriteLine("SKIP search: an excluded watcher event never reaches the store (Packages is not writable)");
+            }
+            else
+            {
+                string storePackage = Path.GetDirectoryName(storeCacheDir);
+                try
+                {
+                    string cacheFile = Path.Combine(storeCacheDir, "state.txt");
+                    File.WriteAllText(cacheFile, "x");
+
+                    var excludedStore = new DiffStore();
+                    using (var host = new FileSystemWatcherHost(excludedStore, SettingsForRoot(storePackage)))
+                    {
+                        host.Start(new[] { storePackage });
+                        host.ApplyBatchForChecks(new[]
+                        {
+                            WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, cacheFile)
+                        });
+                    }
+
+                    Check(CountUpserts(excludedStore, cacheFile) == 0
+                          && CountDeletes(excludedStore, cacheFile) == 0
+                          && CountPrefixDeletes(excludedStore, cacheFile) == 0,
+                        "search: an excluded watcher event never reaches the store");
+                }
+                finally
+                {
+                    TryDeleteTree(storePackage);
+                }
+            }
+
+            // Control for the pin above: the same file name in a scratch directory
+            // outside Packages reaches the store exactly once, so the exclusion is the
+            // only difference between the two events.
+            string controlDir = Path.Combine(root, "zebrawatch-store-control");
+            Directory.CreateDirectory(controlDir);
+            string controlFile = Path.Combine(controlDir, "state.txt");
+            File.WriteAllText(controlFile, "x");
+            var controlStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(controlStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, controlFile)
+                });
+            }
+            Check(CountUpserts(controlStore, controlFile) == 1,
+                "search: the same file name outside Packages is upserted once");
+
+            string readme = Path.Combine(root, "zebrawatch-README");
+            File.WriteAllText(readme, "x");
+            var readmeStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(readmeStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, readme)
+                });
+            }
+            SearchEntry readmeEntry = UpsertFor(readmeStore, readme);
+            Check(readmeEntry != null && !readmeEntry.IsDirectory
+                  && CountUpserts(readmeStore, readme) == 1
+                  && CountDeletes(readmeStore, readme) == 0,
+                "search: an extensionless file event still upserts");
+
+            // A name with a dot is a directory too: the string type check says no, so
+            // the single stat fallback must still index it while folders are on.
+            string dotted = Path.Combine(root, "zebrawatch-v1.2");
+            Directory.CreateDirectory(dotted);
+            var dottedStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(dottedStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, dotted)
+                });
+            }
+            SearchEntry dottedEntry = UpsertFor(dottedStore, dotted);
+            Check(dottedEntry != null && dottedEntry.IsDirectory && CountUpserts(dottedStore, dotted) == 1,
+                "search: a dotted directory event still upserts when folders are indexed");
+
+            // A directory whose leaf looks like an included file goes the other way:
+            // the string check says yes and the post-stat folder gate must still write
+            // a folder row, not a file row and not nothing.
+            string reportDir = Path.Combine(root, "zebrawatch-report.txt");
+            Directory.CreateDirectory(reportDir);
+            var reportStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(reportStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, reportDir)
+                });
+            }
+            SearchEntry reportEntry = UpsertFor(reportStore, reportDir);
+            Check(reportEntry != null && reportEntry.IsDirectory
+                  && CountUpserts(reportStore, reportDir) == 1,
+                "search: a directory whose name carries an included extension is indexed as a folder");
+
+            // Control: an extensionless directory with folder rows disabled passes the
+            // string type check and is then dropped by the post-stat gate - no row and
+            // no delete either.
+            string plainDir = Path.Combine(root, "zebrawatch-dirnofolders");
+            Directory.CreateDirectory(plainDir);
+            var noFolderSettings = SettingsForRoot(root);
+            noFolderSettings.IndexFolders = false;
+            var noFolderStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(noFolderStore, noFolderSettings))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, plainDir)
+                });
+            }
+            Check(CountUpserts(noFolderStore, plainDir) == 0
+                  && CountDeletes(noFolderStore, plainDir) == 0
+                  && CountPrefixDeletes(noFolderStore, plainDir) == 0,
+                "search: a folder event writes nothing when folder rows are disabled");
+
+            // One path, two events, one batch: the last event wins.
+            string burst = Path.Combine(root, "zebrawatch-burst.txt");
+            File.WriteAllText(burst, "x");
+            var burstStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(burstStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, burst),
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Changed, burst)
+                });
+            }
+            Check(CountUpserts(burstStore, burst) == 1 && CountDeletes(burstStore, burst) == 0,
+                "search: a burst on one path is applied once");
+
+            // A Deleted superseded by a later Created collapses to the Created; when the
+            // path no longer exists that is the vanished fallback, which must drop the
+            // subtree rows a directory took with it, not just one row.
+            string vanished = Path.Combine(root, "zebrawatch-gone.txt");
+            var vanishedStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(vanishedStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Deleted, vanished),
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, vanished)
+                });
+            }
+            Check(CountPrefixDeletes(vanishedStore, vanished) == 1
+                  && CountDeletes(vanishedStore, vanished) == 0,
+                "search: a vanished path deletes its subtree, not one row");
+
+            // Coalescing must keep a Renamed event even when the destination also
+            // arrives as Created in the same batch: the rename carries the old-path
+            // delete and the subtree rescan, the Created carries neither. Injected
+            // synchronously, so this is the batch and not an OS timing race.
+            string renameOld = Path.Combine(root, "zebrawatch-renamesrc");
+            Directory.CreateDirectory(renameOld);
+            string renameChildOld = Path.Combine(renameOld, "zebrawatch-renamechild.txt");
+            File.WriteAllText(renameChildOld, "x");
+            string renameNew = Path.Combine(root, "zebrawatch-renamedst");
+            string renameChildNew = Path.Combine(renameNew, "zebrawatch-renamechild.txt");
+            Directory.Move(renameOld, renameNew);
+
+            var renameStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(renameStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    RenameEvent(renameNew, renameOld),
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, renameNew)
+                });
+            }
+            Check(CountPrefixDeletes(renameStore, renameOld) == 1
+                  && CountUpserts(renameStore, renameChildNew) == 1
+                  && UpsertFor(renameStore, renameNew) != null
+                  && CountUpserts(renameStore, renameChildOld) == 0,
+                "search: a rename keeps its subtree rescan when a Created for the destination rides along");
+        }
+
+        /// <summary>
+        /// Creates <c>%LocalAppData%\Packages\KoboldFileSearchCheck-&lt;guid&gt;\&lt;leaf&gt;</c>.
+        /// False instead of an exception when Packages is missing or unwritable, so the
+        /// Store-app pins skip on a locked-down machine. The caller deletes the whole
+        /// package directory in a finally; the recognizable prefix and the finally
+        /// keep a crashed run from leaving a stray probe behind.
+        /// </summary>
+        private static bool TryCreateStoreScratch(string leaf, out string path)
+        {
+            path = null;
+            try
+            {
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (local.Length == 0) return false;
+
+                string packageRoot = Path.Combine(local, "Packages",
+                    "KoboldFileSearchCheck-" + Guid.NewGuid().ToString("N"));
+                string candidate = Path.Combine(packageRoot, leaf);
+                Directory.CreateDirectory(candidate);
+                path = candidate;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void TryDeleteTree(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            try { Directory.Delete(path, true); }
+            catch (Exception) { }
+        }
+
+        private static SearchEntry UpsertFor(DiffStore store, string path)
+        {
+            foreach (SearchEntry entry in store.Upserts)
+            {
+                if (PathsEqual(entry.Path, path)) return entry;
+            }
+            return null;
+        }
+
+        private static int CountUpserts(DiffStore store, string path)
+        {
+            int count = 0;
+            foreach (SearchEntry entry in store.Upserts)
+            {
+                if (PathsEqual(entry.Path, path)) count++;
+            }
+            return count;
+        }
+
+        private static int CountDeletes(DiffStore store, string path)
+        {
+            return CountPaths(store.Deletes, path);
+        }
+
+        private static int CountPrefixDeletes(DiffStore store, string path)
+        {
+            return CountPaths(store.PrefixDeletes, path);
+        }
+
+        private static int CountPaths(List<string> paths, string path)
+        {
+            int count = 0;
+            foreach (string candidate in paths)
+            {
+                if (PathsEqual(candidate, path)) count++;
+            }
+            return count;
+        }
+
+        private static FileSearchSettings SettingsForRoot(string root)
+        {
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { root };
+            return settings;
+        }
+
+        private static FileSystemWatcherHost.WatcherEvent WatchEvent(
+            FileSystemWatcherHost.WatcherEventKind kind, string path)
+        {
+            return new FileSystemWatcherHost.WatcherEvent(kind, path, null);
+        }
+
+        private static FileSystemWatcherHost.WatcherEvent RenameEvent(string path, string oldPath)
+        {
+            return new FileSystemWatcherHost.WatcherEvent(
+                FileSystemWatcherHost.WatcherEventKind.Renamed, path, oldPath);
+        }
+
+        /// <summary>
         /// The service side of the watcher: Ready starts incremental updates, a
         /// reconcile requested through the same path the timer uses removes a row
         /// the watcher never saw while keeping the rows it did index, and pause /
@@ -1372,9 +3013,11 @@ namespace Kobold.FileSearchCheck
                 Check(WaitUntil(() => HasRow(service, created), 5000),
                     "service watch: a created file appears without a full scan");
 
-                // A row the watcher never saw (a missed rename outside the queue)
-                // must be removed by the reconcile; real rows must survive.
-                string deadPath = @"C:\zebrawatch-dead-" + Guid.NewGuid().ToString("N") + ".txt";
+                // A row the watcher never saw (a file deleted while the watcher was
+                // down) must be removed by the reconcile; real rows must survive. The
+                // row lives inside the walked tree: a per-directory diff only prunes
+                // what a directory it actually visited reports as missing.
+                string deadPath = Path.Combine(tree, "zebrawatch-dead-" + Guid.NewGuid().ToString("N") + ".txt");
                 using (var side = new SearchIndexStore(db))
                 {
                     side.Upsert(Entry(deadPath, Path.GetFileName(deadPath), "txt", false, 1,
@@ -1893,6 +3536,121 @@ namespace Kobold.FileSearchCheck
                 Check(!service.Status.ScanCancelled,
                     "service cancel: a pause is not reported as a user cancel");
             }
+
+            // A cancelled reconcile must roll back, keep last_reconcile_utc and end
+            // Ready. The session writes one transaction, so a cancel before the commit
+            // leaves the index exactly as it was (the legacy batch path could leave
+            // half-applied rows behind).
+            string reconcileDb = Path.Combine(_root, "service-reconcile-cancel.db");
+            string reconcileTree = Path.Combine(_root, "service-reconcile-cancel-tree");
+            Directory.CreateDirectory(reconcileTree);
+            File.WriteAllText(Path.Combine(reconcileTree, "reccancel-base.txt"), "x");
+
+            var reconcileSettings = FileSearchSettings.CreateDefault();
+            reconcileSettings.Roots = new[] { reconcileTree };
+            reconcileSettings.Configured = true;
+            reconcileSettings.Enabled = true;
+            reconcileSettings.ReconcileMinutes = 0;
+
+            using (var service = new FileSearchIndexService(reconcileDb))
+            {
+                service.ApplySettings(reconcileSettings);
+                service.StartFullScan(reconcileSettings, new[] { reconcileTree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                Check(service.Status.State == FileSearchState.Ready,
+                    "service reconcile cancel: the baseline scan is ready");
+
+                // A completed pass first, so the timestamp the second pass must preserve
+                // is a real one instead of null.
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                DateTime? committedAt = service.ReadStatus().LastReconcileUtc;
+                Check(committedAt.HasValue && service.Status.State == FileSearchState.Ready,
+                    "service reconcile cancel: a completed pass records last_reconcile_utc");
+
+                string stale = Path.Combine(reconcileTree, "reccancel-stale.txt");
+                using (var side = new SearchIndexStore(reconcileDb))
+                {
+                    side.Upsert(Entry(stale, "reccancel-stale.txt", "txt", false, 1,
+                        SearchPath.Normalize(reconcileTree)));
+                }
+                Check(HasRow(service, stale),
+                    "service reconcile cancel: the stale row is indexed before the pass");
+
+                // The reconcile walk reports no ProgressChanged of its own (it has no
+                // progress sink), so the cancel hangs off the Reconciling transition -
+                // the first deterministic moment of the pass.
+                bool cancelObserved = false;
+                EventHandler<FileSearchStatus> cancelOnReconciling = (sender, status) =>
+                {
+                    if (status.State != FileSearchState.Reconciling || cancelObserved) return;
+                    cancelObserved = true;
+                    service.CancelScan();
+                };
+                service.StatusChanged += cancelOnReconciling;
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                service.StatusChanged -= cancelOnReconciling;
+
+                Check(cancelObserved && service.Status.State == FileSearchState.Ready,
+                    "service reconcile cancel: a cancelled reconcile ends Ready");
+                Check(HasRow(service, stale),
+                    "service reconcile cancel: the cancelled pass leaves the index unchanged");
+                Check(service.ReadStatus().LastReconcileUtc == committedAt,
+                    "service reconcile cancel: a cancelled pass does not move last_reconcile_utc");
+            }
+
+            // The same pass interrupted by Pause ends Paused and is rolled back too.
+            string pausedDb = Path.Combine(_root, "service-reconcile-pause.db");
+            string pausedTree = Path.Combine(_root, "service-reconcile-pause-tree");
+            Directory.CreateDirectory(pausedTree);
+            File.WriteAllText(Path.Combine(pausedTree, "recpause-base.txt"), "x");
+
+            var pausedSettings = FileSearchSettings.CreateDefault();
+            pausedSettings.Roots = new[] { pausedTree };
+            pausedSettings.Configured = true;
+            pausedSettings.Enabled = true;
+            pausedSettings.ReconcileMinutes = 0;
+
+            using (var service = new FileSearchIndexService(pausedDb))
+            {
+                service.ApplySettings(pausedSettings);
+                service.StartFullScan(pausedSettings, new[] { pausedTree });
+                service.WaitForIdle(TimeSpan.FromSeconds(20));
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                DateTime? committedAt = service.ReadStatus().LastReconcileUtc;
+                Check(committedAt.HasValue,
+                    "service reconcile pause: the baseline reconcile records last_reconcile_utc");
+
+                string stale = Path.Combine(pausedTree, "recpause-stale.txt");
+                using (var side = new SearchIndexStore(pausedDb))
+                {
+                    side.Upsert(Entry(stale, "recpause-stale.txt", "txt", false, 1,
+                        SearchPath.Normalize(pausedTree)));
+                }
+                Check(HasRow(service, stale),
+                    "service reconcile pause: the stale row is indexed before the pass");
+
+                bool pauseObserved = false;
+                EventHandler<FileSearchStatus> pauseOnReconciling = (sender, status) =>
+                {
+                    if (status.State != FileSearchState.Reconciling || pauseObserved) return;
+                    pauseObserved = true;
+                    service.Pause();
+                };
+                service.StatusChanged += pauseOnReconciling;
+                service.RequestReconcile();
+                service.WaitForIdle(TimeSpan.FromSeconds(30));
+                service.StatusChanged -= pauseOnReconciling;
+
+                Check(pauseObserved && service.Status.State == FileSearchState.Paused,
+                    "service reconcile pause: Pause during a reconcile ends Paused");
+                Check(HasRow(service, stale),
+                    "service reconcile pause: the paused pass leaves the index unchanged");
+                Check(service.ReadStatus().LastReconcileUtc == committedAt,
+                    "service reconcile pause: a paused pass does not move last_reconcile_utc");
+            }
         }
 
         /// <summary>Shutdown is bounded by one timeout even with an open store to checkpoint.</summary>
@@ -2022,6 +3780,62 @@ namespace Kobold.FileSearchCheck
             }
         }
 
+        /// <summary>One statement's query plan, one detail string per plan row.</summary>
+        private static string QueryPlan(string databasePath, string sql)
+        {
+            var details = new List<string>();
+            using (var connection = OpenSqlite(databasePath))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "EXPLAIN QUERY PLAN " + sql;
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read()) details.Add(reader.GetString(3));
+                }
+            }
+            return string.Join(" | ", details);
+        }
+
+        /// <summary>One meta value of the index, or null when the key is absent.</summary>
+        private static string MetaValue(string databasePath, string key)
+        {
+            using (var connection = OpenSqlite(databasePath))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT Value FROM meta WHERE Key = @key;";
+                command.Parameters.AddWithValue("@key", key);
+                object value = command.ExecuteScalar();
+                return value == null || value == DBNull.Value
+                    ? null
+                    : Convert.ToString(value, CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// Stored Parent of one exact row, or null when the row (or, on a pre-migration
+        /// index, the column) is absent. A missing column is a failed pin, not an abort.
+        /// </summary>
+        private static string RowParent(string databasePath, string path)
+        {
+            try
+            {
+                using (var connection = OpenSqlite(databasePath))
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT Parent FROM files WHERE Path = @path;";
+                    command.Parameters.AddWithValue("@path", path);
+                    object value = command.ExecuteScalar();
+                    return value == null || value == DBNull.Value
+                        ? null
+                        : Convert.ToString(value, CultureInfo.InvariantCulture);
+                }
+            }
+            catch (SqliteException)
+            {
+                return null;
+            }
+        }
+
         private static bool TableExists(string databasePath, string name)
         {
             using (var connection = OpenSqlite(databasePath))
@@ -2128,6 +3942,143 @@ namespace Kobold.FileSearchCheck
                 if (PathsEqual(item.Path, path) && PathsEqual(item.Root, root)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// A real session with a call log. The store-level pins need the real
+        /// <c>ReadChildren</c> (one parent-key equality seek) but must count what the
+        /// walk wrote; this delegates every write and records it.
+        /// </summary>
+        private sealed class CountingSession : IReconcileSession
+        {
+            private readonly IReconcileSession _inner;
+
+            public readonly List<SearchEntry> Upserts = new List<SearchEntry>();
+            public readonly List<string> Deletes = new List<string>();
+            public readonly List<string> PrefixDeletes = new List<string>();
+
+            public CountingSession(IReconcileSession inner)
+            {
+                _inner = inner;
+            }
+
+            public IReadOnlyList<SearchEntry> ReadChildren(string directory, CancellationToken token)
+            {
+                return _inner.ReadChildren(directory, token);
+            }
+
+            public void Upsert(SearchEntry entry)
+            {
+                Upserts.Add(entry);
+                _inner.Upsert(entry);
+            }
+
+            public void Delete(string path)
+            {
+                Deletes.Add(path);
+                _inner.Delete(path);
+            }
+
+            public void DeletePathAndPrefix(string path)
+            {
+                PrefixDeletes.Add(path);
+                _inner.DeletePathAndPrefix(path);
+            }
+
+            public void Commit()
+            {
+                _inner.Commit();
+            }
+
+            public void Dispose()
+            {
+                _inner.Dispose();
+            }
+        }
+
+        /// <summary>Index entry for a path that exists on disk, exactly as a scan builds it.</summary>
+        private static SearchEntry DiskEntry(string root, string path)
+        {
+            FileSystemInfo info = Directory.Exists(path)
+                ? (FileSystemInfo)new DirectoryInfo(path)
+                : (FileSystemInfo)new FileInfo(path);
+
+            SearchEntry entry;
+            if (!SearchEntry.TryCreate(root, info, out entry) || entry == null)
+                throw new InvalidOperationException("Could not build an index entry for " + path);
+            return entry;
+        }
+
+        /// <summary>
+        /// A listing that yields its first entry and then fails, which is what a real
+        /// directory does when it is revoked or disappears half-way through.
+        /// </summary>
+        private static IEnumerable<FileSystemInfo> PartialListing(string first)
+        {
+            yield return new FileInfo(first);
+            throw new IOException("the listing was revoked after the first entry");
+        }
+
+        /// <summary>
+        /// In-memory store and reconcile session for the diff pins. Every write of
+        /// either path is recorded - the session calls and the legacy batch/seen
+        /// calls - so a pin can prove that an unchanged tree writes nothing at all.
+        /// </summary>
+        private sealed class DiffStore : ISearchIndexStore, IReconcileSession
+        {
+            public readonly Dictionary<string, List<SearchEntry>> Children =
+                new Dictionary<string, List<SearchEntry>>(StringComparer.OrdinalIgnoreCase);
+
+            public readonly List<SearchEntry> Upserts = new List<SearchEntry>();
+            public readonly List<string> Deletes = new List<string>();
+            public readonly List<string> PrefixDeletes = new List<string>();
+            public int BatchedRows;
+            public int SeenRows;
+
+            public string DatabasePath { get { return string.Empty; } }
+            public bool IsFullScanActive { get { return false; } }
+
+            public void Dispose() { }
+            public void EnsureSchema() { }
+            public IReconcileSession OpenReconcileSession() { return this; }
+            public void BeginFullScan() { }
+            public void CompleteFullScan(long skippedDirectories, long skippedReparsePoints,
+                long skippedLongPaths, string fingerprint) { }
+            public void AbortFullScan() { }
+            public void BeginReconcile() { }
+            public void MarkSeenPathsUnder(IReadOnlyList<string> prefixes) { }
+            public void CompleteReconcile(IReadOnlyList<string> roots) { }
+            public void AbortReconcile() { }
+            public void Upsert(SearchEntry entry) { Upserts.Add(entry); }
+            public void Delete(string path) { Deletes.Add(path); }
+            public void DeletePathAndPrefix(string path) { PrefixDeletes.Add(path); }
+            public void Commit() { }
+            public void Checkpoint() { }
+            public void Vacuum() { }
+            public long GetDatabaseSizeBytes() { return 0; }
+            public IndexStatus ReadStatus() { return new IndexStatus(); }
+
+            public void UpsertScanBatch(IReadOnlyList<SearchEntry> entries)
+            {
+                if (entries != null) BatchedRows += entries.Count;
+            }
+
+            public void MarkSeenBatch(IReadOnlyList<string> paths)
+            {
+                if (paths != null) SeenRows += paths.Count;
+            }
+
+            public IReadOnlyList<SearchEntry> ReadChildren(string directory, CancellationToken token)
+            {
+                List<SearchEntry> rows;
+                if (Children.TryGetValue(directory, out rows)) return rows;
+                return new SearchEntry[0];
+            }
+
+            public SearchQueryResult Query(string text, int limit, CancellationToken token)
+            {
+                return SearchQueryResult.Empty;
+            }
         }
     }
 }
