@@ -36,6 +36,26 @@ namespace Kobold.FileSearchCheck
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_root);
 
+            // Opt-in throughput probe for the live write path. Behind an env var so the
+            // normal suite stays unchanged: two extra databases and 500 writes cost
+            // seconds on a slow disk.
+            if (string.Equals(Environment.GetEnvironmentVariable("KOBOB_BENCH"), "1",
+                StringComparison.Ordinal))
+            {
+                try
+                {
+                    RunWriteBenchmark();
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("BENCH FAILED " + ex.GetType().FullName);
+                    Console.WriteLine("MESSAGE " + ex.Message);
+                    return 1;
+                }
+                finally { TryDeleteTree(_root); }
+            }
+
             // The usage pins read the WidgetManager singleton, whose first
             // access loads and later saves a config. Redirect it to a throwaway
             // sandbox here, before RunAll: a pin that reached Instance before
@@ -81,6 +101,84 @@ namespace Kobold.FileSearchCheck
                     "Kobold.csproj was not found above " + AppDomain.CurrentDomain.BaseDirectory);
             }
             return directory.FullName;
+        }
+
+        /// <summary>
+        /// Live-write throughput probe, run only with KOBOB_BENCH=1. It writes the same
+        /// 500 synthetic rows twice against real <see cref="SearchIndexStore"/> files:
+        /// once through the old per-row <see cref="ISearchIndexStore.Upsert"/> (one
+        /// connection/commit per row) and once through <c>UpsertScanBatch</c> in
+        /// 800-row chunks (the new live path). No timing assertion: CI machines vary,
+        /// the numbers only go to the console.
+        /// </summary>
+        private static void RunWriteBenchmark()
+        {
+            const int RowCount = 500;
+            const int BatchSize = 800;
+
+            List<SearchEntry> entries = BenchEntries(RowCount);
+
+            double perRowMs;
+            using (var store = new SearchIndexStore(Path.Combine(_root, "bench-per-row.db")))
+            {
+                store.EnsureSchema();
+                var clock = Stopwatch.StartNew();
+                for (int i = 0; i < entries.Count; i++) store.Upsert(entries[i]);
+                clock.Stop();
+                perRowMs = clock.Elapsed.TotalMilliseconds;
+            }
+
+            double batchMs;
+            int batchCalls = 0;
+            using (var store = new SearchIndexStore(Path.Combine(_root, "bench-batch.db")))
+            {
+                store.EnsureSchema();
+                var clock = Stopwatch.StartNew();
+                for (int offset = 0; offset < entries.Count; offset += BatchSize)
+                {
+                    int count = Math.Min(BatchSize, entries.Count - offset);
+                    store.UpsertScanBatch(entries.GetRange(offset, count));
+                    batchCalls++;
+                }
+                clock.Stop();
+                batchMs = clock.Elapsed.TotalMilliseconds;
+            }
+
+            ReportBench("per-row Upsert", entries.Count, perRowMs, 0);
+            ReportBench("UpsertScanBatch (" + BatchSize + "-row chunks)", entries.Count, batchMs,
+                batchCalls);
+        }
+
+        /// <summary>Unique synthetic rows; nothing is touched on disk for these paths.</summary>
+        private static List<SearchEntry> BenchEntries(int count)
+        {
+            const string root = @"C:\bench";
+            var entries = new List<SearchEntry>(count);
+            for (int i = 0; i < count; i++)
+            {
+                string name = "file" + i.ToString("D5") + ".txt";
+                entries.Add(new SearchEntry
+                {
+                    Path = root + @"\" + name,
+                    Name = name,
+                    NameLower = name.ToLowerInvariant(),
+                    Extension = ".txt",
+                    IsDirectory = false,
+                    SizeBytes = 1024,
+                    ModifiedUtc = 1700000000,
+                    Root = root
+                });
+            }
+            return entries;
+        }
+
+        private static void ReportBench(string label, int rows, double elapsedMs, int batchCalls)
+        {
+            double rate = elapsedMs <= 0 ? double.PositiveInfinity : rows / (elapsedMs / 1000.0);
+            string calls = batchCalls > 0 ? ", " + batchCalls + " batch call(s)" : string.Empty;
+            Console.WriteLine("bench: " + label + " - " + rows + " rows in "
+                + elapsedMs.ToString("F1", CultureInfo.InvariantCulture) + " ms = "
+                + rate.ToString("F1", CultureInfo.InvariantCulture) + " rows/s" + calls);
         }
 
         /// <summary>The throwaway config directory the singleton is pinned to in Main.</summary>
@@ -153,6 +251,8 @@ namespace Kobold.FileSearchCheck
             StoreSnapshotCase();
             ScannerCases();
             ScannerSubtreeCases();
+            ScannerSubtreeBatchCase();
+            ScannerSubtreeBatchOverflowCase();
             ScannerBatchCases();
             ReconcileUnreadableCase();
             ReconcileWritesOnlyDifferencesCase();
@@ -169,6 +269,10 @@ namespace Kobold.FileSearchCheck
             StaleStagingTableCase();
             WatcherCases();
             WatcherStatDietCases();
+            WatcherBatchWriteCases();
+            WatcherOrderingCase();
+            WatcherRenameOrderingCase();
+            WatcherFlushFailureCase();
             ServiceCases();
             ServiceIncrementalCases();
             ServiceFreshDatabaseCase();
@@ -1664,6 +1768,56 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
         }
 
         /// <summary>
+        /// A directory rename rescan must batch its live rows. One start-directory row
+        /// may stay individual; the files must not each open a connection.
+        /// </summary>
+        private static void ScannerSubtreeBatchCase()
+        {
+            string tree = Path.Combine(_root, "subtree-batch-tree");
+            string docs = Path.Combine(tree, "docs");
+            Directory.CreateDirectory(docs);
+            for (int i = 0; i < 100; i++)
+                File.WriteAllText(Path.Combine(docs, "file" + i.ToString("D3") + ".txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            var store = new DiffStore();
+            var result = new DirectoryScanner(store, settings).ScanSubtree(tree, docs, CancellationToken.None);
+
+            Check(result.Files == 100, "subtree batch: every file is counted");
+            Check(store.BatchCalls == 1, "subtree batch: the live subtree writes one transaction");
+            Check(store.Batched.Count == 100, "subtree batch: every file is in the live batch");
+            Check(store.Upserts.Count == 1, "subtree batch: only the start directory row is written individually");
+        }
+
+        /// <summary>
+        /// A live subtree larger than one batch: 810 files cross the 800-row flush in
+        /// the middle of the walk, then the final flush writes the 10-row remainder.
+        /// Proves the live path really is mid-walk batching and that nothing is dropped
+        /// when the walk ends.
+        /// </summary>
+        private static void ScannerSubtreeBatchOverflowCase()
+        {
+            const int FileCount = 810;
+
+            string tree = Path.Combine(_root, "subtree-batch-overflow-tree");
+            string docs = Path.Combine(tree, "docs");
+            Directory.CreateDirectory(docs);
+            for (int i = 0; i < FileCount; i++)
+                File.WriteAllText(Path.Combine(docs, "file" + i.ToString("D4") + ".txt"), "x");
+
+            var settings = FileSearchSettings.CreateDefault();
+            settings.Roots = new[] { tree };
+            var store = new DiffStore();
+            var result = new DirectoryScanner(store, settings).ScanSubtree(tree, docs, CancellationToken.None);
+
+            Check(result.Files == FileCount, "subtree batch: every file over one batch is counted");
+            Check(store.BatchCalls == 2, "subtree batch: 810 files cross the mid-walk flush and the final flush");
+            Check(store.Batched.Count == FileCount, "subtree batch: the remainder after a mid-walk flush is written");
+            Check(store.Upserts.Count == 1, "subtree batch: a large subtree still writes only its start directory row per-row");
+        }
+
+        /// <summary>
         /// More than one batch of rows: 810 files cross the 800-row flush inside the
         /// walk, so the reconcile path must mark every batch as seen or
         /// CompleteReconcile deletes the unmarked rows.
@@ -2878,6 +3032,210 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
                   && UpsertFor(renameStore, renameNew) != null
                   && CountUpserts(renameStore, renameChildOld) == 0,
                 "search: a rename keeps its subtree rescan when a Created for the destination rides along");
+
+            // A rename is the one Created-like path that reaches the store without
+            // ApplyEvent's pre-stat type check, so the helper's own post-stat filter
+            // has to drop an excluded destination even though it exists on disk.
+            string filterOldPath = Path.Combine(root, "zebrawatch-rename-filter.txt");
+            File.WriteAllText(filterOldPath, "x");
+            string filterNewPath = Path.Combine(root, "zebrawatch-rename-filter.exe");
+            File.Move(filterOldPath, filterNewPath);
+
+            var filterStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(filterStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    RenameEvent(filterNewPath, filterOldPath)
+                });
+            }
+            Check(CountUpserts(filterStore, filterNewPath) == 0
+                  && CountDeletes(filterStore, filterNewPath) == 1,
+                "search: a rename to an excluded extension is deleted, not indexed");
+
+            // A destination that vanished between the event and the stat still has to
+            // drop its own row: the prefix delete above only covers the old path.
+            string missingOldPath = Path.Combine(root, "zebrawatch-rename-gone-src.txt");
+            File.WriteAllText(missingOldPath, "x");
+            string missingPath = Path.Combine(root, "zebrawatch-rename-gone-dst.txt");
+
+            var missingStore = new DiffStore();
+            using (var host = new FileSystemWatcherHost(missingStore, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    RenameEvent(missingPath, missingOldPath)
+                });
+            }
+            Check(CountUpserts(missingStore, missingPath) == 0
+                  && CountDeletes(missingStore, missingPath) == 1,
+                "search: a rename whose destination vanished deletes the destination row");
+        }
+
+        /// <summary>
+        /// A burst of Created events must reach the store as one live batch, not one
+        /// connection/commit per file. Regression pin for the ~80 rows/s replay.
+        /// </summary>
+        private static void WatcherBatchWriteCases()
+        {
+            string root = Path.Combine(_root, "watch-batch-root");
+            Directory.CreateDirectory(root);
+
+            var events = new List<FileSystemWatcherHost.WatcherEvent>();
+            for (int i = 0; i < 100; i++)
+            {
+                string path = Path.Combine(root, "zebrawatch-batch-" + i.ToString("D3") + ".txt");
+                File.WriteAllText(path, "x");
+                events.Add(WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, path));
+            }
+
+            var store = new DiffStore();
+            using (var host = new FileSystemWatcherHost(store, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(events);
+            }
+
+            Check(store.BatchCalls == 1, "search batch: one watcher burst writes one live transaction");
+            Check(store.Batched.Count == 100, "search batch: every created event is in the live batch");
+            Check(store.Upserts.Count == 0, "search batch: a created event does not open a per-row write");
+        }
+
+        /// <summary>
+        /// A pending upsert batch must be flushed before a following delete, so a
+        /// later delete can never remove a row the batch was meant to publish.
+        /// </summary>
+        private static void WatcherOrderingCase()
+        {
+            string root = Path.Combine(_root, "watch-order-root");
+            Directory.CreateDirectory(root);
+            string a = Path.Combine(root, "zebrawatch-order-a.txt");
+            string b = Path.Combine(root, "zebrawatch-order-b.txt");
+            string c = Path.Combine(root, "zebrawatch-order-c.txt");
+            File.WriteAllText(a, "x");
+            File.WriteAllText(c, "x");
+
+            var store = new DiffStore();
+            using (var host = new FileSystemWatcherHost(store, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, a),
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Deleted, b),
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, c)
+                });
+            }
+
+            int ai = OperationIndex(store, "batch", a);
+            int bi = OperationIndex(store, "prefix", b);
+            int ci = OperationIndex(store, "batch", c);
+            Check(ai >= 0 && bi > ai && ci > bi,
+                "search batch: pending upserts flush before a following delete");
+        }
+
+        /// <summary>
+        /// A pending upsert must also be flushed before a rename deletes the old
+        /// prefix: the row was queued while the file was still at the old path, so a
+        /// flush after the prefix delete would resurrect it. The rename is applied
+        /// against the pre-move tree (the file has to be stat-able for the queued row
+        /// to exist at all), then the directory is moved to match the event.
+        /// </summary>
+        private static void WatcherRenameOrderingCase()
+        {
+            string root = Path.Combine(_root, "watch-rename-order-root");
+            string oldDir = Path.Combine(root, "zebrawatch-rename-order-old");
+            string newDir = Path.Combine(root, "zebrawatch-rename-order-new");
+            Directory.CreateDirectory(oldDir);
+            File.WriteAllText(Path.Combine(oldDir, "child.txt"), "x");
+            string pending = Path.Combine(oldDir, "pending.txt");
+            File.WriteAllText(pending, "x");
+
+            var store = new DiffStore();
+            using (var host = new FileSystemWatcherHost(store, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                host.ApplyBatchForChecks(new[]
+                {
+                    WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, pending),
+                    RenameEvent(newDir, oldDir)
+                });
+            }
+            Directory.Move(oldDir, newDir);
+
+            int batch = OperationIndex(store, "batch", pending);
+            int prefix = OperationIndex(store, "prefix", oldDir);
+            Check(batch >= 0 && prefix > batch,
+                "search batch: pending upserts flush before a following directory rename");
+        }
+
+        private static int OperationIndex(DiffStore store, string kind, string path)
+        {
+            for (int i = 0; i < store.Operations.Count; i++)
+            {
+                string op = store.Operations[i];
+                int colon = op.IndexOf(':');
+                if (colon < 0) continue;
+                if (!string.Equals(op.Substring(0, colon), kind, StringComparison.Ordinal)) continue;
+                if (PathsEqual(op.Substring(colon + 1), path)) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// A failed flush must escape the per-event catch, because only the worker's
+        /// error path can mark incremental updates unavailable and request the
+        /// reconcile that repairs the rows the lost batch never wrote. A second batch
+        /// on the same host must still write: the failure degrades, it does not wedge
+        /// the watcher.
+        /// </summary>
+        private static void WatcherFlushFailureCase()
+        {
+            string root = Path.Combine(_root, "watch-failure-root");
+            Directory.CreateDirectory(root);
+            string a = Path.Combine(root, "zebrawatch-failure-a.txt");
+            string b = Path.Combine(root, "zebrawatch-failure-b.txt");
+            string c = Path.Combine(root, "zebrawatch-failure-c.txt");
+            File.WriteAllText(a, "x");
+            File.WriteAllText(c, "x");
+
+            var store = new DiffStore { ThrowOnBatchCount = 1 };
+            bool threw = false;
+            bool recovered = false;
+            using (var host = new FileSystemWatcherHost(store, SettingsForRoot(root)))
+            {
+                host.Start(new[] { root });
+                try
+                {
+                    host.ApplyBatchForChecks(new[]
+                    {
+                        WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, a),
+                        WatchEvent(FileSystemWatcherHost.WatcherEventKind.Deleted, b),
+                        WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, c)
+                    });
+                }
+                catch (Exception) { threw = true; }
+
+                // Only the first flush was armed to fail. A new event proves the host
+                // can still reach the store instead of staying stuck on the failure.
+                string d = Path.Combine(root, "zebrawatch-failure-d.txt");
+                File.WriteAllText(d, "x");
+                int before = store.BatchCalls;
+                try
+                {
+                    host.ApplyBatchForChecks(new[]
+                    {
+                        WatchEvent(FileSystemWatcherHost.WatcherEventKind.Created, d)
+                    });
+                    recovered = store.BatchCalls > before && UpsertFor(store, d) != null;
+                }
+                catch (Exception) { recovered = false; }
+            }
+
+            Check(threw, "search batch: a failed mid-batch flush is not swallowed");
+            Check(recovered, "search batch: the host still writes after a failed flush");
         }
 
         /// <summary>
@@ -2921,6 +3279,10 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
             {
                 if (PathsEqual(entry.Path, path)) return entry;
             }
+            foreach (SearchEntry entry in store.Batched)
+            {
+                if (PathsEqual(entry.Path, path)) return entry;
+            }
             return null;
         }
 
@@ -2928,6 +3290,10 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
         {
             int count = 0;
             foreach (SearchEntry entry in store.Upserts)
+            {
+                if (PathsEqual(entry.Path, path)) count++;
+            }
+            foreach (SearchEntry entry in store.Batched)
             {
                 if (PathsEqual(entry.Path, path)) count++;
             }
@@ -4032,6 +4398,10 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
             public readonly List<SearchEntry> Upserts = new List<SearchEntry>();
             public readonly List<string> Deletes = new List<string>();
             public readonly List<string> PrefixDeletes = new List<string>();
+            public readonly List<SearchEntry> Batched = new List<SearchEntry>();
+            public readonly List<string> Operations = new List<string>();
+            public int BatchCalls;
+            public int ThrowOnBatchCount;
             public int BatchedRows;
             public int SeenRows;
 
@@ -4049,9 +4419,23 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
             public void MarkSeenPathsUnder(IReadOnlyList<string> prefixes) { }
             public void CompleteReconcile(IReadOnlyList<string> roots) { }
             public void AbortReconcile() { }
-            public void Upsert(SearchEntry entry) { Upserts.Add(entry); }
-            public void Delete(string path) { Deletes.Add(path); }
-            public void DeletePathAndPrefix(string path) { PrefixDeletes.Add(path); }
+            public void Upsert(SearchEntry entry)
+            {
+                Upserts.Add(entry);
+                Operations.Add("upsert:" + entry.Path);
+            }
+
+            public void Delete(string path)
+            {
+                Deletes.Add(path);
+                Operations.Add("delete:" + path);
+            }
+
+            public void DeletePathAndPrefix(string path)
+            {
+                PrefixDeletes.Add(path);
+                Operations.Add("prefix:" + path);
+            }
             public void Commit() { }
             public void Checkpoint() { }
             public void Vacuum() { }
@@ -4060,7 +4444,19 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
 
             public void UpsertScanBatch(IReadOnlyList<SearchEntry> entries)
             {
-                if (entries != null) BatchedRows += entries.Count;
+                if (ThrowOnBatchCount > 0)
+                {
+                    ThrowOnBatchCount--;
+                    throw new InvalidOperationException("live batch write failed");
+                }
+                if (entries == null || entries.Count == 0) return;
+                BatchCalls++;
+                BatchedRows += entries.Count;
+                Batched.AddRange(entries);
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    Operations.Add("batch:" + entries[i].Path);
+                }
             }
 
             public void MarkSeenBatch(IReadOnlyList<string> paths)
