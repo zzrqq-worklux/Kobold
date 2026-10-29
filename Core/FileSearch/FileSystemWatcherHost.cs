@@ -56,6 +56,17 @@ namespace Kobold.Core.FileSearch
             public string OldPath { get; private set; }
         }
 
+        /// <summary>
+        /// Marks a failed live batch write so it escapes the per-event catch and
+        /// reaches the worker's error path (degrade to reconcile instead of
+        /// pretending the buffered rows were written).
+        /// </summary>
+        private sealed class WatcherBatchWriteException : Exception
+        {
+            public WatcherBatchWriteException(Exception inner)
+                : base("The watcher batch could not be written.", inner) { }
+        }
+
         private sealed class RootSlot
         {
             public RootSlot(string root)
@@ -453,13 +464,14 @@ namespace Kobold.Core.FileSearch
             try
             {
                 List<WatcherEvent> collapsed = Coalesce(batch);
+                var pending = new List<SearchEntry>();
                 for (int i = 0; i < collapsed.Count; i++)
                 {
                     if (token.IsCancellationRequested) break;
 
                     try
                     {
-                        ApplyEvent(collapsed[i], token);
+                        ApplyEvent(collapsed[i], token, pending);
                     }
                     catch (OperationCanceledException)
                     {
@@ -469,12 +481,18 @@ namespace Kobold.Core.FileSearch
                     {
                         throw;
                     }
+                    catch (WatcherBatchWriteException)
+                    {
+                        throw;
+                    }
                     catch (Exception)
                     {
                         // A failed single row is repaired by the next reconcile.
                         RequestReconcile();
                     }
                 }
+
+                FlushPending(pending, token);
             }
             finally
             {
@@ -519,20 +537,25 @@ namespace Kobold.Core.FileSearch
             return collapsed;
         }
 
-        private void ApplyEvent(WatcherEvent item, CancellationToken token)
+        private void ApplyEvent(WatcherEvent item, CancellationToken token, List<SearchEntry> pending)
         {
             string path = SearchPath.Normalize(item.Path);
             if (path.Length == 0) return;
 
             if (item.Kind == WatcherEventKind.Deleted)
             {
-                if (InScope(path)) _store.DeletePathAndPrefix(path);
+                if (InScope(path))
+                {
+                    FlushPending(pending, token);
+                    _store.DeletePathAndPrefix(path);
+                }
                 return;
             }
 
             if (item.Kind == WatcherEventKind.Renamed)
             {
-                ApplyRename(item, path, token);
+                FlushPending(pending, token);
+                ApplyRename(item, path, token, pending);
                 return;
             }
 
@@ -549,16 +572,18 @@ namespace Kobold.Core.FileSearch
             if (!SearchTypeFilter.IsFileIncluded(path, _settings) && !IsIncludedDirectory(path)) return;
 
             bool isDirectory;
-            if (!TryUpsert(root, path, out isDirectory) && !isDirectory)
+            if (!TryQueueUpsert(root, path, pending, out isDirectory) && !isDirectory)
             {
                 // The item disappeared between the event and the stat, so nothing tells
                 // us whether it was a file or a directory: the prefix delete covers the
                 // row and, for a directory, the children it took with it.
+                FlushPending(pending, token);
                 _store.DeletePathAndPrefix(path);
             }
         }
 
-        private void ApplyRename(WatcherEvent item, string path, CancellationToken token)
+        private void ApplyRename(WatcherEvent item, string path, CancellationToken token,
+            List<SearchEntry> pending)
         {
             string oldPath = SearchPath.Normalize(item.OldPath ?? string.Empty);
             if (oldPath.Length > 0 && InScope(oldPath))
@@ -590,7 +615,7 @@ namespace Kobold.Core.FileSearch
                 return;
             }
 
-            if (!TryUpsert(root, path, out _)) _store.Delete(path);
+            if (!TryQueueUpsert(root, path, pending, out _)) _store.Delete(path);
         }
 
         /// <summary>
@@ -647,31 +672,24 @@ namespace Kobold.Core.FileSearch
         }
 
         /// <summary>
-        /// Writes one row from one stat: <see cref="SearchEntry.TryCreate"/> reads the
-        /// attributes, size and timestamp together and reports <c>IsDirectory</c>, so a
-        /// <see cref="FileInfo"/> covers a directory too. False means nothing was
-        /// written - the item vanished or the settings keep it out; <paramref name="isDirectory"/>
-        /// tells the two apart, so a folder event is never mistaken for a deleted file.
+        /// Stats one path and, when it is indexable, queues it for the batch writer.
+        /// False means nothing was queued; <paramref name="isDirectory"/> tells the
+        /// caller whether the path still exists as a directory (so a vanished file
+        /// falls through to the prefix delete, but a folder event does not).
         /// </summary>
-        private bool TryUpsert(string root, string path, out bool isDirectory)
+        private bool TryQueueUpsert(string root, string path, List<SearchEntry> pending, out bool isDirectory)
         {
             isDirectory = false;
 
             FileSystemInfo info;
-            try
-            {
-                info = new FileInfo(SearchPath.ToExtended(path));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            try { info = new FileInfo(SearchPath.ToExtended(path)); }
+            catch (Exception) { return false; }
 
             SearchEntry entry;
             if (!SearchEntry.TryCreate(root, info, out entry) || entry == null) return false;
 
             isDirectory = entry.IsDirectory;
-            if (entry.IsDirectory)
+            if (isDirectory)
             {
                 if (!_settings.IndexFolders) return false;
             }
@@ -680,8 +698,27 @@ namespace Kobold.Core.FileSearch
                 return false;
             }
 
-            _store.Upsert(entry);
+            pending.Add(entry);
             return true;
+        }
+
+        /// <summary>
+        /// Writes the buffered rows in one store transaction. The token is checked
+        /// before the write so a stopped host does not publish rows it no longer
+        /// owns; disposal is rethrown as-is (the worker treats it as a clean exit),
+        /// everything else is marked as a batch failure.
+        /// </summary>
+        private void FlushPending(List<SearchEntry> pending, CancellationToken token)
+        {
+            if (pending.Count == 0) return;
+
+            token.ThrowIfCancellationRequested();
+
+            List<SearchEntry> batch = new List<SearchEntry>(pending);
+            try { _store.UpsertScanBatch(batch); }
+            catch (ObjectDisposedException) { throw; }
+            catch (Exception ex) { throw new WatcherBatchWriteException(ex); }
+            pending.Clear();
         }
 
         private void Enqueue(WatcherEventKind kind, string path, string oldPath)

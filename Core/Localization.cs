@@ -48,6 +48,7 @@ namespace Kobold.Core
                 // File search widget (Task 8)
                 ["Search_Placeholder"] = "Search files and folders",
                 ["Search_Empty"] = "No matches",
+                ["Search_Frequent"] = "Frequent files",
                 ["Search_NoIndex"] = "Search index is not built yet",
                 ["Search_Indexing"] = "Indexing {0:N0} files / {1:N0} folders",
                 ["Search_Reconciling"] = "Reconciling index...",
@@ -310,6 +311,7 @@ namespace Kobold.Core
                 // File search widget (Task 8)
                 ["Search_Placeholder"] = "搜索文件与文件夹",
                 ["Search_Empty"] = "没有匹配结果",
+                ["Search_Frequent"] = "常用文件",
                 ["Search_NoIndex"] = "搜索索引尚未建立",
                 ["Search_Indexing"] = "正在索引 {0:N0} 个文件 / 共 {1:N0} 个文件夹",
                 ["Search_Reconciling"] = "正在对账索引...",
@@ -572,6 +574,7 @@ namespace Kobold.Core
                 // File search widget (Task 8)
                 ["Search_Placeholder"] = "ファイルとフォルダーを検索",
                 ["Search_Empty"] = "一致する結果はありません",
+                ["Search_Frequent"] = "よく使うファイル",
                 ["Search_NoIndex"] = "検索インデックスはまだ作成されていません",
                 ["Search_Indexing"] = "{0:N0} ファイルを索引中 / {1:N0} フォルダー",
                 ["Search_Reconciling"] = "インデックスを照合中...",

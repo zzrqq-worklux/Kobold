@@ -582,6 +582,10 @@ namespace Kobold.XamlLoadCheck
                     SearchReconcileDrivesTheGlow);
                 failures += TryCheck("search: space previews the selected result",
                     SearchSpacePreviewsSelectedResult);
+                failures += TryCheck("search: the empty query lists frequent files",
+                    SearchEmptyQueryListsFrequentFiles);
+                failures += TryCheck("search: the result menu requires a target",
+                    SearchResultMenuRequiresTarget);
 
                 failures += TryCheck("search: the accent follows the widget color",
                     SearchAccentFollowsWidgetColor);
@@ -10436,6 +10440,497 @@ namespace Kobold.XamlLoadCheck
             rows.Add(row);
             list.SelectedItem = row;
             return (bool)tryPreview.Invoke(view, null);
+        }
+
+        /// <summary>
+        /// Task 1 (2026-10-27): an empty query lists the frequent files. The
+        /// caption above the results is visible and localized, the rows come
+        /// from FrequentFiles.Top (count desc, capped at ten) with the parent
+        /// directory as their path, every dispatchable state (Ready, Indexing,
+        /// Reconciling) keeps them, typing hides the caption at once, a query
+        /// swallowed by a state panel never repaints them under its text, and
+        /// ClearResults / an empty usage list leave nothing behind.
+        /// </summary>
+        private static void SearchEmptyQueryListsFrequentFiles()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var list = view.FindName("ResultsList") as ListBox;
+            if (list == null) throw new InvalidOperationException("the search panel has no ResultsList");
+            var box = view.FindName("SearchBox") as TextBox;
+            if (box == null) throw new InvalidOperationException("the search panel has no SearchBox");
+            var header = view.FindName("FrequentHeader") as TextBlock;
+            if (header == null) throw new InvalidOperationException("the search panel has no FrequentHeader");
+
+            var updateStatus = typeof(SearchPanelView).GetMethod("UpdateStatus",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (updateStatus == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.UpdateStatus was not found");
+            }
+            var clearResults = typeof(SearchPanelView).GetMethod("ClearResults",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (clearResults == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.ClearResults was not found");
+            }
+
+            // The view is attached by the widget's constructor: the box's
+            // TextChanged path runs for real. Every status is driven by hand so
+            // nothing depends on a scan, and the debounce stays parked so no
+            // stray RunQuery rewrites the list between assertions.
+            Action<FileSearchState> showState = state => updateStatus.Invoke(view,
+                new object[] { new FileSearchStatus { State = state } });
+            var debounce = PrivateField<System.Windows.Threading.DispatcherTimer>(view, "_debounce");
+
+            string directory = IO.Path.Combine(IO.Path.GetTempPath(),
+                "kobold-frequent-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(directory);
+            string alpha = IO.Path.Combine(directory, "alpha.txt");
+            string beta = IO.Path.Combine(directory, "beta.txt");
+            IO.File.WriteAllText(alpha, "alpha");
+            IO.File.WriteAllText(beta, "beta");
+
+            AppConfig config = WidgetManager.Instance.Config;
+            List<FrequentFile> savedFrequent = config.FrequentFiles;
+            try
+            {
+                // beta leads on count; the timestamps only keep the order
+                // unambiguous should the count ever tie.
+                var twoFiles = new List<FrequentFile>
+                {
+                    new FrequentFile
+                    {
+                        Path = alpha,
+                        Count = 1,
+                        LastOpenedUtc = DateTime.UtcNow.AddDays(-2)
+                    },
+                    new FrequentFile
+                    {
+                        Path = beta,
+                        Count = 5,
+                        LastOpenedUtc = DateTime.UtcNow
+                    }
+                };
+                config.FrequentFiles = twoFiles;
+
+                showState(FileSearchState.Ready);
+
+                if (header.Visibility != Visibility.Visible)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " with two frequent files");
+                }
+                if (header.Text != Localization.Get("Search_Frequent"))
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header shows '" + header.Text + "', wanted '"
+                        + Localization.Get("Search_Frequent") + "'");
+                }
+
+                if (list.Items.Count != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the empty query lists " + list.Items.Count + " row(s), wanted 2");
+                }
+
+                var first = list.Items[0] as SearchResultRow;
+                var second = list.Items[1] as SearchResultRow;
+                if (first == null || first.Name != "beta.txt")
+                {
+                    throw new InvalidOperationException("the first frequent row is '"
+                        + (first == null ? "null" : first.Name) + "', wanted beta.txt");
+                }
+                if (second == null || second.Name != "alpha.txt")
+                {
+                    throw new InvalidOperationException("the second frequent row is '"
+                        + (second == null ? "null" : second.Name) + "', wanted alpha.txt");
+                }
+                if (first.Path != directory || second.Path != directory)
+                {
+                    throw new InvalidOperationException("a frequent row points at '" + first.Path
+                        + "' / '" + second.Path + "', wanted '" + directory + "'");
+                }
+
+                // Indexing and reconciling are dispatchable (CanDispatchQuery),
+                // so an empty query keeps its frequent list there too - the
+                // state line must not wipe it.
+                clearResults.Invoke(view, null);
+                showState(FileSearchState.Indexing);
+                AssertFrequentShown(header, list, 2, "while indexing");
+                showState(FileSearchState.Reconciling);
+                AssertFrequentShown(header, list, 2, "while reconciling");
+
+                // The caption belongs to an empty query only: it leaves as soon
+                // as the text stops being empty, before the debounce dispatches.
+                box.Text = "x";
+                debounce.Stop();
+                if (header.Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " while the box holds text");
+                }
+                box.Text = string.Empty;
+                debounce.Stop();
+
+                clearResults.Invoke(view, null);
+
+                if (header.Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " after ClearResults");
+                }
+                if (list.Items.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the result list keeps " + list.Items.Count + " row(s) after ClearResults");
+                }
+
+                // The state panels keep priority: a non-dispatchable state
+                // clears the rows and the caption (no frequent list behind it).
+                showState(FileSearchState.NoIndex);
+                if (header.Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " in the no-index state");
+                }
+                if (list.Items.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the no-index state keeps " + list.Items.Count + " frequent row(s)");
+                }
+
+                // No remembered files: the caption would label an empty list,
+                // so it stays hidden and the list stays empty.
+                config.FrequentFiles = new List<FrequentFile>();
+                showState(FileSearchState.Ready);
+                if (header.Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " with no frequent files");
+                }
+                if (list.Items.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the empty frequent list shows " + list.Items.Count + " row(s)");
+                }
+
+                // The cap: eleven real files with descending counts must yield
+                // the ten most used, in count order, and drop the one-off.
+                config.FrequentFiles = new List<FrequentFile>();
+                for (int i = 1; i <= 11; i++)
+                {
+                    string path = IO.Path.Combine(directory, "cap-" + i.ToString("D2") + ".txt");
+                    IO.File.WriteAllText(path, "cap");
+                    config.FrequentFiles.Add(new FrequentFile
+                    {
+                        Path = path,
+                        Count = 12 - i,
+                        LastOpenedUtc = DateTime.UtcNow
+                    });
+                }
+                showState(FileSearchState.Ready);
+
+                AssertFrequentShown(header, list, 10, "with eleven frequent files");
+                var capFirst = list.Items[0] as SearchResultRow;
+                if (capFirst == null || capFirst.Name != "cap-01.txt")
+                {
+                    throw new InvalidOperationException("the most-used frequent row is '"
+                        + (capFirst == null ? "null" : capFirst.Name) + "', wanted cap-01.txt");
+                }
+                foreach (object item in list.Items)
+                {
+                    var row = item as SearchResultRow;
+                    if (row != null && row.Name == "cap-11.txt")
+                    {
+                        throw new InvalidOperationException(
+                            "the one-off file cap-11.txt is in the top-ten frequent list");
+                    }
+                }
+
+                // A query typed while a state panel swallowed it never
+                // dispatched, so the text stays in the box. A later status must
+                // not repaint the frequent rows under that non-empty text.
+                // The state panel has already cleared the list, as in life.
+                config.FrequentFiles = twoFiles;
+                clearResults.Invoke(view, null);
+                box.Text = "x";
+                debounce.Stop();
+                showState(FileSearchState.Ready);
+
+                if (header.Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent header is " + header.Visibility + " with text in the box");
+                }
+                if (list.Items.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the frequent list paints " + list.Items.Count + " row(s) with text in the box");
+                }
+
+                // Clearing the box brings the list back on the next status.
+                box.Text = string.Empty;
+                debounce.Stop();
+                showState(FileSearchState.Ready);
+
+                AssertFrequentShown(header, list, 2, "after the text was cleared");
+                var restored = list.Items[0] as SearchResultRow;
+                if (restored == null || restored.Name != "beta.txt")
+                {
+                    throw new InvalidOperationException("the restored frequent row is '"
+                        + (restored == null ? "null" : restored.Name) + "', wanted beta.txt");
+                }
+            }
+            finally
+            {
+                config.FrequentFiles = savedFrequent;
+                try { IO.Directory.Delete(directory, true); } catch (Exception) { }
+            }
+        }
+
+        /// <summary>
+        /// Task 2 (2026-10-27): the result menu belongs to a row, not the list.
+        /// The list carries no ContextMenu; the seam resolves a real row
+        /// container and rejects the list (blank space, scrollbar) and a null
+        /// source; the keyboard seam answers Apps / Shift+F10 for the selected
+        /// row only (including the Key.System form WPF delivers for Shift+F10;
+        /// Space stays QuickLook) but never opens anything; the built
+        /// menu keeps the three localized entries while the empty list / a
+        /// selected row toggles their enabled state. The Opened route is raised,
+        /// never opened, so the check flashes no popup.
+        /// </summary>
+        private static void SearchResultMenuRequiresTarget()
+        {
+            ThemeManager.Initialize("dark");
+
+            var widget = new SearchWidget(new SearchData());
+            var view = widget.PanelView;
+            var list = view.FindName("ResultsList") as ListBox;
+            if (list == null) throw new InvalidOperationException("the search panel has no ResultsList");
+
+            // Only a right-click on a result row may open the menu: nothing
+            // may hang off the list itself.
+            if (list.ContextMenu != null)
+            {
+                throw new InvalidOperationException(
+                    "ResultsList carries a ContextMenu, so a right-click on blank space opens it");
+            }
+
+            var seam = typeof(SearchPanelView).GetMethod("ResultMenuTarget",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (seam == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.ResultMenuTarget was not found");
+            }
+
+            var kept = typeof(SearchPanelView).GetField("_resultMenu",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (kept == null)
+            {
+                throw new InvalidOperationException("SearchPanelView._resultMenu was not found");
+            }
+            var assigned = kept.GetValue(view) as ContextMenu;
+            if (assigned == null)
+            {
+                throw new InvalidOperationException("the view keeps no built result menu");
+            }
+
+            var rows = new List<SearchResultRow>
+            {
+                new SearchResultRow
+                {
+                    Entry = new SearchEntry { Path = @"C:\results\alpha.txt", IsDirectory = false },
+                    Glyph = "📄",
+                    Name = "alpha.txt",
+                    Path = @"C:\results",
+                    SizeText = "1 KB",
+                    ModifiedText = "2026-10-27 10:00"
+                },
+                new SearchResultRow
+                {
+                    Entry = new SearchEntry { Path = @"C:\results\beta.txt", IsDirectory = false },
+                    Glyph = "📄",
+                    Name = "beta.txt",
+                    Path = @"C:\results",
+                    SizeText = "2 KB",
+                    ModifiedText = "2026-10-27 11:00"
+                }
+            };
+            list.ItemsSource = rows;
+
+            // Realize a row container: the list must have a finite viewport
+            // before the generator produces anything. The view is never shown.
+            view.Measure(new Size(422, 562));
+            view.Arrange(new Rect(0, 0, 422, 562));
+            list.ApplyTemplate();
+            view.UpdateLayout();
+
+            var container = list.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem;
+            if (container == null)
+            {
+                throw new InvalidOperationException("the result list generated no container for the first row");
+            }
+
+            // Blank space / the scrollbar (the list itself), or no source at
+            // all, is not a target; the right-clicked row container is.
+            if (seam.Invoke(view, new object[] { list }) != null)
+            {
+                throw new InvalidOperationException("the seam gave the list itself as a menu target");
+            }
+            if (seam.Invoke(view, new object[] { null }) != null)
+            {
+                throw new InvalidOperationException("the seam gave a menu target for a null source");
+            }
+            if (!ReferenceEquals(seam.Invoke(view, new object[] { container }), container))
+            {
+                throw new InvalidOperationException("the seam lost the row container that was right-clicked");
+            }
+
+            // Keyboard invocation: Apps / Shift+F10 open the menu for the
+            // selected row only; Space stays QuickLook's key. Shift+F10 reaches
+            // WPF as Key.System with SystemKey F10, so the seam takes both
+            // forms. The seam decides, so no synthetic key event and no popup.
+            var keys = typeof(SearchPanelView).GetMethod("ResultMenuKeyboardTarget",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (keys == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.ResultMenuKeyboardTarget was not found");
+            }
+            if (keys.GetParameters().Length != 3)
+            {
+                throw new InvalidOperationException(
+                    "ResultMenuKeyboardTarget takes " + keys.GetParameters().Length
+                    + " parameter(s), wanted (key, systemKey, modifiers)");
+            }
+
+            list.SelectedIndex = 0;
+            if (!ReferenceEquals(keys.Invoke(view, new object[] { Key.Apps, Key.None, ModifierKeys.None }), container))
+            {
+                throw new InvalidOperationException("Apps did not target the selected row's container");
+            }
+            if (!ReferenceEquals(keys.Invoke(view, new object[] { Key.F10, Key.None, ModifierKeys.Shift }), container))
+            {
+                throw new InvalidOperationException("Shift+F10 did not target the selected row's container");
+            }
+            if (!ReferenceEquals(keys.Invoke(view, new object[] { Key.System, Key.F10, ModifierKeys.Shift }), container))
+            {
+                throw new InvalidOperationException("the System form of Shift+F10 did not target the row container");
+            }
+            if (keys.Invoke(view, new object[] { Key.System, Key.F10, ModifierKeys.None }) != null)
+            {
+                throw new InvalidOperationException("the System form of a bare F10 was treated as a menu key");
+            }
+            if (!ReferenceEquals(keys.Invoke(view, new object[] { Key.System, Key.Apps, ModifierKeys.None }), container))
+            {
+                throw new InvalidOperationException("the System form of Apps did not target the row container");
+            }
+
+            list.SelectedItem = null;
+            if (keys.Invoke(view, new object[] { Key.Apps, Key.None, ModifierKeys.None }) != null)
+            {
+                throw new InvalidOperationException("the keyboard menu opened with no selection");
+            }
+
+            list.SelectedIndex = 0;
+            if (keys.Invoke(view, new object[] { Key.Space, Key.None, ModifierKeys.None }) != null)
+            {
+                throw new InvalidOperationException("Space is treated as a menu key instead of QuickLook");
+            }
+            if (assigned.IsOpen)
+            {
+                throw new InvalidOperationException("the keyboard checks opened the result menu");
+            }
+
+            // The production handler runs the same seam: a right-click on the
+            // list itself (blank space) opens nothing and stays unhandled. A
+            // row target would open the real popup, so it is not driven here.
+            var rightUp = typeof(SearchPanelView).GetMethod("ResultsList_PreviewMouseRightButtonUp",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (rightUp == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.ResultsList_PreviewMouseRightButtonUp was not found");
+            }
+            var press = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+            {
+                RoutedEvent = UIElement.PreviewMouseRightButtonUpEvent
+            };
+            list.RaiseEvent(press);
+            if (press.Handled)
+            {
+                throw new InvalidOperationException("a right-click on blank space marked the event handled");
+            }
+            if (assigned.IsOpen)
+            {
+                throw new InvalidOperationException("a right-click on blank space opened the result menu");
+            }
+
+            var build = typeof(SearchPanelView).GetMethod("BuildResultMenu",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (build == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.BuildResultMenu was not found");
+            }
+            var menu = (ContextMenu)build.Invoke(view, null);
+
+            string[] headers =
+            {
+                Localization.Get("Search_Open"),
+                Localization.Get("Search_OpenLocation"),
+                Localization.Get("Search_CopyPath")
+            };
+            if (menu.Items.Count != headers.Length)
+            {
+                throw new InvalidOperationException(
+                    "the result menu has " + menu.Items.Count + " item(s), wanted " + headers.Length);
+            }
+            for (int i = 0; i < headers.Length; i++)
+            {
+                var item = menu.Items[i] as MenuItem;
+                if (item == null || !Equals(item.Header, headers[i]))
+                {
+                    throw new InvalidOperationException(
+                        "result menu entry " + i + " is not '" + headers[i] + "'");
+                }
+            }
+
+            // The Opened handler is the state seam: raise it without opening.
+            list.SelectedItem = null;
+            menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+            for (int i = 0; i < headers.Length; i++)
+            {
+                AssertMenuItem(menu, headers[i], false, "the result menu with no selection");
+            }
+
+            list.SelectedIndex = 0;
+            menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+            for (int i = 0; i < headers.Length; i++)
+            {
+                AssertMenuItem(menu, headers[i], true, "the result menu with a selected row");
+            }
+
+            if (assigned.IsOpen)
+            {
+                throw new InvalidOperationException("the result menu was opened by the check");
+            }
+        }
+
+        /// <summary>The frequent caption is visible and the list holds exactly <paramref name="count"/> rows.</summary>
+        private static void AssertFrequentShown(TextBlock header, ListBox list, int count, string when)
+        {
+            if (header.Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException(
+                    "the frequent header is " + header.Visibility + " " + when + ", wanted Visible");
+            }
+            if (list.Items.Count != count)
+            {
+                throw new InvalidOperationException(
+                    "the empty query lists " + list.Items.Count + " row(s) " + when
+                    + ", wanted " + count);
+            }
         }
 
         private static Path GlowPath(WidgetChrome chrome, string name)

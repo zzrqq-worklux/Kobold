@@ -197,7 +197,7 @@ namespace Kobold.Core.FileSearch
                 token.ThrowIfCancellationRequested();
             }
 
-            Flush(state, mode, token);
+            Flush(state, mode, live, token);
             token.ThrowIfCancellationRequested();
 
             if (_progress != null) _progress(state.ToProgress());
@@ -454,9 +454,11 @@ namespace Kobold.Core.FileSearch
         {
             if (live)
             {
-                // ScanSubtree: the watcher needs the row immediately, and no staging
-                // table may be involved.
-                _store.Upsert(entry);
+                // ScanSubtree: the watcher needs the rows, but not one commit per file.
+                // BatchSize rows per transaction is the difference between ~80 rows/s
+                // and thousands; the caller flushes the remainder when the walk ends.
+                state.Batch.Add(entry);
+                if (state.Batch.Count >= BatchSize) Flush(state, mode, live, token);
                 return;
             }
 
@@ -476,7 +478,7 @@ namespace Kobold.Core.FileSearch
             state.Batch.Add(entry);
             if (mode == ScanMode.Reconcile) state.Seen.Add(entry.Path);
 
-            if (state.Batch.Count >= BatchSize) Flush(state, mode, token);
+            if (state.Batch.Count >= BatchSize) Flush(state, mode, live, token);
         }
 
         /// <summary>
@@ -530,7 +532,7 @@ namespace Kobold.Core.FileSearch
             }
         }
 
-        private void Flush(ScanState state, ScanMode mode, CancellationToken token)
+        private void Flush(ScanState state, ScanMode mode, bool live, CancellationToken token)
         {
             if (state.Batch.Count == 0) return;
 
@@ -538,7 +540,7 @@ namespace Kobold.Core.FileSearch
             token.ThrowIfCancellationRequested();
 
             _store.UpsertScanBatch(state.Batch);
-            if (mode == ScanMode.Reconcile) _store.MarkSeenBatch(state.Seen);
+            if (!live && mode == ScanMode.Reconcile) _store.MarkSeenBatch(state.Seen);
 
             state.Batch.Clear();
             state.Seen.Clear();

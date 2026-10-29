@@ -816,7 +816,9 @@ DELETE FROM files
             {
                 DataSource = _databasePath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Shared,
+                // Private, like the readers: a shared cache buys nothing for a single
+                // writer and would only add cross-connection lock traffic under WAL.
+                Cache = SqliteCacheMode.Private,
                 // One connection per operation; a pool would keep the file handle alive
                 // after Dispose and block replacing/deleting the index.
                 Pooling = false
@@ -827,6 +829,13 @@ DELETE FROM files
                 connection.Open();
 
                 Execute(connection, "PRAGMA busy_timeout=" + BusyTimeoutMs.ToString(CultureInfo.InvariantCulture) + ";");
+                // Bulk-batch tuning, per connection (none of it is persisted in the file):
+                // 32 MiB of page cache keeps a scan batch's pages resident; CREATE INDEX
+                // temp b-trees stay in memory; and a 4000-page checkpoint threshold means
+                // SQLite checkpoints only once the WAL exceeds 4000 pages.
+                Execute(connection, "PRAGMA cache_size=-32768;");
+                Execute(connection, "PRAGMA temp_store=MEMORY;");
+                Execute(connection, "PRAGMA wal_autocheckpoint=4000;");
                 // WAL + NORMAL: an index can be rebuilt, so a power cut may lose the last
                 // commits but cannot corrupt the file. Not persisted in the database.
                 Execute(connection, "PRAGMA synchronous=NORMAL;");

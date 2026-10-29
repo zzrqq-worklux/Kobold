@@ -73,8 +73,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Margin="12,10,12,6">
@@ -105,7 +105,17 @@
             </Grid>
         </StackPanel>
 
-        <Grid Grid.Row="2" Margin="8,0,8,4">
+        <!-- The empty query's caption. It names the frequent-file list below
+             it, so the code-behind collapses caption and rows together. The
+             12 DIP side margin matches the list's outer inset; the result rows
+             indent further (glyph column plus row padding), so this text does
+             not line up with the name column. -->
+        <TextBlock x:Name="FrequentHeader" Grid.Row="2" Margin="12,0,12,4"
+                   FontSize="11" TextTrimming="CharacterEllipsis"
+                   Visibility="Collapsed"
+                   Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
+
+        <Grid Grid.Row="3" Margin="8,0,8,4">
             <ListBox x:Name="ResultsList"
                      VirtualizingStackPanel.IsVirtualizing="True"
                      VirtualizingStackPanel.VirtualizationMode="Recycling"

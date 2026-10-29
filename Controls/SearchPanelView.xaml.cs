@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -45,6 +46,7 @@ namespace Kobold.Controls
     {
         private const int DebounceMilliseconds = 200;
         private const int ResultLimit = 300;
+        private const int FrequentLimit = 10;
 
         private SearchData _data;
         private WidgetWindowBase _host;
@@ -64,6 +66,10 @@ namespace Kobold.Controls
         private MenuItem _openMenuItem;
         private MenuItem _locationMenuItem;
         private MenuItem _copyMenuItem;
+        // The result menu belongs to a result row: it is kept here and opened
+        // by the row-target mouse/keyboard handlers, never attached to the list
+        // (which would also fire on blank space and the scrollbar).
+        private ContextMenu _resultMenu;
 
         /// <summary>
         /// Test seam (XamlLoadCheck): when set, starting the onboarding routes
@@ -104,8 +110,12 @@ namespace Kobold.Controls
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
 
-            ResultsList.ContextMenu = BuildResultMenu();
+            _resultMenu = BuildResultMenu();
             ResultsList.PreviewMouseRightButtonDown += ResultsList_PreviewMouseRightButtonDown;
+            // Only a result row opens the menu (right-click here, Apps /
+            // Shift+F10 in PreviewKeyDown): blank space and the scrollbar
+            // stay inert.
+            ResultsList.PreviewMouseRightButtonUp += ResultsList_PreviewMouseRightButtonUp;
             // Space previews the selected result in QuickLook (tunnelling, so
             // the list's ScrollViewer never eats it for a page-down).
             ResultsList.PreviewKeyDown += ResultsList_PreviewKeyDown;
@@ -153,6 +163,7 @@ namespace Kobold.Controls
             if (ResultsList != null)
             {
                 ResultsList.PreviewMouseRightButtonDown -= ResultsList_PreviewMouseRightButtonDown;
+                ResultsList.PreviewMouseRightButtonUp -= ResultsList_PreviewMouseRightButtonUp;
                 ResultsList.PreviewKeyDown -= ResultsList_PreviewKeyDown;
                 ResultsList.PreviewMouseLeftButtonDown -= ResultsList_PreviewMouseLeftButtonDown;
                 ResultsList.PreviewMouseMove -= ResultsList_PreviewMouseMove;
@@ -160,6 +171,9 @@ namespace Kobold.Controls
             }
             PreviewRequestForChecks = null;
             _dragRow = null;
+            // A popup must not outlive the view it belongs to.
+            if (_resultMenu != null) _resultMenu.IsOpen = false;
+            _resultMenu = null;
         }
 
         /// <summary>Re-reads the service's in-memory status snapshot for a re-open.</summary>
@@ -250,6 +264,7 @@ namespace Kobold.Controls
             OnboardingLaterButton.Content = Localization.Get("Search_Later");
 
             RebuildButton.Content = Localization.Get("Search_Rebuild");
+            FrequentHeader.Text = Localization.Get("Search_Frequent");
             if (_openMenuItem != null) _openMenuItem.Header = Localization.Get("Search_Open");
             if (_locationMenuItem != null) _locationMenuItem.Header = Localization.Get("Search_OpenLocation");
             if (_copyMenuItem != null) _copyMenuItem.Header = Localization.Get("Search_CopyPath");
@@ -299,6 +314,11 @@ namespace Kobold.Controls
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
             if (!_attached) return;
+
+            // The caption belongs to an empty query only. It must leave the
+            // moment the text stops being empty - not 200 ms later when the
+            // debounced query dispatches.
+            if (HasQueryText()) HideFrequentHeader();
 
             if (_debounce == null) return;
             _debounce.Stop();
@@ -388,10 +408,17 @@ namespace Kobold.Controls
                 _queryGeneration++;
                 SetQueryGlow(false);
                 _hasQuery = false;
-                ResultsList.ItemsSource = null;
+                HideFrequentHeader();
                 EmptyState.Visibility = Visibility.Collapsed;
                 ResultStatusText.Text = string.Empty;
-                UpdateStatus(_service == null ? null : _service.Status);
+                if (_service == null)
+                {
+                    // Nothing to settle yet: the frequent list comes from the
+                    // config, not the index, so it needs no service state.
+                    ShowFrequentFiles();
+                    return;
+                }
+                UpdateStatus(_service.Status);
                 return;
             }
 
@@ -404,6 +431,9 @@ namespace Kobold.Controls
                 // leave no glow running for a query that will never dispatch.
                 _queryGeneration++;
                 SetQueryGlow(false);
+                // The rows this state is about to clear must not keep a caption
+                // that names the frequent list.
+                HideFrequentHeader();
                 UpdateStatus(_service.Status);
                 return;
             }
@@ -423,6 +453,7 @@ namespace Kobold.Controls
             SetQueryGlow(true);
 
             _hasQuery = true;
+            HideFrequentHeader();
             EmptyState.Visibility = Visibility.Collapsed;
             // The query outcome owns its own line; the persistent service /
             // scan status stays in StatusText and keeps indexing precedence.
@@ -486,8 +517,92 @@ namespace Kobold.Controls
             SetQueryGlow(false);
             _hasQuery = false;
             if (ResultsList != null) ResultsList.ItemsSource = null;
+            HideFrequentHeader();
             if (EmptyState != null) EmptyState.Visibility = Visibility.Collapsed;
             if (ResultStatusText != null) ResultStatusText.Text = string.Empty;
+        }
+
+        /// <summary>
+        /// The empty query's content: the most-opened files from the widget's
+        /// own usage counters. The counters store only path/count/time, so size
+        /// and last-write time come from the live file through the existing
+        /// <see cref="BuildRow"/> formatting. A file that disappeared or became
+        /// unreadable since the snapshot is skipped - never thrown at the UI.
+        /// </summary>
+        private void ShowFrequentFiles()
+        {
+            IReadOnlyList<FrequentFile> files = FrequentFiles.Top(FrequentLimit);
+
+            var rows = new List<SearchResultRow>(files.Count);
+            for (int i = 0; i < files.Count; i++)
+            {
+                FrequentFile file = files[i];
+                if (file == null || string.IsNullOrEmpty(file.Path)) continue;
+
+                try
+                {
+                    var info = new FileInfo(file.Path);
+                    if (!info.Exists) continue;
+
+                    SearchResultRow row = BuildRow(new SearchEntry
+                    {
+                        Path = info.FullName,
+                        Name = info.Name,
+                        IsDirectory = false,
+                        SizeBytes = info.Length,
+                        ModifiedUtc = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeSeconds()
+                    });
+                    if (row != null) rows.Add(row);
+                }
+                catch (IOException)
+                {
+                    // Deleted, locked or path-too-long since the snapshot.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // No read permission on this file any more.
+                }
+                catch (System.Security.SecurityException)
+                {
+                    // The path left the tree the process may read.
+                }
+                catch (ArgumentException)
+                {
+                    // A malformed path in a hand-edited config.
+                }
+                catch (NotSupportedException)
+                {
+                    // A path shape the runtime rejects (e.g. an unsupported form).
+                }
+            }
+
+            ResultsList.ItemsSource = rows;
+            if (rows.Count == 0)
+            {
+                // No remembered files (or none left on disk): the caption would
+                // label an empty list, so it stays hidden.
+                FrequentHeader.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            FrequentHeader.Text = Localization.Get("Search_Frequent");
+            FrequentHeader.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// The empty query's caption and rows may paint only when no query owns
+        /// the list and the box really is empty. A query typed while a state
+        /// panel swallowed it never dispatched, so its text stays in the box: a
+        /// later status must not repaint the frequent list under that text.
+        /// </summary>
+        private bool ShouldShowFrequentFiles()
+        {
+            return !_hasQuery && !HasQueryText();
+        }
+
+        private void HideFrequentHeader()
+        {
+            if (FrequentHeader != null) FrequentHeader.Visibility = Visibility.Collapsed;
         }
 
         private void ApplyQueryResult(SearchQueryResult result, Exception error)
@@ -650,6 +765,9 @@ namespace Kobold.Controls
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
+                    // Indexing is dispatchable, so an empty query keeps its
+                    // frequent list while the scan runs (see CanDispatchQuery).
+                    if (ShouldShowFrequentFiles()) ShowFrequentFiles();
                     StatusText.Text = Localization.Format("Search_Indexing",
                         status.FilesIndexed, status.DirectoriesScanned);
                     break;
@@ -659,6 +777,9 @@ namespace Kobold.Controls
                     EmptyState.Visibility = Visibility.Collapsed;
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = Visibility.Collapsed;
+                    // A reconcile is dispatchable too: the empty query's list
+                    // stays, only the status line changes.
+                    if (ShouldShowFrequentFiles()) ShowFrequentFiles();
                     // Its own status: a reconcile is not the index starting over.
                     StatusText.Text = Localization.Get("Search_Reconciling");
                     break;
@@ -667,11 +788,9 @@ namespace Kobold.Controls
                     HideOnboarding();
                     NoIndexState.Visibility = Visibility.Collapsed;
                     RebuildButton.Visibility = status.NeedsRebuild ? Visibility.Visible : Visibility.Collapsed;
-                    if (!_hasQuery)
-                    {
-                        ResultsList.ItemsSource = null;
-                        EmptyState.Visibility = Visibility.Collapsed;
-                    }
+                    if (!_hasQuery) EmptyState.Visibility = Visibility.Collapsed;
+                    // The caption and rows belong to a really empty box only.
+                    if (ShouldShowFrequentFiles()) ShowFrequentFiles();
                     StatusText.Text = ReadyText(status);
                     break;
 
@@ -1039,20 +1158,60 @@ namespace Kobold.Controls
         #region Open / context menu
 
         /// <summary>
-        /// Space previews the selected result through QuickLook. Tunnelling,
-        /// because the list's ScrollViewer also claims Space (page down) once
-        /// it has focus. A directory, a missing path or a refused request
-        /// leaves the key unhandled for the scroller.
+        /// The list's tunnelling shortcut keys: Space previews the selected
+        /// result through QuickLook, and Apps / Shift+F10 open the result menu
+        /// for the selected row. Tunnelling for Space because the list's
+        /// ScrollViewer also claims it (page down) once it has focus. A
+        /// directory, a missing path or a refused request leaves Space
+        /// unhandled for the scroller.
         /// </summary>
         private void ResultsList_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return;
+            ModifierKeys modifiers = e.KeyboardDevice.Modifiers;
+
+            // Keyboard route to the row menu (Apps / Shift+F10). The list no
+            // longer carries a ContextMenu, so this is what keeps Open location
+            // and Copy path reachable without a mouse. Shift+F10 arrives as
+            // Key.System with SystemKey F10, so the system key is passed too.
+            if (e.Key == Key.Apps || e.Key == Key.F10 || e.Key == Key.System)
+            {
+                ListBoxItem menuTarget = ResultMenuKeyboardTarget(e.Key, e.SystemKey, modifiers);
+                if (OpenResultMenu(menuTarget, PlacementMode.Bottom))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            if (e.Key != Key.Space || modifiers != ModifierKeys.None) return;
 
             // Holding Space repeats this event; QuickLook toggles on a repeated
             // request, so without this the preview would strobe.
             if (e.IsRepeat) return;
 
             if (TryPreviewSelected()) e.Handled = true;
+        }
+
+        /// <summary>
+        /// Test seam (XamlLoadCheck): the row the keyboard menu may open on.
+        /// Apps (the context-menu key) and Shift+F10 qualify, in both their
+        /// plain and Key.System forms - WPF delivers Shift+F10 as Key.System
+        /// with SystemKey F10. Space keeps its QuickLook meaning and every
+        /// other key returns null, as does a selection that is not a result
+        /// row.
+        /// </summary>
+        internal ListBoxItem ResultMenuKeyboardTarget(Key key, Key systemKey, ModifierKeys modifiers)
+        {
+            bool menuKey = key == Key.Apps
+                || (key == Key.F10 && modifiers == ModifierKeys.Shift)
+                || (key == Key.System
+                    && (systemKey == Key.Apps
+                        || (systemKey == Key.F10 && modifiers == ModifierKeys.Shift)));
+            if (!menuKey) return null;
+
+            var row = ResultsList.SelectedItem as SearchResultRow;
+            if (row == null) return null;
+            return ResultsList.ItemContainerGenerator.ContainerFromItem(row) as ListBoxItem;
         }
 
         /// <summary>
@@ -1166,6 +1325,49 @@ namespace Kobold.Controls
             var container = ItemsControl.ContainerFromElement(
                 ResultsList, e.OriginalSource as DependencyObject) as ListBoxItem;
             if (container != null) container.IsSelected = true;
+        }
+
+        /// <summary>
+        /// Opens the result menu for the row under the right button. A press on
+        /// blank space, the scrollbar or an empty list resolves no row target,
+        /// so no menu appears there. Keyboard (Apps / Shift+F10) reaches the
+        /// same <see cref="OpenResultMenu"/> helper from PreviewKeyDown.
+        /// </summary>
+        private void ResultsList_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            ListBoxItem target = ResultMenuTarget(e.OriginalSource as DependencyObject);
+            if (OpenResultMenu(target, PlacementMode.MousePoint)) e.Handled = true;
+        }
+
+        /// <summary>
+        /// Opens the row menu on <paramref name="target"/> and reports whether it
+        /// opened. Shared by the mouse (MousePoint) and keyboard (Bottom) routes;
+        /// a null target or a detached view opens nothing.
+        /// </summary>
+        private bool OpenResultMenu(ListBoxItem target, PlacementMode placement)
+        {
+            if (target == null || _resultMenu == null) return false;
+
+            target.IsSelected = true;
+            _resultMenu.PlacementTarget = target;
+            _resultMenu.Placement = placement;
+            _resultMenu.IsOpen = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Test seam (XamlLoadCheck): the row the result menu may open on. The
+        /// source resolves to a container only when it sits on a real
+        /// <see cref="SearchResultRow"/>; the list itself (blank space) and the
+        /// scrollbar resolve nothing.
+        /// </summary>
+        internal ListBoxItem ResultMenuTarget(DependencyObject source)
+        {
+            if (source == null) return null;
+
+            var container = ItemsControl.ContainerFromElement(ResultsList, source) as ListBoxItem;
+            if (container == null) return null;
+            return container.DataContext is SearchResultRow ? container : null;
         }
 
         /// <summary>
