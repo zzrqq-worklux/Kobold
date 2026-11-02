@@ -183,7 +183,7 @@ namespace Kobold.XamlLoadCheck
                 // panel into the work area.
                 failures += TryCheck("chrome: the panel uses the theme surfaces, never the widget colour",
                     ChromePanelUsesThemeSurfaces);
-                failures += TryCheck("chrome: extreme widget colours stay readable on the rail",
+                failures += TryCheck("chrome: extreme widget colours stay readable on the header border",
                     ChromeAccentHandlesExtremeWidgetColors);
                 failures += TryCheck("resize: fit keeps the panel inside the work area", FitPanelKeepsPanelInWorkArea);
 
@@ -339,6 +339,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("folder: clipboard entries follow the lock and paste gates", FolderClipboardMenuEntries);
                 failures += TryCheck("folder: the new-file menu entries wear the shared label", FolderNewFileMenuUsesTheFileLabel);
                 failures += TryCheck("folder: the browse back button accepts drops", BrowseBackButtonAcceptsDrops);
+                failures += TryCheck("folder: the path menu levels carry icons", FolderPathMenuCarriesLevelIcons);
                 failures += TryCheck("folder: the content panel accepts external drops", FolderContentPanelAcceptsDrops);
                 failures += TryCheck("folder: raising the item size grows an open panel", FolderItemSizeChangeGrowsAnOpenPanel);
                 failures += TryCheck("folder: widening adds spacing at the set icon size", FolderWideningKeepsTheIconSizeAndAddsSpacing);
@@ -641,6 +642,7 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("note: the list orders by modified time", NoteListOrdersByModifiedTime);
                 failures += TryCheck("note: the row menu deletes the note and undo restores it",
                     NoteRowMenuDeletesAndUndoRestores);
+                failures += TryCheck("note: the card row menu opens the note", NoteCardRowMenuOpensTheNote);
                 failures += TryCheck("note: undo walks back beyond one step", NoteUndoWalksBackBeyondOneStep);
                 failures += TryCheck("note: the stack keeps only the newest twenty",
                     NoteUndoStackKeepsOnlyTheNewestTwenty);
@@ -689,6 +691,8 @@ namespace Kobold.XamlLoadCheck
                     NoteTitleMenuWidthsToItsContent);
                 failures += TryCheck("note: the rendered detail right-click opens the full menu",
                     NoteRenderedRightClickOpensTheFullMenu);
+                failures += TryCheck("note: the full note menu checks each entry once",
+                    NoteRenderedMenuChecksOnlyOnce);
                 failures += TryCheck("launcher: the note menu wears the shared card", NoteTitleMenuUsesTheLauncherStyle);
                 failures += TryCheck("note: the title menu switches notes", NoteTitleMenuSwitchesNotes);
                 failures += TryCheck("note: the title menu starts a new note", NoteTitleMenuStartsANewNote);
@@ -2062,7 +2066,8 @@ namespace Kobold.XamlLoadCheck
                     "50% opacity produced alpha " + (shell == null ? 0 : shell.Color.A) + ", wanted about 127");
             }
 
-            // The widget colour is allowed on the 1 DIP outer border only.
+            // The widget colour is allowed on the 1 DIP outer border and the
+            // header's own 2px top border.
             var neutral = chrome.Shell.BorderBrush as SolidColorBrush;
             if (neutral == null || neutral.Color != ThemeManager.PanelBorderBrush.Color)
                 throw new InvalidOperationException("the uncoloured panel has no neutral hairline border");
@@ -2081,15 +2086,19 @@ namespace Kobold.XamlLoadCheck
             if (tinted.Color == neutral.Color)
                 throw new InvalidOperationException("the widget colour did not reach the panel border");
 
-            var railBrush = chrome.FindName("AccentRail") is Border rail
-                ? rail.Background as SolidColorBrush
-                : null;
-            if (railBrush == null || railBrush.Color != tint ||
-                ((Border)chrome.FindName("AccentRail")).Visibility != Visibility.Visible)
+            // The accent lives on the header's own top border now: the header
+            // is 40px tall, so its 12px radius shapes a 2px line without the
+            // clipped hook the old 3px sibling rail produced.
+            var headerBorder = chrome.Header.BorderBrush as SolidColorBrush;
+            if (chrome.Header.BorderThickness != new Thickness(0, 2, 0, 0) ||
+                headerBorder == null || headerBorder.Color != tint)
             {
-                throw new InvalidOperationException("the 3px top rail is not the widget colour");
+                throw new InvalidOperationException("the header's 2px top border is not the widget colour");
             }
-
+            if (chrome.Header.CornerRadius != new CornerRadius(12, 12, 0, 0))
+                throw new InvalidOperationException("the header lost its 12px top corner radius");
+            if (chrome.FindName("AccentRail") != null)
+                throw new InvalidOperationException("the separate 3px top rail is still in the chrome");
 
             var dot = chrome.FindName("TitleAccentDot") as Ellipse;
             var dotBrush = dot == null ? null : dot.Fill as SolidColorBrush;
@@ -2100,29 +2109,28 @@ namespace Kobold.XamlLoadCheck
             var cleared = chrome.Shell.BorderBrush as SolidColorBrush;
             if (cleared == null || cleared.Color != ThemeManager.PanelBorderBrush.Color)
                 throw new InvalidOperationException("clearing the widget colour did not restore the neutral border");
-            if (((Border)chrome.FindName("AccentRail")).Visibility != Visibility.Collapsed ||
+            if (chrome.Header.BorderThickness != new Thickness(0) ||
                 dot.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("the accent/dot stayed visible without a widget colour");
         }
 
         /// <summary>
         /// A near-white colour must darken on light and a near-black colour
-        /// must lighten on dark; the rail and title dot use the readable hue.
+        /// must lighten on dark; the header border and title dot use the readable hue.
         /// </summary>
         private static void ChromeAccentHandlesExtremeWidgetColors()
         {
             ThemeManager.Initialize("light");
             var chrome = new WidgetChrome { PanelColor = "#FFFFFF" };
-            var rail = chrome.FindName("AccentRail") as Border;
             var lightWanted = Utils.DarkenColor(Utils.HexToColor("#FFFFFF"), 0.6);
-            if (rail == null || !(rail.Background is SolidColorBrush light) || light.Color != lightWanted)
-                throw new InvalidOperationException("the light rail did not darken a near-white widget colour");
+            if (!(chrome.Header.BorderBrush is SolidColorBrush light) || light.Color != lightWanted)
+                throw new InvalidOperationException("the light header border did not darken a near-white widget colour");
 
             ThemeManager.Initialize("dark");
             chrome.PanelColor = "#101010";
             var darkWanted = Utils.LightenColor(Utils.HexToColor("#101010"), 0.5);
-            if (!(rail.Background is SolidColorBrush dark) || dark.Color != darkWanted)
-                throw new InvalidOperationException("the dark rail did not lighten a near-black widget colour");
+            if (!(chrome.Header.BorderBrush is SolidColorBrush dark) || dark.Color != darkWanted)
+                throw new InvalidOperationException("the dark header border did not lighten a near-black widget colour");
         }
 
         /// <summary>
@@ -6836,6 +6844,34 @@ namespace Kobold.XamlLoadCheck
             var button = widget.FindName("BackButton") as Border;
             if (button == null) throw new InvalidOperationException("BackButton not found");
             if (!button.AllowDrop) throw new InvalidOperationException("the browse back button does not accept drops");
+        }
+
+        /// <summary>
+        /// The breadcrumb menu's levels each carry an icon: the widget root is
+        /// Home, every browsed folder is Folder. The shared MenuItem template
+        /// has no separate check column, so an icon-less item would leave a
+        /// 26px empty gutter on the left of its text.
+        /// </summary>
+        private static void FolderPathMenuCarriesLevelIcons()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new FolderData
+            {
+                Name = "Root",
+                Color = UiTokens.FolderPalette[0],
+                BrowseStack = new List<string> { AppDomain.CurrentDomain.BaseDirectory }
+            };
+            var widget = new FolderWidget(data);
+
+            var menu = (ContextMenu)FolderPrivateMethod("BuildPathMenu").Invoke(widget, null);
+            if (menu == null)
+                throw new InvalidOperationException("BuildPathMenu returned null while browsing");
+            if (menu.Items.Count != 2)
+                throw new InvalidOperationException(
+                    "the path menu has " + menu.Items.Count + " item(s), wanted 2");
+
+            AssertMenuIcon(menu.Items[0], IconId.Home);
+            AssertMenuIcon(menu.Items[1], IconId.Folder);
         }
 
         /// <summary>
@@ -12042,7 +12078,7 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T11: the card's row menu holds one delete entry; clicking it removes
+        /// T11: the card's row menu holds open + delete; clicking delete removes
         /// that note, rebuilds the list, and the undo puts the note back at its
         /// original index (the second note here) with the list rebuilt again.
         /// </summary>
@@ -12063,13 +12099,18 @@ namespace Kobold.XamlLoadCheck
             var card = NoteCardAt(view, 0);
             if (card.ContextMenu == null)
                 throw new InvalidOperationException("the card carries no row menu");
-            if (card.ContextMenu.Items.Count != 1)
+            if (card.ContextMenu.Items.Count != 2)
                 throw new InvalidOperationException("the row menu has " + card.ContextMenu.Items.Count + " item(s)");
-            string header = HeaderOf(card.ContextMenu.Items[0]);
+            if (HeaderOf(card.ContextMenu.Items[0]) != Localization.Get("Menu_Open"))
+                throw new InvalidOperationException(
+                    "the row menu's open header is '" + HeaderOf(card.ContextMenu.Items[0]) + "'");
+            AssertMenuIcon(card.ContextMenu.Items[0], IconId.Doc);
+            string header = HeaderOf(card.ContextMenu.Items[1]);
             if (header != Localization.Get("Menu_DeleteItem"))
                 throw new InvalidOperationException("the row menu header is '" + header + "'");
+            AssertMenuIcon(card.ContextMenu.Items[1], IconId.Delete);
 
-            ClickMenuItem(card, 0); // delete the newest note through its row menu
+            ClickMenuItem(card, 1); // delete the newest note through its row menu
 
             if (data.Notes.Count != 1 || data.Notes[0] != first)
                 throw new InvalidOperationException("the menu delete did not remove the newest note");
@@ -12082,6 +12123,32 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the undo did not put the note back at its index");
             if (NoteCardCount(view) != 2)
                 throw new InvalidOperationException("the card list did not rebuild after the undo");
+        }
+
+        /// <summary>
+        /// The home card's row menu also switches notes: its Open entry opens
+        /// that card's note in the detail (the full note list stays in the
+        /// detail's right-click menu, not on the home page).
+        /// </summary>
+        private static void NoteCardRowMenuOpensTheNote()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData();
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+
+            var card = NoteCardAt(view, 0); // Beta
+            if (card.ContextMenu == null || card.ContextMenu.Items.Count != 2)
+                throw new InvalidOperationException("the card row menu does not hold open + delete");
+
+            ClickMenuItem(card, 0);
+            if (view.IsHome)
+                throw new InvalidOperationException("the row menu's open entry did not open the note");
+            if (PrivateField<string>(view, "_expandedId") != "b")
+                throw new InvalidOperationException("the row menu opened the wrong note");
         }
 
         /// <summary>
@@ -13193,14 +13260,65 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the full note menu's new entry created no note");
         }
 
+        /// <summary>
+        /// The full note menu draws exactly one check per entry: the shared
+        /// MenuItem template paints IsChecked in its 26px icon slot, so the
+        /// header must not add a second Check IconPresenter of its own.
+        /// </summary>
+        private static void NoteRenderedMenuChecksOnlyOnce()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+            data.Notes.Add(NewNote("c", "Gamma", new DateTime(2026, 3, 5, 10, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            ClickNoteCard(view, 0); // Beta
+
+            var menu = view.BuildNoteContextMenu();
+            string current = PrivateField<string>(view, "_expandedId");
+            int checks = 0;
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item == null || item.Tag == null) continue;
+                string tag = item.Tag as string;
+                if (tag == "NoteMenuNew" || tag == "NoteMenuHome") continue;
+
+                bool isCurrent = tag == current;
+                if (item.IsChecked != isCurrent)
+                    throw new InvalidOperationException(
+                        "the note menu entry '" + tag + "' has the wrong check state");
+                if (item.Header is Grid)
+                    throw new InvalidOperationException(
+                        "the note menu entry '" + tag + "' still carries a custom check column");
+                if (!(item.Header is TextBlock))
+                    throw new InvalidOperationException(
+                        "the note menu entry '" + tag + "' has no plain title header");
+                if (isCurrent) checks++;
+            }
+            if (checks != 1)
+                throw new InvalidOperationException("the note menu checks " + checks + " entries");
+        }
+
         private static string ContextMenuTitle(MenuItem item)
         {
-            var grid = item == null ? null : item.Header as Grid;
+            if (item == null) return string.Empty;
+
+            var text = item.Header as TextBlock;
+            if (text != null) return text.Text;
+
+            var header = item.Header as string;
+            if (header != null) return header;
+
+            var grid = item.Header as Grid;
             if (grid == null) return string.Empty;
             foreach (var child in grid.Children)
             {
-                var text = child as TextBlock;
-                if (text != null && !"NoteMenuCheck".Equals(text.Tag as string)) return text.Text;
+                var childText = child as TextBlock;
+                if (childText != null && !"NoteMenuCheck".Equals(childText.Tag as string)) return childText.Text;
             }
             return string.Empty;
         }

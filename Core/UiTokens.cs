@@ -172,6 +172,17 @@ namespace Kobold.Core
         };
 
         /// <summary>
+        /// The nine Tailwind hues the pre-Claude-Warm picker wrote into saved
+        /// configs. Frozen for <see cref="WidgetColorMigration"/> only - never
+        /// offer these in the UI; new picks use <see cref="FolderPalette"/>.
+        /// </summary>
+        public static readonly string[] LegacyFolderPalette =
+        {
+            "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
+            "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+        };
+
+        /// <summary>
         /// Localization keys for the palette above, index-aligned with it: a
         /// colour swatch alone leaves the user guessing which hue is which.
         /// tests/MenuRenderCheck fails when the two arrays drift apart.

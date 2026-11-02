@@ -332,10 +332,13 @@ namespace Kobold.WidgetKindsCheck
             string main = Path.Combine(dir, "config.json");
             string backup = main + ".backup";
 
+            // Custom colours, not the retired Tailwind palette: the colour
+            // migration is pinned by ConfigSafetyCheck, so this fixture only
+            // proves the legacy Folders -> Widgets move keeps every field.
             string legacy = @"{ ""Folders"": [ " +
-                @"{ ""Id"": ""f1"", ""Name"": ""A"", ""Color"": ""#EF4444"", ""GridColumns"": 3, " +
+                @"{ ""Id"": ""f1"", ""Name"": ""A"", ""Color"": ""#123456"", ""GridColumns"": 3, " +
                 @"""Items"": [ { ""Name"": ""x"", ""Path"": ""C:\\x"" } ] }, " +
-                @"{ ""Id"": ""f2"", ""Name"": ""B"", ""Color"": ""#22C55E"", ""GridColumns"": 4 } ] }";
+                @"{ ""Id"": ""f2"", ""Name"": ""B"", ""Color"": ""#654321"", ""GridColumns"": 4 } ] }";
             File.WriteAllText(main, legacy);
 
             var cfg = AppConfig.Load(main, backup);
@@ -346,7 +349,7 @@ namespace Kobold.WidgetKindsCheck
             var f2 = cfg.Widgets[1] as FolderData;
             Check(f1 != null && f1.Id == "f1" && f2 != null && f2.Id == "f2",
                 "migration keeps the ids and the order");
-            Check(f1 != null && f1.Name == "A" && f1.Color == "#EF4444" && f1.GridColumns == 3
+            Check(f1 != null && f1.Name == "A" && f1.Color == "#123456" && f1.GridColumns == 3
                   && f1.Items.Count == 1 && f1.Items[0].Name == "x" && f1.Items[0].Path == @"C:\x",
                 "migration keeps the fields and items");
             Check(cfg.Widgets[0].Kind == "folder", "migrated folders carry Kind= folder");

@@ -268,6 +268,61 @@ namespace Kobold.ConfigSafetyCheck
             }
             Check(note11 != null && Math.Abs(note11.FontScale - 1.2) < 1e-9,
                 "note font scale: the saved scale reads back after a reload");
+
+            RunWidgetColorMigrationChecks();
+        }
+
+        /// <summary>
+        /// Widget colours written by the pre-Claude-Warm picker still carry the
+        /// nine Tailwind hexes. A config load maps them index-for-index onto
+        /// the current palette; custom picks and already-current colours are
+        /// left alone. The mapping is idempotent.
+        /// </summary>
+        private static void RunWidgetColorMigrationChecks()
+        {
+            string[] legacy =
+            {
+                "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
+                "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+            };
+            for (int i = 0; i < legacy.Length; i++)
+            {
+                Check(string.Equals(WidgetColorMigration.Upgrade(legacy[i]), UiTokens.FolderPalette[i],
+                        StringComparison.OrdinalIgnoreCase),
+                    "legacy widget colour " + legacy[i] + " maps to " + UiTokens.FolderPalette[i]);
+            }
+            Check(WidgetColorMigration.Upgrade("#123456") == "#123456",
+                "a custom widget colour is untouched");
+            Check(WidgetColorMigration.Upgrade(UiTokens.FolderPalette[0]) == UiTokens.FolderPalette[0],
+                "an already-current widget colour is untouched");
+
+            string dir = NewCase("widget-colors");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+            File.WriteAllText(main, @"{
+  ""Language"": ""en"",
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""f"", ""Name"": ""F"", ""Color"": ""#EF4444"", ""Items"": [] },
+    { ""Kind"": ""note"", ""Id"": ""n"", ""Name"": ""N"", ""Color"": ""#3B82F6"", ""Notes"": [] },
+    { ""Kind"": ""todo"", ""Id"": ""t"", ""Name"": ""T"", ""Color"": ""#123456"", ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""f2"", ""Name"": ""F2"", ""Color"": ""#CC785C"", ""Items"": [] }
+  ]
+}");
+
+            var cfg = AppConfig.Load(main, backup);
+            Check(cfg.Widgets.Count == 4, "the color-migration config loads four widgets");
+            Check(cfg.Widgets[0].Color == UiTokens.FolderPalette[0],
+                "a legacy folder colour is migrated on load");
+            Check(cfg.Widgets[1].Color == UiTokens.FolderPalette[6],
+                "a legacy note colour is migrated on load");
+            Check(cfg.Widgets[2].Color == "#123456",
+                "a custom colour survives config load");
+            Check(cfg.Widgets[3].Color == UiTokens.FolderPalette[0],
+                "a current palette colour survives config load");
+
+            var again = AppConfig.Load(main, backup);
+            Check(again.Widgets[1].Color == UiTokens.FolderPalette[6],
+                "the colour migration is idempotent");
         }
     }
 }

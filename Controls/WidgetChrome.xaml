@@ -115,16 +115,6 @@
             </Grid>
         </Border>
 
-        <!-- One 3px widget-colour top band, drawn OVER the shell border. It
-             covers the shell's 1px top hairline, so the top edge is a single
-             accent line rather than a 1px border + 2px rail seam. It lives
-             outside the shell so the layout border stays 1px. -->
-        <Border x:Name="AccentRail" Height="3" Margin="0"
-                HorizontalAlignment="Stretch" VerticalAlignment="Top"
-                CornerRadius="12,12,0,0"
-                Background="Transparent" Visibility="Collapsed"
-                IsHitTestVisible="False"/>
-
         <!-- Native resize affordances on top of the shell: four 5 DIP
              invisible bands along the edges plus a 16x16 bottom-right grip.
              The layer Grid carries no Background, so it never blocks the

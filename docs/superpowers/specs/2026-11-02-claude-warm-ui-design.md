@@ -27,10 +27,11 @@ make the island reflect each widget panel's real open/hidden state.
 6. An open widget tile uses a 14% widget-colour wash and a 3 px widget-colour
    dot at the bottom; a hidden tile is transparent. The collapsed island stays
    a clean bar with no dot (user decision 2026-11-02, revised).
-7. Panel treatment is **border/rail tint, never a whole-panel wash**: the 1 DIP
-   outer border mixes the widget colour 65% into the theme hairline; a 2px
-   widget-colour rail sits at the header's top edge and a 6px dot precedes the
-   serif title. The body and header stay the theme Background / Surface2.
+7. Panel treatment is **border tint, never a whole-panel wash**: the 1 DIP
+   outer border mixes the widget colour 65% into the theme hairline; the
+   header's own 2px top border carries the widget colour, so the header's 12px
+   radius shapes it, and a 6px dot precedes the serif title. The body and
+   header stay the theme Background / Surface2.
 7. Do not replace window bases with WPF-UI `FluentWindow`; Kobold windows are
    custom transparent chrome.
 8. No git commit unless the user explicitly asks.
@@ -64,11 +65,15 @@ Radii: small 4, control 8, window 10, panel 12. Body 13, subtitle 14, title 16.
 Panel backdrop: near-opaque theme Background; header: Surface2. The widget
 colour accent system is:
 - 1 DIP outer border: 65% widget-colour mix with the theme hairline;
-- header top rail: 2px widget colour;
+- header top border: 2px widget colour, drawn by the header itself so its
+  12px radius shapes the corners (no separate rail element);
 - title marker: 6px widget-colour dot;
 - folder selection: widget-colour border + 12% widget-colour fill;
 - island open tile: 14% widget-colour wash + widget-colour dot;
 - search/todo/note content accents: widget colour (existing).
+
+Configs written before the palette above are migrated on load: the old nine
+Tailwind hues map index-for-index onto `FolderPalette`; custom colours stay.
 
 The body/header never receive a whole-panel wash. Extreme light/dark widget
 colours are darkened/lightened through `WidgetAccent.Readable`.

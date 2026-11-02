@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -100,7 +101,21 @@ namespace Kobold.Controls
         /// </summary>
         private void ShowPathMenu()
         {
-            if (!IsBrowsing) return;
+            var menu = BuildPathMenu();
+            if (menu == null) return;
+
+            menu.IsOpen = true;
+        }
+
+        /// <summary>
+        /// Builds the breadcrumb menu (the production entry point opens it).
+        /// Every row carries an icon because the shared MenuItem template has
+        /// no separate check column: an icon-less row would leave its 26px
+        /// icon slot as an empty gutter before the text.
+        /// </summary>
+        private ContextMenu BuildPathMenu()
+        {
+            if (!IsBrowsing) return null;
 
             var labels = BrowsePath.Ancestry(_data.Name, _browseStack);
             var menu = new ContextMenu();
@@ -113,6 +128,10 @@ namespace Kobold.Controls
                 var item = new MenuItem
                 {
                     Header = BrowsePath.MenuHeader(labels[i]),
+                    // The shared template has one 26px slot shared by the icon
+                    // and the check, so every row needs an icon or the text
+                    // starts after an empty gutter.
+                    Icon = MenuIcons.Create(i == 0 ? IconId.Home : IconId.Folder),
                     IsEnabled = !isCurrent,
                     FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal
                 };
@@ -122,7 +141,7 @@ namespace Kobold.Controls
             }
 
             MenuBuilder.Prepare(menu, _data.Color);
-            menu.IsOpen = true;
+            return menu;
         }
 
         /// <summary>Cuts the browse stack back to the given depth and re-renders.</summary>

@@ -256,6 +256,11 @@ namespace Kobold.Core
                 else if (widget is TodoData todo) RepairTodo(todo);
                 else if (widget is NoteData note) RepairNote(note);
             }
+
+            // Colours written by the pre-Claude-Warm picker keep their old
+            // Tailwind hue; map them onto the current palette while the config
+            // is being repaired (both the main file and a backup load).
+            WidgetColorMigration.Apply(config);
         }
 
         private static void RepairFolder(FolderData folder)

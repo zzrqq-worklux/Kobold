@@ -391,12 +391,25 @@ namespace Kobold.Controls
             foreach (var note in NoteOps.SortForDisplay(_data == null ? null : _data.Notes))
             {
                 if (note == null) continue;
-                bool current = note.Id == _expandedId;
+                string title = NoteOps.TitleOf(note.Text);
                 var item = new MenuItem
                 {
                     Tag = note.Id,
-                    IsChecked = current,
-                    Header = BuildNoteContextMenuHeader(note, current)
+                    // The shared MenuItem template paints IsChecked in its
+                    // 26px icon slot; the header must stay a plain title or
+                    // the current row would show a second check.
+                    IsChecked = note.Id == _expandedId,
+                    Header = new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(title)
+                            ? Localization.Get("UI_NoteUntitled")
+                            : title,
+                        Foreground = ThemeManager.TextBrush,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        MaxWidth = Math.Max(120, Math.Min(MENU_MAX_WIDTH,
+                            ActualWidth > 0 ? ActualWidth - 100 : MENU_MAX_WIDTH))
+                    }
                 };
                 item.Click += (s, e) =>
                 {
@@ -408,39 +421,6 @@ namespace Kobold.Controls
 
             MenuBuilder.Prepare(menu, _data == null ? null : _data.Color);
             return menu;
-        }
-
-        /// <summary>One context-menu note row: check column + trimmed title.</summary>
-        private Grid BuildNoteContextMenuHeader(NoteItem note, bool current)
-        {
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MENU_CHECK_WIDTH) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var check = new IconPresenter
-            {
-                Tag = "NoteMenuCheck",
-                Icon = IconId.Check,
-                Size = 12,
-                Visibility = current ? Visibility.Visible : Visibility.Collapsed,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(check, 0);
-            grid.Children.Add(check);
-
-            string title = NoteOps.TitleOf(note.Text);
-            var label = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(title) ? Localization.Get("UI_NoteUntitled") : title,
-                Foreground = ThemeManager.TextBrush,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
-                MaxWidth = Math.Max(120, Math.Min(MENU_MAX_WIDTH,
-                    ActualWidth > 0 ? ActualWidth - 100 : MENU_MAX_WIDTH))
-            };
-            Grid.SetColumn(label, 1);
-            grid.Children.Add(label);
-            return grid;
         }
 
         /// <summary>One flat action button of the dropdown (new / home).</summary>
@@ -949,7 +929,9 @@ namespace Kobold.Controls
                 Expand(note);
             };
             card.ContextMenu = new MenuBuilder(_data.Color)
-                .AddItem("Menu_DeleteItem", () => InvokeDelete(note))
+                .AddItem("Menu_Open", () => Expand(note), true, IconId.Doc)
+                .AddItem("Menu_DeleteItem", () => InvokeDelete(note), true, IconId.Delete,
+                    ThemeManager.DangerBrush)
                 .Build();
             return card;
         }

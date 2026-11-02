@@ -229,13 +229,16 @@ namespace Kobold.Controls
 
             var accentBrush = WidgetAccent.Frozen(accent);
             Visibility accentVisibility = hasColor ? Visibility.Visible : Visibility.Collapsed;
-            // The rail is a sibling over the shell, so it covers the shell's
-            // 1px top hairline without changing the layout border thickness.
-            if (AccentRail != null)
+
+            // The header owns the accent edge: its own 2px top border follows
+            // the header's 12px corner radius, so no separate 3px sibling can
+            // clip its radius into a hook at the corners.
+            if (Header != null)
             {
-                AccentRail.Background = accentBrush;
-                AccentRail.Visibility = accentVisibility;
+                Header.BorderBrush = hasColor ? accentBrush : null;
+                Header.BorderThickness = hasColor ? new Thickness(0, 2, 0, 0) : new Thickness(0);
             }
+
             if (TitleAccentDot != null)
             {
                 TitleAccentDot.Fill = accentBrush;
