@@ -384,15 +384,53 @@ namespace Kobold.Core.FileSearch
         public SearchQueryResult Search(string text, int limit, CancellationToken token)
         {
             ISearchIndexStore store = _store;
-            if (store == null) return SearchQueryResult.Empty;
+            FileSearchState state;
+            lock (_gate) state = _status.State;
+            if (store == null)
+            {
+                SearchDiagnostics.Write("query term=" + SearchDiagnostics.Quote(text)
+                    + " state=" + state + " no-store");
+                return SearchQueryResult.Empty;
+            }
 
+            var clock = Stopwatch.StartNew();
             try
             {
-                return store.Query(text, limit, token);
+                SearchQueryResult result = store.Query(text, limit, token);
+                clock.Stop();
+                SearchDiagnostics.Write("query term=" + SearchDiagnostics.Quote(text)
+                    + " state=" + state
+                    + " limit=" + limit.ToString(CultureInfo.InvariantCulture)
+                    + " total=" + result.TotalMatches.ToString(CultureInfo.InvariantCulture)
+                    + " returned=" + result.Items.Count.ToString(CultureInfo.InvariantCulture)
+                    + " elapsedMs=" + clock.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
+                return result;
             }
-            catch (ObjectDisposedException)
+            catch (OperationCanceledException)
             {
+                clock.Stop();
+                SearchDiagnostics.Write("query term=" + SearchDiagnostics.Quote(text)
+                    + " state=" + state
+                    + " cancelled elapsedMs=" + clock.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
+                throw;
+            }
+            catch (ObjectDisposedException ex)
+            {
+                clock.Stop();
+                SearchDiagnostics.Write("query term=" + SearchDiagnostics.Quote(text)
+                    + " state=" + state
+                    + " error=" + ex.GetType().Name
+                    + " elapsedMs=" + clock.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
                 return SearchQueryResult.Empty;
+            }
+            catch (Exception ex)
+            {
+                clock.Stop();
+                SearchDiagnostics.Write("query term=" + SearchDiagnostics.Quote(text)
+                    + " state=" + state
+                    + " error=" + ex.GetType().Name + ": " + SearchDiagnostics.Quote(ex.Message)
+                    + " elapsedMs=" + clock.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture));
+                throw;
             }
         }
 
@@ -1438,6 +1476,14 @@ namespace Kobold.Core.FileSearch
                 snapshot = SnapshotLocked();
                 handler = StatusChanged;
             }
+
+            SearchDiagnostics.Write("state=" + state
+                + " message=" + SearchDiagnostics.Quote(message ?? string.Empty)
+                + " files=" + snapshot.FilesIndexed.ToString(CultureInfo.InvariantCulture)
+                + " dirs=" + snapshot.DirectoriesScanned.ToString(CultureInfo.InvariantCulture)
+                + " skipped=" + snapshot.SkippedDirectories.ToString(CultureInfo.InvariantCulture)
+                + " incremental=" + snapshot.IncrementalAvailable
+                + " needsRebuild=" + snapshot.NeedsRebuild);
 
             if (handler != null)
             {

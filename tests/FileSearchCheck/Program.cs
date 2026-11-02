@@ -35,6 +35,9 @@ namespace Kobold.FileSearchCheck
             _root = Path.Combine(FindRepoRoot(), ".superpowers", "sdd", "file-search-check",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_root);
+            // Every check writes its service diagnostics into the scratch tree, never
+            // into the user's %LocalAppData%\Kobold\logs.
+            SearchDiagnostics.LogPath = Path.Combine(_root, "search-diagnostics.log");
 
             // Opt-in throughput probe for the live write path. Behind an env var so the
             // normal suite stays unchanged: two extra databases and 500 writes cost
@@ -280,6 +283,7 @@ namespace Kobold.FileSearchCheck
             ServiceNoRootsCase();
             ServiceCancelCases();
             ServiceShutdownCase();
+            DiagnosticsCases();
         }
 
         private static void TypeFilterCases()
@@ -4043,6 +4047,90 @@ CREATE TABLE meta (Key TEXT PRIMARY KEY, Value TEXT);";
             Check(clock.Elapsed < TimeSpan.FromSeconds(5),
                 "service: shutdown returns within its supplied timeout");
             service.Dispose(); // idempotent after Shutdown
+        }
+
+        /// <summary>
+        /// The diagnostics file is the only evidence a transient state leaves:
+        /// it must append, rotate at its cap and never throw into the search path.
+        /// One service pass proves the state/query hooks are wired.
+        /// </summary>
+        private static void DiagnosticsCases()
+        {
+            string previousPath = SearchDiagnostics.LogPath;
+            long previousMax = SearchDiagnostics.MaxBytes;
+            try
+            {
+                string path = Path.Combine(_root, "diag", "search.log");
+                SearchDiagnostics.LogPath = path;
+                SearchDiagnostics.MaxBytes = 1024 * 1024;
+
+                SearchDiagnostics.Write("diagnostics: hello \"world\"");
+                Check(File.Exists(path), "diagnostics: a write creates the log file");
+                Check(File.ReadAllText(path).Contains("diagnostics: hello \"world\""),
+                    "diagnostics: the line is appended verbatim");
+
+                File.Delete(path);
+                SearchDiagnostics.MaxBytes = 64;
+                string oversized = new string('a', 200);
+                SearchDiagnostics.Write(oversized);
+                SearchDiagnostics.Write("second-line");
+                Check(File.Exists(path + ".1"), "diagnostics: a full log rotates to .1");
+                Check(File.ReadAllText(path).Contains("second-line"),
+                    "diagnostics: the new line starts a fresh log");
+                Check(File.ReadAllText(path + ".1").Contains(oversized),
+                    "diagnostics: the old lines stay in .1");
+
+                bool threw = false;
+                try
+                {
+                    SearchDiagnostics.LogPath = _root; // a directory, not a file
+                    SearchDiagnostics.Write("must not throw");
+                }
+                catch (Exception)
+                {
+                    threw = true;
+                }
+                Check(!threw, "diagnostics: an unwritable path never throws into the caller");
+
+                string serviceLog = Path.Combine(_root, "diag-service", "search.log");
+                SearchDiagnostics.LogPath = serviceLog;
+                SearchDiagnostics.MaxBytes = 1024 * 1024;
+                string db = Path.Combine(_root, "diag-service.db");
+                string tree = Path.Combine(_root, "diag-tree");
+                Directory.CreateDirectory(tree);
+                File.WriteAllText(Path.Combine(tree, "alpha-report.txt"), "x");
+
+                var settings = FileSearchSettings.CreateDefault();
+                settings.Roots = new[] { tree };
+                settings.Configured = true;
+                settings.Enabled = true;
+                settings.ReconcileMinutes = 0;
+
+                using (var service = new FileSearchIndexService(db))
+                {
+                    service.ApplySettings(settings);
+                    service.SyncWithWidgets(new WidgetData[] { new SearchData() });
+                    service.WaitForIdle(TimeSpan.FromSeconds(20));
+                    service.StartFullScan(settings, new[] { tree });
+                    service.WaitForIdle(TimeSpan.FromSeconds(20));
+                    var result = service.Search("alpha", 50, CancellationToken.None);
+                    Check(result.TotalMatches == 1,
+                        "diagnostics: the probed query still returns its row");
+                }
+
+                string log = File.ReadAllText(serviceLog);
+                Check(log.Contains("state=Ready"),
+                    "diagnostics: the service logs its state transitions");
+                Check(log.Contains("query term=\"alpha\" state=Ready"),
+                    "diagnostics: the service logs the query term and its state");
+                Check(log.Contains("total=1"),
+                    "diagnostics: the service logs the query match count");
+            }
+            finally
+            {
+                SearchDiagnostics.LogPath = previousPath;
+                SearchDiagnostics.MaxBytes = previousMax;
+            }
         }
 
         private static void PublishSnapGeneration(SearchIndexStore store, int count)

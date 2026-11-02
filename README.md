@@ -205,6 +205,10 @@ files and folders by name across your fixed NTFS drives.
   `Kobold.exe`; the installer copies all 12 runtime files. Only **metadata** is
   stored — path, name, extension, size, modified time and root. File contents
   are never read or indexed.
+- **Diagnostics** — every service state and query is appended to
+  `%LocalAppData%\Kobold\logs\search.log` (rotates at 1 MB, one `.1` kept). The
+  file records the query text, match count, elapsed time and any error, so a
+  transient "no results" leaves evidence.
 - **Defaults** — folders and extensionless files are included, plus a built-in
   list of common document, image, video, audio, archive and code types.
   **All files** turns the type filter off; the type list and extra excluded
@@ -569,6 +573,9 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   `e_sqlite3.dll` 及其托管依赖与 `Kobold.exe` 平铺在同一目录，安装器会复制全部
   12 个运行时文件。索引只存**元数据**（路径、名称、后缀、大小、修改时间、根目录），
   从不读取或索引文件内容。
+- **诊断日志** — 服务的每次状态切换和查询都会追加到
+  `%LocalAppData%\Kobold\logs\search.log`（超过 1 MB 轮转为 `.1`）。日志记录查询
+  词、匹配数、耗时和异常；偶发“搜不到”时可直接查看。
 - **默认范围** — 默认索引文件夹、无扩展名文件，以及常见的文档 / 图片 / 视频 /
   音频 / 压缩包 / 代码类型；勾选**全部文件**可关闭类型过滤，类型列表与追加排除
   目录可在**设置 → 文件搜索**里修改。
