@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Kobold.Services;
 using Localization = Kobold.Core.Localization;
@@ -237,22 +238,24 @@ namespace Kobold.Controls
 
             _pendingNativeMenu = null;
             var builder = new MenuBuilder(_data.Color)
-                .AddItem("Menu_Open", () => OpenItem(item), single)
-                .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(item.Path, item.IsDirectory), single)
-                .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(item.Path, item.IsDirectory), single)
-                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected))
-                .AddItem("Menu_Copy", () => CopySelection(selected, false), !_data.IsLocked)
-                .AddItem("Menu_Cut", () => CopySelection(selected, true), !_data.IsLocked);
+                .AddItem("Menu_Open", () => OpenItem(item), single, IconId.Folder)
+                .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(item.Path, item.IsDirectory), single, IconId.Terminal)
+                .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(item.Path, item.IsDirectory), single, IconId.Desktop)
+                .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected), true, IconId.Copy)
+                .AddItem("Menu_Copy", () => CopySelection(selected, false), !_data.IsLocked, IconId.Copy)
+                .AddItem("Menu_Cut", () => CopySelection(selected, true), !_data.IsLocked, IconId.Edit);
 
             if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorEntry(item));
 
             return builder
                 .AddSeparator()
-                .AddItem("Menu_RenameItem", () => RenameBrowseItem(item), single)
-                .AddItem("Menu_DeleteItem", () => DeleteToRecycleBin(selected))
+                .AddItem("Menu_RenameItem", () => RenameBrowseItem(item), single, IconId.Edit)
+                .AddItem("Menu_DeleteItem", () => DeleteToRecycleBin(selected), true, IconId.Delete,
+                    ThemeManager.DangerBrush)
                 .AddSeparator()
                 .AddItem("Menu_ShowMoreOptions",
-                    () => { _pendingNativeMenu = () => ShowNativeItemMenu(item, _nativeMenuKeyboardAnchored); }, single)
+                    () => { _pendingNativeMenu = () => ShowNativeItemMenu(item, _nativeMenuKeyboardAnchored); },
+                    single, IconId.More)
                 .Build();
         }
 
@@ -277,20 +280,21 @@ namespace Kobold.Controls
         {
             _pendingNativeMenu = null;
             var builder = new MenuBuilder(_data.Color)
-                .AddItem("Menu_NewFolder", () => CreateBrowseFolder(directory))
-                .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory));
+                .AddItem("Menu_NewFolder", () => CreateBrowseFolder(directory), true, IconId.Folder)
+                .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory), true, IconId.File);
             // Smoke fix B: no files on the clipboard means no Paste entry at
             // all; a locked widget still shows it, greyed out.
-            if (canPaste) builder.AddItem("Menu_Paste", PasteHere, !_data.IsLocked);
+            if (canPaste) builder.AddItem("Menu_Paste", PasteHere, !_data.IsLocked, IconId.Copy);
             return builder
                 .AddSeparator()
-                .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true))
-                .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(directory, true))
-                .AddItem("Menu_CopyPath", () => CopyPathToClipboard(directory))
-                .AddItem("Menu_Refresh", RefreshPanel)
+                .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true), true, IconId.Terminal)
+                .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(directory, true), true, IconId.Desktop)
+                .AddItem("Menu_CopyPath", () => CopyPathToClipboard(directory), true, IconId.Copy)
+                .AddItem("Menu_Refresh", RefreshPanel, true, IconId.Refresh)
                 .AddSeparator()
                 .AddItem("Menu_ShowMoreOptions",
-                    () => { _pendingNativeMenu = () => ShowNativeBackgroundMenu(directory, _nativeMenuKeyboardAnchored); })
+                    () => { _pendingNativeMenu = () => ShowNativeBackgroundMenu(directory, _nativeMenuKeyboardAnchored); },
+                    true, IconId.More)
                 .Build();
         }
 
@@ -298,10 +302,10 @@ namespace Kobold.Controls
         private ContextMenu BuildPanelContextMenu(bool canPaste)
         {
             var builder = new MenuBuilder(_data.Color)
-                .AddItem("Menu_NewFile", CreateNewFile)
-                .AddItem("Menu_NewFolder", CreateNewFolder);
+                .AddItem("Menu_NewFile", CreateNewFile, true, IconId.File)
+                .AddItem("Menu_NewFolder", CreateNewFolder, true, IconId.Folder);
             // Smoke fix B: same paste gate as the browse background menu.
-            if (canPaste) builder.AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked);
+            if (canPaste) builder.AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked, IconId.Copy);
             return builder.Build();
         }
 
@@ -315,15 +319,24 @@ namespace Kobold.Controls
         {
             var menu = new ContextMenu();
 
-            var openItem = new MenuItem { Header = Localization.Get("Menu_Open") };
+            var openItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_Open"),
+                Icon = MenuIcons.Create(IconId.Folder)
+            };
             openItem.Click += (s, a) => OpenWithShell(item.Path);
 
-            var locItem = new MenuItem { Header = Localization.Get("Menu_OpenLocation") };
+            var locItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_OpenLocation"),
+                Icon = MenuIcons.Create(IconId.Desktop)
+            };
             locItem.Click += (s, a) => OpenContainingFolder(item.Path);
 
             var terminalItem = new MenuItem
             {
                 Header = Localization.Get("Menu_OpenTerminal"),
+                Icon = MenuIcons.Create(IconId.Terminal),
                 IsEnabled = item.IsDirectory && !item.IsMissing
             };
             terminalItem.Click += (s, a) => OpenTerminalFor(item.Path, true);
@@ -334,7 +347,11 @@ namespace Kobold.Controls
             var dataItem = _data.Items.FirstOrDefault(i => i.Path == item.Path);
             if (dataItem != null && dataItem.IsReference && !item.IsMissing && !_data.IsLocked)
             {
-                var storeItem = new MenuItem { Header = Localization.Get("Menu_StoreItem") };
+                var storeItem = new MenuItem
+                {
+                    Header = Localization.Get("Menu_StoreItem"),
+                    Icon = MenuIcons.Create(IconId.Archive)
+                };
                 storeItem.Click += (s, a) => StoreItemIntoWidget(dataItem);
                 menu.Items.Add(storeItem);
             }
@@ -342,7 +359,11 @@ namespace Kobold.Controls
             // Stored item: move the file back while keeping the entry in the widget
             if (dataItem != null && !dataItem.IsReference && !_data.IsLocked)
             {
-                var unstoreItem = new MenuItem { Header = Localization.Get("Menu_UnstoreItem") };
+                var unstoreItem = new MenuItem
+                {
+                    Header = Localization.Get("Menu_UnstoreItem"),
+                    Icon = MenuIcons.Create(IconId.Archive)
+                };
                 unstoreItem.Click += (s, a) => UnstoreItem(dataItem);
                 menu.Items.Add(unstoreItem);
             }
@@ -351,6 +372,7 @@ namespace Kobold.Controls
             var remItem = new MenuItem
             {
                 Header = Localization.Get("Menu_RemoveItem"),
+                Icon = MenuIcons.Create(IconId.Close, ThemeManager.DangerBrush),
                 IsEnabled = !_data.IsLocked // locked widgets forbid moving content out
             };
             remItem.Click += (s, a) =>
@@ -365,17 +387,26 @@ namespace Kobold.Controls
                 }
             };
 
-            var copyPathItem = new MenuItem { Header = Localization.Get("Menu_CopyPath") };
+            var copyPathItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_CopyPath"),
+                Icon = MenuIcons.Create(IconId.Copy)
+            };
             copyPathItem.Click += (s, a) => CopyPathToClipboard(item.Path);
 
             var copyItem = new MenuItem
             {
                 Header = Localization.Get("Menu_Copy"),
+                Icon = MenuIcons.Create(IconId.Copy),
                 IsEnabled = !_data.IsLocked // locked widgets refuse every clipboard action
             };
             copyItem.Click += (s, a) => CopySelection(item.IsSelected ? GetSelectedItems() : new List<DisplayItem> { item }, false);
 
-            var renameItem = new MenuItem { Header = Localization.Get("Menu_RenameItem") };
+            var renameItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_RenameItem"),
+                Icon = MenuIcons.Create(IconId.Edit)
+            };
             renameItem.Click += (s, a) => RenameItem(item);
 
             menu.Items.Add(openItem);
@@ -410,27 +441,12 @@ namespace Kobold.Controls
             string resource = FolderColor.GetIconResource(item.Path);
             string current = CurrentFolderColor(resource);
 
-            var header = new StackPanel { Orientation = Orientation.Horizontal };
-            var swatch = new System.Windows.Shapes.Rectangle
+            var entry = new MenuItem
             {
-                Width = 16,
-                Height = 16,
-                RadiusX = 3,
-                RadiusY = 3,
-                VerticalAlignment = VerticalAlignment.Center,
-                Fill = current == null ? Brushes.Transparent : new SolidColorBrush(Utils.HexToColor(current)),
-                Stroke = ThemeManager.BorderBrush,
-                StrokeThickness = current == null ? 1 : 0
+                Header = Localization.Get("Menu_FolderColor") + "…",
+                Icon = MenuIcons.Create(IconId.Palette),
+                Tag = "FolderColorEntry"
             };
-            header.Children.Add(swatch);
-            header.Children.Add(new TextBlock
-            {
-                Text = Localization.Get("Menu_FolderColor") + "…",
-                Margin = new Thickness(10, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center
-            });
-
-            var entry = new MenuItem { Header = header, Tag = "FolderColorEntry" };
             entry.Click += (s, a) =>
                 OpenFolderColorPalette(item, current, FolderColor.HasCustomIcon(resource));
             return entry;

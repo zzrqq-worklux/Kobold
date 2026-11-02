@@ -67,6 +67,13 @@ namespace Kobold.Controls
         /// <summary>Raised when the widget's persisted data changed.</summary>
         public event Action OnDataChanged;
 
+        /// <summary>
+        /// Raised when the expanded panel opens or closes. The island mirrors
+        /// this on the widget's tile; it fires even when the window is shown
+        /// without activation (startup restore / Show All).
+        /// </summary>
+        public event Action<bool> PanelVisibilityChanged;
+
         protected WidgetWindowBase(WidgetData data)
         {
             _data = data;
@@ -179,9 +186,11 @@ namespace Kobold.Controls
             Left = x;
             Top = y;
 
+            bool wasOpen = _isExpanded;
             _isExpanded = true;
             OnPanelShown();
             PersistPanelState(true);
+            if (!wasOpen) PanelVisibilityChanged?.Invoke(true);
             if (!IsVisible)
             {
                 // Opening several panels together ("Show All") must not activate
@@ -207,6 +216,7 @@ namespace Kobold.Controls
             _isExpanded = false;
             OnPanelHidden();
             PersistPanelState(false);
+            PanelVisibilityChanged?.Invoke(false);
             AnimationHelper.PanelClose(Chrome.Shell, () => Hide());
         }
 

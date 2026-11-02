@@ -10,6 +10,7 @@ using System.Windows.Input;
 using Microsoft.Win32;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Core.Icons;
 using Kobold.Controls;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
@@ -157,13 +158,13 @@ namespace Kobold.Windows
         {
             // Window title & header
             Title = Localization.Get("UI_AppName") + " " + Localization.Get("Settings_Title");
-            SettingsHeaderText.Text = "⚙️ " + Localization.Get("Settings_Title");
+            SettingsHeaderText.Text = Localization.Get("Settings_Title");
 
             // Headers
-            LanguageHeader.Text = "🌐 " + Localization.Get("Settings_Language");
-            ThemeHeader.Text = "🎨 " + Localization.Get("Settings_Theme");
-            DefaultsHeader.Text = "📊 " + Localization.Get("Settings_Defaults");
-            StartupHeader.Text = "🚀 " + Localization.Get("Settings_Startup");
+            LanguageHeader.Text = Localization.Get("Settings_Language");
+            ThemeHeader.Text = Localization.Get("Settings_Theme");
+            DefaultsHeader.Text = Localization.Get("Settings_Defaults");
+            StartupHeader.Text = Localization.Get("Settings_Startup");
 
             // Labels
             LanguageLabel.Text = Localization.Get("Settings_InterfaceLanguage");
@@ -176,13 +177,13 @@ namespace Kobold.Windows
             PanelOpacityValue.Text = (int)Math.Round(PanelOpacitySlider.Value) + "%";
 
             // Island
-            IslandHeader.Text = "🏝️ " + Localization.Get("Settings_Island");
+            IslandHeader.Text = Localization.Get("Settings_Island");
             IslandDelayLabel.Text = Localization.Get("Settings_IslandCollapseDelay");
             IslandDelayValue.Text = (IslandDelaySlider.Value / 1000.0).ToString("0.0") + "s";
 
             // Theme options
-            ThemeDark.Content = "🌙 " + Localization.Get("Settings_Dark");
-            ThemeLight.Content = "☀️ " + Localization.Get("Settings_Light");
+            ThemeDark.Content = Localization.Get("Settings_Dark");
+            ThemeLight.Content = Localization.Get("Settings_Light");
 
             // Buttons
             SaveButton.Content = Localization.Get("Dialog_Save");
@@ -190,29 +191,28 @@ namespace Kobold.Windows
             
             // Icon Style
             if (IconStyleHeader != null)
-                IconStyleHeader.Text = "📁 " + Localization.Get("Settings_IconStyle");
+                IconStyleHeader.Text = Localization.Get("Settings_IconStyle");
             if (IconStyleLabel != null)
                 IconStyleLabel.Text = Localization.Get("Settings_WidgetIconStyle");
 
-            // Icon Style options (emoji prefix + localized name per style)
-            string[] styleEmojis = { "📂", "✍️" };
+            // Icon Style options: plain localized names, never emoji/glyph icons.
             string[] styleKeys = { "Settings_Classic", "Settings_HandDrawn" };
             for (int i = 0; i < IconStyleCombo.Items.Count && i < styleKeys.Length; i++)
             {
                 if (IconStyleCombo.Items[i] is ComboBoxItem styleItem)
                 {
-                    styleItem.Content = styleEmojis[i] + " " + Localization.Get(styleKeys[i]);
+                    styleItem.Content = Localization.Get(styleKeys[i]);
                 }
             }
 
             // Kobold Storage
-            StorageHeader.Text = "📦 " + Localization.Get("Settings_StorageHeader");
+            StorageHeader.Text = Localization.Get("Settings_StorageHeader");
             StoragePathText.Text = Utils.GetStoragePath();
             StorageOpenButton.Content = Localization.Get("Settings_StorageOpen");
             UpdateStoragePinButtonText();
 
             // File Search
-            FileSearchHeader.Text = "🔎 " + Localization.Get("Settings_FileSearch");
+            FileSearchHeader.Text = Localization.Get("Settings_FileSearch");
             FileSearchAllFilesCheck.Content = Localization.Get("Search_SettingsAllFiles");
             FileSearchExtensionlessCheck.Content = Localization.Get("Search_SettingsExtensionless");
             FileSearchFoldersCheck.Content = Localization.Get("Search_SettingsFolders");
@@ -233,7 +233,7 @@ namespace Kobold.Windows
             }
 
             // About section
-            AboutHeaderText.Text = "ℹ️ " + Localization.Get("Settings_About");
+            AboutHeaderText.Text = Localization.Get("Settings_About");
             AboutTaglineText.Text = Localization.Get("UI_Tagline");
             VersionText.Text = "Version " + System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
         }
@@ -832,6 +832,7 @@ namespace Kobold.Windows
             if (IconStyleCombo.SelectedItem is ComboBoxItem item)
             {
                 _config.IconStyle = (string)item.Tag;
+                IconStyleManager.Set(_config.IconStyle);
                 // Preview immediately
                 WidgetManager.Instance.RefreshAllWidgets();
                 WidgetManager.Instance.ApplyIconStyle();

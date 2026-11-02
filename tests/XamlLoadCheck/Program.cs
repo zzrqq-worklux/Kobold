@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,6 +20,7 @@ using Kobold.Controls;
 using Kobold.Controls.IconRenderers;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Kobold.Windows;
 using Localization = Kobold.Core.Localization;
@@ -179,8 +181,10 @@ namespace Kobold.XamlLoadCheck
                 // Fix round 1 pins: the shell backdrop follows the widget color
                 // (and returns to the neutral surface), and a resize re-fits the
                 // panel into the work area.
-                failures += TryCheck("chrome: panel color tints the shell backdrop", ChromePanelColorTintsBackdrop);
-                failures += TryCheck("chrome: cleared panel color returns the neutral surface", ChromePanelColorClearedReturnsNeutral);
+                failures += TryCheck("chrome: the panel uses the theme surfaces, never the widget colour",
+                    ChromePanelUsesThemeSurfaces);
+                failures += TryCheck("chrome: extreme widget colours stay readable on the rail",
+                    ChromeAccentHandlesExtremeWidgetColors);
                 failures += TryCheck("resize: fit keeps the panel inside the work area", FitPanelKeepsPanelInWorkArea);
 
                 // Fix round 2 pins: no todo text box may clip its line box -
@@ -328,7 +332,7 @@ namespace Kobold.XamlLoadCheck
                 // drops the disc for the hand-drawn ring + its corner check.
                 failures += TryCheck("todo: selected day uses the hand-drawn circle", TodoSelectedDayUsesTheHandDrawnCircle);
                 failures += TryCheck("todo: today wears the hand-drawn ring and its check", TodoTodayMarkerIsTheHandDrawnRingWithACheck);
-                failures += TryCheck("folder: item selection follows the widget colour", FolderSelectionFollowsTheWidgetColor);
+                failures += TryCheck("folder: item selection uses the widget accent", FolderSelectionUsesWidgetAccent);
                 failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
                 failures += TryCheck("folder: the widget menu offers the item-size submenu", FolderMenuOffersTheItemSizeSubmenu);
@@ -460,11 +464,18 @@ namespace Kobold.XamlLoadCheck
                 // add) carry classic + hand-drawn canvases; the persisted icon
                 // style switches them at startup and on RefreshIconStyle, and
                 // the desktop slash follows the hide state in both styles.
+                failures += TryCheck("icons: chrome/folder/todo/island use IconPresenter",
+                    IconLayerReplacedInlineGlyphs);
                 failures += TryCheck("island: system tiles follow the icon style", IslandSystemTilesFollowTheIconStyle);
                 failures += TryCheck("island: desktop slash follows the hidden state in both styles",
                     IslandDesktopSlashFollowsHiddenState);
                 failures += TryCheck("island: hand-drawn system geometry differs from classic",
                     IslandHandDrawnSystemGeometryDiffers);
+                failures += TryCheck("island: panel visibility follows show/hide",
+                    WidgetPanelVisibilityRaisesEvent);
+                failures += TryCheck("island: open state updates the tile in place",
+                    IslandOpenStateUpdatesInPlace);
+
 
                 // Task 2 pin: the island's + tile opens the launcher card with
                 // its header and the three kind rows.
@@ -550,6 +561,9 @@ namespace Kobold.XamlLoadCheck
                 // section, the onboarding seeds one checkbox per fixed NTFS
                 // root (without starting a scan), and the search widget menu
                 // offers rebuild + pause before the delete separator.
+                failures += TryCheck("icons: search file types and settings use IconPresenter",
+                    SearchAndSettingsIconLayer);
+                failures += TryCheck("icons: no production emoji/text glyph fallbacks", NoInlineGlyphFallbacks);
                 failures += TryCheck("settings: the file search section exists", SettingsFileSearchSectionExists);
                 failures += TryCheck("settings: an untouched file search section stays unconfigured", SettingsFileSearchSaveStaysOptional);
                 failures += TryCheck("search: the onboarding has drive choices and start/later", SearchOnboardingHasActions);
@@ -569,6 +583,8 @@ namespace Kobold.XamlLoadCheck
                     SearchBoxStyleHasNoCustomTemplate);
                 failures += TryCheck("search: the box gives its single line room",
                     SearchBoxLineFits);
+                failures += TryCheck("search: the magnifier sits next to the input",
+                    SearchIconSitsNextToTheInput);
 
                 // Task 3 pins (2026-10-26): the panel's outer ring glows while a
                 // query is in flight (a meteor, not a blur), the view owns that
@@ -841,8 +857,8 @@ namespace Kobold.XamlLoadCheck
                     SurfaceMenuEmptySelectionInsertsThePlaceholder);
                 failures += TryCheck("surface menu: an insert is undoable with the box's own undo",
                     SurfaceMenuInsertIsUndoableWithTheBoxUndo);
-                failures += TryCheck("surface menu: the menu follows the widget colour",
-                    SurfaceMenuFollowsTheWidgetColour);
+                failures += TryCheck("surface menu: the menu stays untinted",
+                    SurfaceMenuStaysUntinted);
 
                 // Task 6 pins: the note's own font step scales the rendered
                 // document and the inline edit box (the heading ladder off the
@@ -1922,9 +1938,9 @@ namespace Kobold.XamlLoadCheck
             if (chevron.Background == null)
                 throw new InvalidOperationException("the chevron hit target has no background (not hit-testable)");
 
-            var glyph = chrome.FindName("TitleChevronGlyph") as TextBlock;
-            if (glyph == null || glyph.Text != "▾")
-                throw new InvalidOperationException("the chevron glyph is missing its down arrow");
+            var glyph = chrome.FindName("TitleChevronIcon") as IconPresenter;
+            if (glyph == null || glyph.Icon != IconId.Chevron || Math.Abs(glyph.Rotation - 90) > 0.01)
+                throw new InvalidOperationException("the title chevron is not a down-facing Chevron IconPresenter");
 
             bool dragStarted = false;
             chrome.HeaderDragStarted += _ => dragStarted = true;
@@ -2013,44 +2029,100 @@ namespace Kobold.XamlLoadCheck
         #endregion
 
         /// <summary>
-        /// The shell backdrop must be tinted from the widget's own colour with
-        /// FolderWidget's panel maths (dark: DarkenColor(base, 0.3) at 210
-        /// alpha for opacity 1), not from the neutral surface.
+        /// Claude Warm panels are not tinted by the widget colour: the shell is
+        /// the theme Background and the header is Surface2. Opacity only scales
+        /// their alpha.
         /// </summary>
-        private static void ChromePanelColorTintsBackdrop()
+        private static void ChromePanelUsesThemeSurfaces()
         {
             ThemeManager.Initialize("dark");
-            var chrome = new WidgetChrome { PanelColor = "#3B82F6" };
+            var chrome = new WidgetChrome();
 
-            Color stop = FirstGradientStop(chrome);
-            Color wanted = Utils.DarkenColor(Utils.HexToColor("#3B82F6"), 0.3);
-            if (stop.R != wanted.R || stop.G != wanted.G || stop.B != wanted.B || stop.A != 210)
+            var shell = chrome.Shell.Background as SolidColorBrush;
+            if (shell == null || shell.Color != ThemeManager.BackgroundBrush.Color)
             {
                 throw new InvalidOperationException(
-                    "panel stop " + Describe(stop) + ", wanted " + Describe(Color.FromArgb(210, wanted.R, wanted.G, wanted.B)));
+                    "the panel shell is " + Describe(shell == null ? Colors.Transparent : shell.Color) +
+                    ", wanted the theme Background " + Describe(ThemeManager.BackgroundBrush.Color));
             }
 
-            Color neutral = Utils.DarkenColor(Utils.HexToColor(UiTokens.Dark.Surface), 0.3);
-            if (stop.R == neutral.R && stop.G == neutral.G && stop.B == neutral.B)
+            var header = chrome.Header.Background as SolidColorBrush;
+            if (header == null || header.Color != ThemeManager.Surface2Brush.Color)
             {
-                throw new InvalidOperationException("panel stop is still the neutral surface colour");
+                throw new InvalidOperationException(
+                    "the header is " + Describe(header == null ? Colors.Transparent : header.Color) +
+                    ", wanted Surface2 " + Describe(ThemeManager.Surface2Brush.Color));
             }
+
+            chrome.ApplyOpacity(0.5);
+            shell = chrome.Shell.Background as SolidColorBrush;
+            if (shell == null || shell.Color.A < 120 || shell.Color.A > 135)
+            {
+                throw new InvalidOperationException(
+                    "50% opacity produced alpha " + (shell == null ? 0 : shell.Color.A) + ", wanted about 127");
+            }
+
+            // The widget colour is allowed on the 1 DIP outer border only.
+            var neutral = chrome.Shell.BorderBrush as SolidColorBrush;
+            if (neutral == null || neutral.Color != ThemeManager.PanelBorderBrush.Color)
+                throw new InvalidOperationException("the uncoloured panel has no neutral hairline border");
+
+            string tintHex = UiTokens.FolderPalette[1];
+            Color tint = Utils.HexToColor(tintHex);
+            chrome.PanelColor = tintHex;
+            var tinted = chrome.Shell.BorderBrush as SolidColorBrush;
+            Color wanted = Utils.MixColor(ThemeManager.PanelBorderBrush.Color, tint, 0.65);
+            if (tinted == null || tinted.Color != wanted)
+            {
+                throw new InvalidOperationException(
+                    "the panel border is " + Describe(tinted == null ? Colors.Transparent : tinted.Color) +
+                    ", wanted the 65% widget-colour hairline " + Describe(wanted));
+            }
+            if (tinted.Color == neutral.Color)
+                throw new InvalidOperationException("the widget colour did not reach the panel border");
+
+            var railBrush = chrome.FindName("AccentRail") is Border rail
+                ? rail.Background as SolidColorBrush
+                : null;
+            if (railBrush == null || railBrush.Color != tint ||
+                ((Border)chrome.FindName("AccentRail")).Visibility != Visibility.Visible)
+            {
+                throw new InvalidOperationException("the 3px top rail is not the widget colour");
+            }
+
+
+            var dot = chrome.FindName("TitleAccentDot") as Ellipse;
+            var dotBrush = dot == null ? null : dot.Fill as SolidColorBrush;
+            if (dotBrush == null || dotBrush.Color != tint || dot.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("the title accent dot is not the widget colour");
+
+            chrome.PanelColor = null;
+            var cleared = chrome.Shell.BorderBrush as SolidColorBrush;
+            if (cleared == null || cleared.Color != ThemeManager.PanelBorderBrush.Color)
+                throw new InvalidOperationException("clearing the widget colour did not restore the neutral border");
+            if (((Border)chrome.FindName("AccentRail")).Visibility != Visibility.Collapsed ||
+                dot.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("the accent/dot stayed visible without a widget colour");
         }
 
-        /// <summary>Clearing the colour returns the backdrop to the neutral surface.</summary>
-        private static void ChromePanelColorClearedReturnsNeutral()
+        /// <summary>
+        /// A near-white colour must darken on light and a near-black colour
+        /// must lighten on dark; the rail and title dot use the readable hue.
+        /// </summary>
+        private static void ChromeAccentHandlesExtremeWidgetColors()
         {
-            ThemeManager.Initialize("dark");
-            var chrome = new WidgetChrome { PanelColor = "#3B82F6" };
-            chrome.PanelColor = null;
+            ThemeManager.Initialize("light");
+            var chrome = new WidgetChrome { PanelColor = "#FFFFFF" };
+            var rail = chrome.FindName("AccentRail") as Border;
+            var lightWanted = Utils.DarkenColor(Utils.HexToColor("#FFFFFF"), 0.6);
+            if (rail == null || !(rail.Background is SolidColorBrush light) || light.Color != lightWanted)
+                throw new InvalidOperationException("the light rail did not darken a near-white widget colour");
 
-            Color stop = FirstGradientStop(chrome);
-            Color neutral = Utils.DarkenColor(Utils.HexToColor(UiTokens.Dark.Surface), 0.3);
-            if (stop.R != neutral.R || stop.G != neutral.G || stop.B != neutral.B)
-            {
-                throw new InvalidOperationException(
-                    "cleared panel stop " + Describe(stop) + " != neutral " + Describe(neutral));
-            }
+            ThemeManager.Initialize("dark");
+            chrome.PanelColor = "#101010";
+            var darkWanted = Utils.LightenColor(Utils.HexToColor("#101010"), 0.5);
+            if (!(rail.Background is SolidColorBrush dark) || dark.Color != darkWanted)
+                throw new InvalidOperationException("the dark rail did not lighten a near-black widget colour");
         }
 
         /// <summary>
@@ -5769,17 +5841,15 @@ namespace Kobold.XamlLoadCheck
 
         private static Color AddPillGlyphColor(TodoCalendarView view)
         {
-            var glyph = view.FindName("AddPillGlyph") as TextBlock;
-            if (glyph == null) // pre-fix: the pill's TextBlock still carries the brand accent
-                glyph = FirstDescendant<TextBlock>(view.FindName("AddPill") as DependencyObject);
-            if (glyph == null) throw new InvalidOperationException("the add pill's ＋ glyph was not found");
+            var glyph = view.FindName("AddPillIcon") as IconPresenter;
+            if (glyph == null) throw new InvalidOperationException("the add pill's Plus IconPresenter was not found");
 
-            var brush = glyph.Foreground as SolidColorBrush;
+            var brush = glyph.Brush as SolidColorBrush;
             if (brush == null)
             {
                 throw new InvalidOperationException(
-                    "the ＋ glyph has no solid foreground: " +
-                    (glyph.Foreground == null ? "null" : glyph.Foreground.ToString()));
+                    "the add pill icon has no solid brush: " +
+                    (glyph.Brush == null ? "null" : glyph.Brush.ToString()));
             }
             return brush.Color;
         }
@@ -6251,29 +6321,40 @@ namespace Kobold.XamlLoadCheck
         /// a live colour change + RefreshTheme updates both; the app-level
         /// default fill stays the shared blue gradient fallback.
         /// </summary>
-        private static void FolderSelectionFollowsTheWidgetColor()
+        private static void FolderSelectionUsesWidgetAccent()
         {
             ThemeManager.Initialize("dark");
-            var data = new FolderData { Color = "#E8A33D" };
+            var data = new FolderData { Color = "#B5654A" };
             var widget = new FolderWidget(data);
-            // The constructor subscribes the Loaded handler but never runs the
-            // colour path offscreen; the app reaches it through Loaded ->
-            // RefreshTheme (the pin runs the same method explicitly).
             widget.RefreshTheme();
 
             var panel = widget.PanelShell;
             if (panel == null) throw new InvalidOperationException("panel shell not found");
-            AssertSelectionResources("initial", panel, "#E8A33D");
+            AssertWidgetSelection(panel, "#B5654A");
 
-            data.Color = "#3B82F6";
+            data.Color = "#788C5D";
             widget.RefreshTheme();
-            AssertSelectionResources("after the colour change", panel, "#3B82F6");
+            AssertWidgetSelection(panel, "#788C5D");
+        }
 
-            var appDefault = Application.Current.Resources["Kobold.Brush.SelectionFill"] as LinearGradientBrush;
-            if (appDefault == null)
+        private static void AssertWidgetSelection(FrameworkElement panel, string hex)
+        {
+            Color accent = Utils.HexToColor(hex);
+            var border = panel.Resources["Kobold.Brush.SelectionBorder"] as SolidColorBrush;
+            if (border == null || border.Color != accent)
             {
                 throw new InvalidOperationException(
-                    "the app-level Kobold.Brush.SelectionFill default is not a LinearGradientBrush");
+                    "the folder selection border is " +
+                    Describe(border == null ? Colors.Transparent : border.Color) +
+                    ", wanted the widget accent " + Describe(accent));
+            }
+
+            var fill = panel.Resources["Kobold.Brush.SelectionFill"] as SolidColorBrush;
+            if (fill == null || fill.Color.A < 0x1D || fill.Color.A > 0x21 ||
+                fill.Color.R != accent.R || fill.Color.G != accent.G || fill.Color.B != accent.B)
+            {
+                throw new InvalidOperationException(
+                    "the folder selection fill is not the 12% widget wash");
             }
         }
 
@@ -7173,6 +7254,17 @@ namespace Kobold.XamlLoadCheck
             return item == null ? null : item.Header as string;
         }
 
+        private static void AssertMenuIcon(object menuEntry, IconId id)
+        {
+            var item = menuEntry as MenuItem;
+            var icon = item == null ? null : item.Icon as IconPresenter;
+            if (icon == null || icon.Icon != id)
+            {
+                throw new InvalidOperationException(
+                    "the menu entry '" + HeaderOf(menuEntry) + "' has no " + id + " IconPresenter");
+            }
+        }
+
         private static void ClickMenuItem(FrameworkElement row, int index)
         {
             if (row.ContextMenu == null)
@@ -7856,6 +7948,329 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("both note styles draw the same number of child elements");
         }
 
+        /// <summary>
+        /// The 24px UI layer replaced every inline chrome/folder/todo/island
+        /// glyph. Each named element must be an IconPresenter with the right id;
+        /// the old classic/hand-drawn canvas pairs must be gone.
+        /// </summary>
+        private static void IconLayerReplacedInlineGlyphs()
+        {
+            ThemeManager.Initialize("light");
+            IconStyleManager.Set(IconStyleIds.Classic);
+
+            var chrome = new WidgetChrome();
+            RequireIcon(chrome, "TitleChevronIcon", IconId.Chevron);
+            RequireIcon(chrome, "LockIconPresenter", IconId.Lock);
+            RequireIcon(chrome, "PinIconPresenter", IconId.Pin);
+
+            var island = new IslandWindow();
+            try
+            {
+                RequireIcon(island, "DesktopTileIcon", IconId.Desktop);
+                RequireIcon(island, "AddTileIcon", IconId.Plus);
+                RequireIcon(island, "SettingsTileIcon", IconId.Settings);
+                if (island.FindName("DesktopTileClassic") != null ||
+                    island.FindName("DesktopTileHandDrawn") != null)
+                {
+                    throw new InvalidOperationException("the island still carries classic/handdrawn canvas pairs");
+                }
+            }
+            finally
+            {
+                island.Close();
+            }
+
+            var folder = new FolderWidget(new FolderData());
+            try
+            {
+                RequireIcon(folder, "BackIcon", IconId.Chevron);
+                RequireIcon(folder, "PathIcon", IconId.Chevron);
+                RequireIcon(folder, "HelpIcon", IconId.Help);
+                RequireIcon(folder, "EmptyFolderIcon", IconId.Folder);
+            }
+            finally
+            {
+                folder.Close();
+            }
+
+            var todo = new TodoCalendarView();
+            RequireIcon(todo, "PrevMonthIcon", IconId.Chevron);
+            RequireIcon(todo, "NextMonthIcon", IconId.Chevron);
+            RequireIcon(todo, "AddPillIcon", IconId.Plus);
+        }
+
+        private static void RequireIcon(FrameworkElement root, string name, IconId id)
+        {
+            var presenter = root.FindName(name) as IconPresenter;
+            if (presenter == null)
+                throw new InvalidOperationException(name + " is not an IconPresenter");
+            if (presenter.Icon != id)
+                throw new InvalidOperationException(name + " is " + presenter.Icon + " (expected " + id + ")");
+        }
+
+        /// <summary>
+        /// Search rows carry a typed file icon and the settings section headers
+        /// carry a presenter instead of emoji; the search box has its own
+        /// magnifier inside the native TextBox.
+        /// </summary>
+        private static void SearchAndSettingsIconLayer()
+        {
+            ThemeManager.Initialize("light");
+
+            var settings = new SettingsWindow();
+            try
+            {
+                RequireIcon(settings, "SettingsHeaderIcon", IconId.Settings);
+                RequireIcon(settings, "LanguageHeaderIcon", IconId.Globe);
+                RequireIcon(settings, "ThemeHeaderIcon", IconId.Palette);
+                RequireIcon(settings, "DefaultsHeaderIcon", IconId.Grid);
+                RequireIcon(settings, "StartupHeaderIcon", IconId.Desktop);
+                RequireIcon(settings, "IconStyleHeaderIcon", IconId.Folder);
+                RequireIcon(settings, "StorageHeaderIcon", IconId.Archive);
+                RequireIcon(settings, "FileSearchHeaderIcon", IconId.Search);
+                RequireIcon(settings, "IslandHeaderIcon", IconId.Desktop);
+                RequireIcon(settings, "AboutHeaderIcon", IconId.Info);
+                RequireIcon(settings, "CloseIcon", IconId.Close);
+            }
+            finally
+            {
+                settings.Close();
+            }
+
+            var view = new SearchPanelView();
+            RequireIcon(view, "SearchBoxIcon", IconId.Search);
+            var results = view.FindName("ResultsList") as ListBox;
+            if (results == null) throw new InvalidOperationException("the search result list was not found");
+            var template = results.ItemTemplate;
+            var content = template.LoadContent() as FrameworkElement;
+            if (content == null || FindVisual<IconPresenter>(content) == null)
+                throw new InvalidOperationException("the search row template has no IconPresenter");
+
+            AssertSearchRowIcon(true, null, IconId.Folder);
+            AssertSearchRowIcon(false, "xlsx", IconId.Sheet);
+            AssertSearchRowIcon(false, "docx", IconId.Doc);
+            AssertSearchRowIcon(false, "png", IconId.Image);
+            AssertSearchRowIcon(false, "txt", IconId.File);
+            AssertSearchRowIcon(false, "zip", IconId.Archive);
+
+            // Older index rows can have an empty Extension column; the name
+            // fallback keeps the typed icon.
+            var named = new SearchEntry
+            {
+                Path = "C:\\probe\\quarterly.xlsx",
+                Name = "quarterly.xlsx",
+                IsDirectory = false,
+                Extension = string.Empty
+            };
+            var build = typeof(SearchPanelView).GetMethod("BuildRow",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var namedRow = (SearchResultRow)build.Invoke(null, new object[] { named });
+            if (namedRow.IconId != IconId.Sheet)
+                throw new InvalidOperationException("a name-only xlsx row did not resolve to Sheet");
+        }
+
+        private static void AssertSearchRowIcon(bool isDirectory, string extension, IconId expected)
+        {
+            var entry = new SearchEntry
+            {
+                Path = "C:\\probe\\sample",
+                Name = "sample",
+                IsDirectory = isDirectory,
+                Extension = extension ?? string.Empty
+            };
+            var method = typeof(SearchPanelView).GetMethod("BuildRow",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            if (method == null) throw new InvalidOperationException("SearchPanelView.BuildRow was not found");
+            var row = (SearchResultRow)method.Invoke(null, new object[] { entry });
+            if (row == null || row.IconId != expected)
+            {
+                throw new InvalidOperationException(
+                    "search row " + (extension ?? "folder") + " is " + (row == null ? "null" : row.IconId.ToString()) +
+                    " (expected " + expected + ")");
+            }
+            if (row.IconBrush == null)
+                throw new InvalidOperationException("search row " + extension + " has no icon brush");
+        }
+
+        private static T FindVisual<T>(DependencyObject root) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                var match = child as T;
+                if (match != null) return match;
+                var nested = FindVisual<T>(child);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Production XAML/C# may not fall back to emoji or text glyphs for a
+        /// 24px UI icon. Comments and docs/tests are excluded; the scan strips
+        /// comments so design notes can still name the old glyphs.
+        /// </summary>
+        private static void NoInlineGlyphFallbacks()
+        {
+            string root = FindRepoRoot();
+            if (root == null) throw new InvalidOperationException("the repository root was not found");
+
+            const string glyphs = "＋▾‹›✓✔✕✖📂📁📄📋✂▣⚙🎨📊🚀📦🏝ℹ🔎🌙☀✍🔓👁🚪📐💻🔄✏❌↩➕🧹";
+            var offenders = new List<string>();
+            foreach (var file in IO.Directory.EnumerateFiles(root, "*.*", IO.SearchOption.AllDirectories))
+            {
+                string ext = IO.Path.GetExtension(file).ToLowerInvariant();
+                if (ext != ".cs" && ext != ".xaml") continue;
+                string relative = file.Substring(root.Length).TrimStart('\\');
+                if (relative.StartsWith("tests\\", StringComparison.OrdinalIgnoreCase) ||
+                    relative.StartsWith("docs\\", StringComparison.OrdinalIgnoreCase) ||
+                    relative.StartsWith("assets\\", StringComparison.OrdinalIgnoreCase) ||
+                    relative.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    relative.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                string text = StripComments(IO.File.ReadAllText(file));
+                foreach (char glyph in glyphs)
+                {
+                    int index = text.IndexOf(glyph);
+                    if (index >= 0)
+                    {
+                        offenders.Add(relative + " contains '" + glyph + "'");
+                        break;
+                    }
+                }
+            }
+
+            if (offenders.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "inline UI glyphs remain: " + string.Join(" | ", offenders.Take(10)));
+            }
+            Console.WriteLine("PASS icons: no inline emoji/text glyph fallbacks in production");
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = new IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (IO.File.Exists(IO.Path.Combine(dir.FullName, "Kobold.csproj"))) return dir.FullName;
+                dir = dir.Parent;
+            }
+            return null;
+        }
+
+        private static string StripComments(string text)
+        {
+            text = System.Text.RegularExpressions.Regex.Replace(text, "<!--.*?-->",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"/\*.*?\*/",
+                string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"//[^\r\n]*", string.Empty);
+            return text;
+        }
+
+        private static void WidgetPanelVisibilityRaisesEvent()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new FolderWidget(new FolderData { Name = "visibility-probe" });
+            var events = new List<bool>();
+            widget.PanelVisibilityChanged += open => events.Add(open);
+            try
+            {
+                widget.ShowPanel(0, 0, activate: false);
+                widget.HidePanel();
+
+                if (events.Count != 2 || !events[0] || events[1])
+                {
+                    throw new InvalidOperationException(
+                        "PanelVisibilityChanged = [" + string.Join(",", events) + "], wanted [True,False]");
+                }
+            }
+            finally
+            {
+                widget.Close();
+            }
+        }
+
+        private static void IslandOpenStateUpdatesInPlace()
+        {
+            ThemeManager.Initialize("dark");
+            var first = new FolderData { Name = "open-probe", Color = "#B5654A" };
+            var second = new FolderData { Name = "closed-probe" };
+            var island = new IslandWindow();
+            try
+            {
+                island.SetWidgets(new WidgetData[] { first, second });
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var before = FindIslandTile(island, first.Id);
+                if (before == null) throw new InvalidOperationException("the first tile was not built");
+                int count = TilePanelOf(island).Children.Count;
+
+                island.SetOpenState(first.Id, true);
+                var after = FindIslandTile(island, first.Id);
+                if (!ReferenceEquals(before, after))
+                    throw new InvalidOperationException("SetOpenState rebuilt the tile");
+                if (TilePanelOf(island).Children.Count != count)
+                    throw new InvalidOperationException("SetOpenState changed the tile count");
+                Color accent = Utils.HexToColor("#B5654A");
+                Color wanted = Utils.MixColor(ThemeManager.IslandBackgroundBrush.Color, accent, 0.14);
+                var bg = after.Background as SolidColorBrush;
+                if (bg == null || bg.Color != wanted)
+                    throw new InvalidOperationException(
+                        "the open tile background is not the 14% widget wash (wanted " + Describe(wanted) + ")");
+                var dot = TileDotOf(after);
+                if (dot.Visibility != Visibility.Visible ||
+                    !(dot.Fill is SolidColorBrush dotBrush) || dotBrush.Color != accent)
+                    throw new InvalidOperationException("the open tile dot is not the widget accent");
+
+                island.SetOpenState(first.Id, false);
+                if (after.Background != Brushes.Transparent)
+                    throw new InvalidOperationException("the closed tile is not transparent");
+                if (TileDotOf(after).Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the closed tile still shows its dot");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        private static StackPanel TilePanelOf(IslandWindow island)
+        {
+            var panel = typeof(IslandWindow).GetField("TilePanel",
+                BindingFlags.Instance | BindingFlags.NonPublic).GetValue(island) as StackPanel;
+            if (panel == null) throw new InvalidOperationException("TilePanel was not found");
+            return panel;
+        }
+
+        private static Border FindIslandTile(IslandWindow island, string id)
+        {
+            foreach (var child in TilePanelOf(island).Children)
+            {
+                var tile = child as Border;
+                if (tile != null && string.Equals(tile.Tag as string, id, StringComparison.Ordinal)) return tile;
+            }
+            return null;
+        }
+
+        private static Ellipse TileDotOf(Border tile)
+        {
+            var grid = tile.Child as Grid;
+            if (grid == null) throw new InvalidOperationException("the tile has no content grid");
+            foreach (var child in grid.Children)
+            {
+                var dot = child as Ellipse;
+                if (dot != null && "TileDot".Equals(dot.Tag as string)) return dot;
+            }
+            throw new InvalidOperationException("the tile has no TileDot");
+        }
+
         private static void IslandFolderTileRefreshesWithStyle()
         {
             ThemeManager.Initialize("dark");
@@ -7915,19 +8330,25 @@ namespace Kobold.XamlLoadCheck
             ThemeManager.Initialize("dark");
             string original = WidgetManager.Instance.Config.IconStyle;
             // Startup path: the constructor itself applies the persisted style.
-            WidgetManager.Instance.Config.IconStyle = "classic";
+            WidgetManager.Instance.Config.IconStyle = IconStyleIds.Classic;
             var island = new IslandWindow();
             try
             {
-                AssertSystemTileStyle(island, classic: true);
+                AssertSystemTilesUsePresenters(island);
+                string classic = SystemTileFingerprint(island);
 
-                WidgetManager.Instance.Config.IconStyle = "handdrawn";
+                WidgetManager.Instance.Config.IconStyle = IconStyleIds.HandDrawn;
                 island.RefreshIconStyle();
-                AssertSystemTileStyle(island, classic: false);
+                if (IconStyleManager.Current != IconStyleIds.HandDrawn)
+                    throw new InvalidOperationException("the hand-drawn style did not reach IconStyleManager");
+                string drawn = SystemTileFingerprint(island);
+                if (classic == drawn)
+                    throw new InvalidOperationException("the system tiles did not repaint for the hand-drawn style");
 
-                WidgetManager.Instance.Config.IconStyle = "classic";
+                WidgetManager.Instance.Config.IconStyle = IconStyleIds.Classic;
                 island.RefreshIconStyle();
-                AssertSystemTileStyle(island, classic: true);
+                if (IconStyleManager.Current != IconStyleIds.Classic)
+                    throw new InvalidOperationException("the classic style did not reach IconStyleManager");
             }
             finally
             {
@@ -7937,38 +8358,50 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        private static void AssertSystemTileStyle(IslandWindow island, bool classic)
+        private static void AssertSystemTilesUsePresenters(IslandWindow island)
         {
-            foreach (string tile in new[] { "DesktopTile", "SettingsTile", "AddTile" })
-            {
-                AssertTileCanvasPair(island, tile, classic);
-            }
+            RequireIcon(island, "DesktopTileIcon", IconId.Desktop);
+            RequireIcon(island, "SettingsTileIcon", IconId.Settings);
+            RequireIcon(island, "AddTileIcon", IconId.Plus);
         }
 
-        private static void AssertTileCanvasPair(IslandWindow island, string tileName, bool classic)
+        private static string SystemTileFingerprint(IslandWindow island)
         {
-            Visibility classicWanted = classic ? Visibility.Visible : Visibility.Collapsed;
-            Visibility handDrawnWanted = classic ? Visibility.Collapsed : Visibility.Visible;
+            var parts = new List<string>();
+            foreach (string name in new[] { "DesktopTileIcon", "SettingsTileIcon", "AddTileIcon" })
+            {
+                var icon = island.FindName(name) as IconPresenter;
+                if (icon == null) throw new InvalidOperationException(name + " was not found");
+                parts.Add(name + ":" + RenderPresenterFingerprint(icon));
+            }
+            return string.Join("|", parts);
+        }
 
-            var classicCanvas = island.FindName(tileName + "Classic") as Canvas;
-            if (classicCanvas == null)
-                throw new InvalidOperationException(tileName + "Classic was not found");
-            if (classicCanvas.Visibility != classicWanted)
-                throw new InvalidOperationException(tileName + "Classic is " + classicCanvas.Visibility +
-                    ", wanted " + classicWanted);
+        private static string RenderPresenterFingerprint(IconPresenter icon)
+        {
+            const int size = 24;
+            icon.Measure(new Size(size, size));
+            icon.Arrange(new Rect(0, 0, size, size));
+            icon.InvalidateVisual(); // the offscreen presenter has no Loaded subscription
+            icon.UpdateLayout();
 
-            var handDrawnCanvas = island.FindName(tileName + "HandDrawn") as Canvas;
-            if (handDrawnCanvas == null)
-                throw new InvalidOperationException(tileName + "HandDrawn was not found");
-            if (handDrawnCanvas.Visibility != handDrawnWanted)
-                throw new InvalidOperationException(tileName + "HandDrawn is " + handDrawnCanvas.Visibility +
-                    ", wanted " + handDrawnWanted);
+            var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(icon);
+            var pixels = new byte[size * size * 4];
+            bitmap.CopyPixels(pixels, size * 4, 0);
+
+            ulong hash = 1469598103934665603UL;
+            foreach (byte value in pixels)
+            {
+                hash ^= value;
+                hash *= 1099511628211UL;
+            }
+            return hash.ToString("x16");
         }
 
         private static void IslandDesktopSlashFollowsHiddenState()
         {
             ThemeManager.Initialize("dark");
-            string originalStyle = WidgetManager.Instance.Config.IconStyle;
             bool originalHidden = WidgetManager.Instance.Config.HideDesktopIcons;
             var island = new IslandWindow();
             try
@@ -7978,29 +8411,17 @@ namespace Kobold.XamlLoadCheck
                 if (update == null)
                     throw new InvalidOperationException("UpdateDesktopTile was not found");
 
-                // Each style carries its own slash; both follow the hide state
-                // while the style switch only moves whole canvases.
-                foreach (string style in new[] { "classic", "handdrawn" })
-                {
-                    WidgetManager.Instance.Config.IconStyle = style;
-                    island.RefreshIconStyle();
+                WidgetManager.Instance.Config.HideDesktopIcons = true;
+                update.Invoke(island, null);
+                AssertSlashVisibility(island, "DesktopSlash", true, "state");
 
-                    WidgetManager.Instance.Config.HideDesktopIcons = true;
-                    update.Invoke(island, null);
-                    AssertSlashVisibility(island, "DesktopSlash", true, style);
-                    AssertSlashVisibility(island, "DesktopSlashHandDrawn", true, style);
-
-                    WidgetManager.Instance.Config.HideDesktopIcons = false;
-                    update.Invoke(island, null);
-                    AssertSlashVisibility(island, "DesktopSlash", false, style);
-                    AssertSlashVisibility(island, "DesktopSlashHandDrawn", false, style);
-                }
+                WidgetManager.Instance.Config.HideDesktopIcons = false;
+                update.Invoke(island, null);
+                AssertSlashVisibility(island, "DesktopSlash", false, "state");
             }
             finally
             {
                 WidgetManager.Instance.Config.HideDesktopIcons = originalHidden;
-                WidgetManager.Instance.Config.IconStyle = originalStyle;
-                island.RefreshIconStyle();
                 island.Close();
             }
         }
@@ -8018,30 +8439,14 @@ namespace Kobold.XamlLoadCheck
 
         private static void IslandHandDrawnSystemGeometryDiffers()
         {
-            ThemeManager.Initialize("dark");
-            var island = new IslandWindow();
-            try
+            foreach (var id in new[] { IconId.Desktop, IconId.Settings, IconId.Plus })
             {
-                foreach (string tile in new[] { "DesktopTile", "SettingsTile", "AddTile" })
-                {
-                    var classicCanvas = island.FindName(tile + "Classic") as Canvas;
-                    var handDrawnCanvas = island.FindName(tile + "HandDrawn") as Canvas;
-                    if (classicCanvas == null || handDrawnCanvas == null)
-                        throw new InvalidOperationException(tile + " is missing a style canvas");
-                    if (handDrawnCanvas.Children.Count == 0)
-                        throw new InvalidOperationException(tile + "HandDrawn draws nothing");
-
-                    string handFingerprint = IconFingerprint(handDrawnCanvas);
-                    if (handFingerprint.IndexOf("|d=", StringComparison.Ordinal) < 0)
-                        throw new InvalidOperationException(tile + "HandDrawn has no baked path geometry");
-                    if (IconFingerprint(classicCanvas) == handFingerprint)
-                        throw new InvalidOperationException(tile + "HandDrawn matches classic");
-                }
+                string classic = IconCatalog.GetPathData(id, false);
+                string handDrawn = IconCatalog.GetPathData(id, true);
+                if (string.Equals(classic, handDrawn, StringComparison.Ordinal))
+                    throw new InvalidOperationException(id + " has no distinct hand-drawn geometry");
             }
-            finally
-            {
-                island.Close();
-            }
+            Console.WriteLine("PASS island: hand-drawn system geometry differs from classic");
         }
 
         private static void IslandAddMenuOpensOnMouseUp()
@@ -8157,8 +8562,15 @@ namespace Kobold.XamlLoadCheck
                 !ReferenceEquals(current.BorderBrush, ThemeManager.TextBrush))
                 throw new InvalidOperationException("the current swatch has no ring");
 
+            var currentCheck = current.Child as IconPresenter;
+            if (currentCheck == null || currentCheck.Icon != IconId.Check ||
+                !"PaletteCheck".Equals(currentCheck.Tag as string))
+            {
+                throw new InvalidOperationException("the current swatch has no Check IconPresenter");
+            }
+
             var caption = FindByTag(root, "PaletteCaption") as TextBlock;
-            if (caption == null || caption.Text != Localization.Get("Color_Blue"))
+            if (caption == null || caption.Text != Localization.Get("Color_Clay"))
                 throw new InvalidOperationException("the caption does not name the current color");
 
             if (FindByTag(root, "PaletteDefault") != null)
@@ -8238,7 +8650,10 @@ namespace Kobold.XamlLoadCheck
             if (panel == null || panel.Children.Count == 0)
                 throw new InvalidOperationException("the island has no tiles");
             var tile = panel.Children[0] as Border;
-            var viewbox = tile == null ? null : tile.Child as Viewbox;
+            var content = tile == null ? null : tile.Child as Grid;
+            var viewbox = content == null
+                ? null
+                : content.Children.OfType<Viewbox>().FirstOrDefault();
             var icon = viewbox == null ? null : viewbox.Child as Canvas;
             if (icon == null) throw new InvalidOperationException("the tile icon canvas was not found");
             return icon;
@@ -8380,7 +8795,7 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the storage row shows '" + pathText.Text + "', wanted '" + storage + "'");
             }
-            if (header.Text != "📦 " + Localization.Get("Settings_StorageHeader"))
+            if (header.Text != Localization.Get("Settings_StorageHeader"))
             {
                 throw new InvalidOperationException(
                     "the storage header shows '" + header.Text + "'");
@@ -8824,15 +9239,15 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException("the menu template has no Surface border");
             }
-            if (surface.CornerRadius.TopLeft != 12)
+            if (surface.CornerRadius.TopLeft != 10)
             {
                 throw new InvalidOperationException(
-                    "the surface corner radius is " + surface.CornerRadius.TopLeft + ", wanted 12");
+                    "the surface corner radius is " + surface.CornerRadius.TopLeft + ", wanted 10");
             }
-            if (surface.Padding != new Thickness(8))
+            if (surface.Padding != new Thickness(6))
             {
                 throw new InvalidOperationException(
-                    "the surface padding is '" + surface.Padding + "', wanted 8 on every side");
+                    "the surface padding is '" + surface.Padding + "', wanted 6 on every side");
             }
         }
 
@@ -8847,10 +9262,10 @@ namespace Kobold.XamlLoadCheck
             item.ApplyTemplate();
 
             var pill = PillOf(item);
-            if (pill.Margin != new Thickness(4, 1, 4, 1))
+            if (pill.Margin != new Thickness(0, 1, 0, 1))
             {
                 throw new InvalidOperationException(
-                    "the item pill margin is '" + pill.Margin + "', wanted 4,1,4,1");
+                    "the item pill margin is '" + pill.Margin + "', wanted 0,1,0,1");
             }
             if (pill.CornerRadius.TopLeft != 8)
             {
@@ -9144,7 +9559,7 @@ namespace Kobold.XamlLoadCheck
             }
 
             var header = window.FindName("FileSearchHeader") as TextBlock;
-            if (header == null || header.Text != "🔎 " + Localization.Get("Settings_FileSearch"))
+            if (header == null || header.Text != Localization.Get("Settings_FileSearch"))
             {
                 throw new InvalidOperationException(
                     "the file-search header shows '" + (header == null ? "null" : header.Text) + "'");
@@ -9615,11 +10030,8 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Task 6: the user wants the box to span the whole search row, so the
-        /// clear button and its <c>Auto</c> column are gone. The pin lays the
-        /// view out offscreen at the 422-DIP design width and measures: the box
-        /// is the row grid's only child and its width is the row width - the
-        /// row's own 12+12 DIP inset.
+        /// The search shell fills the row; the icon and the borderless input
+        /// sit inside it, so the text can never drift away from the magnifier.
         /// </summary>
         private static void SearchBoxFillsTheRow()
         {
@@ -9632,40 +10044,64 @@ namespace Kobold.XamlLoadCheck
             }
 
             var box = view.FindName("SearchBox") as TextBox;
-            if (box == null) throw new InvalidOperationException("the search panel has no SearchBox");
+            var shell = view.FindName("SearchBoxShell") as Border;
+            if (box == null || shell == null)
+                throw new InvalidOperationException("the search panel has no SearchBox shell/box");
 
-            // Layout offscreen at the design width: the row's own width is what
-            // the box has to fill.
             view.Measure(new Size(422, 562));
             view.Arrange(new Rect(0, 0, 422, 562));
             view.UpdateLayout();
 
-            var row = box.Parent as Grid;
+            var row = shell.Parent as Grid;
             if (row == null)
-            {
-                throw new InvalidOperationException("the search box's row grid was not found");
-            }
-            if (row.Children.Count != 1 || !ReferenceEquals(row.Children[0], box))
+                throw new InvalidOperationException("the search shell's row grid was not found");
+            if (row.Children.Count != 2 || !ReferenceEquals(row.Children[1], shell))
             {
                 throw new InvalidOperationException(
-                    "the search box is not the only child of its row (" + row.Children.Count
-                    + " children)");
+                    "the search row is not the focus ring + shell (" + row.Children.Count + " children)");
             }
 
             double wanted = view.ActualWidth - row.Margin.Left - row.Margin.Right;
-            if (Math.Abs(row.ActualWidth - wanted) > 0.5)
+            if (Math.Abs(row.ActualWidth - wanted) > 0.5 || Math.Abs(shell.ActualWidth - wanted) > 0.5)
             {
                 throw new InvalidOperationException(
-                    "the search row is " + row.ActualWidth.ToString("0.##")
-                    + " DIP wide in a " + view.ActualWidth.ToString("0.##")
-                    + " DIP view, wanted " + wanted.ToString("0.##"));
+                    "the search shell is " + shell.ActualWidth.ToString("0.##") + " DIP wide in a "
+                    + row.ActualWidth.ToString("0.##") + " DIP row, wanted " + wanted.ToString("0.##"));
             }
-            if (Math.Abs(box.ActualWidth - wanted) > 0.5)
+            if (box.Padding.Left != 0 || box.BorderThickness.Left != 0)
             {
                 throw new InvalidOperationException(
-                    "the search box is " + box.ActualWidth.ToString("0.##") + " DIP wide in a "
-                    + row.ActualWidth.ToString("0.##") + " DIP row, wanted "
-                    + wanted.ToString("0.##"));
+                    "the inner search box still owns padding/border (padding " + box.Padding
+                    + ", border " + box.BorderThickness + ")");
+            }
+        }
+
+        /// <summary>
+        /// The user's screenshot: a magnifier far left and the text far right.
+        /// The icon and the input must be laid out as neighbours (<= 8 DIP gap).
+        /// </summary>
+        private static void SearchIconSitsNextToTheInput()
+        {
+            ThemeManager.Initialize("dark");
+            var view = new SearchWidget(new SearchData()).PanelView;
+            var shell = view.FindName("SearchBoxShell") as Border;
+            var icon = view.FindName("SearchBoxIcon") as IconPresenter;
+            var box = view.FindName("SearchBox") as TextBox;
+            if (shell == null || icon == null || box == null)
+                throw new InvalidOperationException("the search shell/icon/box was not found");
+
+            view.Measure(new Size(422, 562));
+            view.Arrange(new Rect(0, 0, 422, 562));
+            view.UpdateLayout();
+
+            double iconRight = icon.TranslatePoint(new Point(icon.ActualWidth, 0), shell).X;
+            double boxLeft = box.TranslatePoint(new Point(0, 0), shell).X;
+            if (boxLeft < iconRight || boxLeft - iconRight > 8)
+            {
+                throw new InvalidOperationException(
+                    "the input starts " + (boxLeft - iconRight).ToString("0.##")
+                    + " DIP after the magnifier (icon right " + iconRight.ToString("0.##")
+                    + ", box left " + boxLeft.ToString("0.##") + "), wanted <= 8");
             }
         }
 
@@ -9730,10 +10166,12 @@ namespace Kobold.XamlLoadCheck
                 double inset = ReferenceEquals(path, track)
                     ? path.StrokeThickness / 2
                     : UiTokens.GlowCoreThickness / 2;
-                if (Math.Abs(geometry.RadiusX - 16) > 1e-6 || Math.Abs(geometry.RadiusY - 16) > 1e-6)
+                if (Math.Abs(geometry.RadiusX - UiTokens.GlowRadius) > 1e-6 ||
+                    Math.Abs(geometry.RadiusY - UiTokens.GlowRadius) > 1e-6)
                 {
                     throw new InvalidOperationException(
-                        path.Name + " radius is " + geometry.RadiusX + "x" + geometry.RadiusY + ", wanted 16");
+                        path.Name + " radius is " + geometry.RadiusX + "x" + geometry.RadiusY +
+                        ", wanted " + UiTokens.GlowRadius);
                 }
                 if (Math.Abs(geometry.Rect.X - inset) > 1e-6 || Math.Abs(geometry.Rect.Y - inset) > 1e-6
                     || Math.Abs(geometry.Rect.Width - (422 - 2 * inset)) > 1e-6
@@ -10743,7 +11181,7 @@ namespace Kobold.XamlLoadCheck
                 new SearchResultRow
                 {
                     Entry = new SearchEntry { Path = @"C:\results\alpha.txt", IsDirectory = false },
-                    Glyph = "📄",
+                    IconId = IconId.File,
                     Name = "alpha.txt",
                     Path = @"C:\results",
                     SizeText = "1 KB",
@@ -10752,7 +11190,7 @@ namespace Kobold.XamlLoadCheck
                 new SearchResultRow
                 {
                     Entry = new SearchEntry { Path = @"C:\results\beta.txt", IsDirectory = false },
-                    Glyph = "📄",
+                    IconId = IconId.File,
                     Name = "beta.txt",
                     Path = @"C:\results",
                     SizeText = "2 KB",
@@ -11201,7 +11639,8 @@ namespace Kobold.XamlLoadCheck
             var row = new SearchResultRow
             {
                 Entry = new SearchEntry { Path = @"C:\work\report.pdf", Name = "report.pdf" },
-                Glyph = "📄",
+                IconId = IconId.File,
+                IconBrush = Brushes.Black,
                 Name = "report.pdf",
                 Path = @"C:\work",
                 SizeText = "12 KB",
@@ -11240,10 +11679,10 @@ namespace Kobold.XamlLoadCheck
 
             var textBlocks = new List<TextBlock>();
             CollectTextBlocks(container, textBlocks);
-            if (textBlocks.Count != 5)
+            if (textBlocks.Count != 4)
             {
                 throw new InvalidOperationException(
-                    "the row has " + textBlocks.Count + " text block(s), wanted 5");
+                    "the row has " + textBlocks.Count + " text block(s), wanted 4");
             }
 
             int primary = 0;
@@ -11253,11 +11692,28 @@ namespace Kobold.XamlLoadCheck
                 if (SameBrushColor(block.Foreground, ThemeManager.TextBrush)) primary++;
                 else if (SameBrushColor(block.Foreground, ThemeManager.SecondaryTextBrush)) secondary++;
             }
-            if (primary != 2 || secondary != 3)
+            if (primary != 1 || secondary != 3)
             {
                 throw new InvalidOperationException(
                     "the row ink is " + primary + " primary / " + secondary
-                    + " secondary, wanted 2 / 3");
+                    + " secondary, wanted 1 / 3");
+            }
+
+            // The ListBoxItem realizes its ContentTemplate through a
+            // ContentPresenter; build the template root directly so the icon
+            // can be read without depending on the list's virtualization.
+            var templateRoot = list.ItemTemplate.LoadContent() as FrameworkElement;
+            if (templateRoot != null)
+            {
+                templateRoot.DataContext = row;
+                templateRoot.Measure(new Size(360, 44));
+                templateRoot.Arrange(new Rect(0, 0, 360, 44));
+                templateRoot.UpdateLayout();
+            }
+            var rowIcon = templateRoot == null ? null : FindVisual<IconPresenter>(templateRoot);
+            if (rowIcon == null || rowIcon.Icon != IconId.File || rowIcon.Brush == null)
+            {
+                throw new InvalidOperationException("the row has no typed file IconPresenter");
             }
 
             container.IsSelected = true;
@@ -11479,6 +11935,19 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
+        private static T FindLogical<T>(DependencyObject root) where T : DependencyObject
+        {
+            if (root is T) return (T)root;
+            foreach (var child in LogicalTreeHelper.GetChildren(root))
+            {
+                var dependency = child as DependencyObject;
+                if (dependency == null) continue;
+                var found = FindLogical<T>(dependency);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
         private static void CollectTextBlocks(DependencyObject root, List<TextBlock> found)
         {
             var block = root as TextBlock;
@@ -11518,7 +11987,7 @@ namespace Kobold.XamlLoadCheck
 
             // Newest first (SortForDisplay): c (16:30), b (15:30), a (14:30).
             AssertNoteCardTexts(view, 0, new[] { string.Empty, when.AddHours(2).ToString("g"), string.Empty });
-            AssertNoteCardTexts(view, 1, new[] { "Tasks", when.AddHours(1).ToString("g"), "Tasks a b", "✓ 1/2" });
+            AssertNoteCardTexts(view, 1, new[] { "Tasks", when.AddHours(1).ToString("g"), "Tasks a b", "1/2" });
             AssertNoteCardTexts(view, 2, new[] { "Shopping", when.ToString("g"), "Shopping milk eggs" });
         }
 
@@ -11540,8 +12009,8 @@ namespace Kobold.XamlLoadCheck
             var texts = NoteCardTexts(view, 0);
             if (texts.Count != 4)
                 throw new InvalidOperationException("the task card has " + texts.Count + " line(s), wanted 4");
-            if (texts[3] != "✓ 1/2")
-                throw new InvalidOperationException("the progress line is '" + texts[3] + "', wanted '✓ 1/2'");
+            if (texts[3] != "1/2")
+                throw new InvalidOperationException("the progress line is '" + texts[3] + "', wanted '1/2'");
         }
 
         /// <summary>
@@ -11791,8 +12260,21 @@ namespace Kobold.XamlLoadCheck
             foreach (var child in stack.Children)
             {
                 var text = child as TextBlock;
-                if (text == null) throw new InvalidOperationException("note card " + index + " has a non-text child");
-                texts.Add(text.Text);
+                if (text != null)
+                {
+                    texts.Add(text.Text);
+                    continue;
+                }
+
+                // The task-progress line is an IconPresenter + TextBlock row;
+                // keep the text line while the icon carries the check.
+                var row = child as StackPanel;
+                if (row == null) throw new InvalidOperationException("note card " + index + " has a non-text child");
+                foreach (var rowChild in row.Children)
+                {
+                    var rowText = rowChild as TextBlock;
+                    if (rowText != null) texts.Add(rowText.Text);
+                }
             }
             return texts;
         }
@@ -12002,8 +12484,9 @@ namespace Kobold.XamlLoadCheck
 
             if (openBadge.Child != null)
                 throw new InvalidOperationException("the open box already carries a mark");
-            if (!(doneBadge.Child is Path))
-                throw new InvalidOperationException("the completed box carries no check mark");
+            var doneCheck = doneBadge.Child as IconPresenter;
+            if (doneCheck == null || doneCheck.Icon != IconId.Check)
+                throw new InvalidOperationException("the completed box carries no Check IconPresenter");
 
             if (InlineText(openParagraph.Inlines) != "open")
                 throw new InvalidOperationException("the open task reads '" + InlineText(openParagraph.Inlines) + "'");
@@ -12160,7 +12643,7 @@ namespace Kobold.XamlLoadCheck
         /// </summary>
         private static void RendererAccentFollowsWidgetColour()
         {
-            string widgetHex = UiTokens.FolderPalette[0];
+            string widgetHex = UiTokens.FolderPalette[1];
             if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
 
@@ -12173,8 +12656,8 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the task box wears '"
                     + (border == null ? "<null>" : border.Color.ToString()) + "', wanted " + wanted);
 
-            var check = badge.Child as Path;
-            var stroke = check == null ? null : check.Stroke as SolidColorBrush;
+            var check = badge.Child as IconPresenter;
+            var stroke = check == null ? null : check.Brush as SolidColorBrush;
             if (stroke == null || stroke.Color != wanted)
                 throw new InvalidOperationException("the check mark ink is '"
                     + (stroke == null ? "<null>" : stroke.Color.ToString()) + "', wanted " + wanted);
@@ -12579,7 +13062,7 @@ namespace Kobold.XamlLoadCheck
             AssertNoteMenuOrder(homeEntries, "b", "c", "a");
             foreach (var entry in homeEntries)
             {
-                if (NoteMenuCheck(entry).Text != string.Empty)
+                if (NoteMenuCheck(entry).Visibility != Visibility.Collapsed)
                     throw new InvalidOperationException("the home title menu already checks an entry");
             }
 
@@ -12595,16 +13078,16 @@ namespace Kobold.XamlLoadCheck
             foreach (var entry in detailEntries)
             {
                 bool current = "b" == (entry.Tag as string);
-                string check = NoteMenuCheck(entry).Text;
+                var check = NoteMenuCheck(entry);
                 if (current)
                 {
                     checks++;
-                    if (check != "✓")
-                        throw new InvalidOperationException("the current entry carries no check mark");
+                    if (check.Visibility != Visibility.Visible || check.Icon != IconId.Check)
+                        throw new InvalidOperationException("the current entry carries no Check IconPresenter");
                     if (!ReferenceEquals(entry.Background, ThemeManager.SurfaceHoverBrush))
                         throw new InvalidOperationException("the current entry carries no highlight");
                 }
-                else if (check != string.Empty)
+                else if (check.Visibility != Visibility.Collapsed)
                 {
                     throw new InvalidOperationException(
                         "the entry '" + entry.Tag + "' carries a stray check mark");
@@ -13248,7 +13731,7 @@ namespace Kobold.XamlLoadCheck
             var view = new NoteWidget(data).PanelView;
             view.Refresh();
 
-            string newWanted = "＋ " + Localization.Format(
+            string newWanted = Localization.Format(
                 "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
 
             var homeMenu = InvokeNoteBlankMenu(view);
@@ -13259,6 +13742,7 @@ namespace Kobold.XamlLoadCheck
             if (HeaderOf(homeMenu.Items[0]) != newWanted)
                 throw new InvalidOperationException(
                     "the home blank menu reads '" + HeaderOf(homeMenu.Items[0]) + "'");
+            AssertMenuIcon(homeMenu.Items[0], IconId.Plus);
 
             ClickNoteCard(view, 0);
             var detailMenu = InvokeNoteBlankMenu(view);
@@ -13269,9 +13753,11 @@ namespace Kobold.XamlLoadCheck
             if (HeaderOf(detailMenu.Items[0]) != newWanted)
                 throw new InvalidOperationException(
                     "the detail blank menu reads '" + HeaderOf(detailMenu.Items[0]) + "'");
+            AssertMenuIcon(detailMenu.Items[0], IconId.Plus);
             if (HeaderOf(detailMenu.Items[1]) != Localization.Get("UI_NoteHome"))
                 throw new InvalidOperationException(
                     "the detail blank menu's home entry reads '" + HeaderOf(detailMenu.Items[1]) + "'");
+            AssertMenuIcon(detailMenu.Items[1], IconId.Home);
         }
 
         /// <summary>
@@ -13306,14 +13792,16 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the padding-band menu has " + menu.Items.Count + " item(s), wanted 4");
 
-            string newWanted = "＋ " + Localization.Format(
+            string newWanted = Localization.Format(
                 "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
             if (HeaderOf(menu.Items[0]) != newWanted)
                 throw new InvalidOperationException(
                     "the padding-band menu's new entry reads '" + HeaderOf(menu.Items[0]) + "'");
+            AssertMenuIcon(menu.Items[0], IconId.Plus);
             if (HeaderOf(menu.Items[1]) != Localization.Get("UI_NoteHome"))
                 throw new InvalidOperationException(
                     "the padding-band menu's home entry reads '" + HeaderOf(menu.Items[1]) + "'");
+            AssertMenuIcon(menu.Items[1], IconId.Home);
             if (!(menu.Items[2] is Separator))
                 throw new InvalidOperationException("the padding-band menu has no separator");
             if (!"a".Equals((menu.Items[3] as MenuItem)?.Tag as string))
@@ -13360,11 +13848,12 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("the blank-area menu has " + menu.Items.Count + " item(s)");
 
             string header = HeaderOf(menu.Items[0]);
-            string wanted = "＋ " + Localization.Format(
+            string wanted = Localization.Format(
                 "UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"));
             if (header != wanted)
                 throw new InvalidOperationException(
                     "the blank-area menu reads '" + header + "', wanted '" + wanted + "'");
+            AssertMenuIcon(menu.Items[0], IconId.Plus);
 
             var entry = menu.Items[0] as MenuItem;
             if (entry == null) throw new InvalidOperationException("the blank-area entry is not a MenuItem");
@@ -13600,8 +14089,9 @@ namespace Kobold.XamlLoadCheck
             var after = box.Document;
             if (ReferenceEquals(after, before))
                 throw new InvalidOperationException("the rendered document was not rebuilt");
-            if (!(TaskGlyph(ParagraphAt(after, 2)).Child is Path))
-                throw new InvalidOperationException("the rebuilt document carries no check mark");
+            var afterCheck = TaskGlyph(ParagraphAt(after, 2)).Child as IconPresenter;
+            if (afterCheck == null || afterCheck.Icon != IconId.Check)
+                throw new InvalidOperationException("the rebuilt document carries no Check IconPresenter");
         }
 
         /// <summary>
@@ -13783,22 +14273,22 @@ namespace Kobold.XamlLoadCheck
             }
         }
 
-        /// <summary>The check TextBlock of one note entry (empty when the entry
-        /// is not the current note).</summary>
-        private static TextBlock NoteMenuCheck(Button entry)
+        /// <summary>The check IconPresenter of one note entry (collapsed when
+        /// the entry is not the current note).</summary>
+        private static IconPresenter NoteMenuCheck(Button entry)
         {
             var grid = entry.Content as Grid;
             if (grid == null) throw new InvalidOperationException("the note entry has no content grid");
             foreach (var child in grid.Children)
             {
-                var text = child as TextBlock;
-                if (text != null && "NoteMenuCheck".Equals(text.Tag as string)) return text;
+                var icon = child as IconPresenter;
+                if (icon != null && "NoteMenuCheck".Equals(icon.Tag as string)) return icon;
             }
             throw new InvalidOperationException("the note entry carries no check mark element");
         }
 
         /// <summary>The title TextBlock of one note entry (the one that is not
-        /// the check mark).</summary>
+        /// the check icon).</summary>
         private static string NoteMenuTitle(Button entry)
         {
             var grid = entry.Content as Grid;
@@ -13806,7 +14296,7 @@ namespace Kobold.XamlLoadCheck
             foreach (var child in grid.Children)
             {
                 var text = child as TextBlock;
-                if (text != null && !"NoteMenuCheck".Equals(text.Tag as string)) return text.Text;
+                if (text != null) return text.Text;
             }
             throw new InvalidOperationException("the note entry carries no title element");
         }
@@ -13961,8 +14451,9 @@ namespace Kobold.XamlLoadCheck
             var after = box.Document;
             if (ReferenceEquals(after, before))
                 throw new InvalidOperationException("the surface was not re-rendered after the toggle");
-            if (!(TaskGlyph(ParagraphAt(after, 2)).Child is Path))
-                throw new InvalidOperationException("the re-rendered box carries no check mark");
+            var afterCheck = TaskGlyph(ParagraphAt(after, 2)).Child as IconPresenter;
+            if (afterCheck == null || afterCheck.Icon != IconId.Check)
+                throw new InvalidOperationException("the re-rendered box carries no Check IconPresenter");
         }
 
         /// <summary>
@@ -15711,34 +16202,25 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T5 (spec 6.4 / T8): the menu wears the widget colour's wash. The
-        /// shared <see cref="MenuBuilder"/> overrides the overlay brushes on the
-        /// menu itself, so the surface menu is expected to carry the same mixed
-        /// background the other widget menus do.
+        /// Claude Warm removed the widget-colour menu wash: a menu is a neutral
+        /// floating surface regardless of the host widget's colour.
         /// </summary>
-        private static void SurfaceMenuFollowsTheWidgetColour()
+        private static void SurfaceMenuStaysUntinted()
         {
             ThemeManager.Initialize("dark");
-            string widgetHex = UiTokens.FolderPalette[0];
-            if (string.Equals(widgetHex, UiTokens.DefaultFolderColor, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("the fixture colour is the default token: pick another palette entry");
-
-            var data = new NoteData();
-            data.Color = widgetHex;
+            var data = new NoteData { Color = UiTokens.FolderPalette[1] };
             var surface = SurfaceEditorOn("x", data);
 
             var menu = OpenSurfaceEditorMenu(surface);
-            var tint = menu.Resources[ThemeManager.BrushKeyPrefix + "OverlayBackground"] as SolidColorBrush;
-            if (tint == null)
-                throw new InvalidOperationException("the surface menu carries no OverlayBackground tint");
-            if (tint.Color == ThemeManager.OverlayBackgroundBrush.Color)
-                throw new InvalidOperationException("the surface menu kept the untinted overlay colour");
+            if (menu.Resources.Contains(ThemeManager.BrushKeyPrefix + "OverlayBackground") ||
+                menu.Resources.Contains(ThemeManager.BrushKeyPrefix + "OverlayHover"))
+            {
+                throw new InvalidOperationException("the surface menu still carries a widget-colour overlay tint");
+            }
 
-            Color wanted = Utils.MixColor(ThemeManager.OverlayBackgroundBrush.Color,
-                Utils.HexToColor(widgetHex), UiTokens.MenuTintBackground);
-            if (tint.Color != wanted)
-                throw new InvalidOperationException("the surface menu's wash is " + tint.Color
-                    + ", wanted " + wanted + " (the widget colour mixed into the overlay)");
+            var background = Application.Current.Resources[ThemeManager.BrushKeyPrefix + "OverlayBackground"] as SolidColorBrush;
+            if (background == null || background.Color != ThemeManager.OverlayBackgroundBrush.Color)
+                throw new InvalidOperationException("the app overlay background is not the live theme surface");
         }
 
         /// <summary>The surface sitting in the whole-text edit on the note's own

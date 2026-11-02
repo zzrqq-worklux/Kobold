@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Kobold.Controls"
+        xmlns:icons="clr-namespace:Kobold.Controls"
         Title="FolderWidget"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="False" ResizeMode="NoResize" ShowInTaskbar="False"
@@ -11,24 +12,6 @@
         KeyDown="Window_KeyDown"
         PreviewKeyDown="Window_PreviewKeyDown"
         TextOptions.TextFormattingMode="Display">
-
-    <local:WidgetWindowBase.Resources>
-        <!-- Stored badge icon: folder cabinet (original SVG, 4 colored paths) -->
-        <DrawingImage x:Key="StoredBadgeIcon">
-            <DrawingImage.Drawing>
-                <DrawingGroup>
-                    <GeometryDrawing Brush="#1296db"
-                                     Geometry="M938.354 610.58H85.678V128.3H128.3V64.35h255.8l42.638 63.95h511.616z"/>
-                    <GeometryDrawing Brush="#1296db"
-                                     Geometry="M980.978 674.53H43.04V192.25h42.638V128.3h255.798l42.624 63.95h596.878z"/>
-                    <GeometryDrawing Brush="#2c2c2c"
-                                     Geometry="M0.4 277.496h1023.2v682.154H0.4z"/>
-                    <GeometryDrawing Brush="#F5F7FA"
-                                     Geometry="M661.226 554.624c-23.514 0-42.624 19.14-42.624 42.624v21.326H405.428v-21.326c0-23.482-19.126-42.624-42.638-42.624-23.498 0-42.638 19.14-42.638 42.624v63.95c0 23.514 19.14 42.654 42.638 42.654h298.438c23.514 0 42.624-19.14 42.624-42.654v-63.95c-0.002-23.484-19.112-42.624-42.626-42.624z"/>
-                </DrawingGroup>
-            </DrawingImage.Drawing>
-        </DrawingImage>
-    </local:WidgetWindowBase.Resources>
 
     <!-- Task 3.1: the hand-built shell (border/header/lock/pin) is gone; the
          shared WidgetChrome draws it and owns the lock/pin/drag/right-click
@@ -42,61 +25,59 @@
         <Grid x:Name="SlotSource" Visibility="Collapsed">
 
                 <!-- Back: only visible while browsing a folder -->
-                <Border x:Name="BackButton" Width="24" Height="24" CornerRadius="6"
+                <Border x:Name="BackButton" Width="24" Height="24" CornerRadius="8"
                         Background="Transparent" Cursor="Hand"
                         BorderThickness="2" BorderBrush="Transparent"
                         AllowDrop="True"
                         DragOver="BackDrop_DragOver" DragLeave="BackDrop_DragLeave" Drop="BackDrop_Drop"
                         Margin="0,0,6,0" Visibility="Collapsed"
                         MouseLeftButtonDown="BackButton_Click">
-                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                          Data="M7,1 L1,7 L7,13" Stretch="Uniform" Width="8" Height="14"
-                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <icons:IconPresenter x:Name="BackIcon" Icon="Chevron" Rotation="180"
+                                         Size="13" StrokeThickness="1.9"
+                                         Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
 
                 <!-- Path menu: jump straight to any level of the current path (browse only) -->
-                <Border x:Name="PathButton" Width="24" Height="24" CornerRadius="6"
+                <Border x:Name="PathButton" Width="24" Height="24" CornerRadius="8"
                         Background="Transparent" Cursor="Hand" Margin="2,0,0,0"
                         VerticalAlignment="Center" Visibility="Collapsed"
                         ToolTipService.InitialShowDelay="250"
                         MouseLeftButtonDown="PathButton_MouseDown"
                         MouseLeftButtonUp="PathButton_MouseUp">
-                    <Path Stroke="{DynamicResource Kobold.Brush.IconFill}" StrokeThickness="2"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                          Data="M1,4 L6,9 L11,4" Stretch="Uniform" Width="10" Height="6"
-                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <icons:IconPresenter x:Name="PathIcon" Icon="Chevron" Rotation="90"
+                                         Size="11" StrokeThickness="1.8"
+                                         Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
 
                 <!-- Help: what the item badges mean (hover) -->
                 <Border x:Name="HelpButton"
-                        Width="24" Height="24" CornerRadius="6"
+                        Width="24" Height="24" CornerRadius="8"
                         Background="Transparent" Cursor="Help"
                         VerticalAlignment="Center" Margin="8,0,0,0"
                         MouseLeftButtonDown="HelpButton_Click"
                         ToolTipService.InitialShowDelay="250"
                         ToolTipService.ShowDuration="20000">
-                    <Path Fill="{DynamicResource Kobold.Brush.IconFill}" Stretch="Uniform" Width="14" Height="14"
-                          HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Path.Data>
-                            <PathGeometry FillRule="Nonzero"
-                                          Figures="M490.496 942.08h46.08l109.568-110.592h153.6l32.768-31.744V645.12l110.592-110.592v-45.056l-109.568-109.568V223.232l-31.744-31.744h-155.648l-109.568-108.544h-46.08L384 191.488H226.304L192.512 224.256v155.648l-108.544 109.568v45.056l108.544 110.592v154.624l33.792 31.744H384l106.496 110.592zM394.24 768H256v-136.192l-7.168-22.528L151.552 512l95.232-96.256 9.216-22.528V256h138.24l23.552-9.216L512 150.528l98.304 96.256 22.528 9.216H768v137.216l11.264 22.528L876.544 512l-99.328 97.28-9.216 22.528V768h-135.168l-24.576 9.216L512 874.496l-94.208-97.28L394.24 768z m92.16-374.784q-5.12 8.192-8.192 18.432t-4.096 20.48v2.048h-57.344v-3.072q2.048-30.72 14.336-55.296 4.096-10.24 11.776-19.968t18.944-17.92 27.136-13.312 33.28-4.096q27.648-1.024 47.104 8.192t31.232 23.552 17.408 33.28 5.632 37.888-6.144 34.816-15.36 29.696-19.968 26.624-18.944 23.552-14.336 22.016q-6.144 9.216-6.144 20.48v30.72H486.4v-34.816q0-16.384 6.144-29.696t14.848-25.088 19.456-23.552 19.456-23.552 14.848-24.064 5.12-26.624q0-11.264-3.072-20.48-2.048-9.216-7.68-15.872t-13.824-9.728q-9.216-4.096-19.968-4.096t-19.968 5.632-15.36 13.824z m57.344 310.272h-56.32v-56.32h56.32v56.32z"/>
-                        </Path.Data>
-                    </Path>
+                    <icons:IconPresenter x:Name="HelpIcon" Icon="Help" Size="14" StrokeThickness="1.7"
+                                         Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     <Border.ToolTip>
                         <ToolTip>
                             <StackPanel MaxWidth="280">
                                 <TextBlock x:Name="BadgeHelpTitle" FontWeight="SemiBold" Margin="0,0,0,8"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                    <Image Source="{StaticResource StoredBadgeIcon}" Width="16" Height="16"
-                                           VerticalAlignment="Top" Margin="0,1,8,0"/>
+                                    <icons:IconPresenter Icon="Archive" Size="14"
+                                                         Brush="{DynamicResource Kobold.Brush.Accent}"
+                                                         VerticalAlignment="Top" Margin="0,1,8,0"/>
                                     <TextBlock x:Name="BadgeHelpStored" TextWrapping="Wrap" MaxWidth="230"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal">
                                     <Border Width="16" Height="16" CornerRadius="8" Background="{DynamicResource Kobold.Brush.MissingBadge}"
                                             VerticalAlignment="Top" Margin="0,1,8,0">
-                                        <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
-                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <icons:IconPresenter Icon="Alert" Size="11" StrokeThickness="1.8"
+                                                             Brush="{DynamicResource Kobold.Brush.OnAccent}"
+                                                             HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <TextBlock x:Name="BadgeHelpMissing" TextWrapping="Wrap" MaxWidth="230"/>
                                 </StackPanel>
@@ -156,15 +137,18 @@
                                                 <Border x:Name="StoredBadge" Width="16" Height="16"
                                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
                                                         Visibility="Collapsed">
-                                                    <Image Source="{StaticResource StoredBadgeIcon}" Stretch="Uniform"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <icons:IconPresenter x:Name="StoredBadgeIcon" Icon="Archive" Size="14"
+                                                                         Brush="{DynamicResource Kobold.Brush.Accent}"
+                                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
                                                 <!-- Missing badge: source file no longer exists -->
                                                 <Border x:Name="MissingBadge" Width="16" Height="16" CornerRadius="8"
                                                         HorizontalAlignment="Left" VerticalAlignment="Top" Margin="2,2,0,0"
                                                         Background="{DynamicResource Kobold.Brush.MissingBadge}" Visibility="Collapsed">
-                                                    <TextBlock Text="!" FontSize="11" FontWeight="Bold" Foreground="White"
-                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <icons:IconPresenter x:Name="MissingBadgeIcon" Icon="Alert" Size="11"
+                                                                         StrokeThickness="1.8"
+                                                                         Brush="{DynamicResource Kobold.Brush.OnAccent}"
+                                                                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
                                             </Grid>
                                         </Border>
@@ -223,7 +207,9 @@
                                 VerticalAlignment="Center" HorizontalAlignment="Center"
                                 IsHitTestVisible="False"
                                 Visibility="Collapsed">
-                        <TextBlock Text="📂" FontSize="32" HorizontalAlignment="Center" Opacity="0.6"/>
+                        <icons:IconPresenter x:Name="EmptyFolderIcon" Icon="Folder" Size="32"
+                                             Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                             HorizontalAlignment="Center" Opacity="0.6"/>
                         <TextBlock x:Name="EmptyText" Text="Drop files here" 
                                    Foreground="{DynamicResource Kobold.Brush.TextFaint}" FontSize="11" FontFamily="Segoe UI"
                                    Margin="0,6,0,0" HorizontalAlignment="Center"/>

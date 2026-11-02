@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -1015,11 +1016,12 @@ namespace Kobold.Controls
             };
             if (done)
             {
-                box.Child = new TextBlock
+                box.Child = new IconPresenter
                 {
-                    Text = "✓",
-                    FontSize = 11,
-                    Foreground = ThemeManager.OnAccentBrush,
+                    Icon = IconId.Check,
+                    Size = 10,
+                    StrokeThickness = 1.9,
+                    Brush = ThemeManager.OnAccentBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
@@ -1564,7 +1566,7 @@ namespace Kobold.Controls
             _addPillHoverBrush = FrozenTint(pillColor, 0x38);
             AddPill.Background = _addPillBaseBrush;
             AddPill.BorderBrush = FrozenTint(pillColor, 0x4D);
-            AddPillGlyph.Foreground = ReadableWidgetAccentBrush();
+            AddPillIcon.Brush = ReadableWidgetAccentBrush();
             AddBox.CaretBrush = EditorCaretBrush(); // 每次重绘重建，主题/组件色切换都跟得上
 
             // The pill yields to the input only on a non-empty day; on an empty
@@ -1596,22 +1598,7 @@ namespace Kobold.Controls
         /// </summary>
         private Brush ReadableWidgetAccentBrush()
         {
-            Color color = Utils.HexToColor(_data.Color);
-            double brightness = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) / 255.0;
-
-            if (!ThemeManager.IsDarkTheme && brightness > 0.8)
-            {
-                var fallback = new SolidColorBrush(Utils.DarkenColor(color, 0.6));
-                fallback.Freeze();
-                return fallback;
-            }
-            if (ThemeManager.IsDarkTheme && brightness < 0.3)
-            {
-                var fallback = new SolidColorBrush(Utils.LightenColor(color, 0.5));
-                fallback.Freeze();
-                return fallback;
-            }
-            return _accentBrush;
+            return WidgetAccent.ReadableBrush(_data.Color);
         }
 
         #endregion

@@ -1,6 +1,7 @@
 <Window x:Class="Kobold.Windows.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:icons="clr-namespace:Kobold.Controls"
         Title="Kobold Settings" 
         Icon="pack://application:,,,/Kobold;component/Resources/icon.png"
         Width="420" Height="560"
@@ -23,20 +24,30 @@
             </Grid.RowDefinitions>
             
             <!-- Title Bar -->
-            <Border Grid.Row="0" CornerRadius="12,12,0,0" Background="{DynamicResource Kobold.Brush.Surface}" 
+            <Border Grid.Row="0" CornerRadius="10,10,0,0" Background="{DynamicResource Kobold.Brush.Surface2}" 
                     MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid>
-                    <TextBlock x:Name="SettingsHeaderText" Text="⚙️ Settings" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"
-                               VerticalAlignment="Center" Margin="20,0,0,0" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
+                        <icons:IconPresenter x:Name="SettingsHeaderIcon" Icon="Settings" Size="18"
+                                             StrokeThickness="1.7"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,9,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SettingsHeaderText" Text="Settings" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                                   FontFamily="{DynamicResource Kobold.FontFamily.Display}"
+                                   FontSize="15" FontWeight="Medium"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
                     
-                    <Button x:Name="CloseButton" Content="✕" 
+                    <Button x:Name="CloseButton" 
                             HorizontalAlignment="Right" VerticalAlignment="Center"
                             Width="36" Height="36" Margin="0,0,8,0"
-                            FontSize="14"
                             Style="{StaticResource Kobold.Style.CloseButton}"
-                            Click="CloseButton_Click"/>
+                            Click="CloseButton_Click">
+                        <icons:IconPresenter x:Name="CloseIcon" Icon="Close" Size="14"
+                                             StrokeThickness="1.7"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"/>
+                    </Button>
                 </Grid>
             </Border>
             
@@ -45,9 +56,14 @@
                 <StackPanel>
                     
                     <!-- Language Section -->
-                    <TextBlock x:Name="LanguageHeader" Text="🌐 Language" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,0,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <icons:IconPresenter x:Name="LanguageHeaderIcon" Icon="Globe" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="LanguageHeader" Text="Language" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
@@ -57,7 +73,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="LanguageLabel" Text="Interface Language" 
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}" 
-                                       VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                                       VerticalAlignment="Center"/>
                             <ComboBox x:Name="LanguageCombo" Grid.Column="1" Width="140" 
                                       SelectionChanged="LanguageCombo_SelectionChanged">
                                 <ComboBoxItem Content="English" Tag="en"/>
@@ -68,9 +84,14 @@
                     </Border>
                     
                     <!-- Theme Section -->
-                    <TextBlock x:Name="ThemeHeader" Text="🎨 Theme" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="ThemeHeaderIcon" Icon="Palette" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ThemeHeader" Text="Theme" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
@@ -80,19 +101,24 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="ThemeLabel" Text="Color Theme" 
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}" 
-                                       VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                                       VerticalAlignment="Center"/>
                             <ComboBox x:Name="ThemeCombo" Grid.Column="1" Width="140"
                                       SelectionChanged="ThemeCombo_SelectionChanged">
-                                <ComboBoxItem x:Name="ThemeDark" Content="🌙 Dark" Tag="dark"/>
-                                <ComboBoxItem x:Name="ThemeLight" Content="☀️ Light" Tag="light"/>
+                                <ComboBoxItem x:Name="ThemeDark" Content="Dark" Tag="dark"/>
+                                <ComboBoxItem x:Name="ThemeLight" Content="Light" Tag="light"/>
                             </ComboBox>
                         </Grid>
                     </Border>
                     
                     <!-- Widget Defaults Section -->
-                    <TextBlock x:Name="DefaultsHeader" Text="📊 Widget Defaults" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="DefaultsHeaderIcon" Icon="Grid" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DefaultsHeader" Text="Widget Defaults" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
@@ -102,7 +128,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="GridLabel" Text="Default Grid Columns" 
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}" 
-                                       VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                                       VerticalAlignment="Center"/>
                             <ComboBox x:Name="GridColumnsCombo" Grid.Column="1" Width="80"
                                       SelectionChanged="GridColumnsCombo_SelectionChanged">
                                 <ComboBoxItem Content="2" Tag="2"/>
@@ -122,8 +148,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="HideDesktopLabel" Text="Hide source files on desktop after storing" 
-                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}" VerticalAlignment="Center" TextWrapping="Wrap"
-                                       FontFamily="Segoe UI"/>
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                             <CheckBox x:Name="HideDesktopCheckbox" Grid.Column="1" VerticalAlignment="Center"
                                       Margin="12,0,0,0"
                                       Checked="HideDesktopCheckbox_Changed" Unchecked="HideDesktopCheckbox_Changed"/>
@@ -139,10 +164,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock x:Name="PanelOpacityLabel" Text="Panel Opacity" 
-                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}" FontFamily="Segoe UI"/>
+                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
                                 <TextBlock x:Name="PanelOpacityValue" Text="100%" 
                                            Foreground="{DynamicResource Kobold.Brush.TextMuted}" 
-                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <Slider x:Name="PanelOpacitySlider" Grid.Column="1" Width="140" Minimum="20" Maximum="100"
                                     VerticalAlignment="Center" Margin="12,0,0,0" IsSnapToTickEnabled="True" TickFrequency="5"
@@ -151,9 +176,14 @@
                     </Border>
                     
                     <!-- Startup Section -->
-                    <TextBlock x:Name="StartupHeader" Text="🚀 Startup" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="StartupHeaderIcon" Icon="Desktop" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StartupHeader" Text="Startup" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -162,10 +192,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock x:Name="StartupLabel" Text="Start with Windows" 
-                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}" FontFamily="Segoe UI"/>
+                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
                                 <TextBlock x:Name="StartupNote" Text="" 
                                            Foreground="{DynamicResource Kobold.Brush.TextMuted}" 
-                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <CheckBox x:Name="StartupCheckbox" Grid.Column="1" VerticalAlignment="Center"
                                       IsEnabled="True" Checked="StartupCheckbox_Changed" Unchecked="StartupCheckbox_Changed"/>
@@ -173,9 +203,14 @@
                     </Border>
                     
                     <!-- Icon Style Section -->
-                    <TextBlock x:Name="IconStyleHeader" Text="📁 Icon Style" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="IconStyleHeaderIcon" Icon="Folder" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="IconStyleHeader" Text="Icon Style" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
@@ -185,25 +220,30 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="IconStyleLabel" Text="Folder Icon Style" 
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}" 
-                                       VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                                       VerticalAlignment="Center"/>
                             <ComboBox x:Name="IconStyleCombo" Grid.Column="1" Width="120"
                                       SelectionChanged="IconStyleCombo_SelectionChanged">
-                                <ComboBoxItem Content="📂 Classic" Tag="classic"/>
-                                <ComboBoxItem Content="✍️ Hand-drawn" Tag="handdrawn"/>
+                                <ComboBoxItem Content="Classic" Tag="classic"/>
+                                <ComboBoxItem Content="Hand-drawn" Tag="handdrawn"/>
                             </ComboBox>
                         </Grid>
                     </Border>
                     
                     <!-- Kobold Storage Section -->
-                    <TextBlock x:Name="StorageHeader" Text="📦 Kobold Storage"
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="StorageHeaderIcon" Icon="Archive" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="StorageHeader" Text="Kobold Storage"
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
 
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <StackPanel>
                             <TextBlock x:Name="StoragePathText" Text=""
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       TextTrimming="CharacterEllipsis" FontFamily="Segoe UI"/>
+                                       TextTrimming="CharacterEllipsis"/>
                             <StackPanel x:Name="StorageButtonsRow" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
                                 <Button x:Name="StorageOpenButton" Content="Open folder" MinHeight="34" MinWidth="96" Padding="16,0" FontSize="12"
                                         Style="{StaticResource Kobold.Style.SecondaryButton}"
@@ -216,51 +256,56 @@
                     </Border>
 
                     <!-- File Search Section -->
-                    <TextBlock x:Name="FileSearchHeader" Text="🔎 File Search"
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="FileSearchHeaderIcon" Icon="Search" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="FileSearchHeader" Text="File Search"
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
 
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <StackPanel>
                             <TextBlock x:Name="FileSearchStatusText" Text="Status: —"
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       TextWrapping="Wrap" FontFamily="Segoe UI"/>
+                                       TextWrapping="Wrap"/>
                             <TextBlock x:Name="FileSearchSizeText" Text=""
                                        Foreground="{DynamicResource Kobold.Brush.TextMuted}"
-                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
                             <TextBlock x:Name="FileSearchLastUpdatedText" Text=""
                                        Foreground="{DynamicResource Kobold.Brush.TextMuted}"
-                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
 
                             <CheckBox x:Name="FileSearchAllFilesCheck" Content="All files"
                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                      Margin="0,10,0,0" FontFamily="Segoe UI"/>
+                                      Margin="0,10,0,0"/>
                             <CheckBox x:Name="FileSearchExtensionlessCheck" Content="Extensionless files"
                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                      Margin="0,6,0,0" FontFamily="Segoe UI"/>
+                                      Margin="0,6,0,0"/>
                             <CheckBox x:Name="FileSearchFoldersCheck" Content="Index folders"
                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                      Margin="0,6,0,0" FontFamily="Segoe UI"/>
+                                      Margin="0,6,0,0"/>
 
                             <TextBlock x:Name="FileSearchTypesLabel" Text="File types (comma separated)"
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                                       Margin="0,12,0,4"/>
                             <TextBox x:Name="FileSearchTypesBox" TextWrapping="Wrap"/>
 
                             <TextBlock x:Name="FileSearchExcludesLabel" Text="Extra excluded folders (one per line)"
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                                       Margin="0,12,0,4"/>
                             <TextBox x:Name="FileSearchExcludesBox" AcceptsReturn="True" Height="54"
                                      TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
 
                             <TextBlock x:Name="FileSearchReconcileLabel" Text="Reconcile every (minutes, 0 = off)"
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                                       Margin="0,12,0,4"/>
                             <TextBox x:Name="FileSearchReconcileBox" Width="60" HorizontalAlignment="Left"/>
 
                             <TextBlock x:Name="FileSearchRootsLabel" Text="Indexed drives"
                                        Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
-                                       Margin="0,12,0,4" FontFamily="Segoe UI"/>
+                                       Margin="0,12,0,4"/>
                             <ItemsControl x:Name="FileSearchRootsList"/>
 
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
@@ -278,9 +323,14 @@
                     </Border>
 
                     <!-- Island Section -->
-                    <TextBlock x:Name="IslandHeader" Text="🏝️ Island" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="IslandHeaderIcon" Icon="Desktop" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="IslandHeader" Text="Island" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <Grid>
@@ -290,10 +340,10 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock x:Name="IslandDelayLabel" Text="Auto-collapse delay" 
-                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}" FontFamily="Segoe UI"/>
+                                           Foreground="{DynamicResource Kobold.Brush.TextSecondary}"/>
                                 <TextBlock x:Name="IslandDelayValue" Text="1.0s" 
                                            Foreground="{DynamicResource Kobold.Brush.TextMuted}" 
-                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                           FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <Slider x:Name="IslandDelaySlider" Grid.Column="1" Width="140" Minimum="30" Maximum="500"
                                     VerticalAlignment="Center" Margin="12,0,0,0" IsSnapToTickEnabled="True" TickFrequency="10"
@@ -302,21 +352,27 @@
                     </Border>
                     
                     <!-- About Section -->
-                    <TextBlock x:Name="AboutHeaderText" Text="ℹ️ About" 
-                               Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                               FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold" Margin="0,24,0,12" FontFamily="Segoe UI"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="AboutHeaderIcon" Icon="Info" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="AboutHeaderText" Text="About" 
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
                     
                     <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
                         <StackPanel>
                             <TextBlock Text="Kobold" 
                                        Foreground="{DynamicResource Kobold.Brush.TextPrimary}" 
-                                       FontSize="{StaticResource Kobold.Font.Title}" FontWeight="Bold" FontFamily="Segoe UI"/>
+                                       FontFamily="{DynamicResource Kobold.FontFamily.Display}"
+                                       FontSize="{StaticResource Kobold.Font.Title}" FontWeight="Medium"/>
                             <TextBlock x:Name="AboutTaglineText" Text="Desktop Folder Widgets" 
                                        Foreground="{DynamicResource Kobold.Brush.TextMuted}" 
-                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0" FontFamily="Segoe UI"/>
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,2,0,0"/>
                             <TextBlock x:Name="VersionText" Text="Version 1.0.0" 
                                        Foreground="{DynamicResource Kobold.Brush.TextMuted}" 
-                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,8,0,0" FontFamily="Segoe UI"/>
+                                       FontSize="{StaticResource Kobold.Font.Caption}" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Border>
                     
@@ -324,7 +380,7 @@
             </ScrollViewer>
             
             <!-- Footer -->
-            <Border Grid.Row="2" CornerRadius="0,0,12,12" Background="{DynamicResource Kobold.Brush.Surface}">
+            <Border Grid.Row="2" CornerRadius="0,0,10,10" Background="{DynamicResource Kobold.Brush.Surface2}">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,16,0">
                     <Button x:Name="SaveButton" Content="Save" Width="90" Height="32" Margin="0,0,8,0"
                             Style="{StaticResource Kobold.Style.PrimaryButton}"

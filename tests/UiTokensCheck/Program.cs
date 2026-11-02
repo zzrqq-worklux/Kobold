@@ -42,6 +42,13 @@ namespace Kobold.UiTokensCheck
             "Background", "Surface", "Border", "TextMuted", "TextSecondary", "TextPrimary"
         };
 
+        // Claude Warm adds a second surface, the clay accent family and a
+        // theme-aware danger role. All are required in both themes.
+        private static readonly string[] WarmRoles =
+        {
+            "Surface2", "Accent", "AccentHover", "AccentSoft", "OnAccent", "Danger"
+        };
+
         private static readonly string[] OverlayRoles =
         {
             "Background", "Border", "Hover", "Checked", "Text", "Muted", "Divider",
@@ -52,14 +59,17 @@ namespace Kobold.UiTokensCheck
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            CheckPalette(typeof(UiTokens.Dark), "dark", GrayRoles, true);
-            CheckPalette(typeof(UiTokens.Light), "light", GrayRoles, true);
+            var warmRoles = GrayRoles.Concat(WarmRoles).ToArray();
+            CheckPalette(typeof(UiTokens.Dark), "dark", warmRoles, true);
+            CheckPalette(typeof(UiTokens.Light), "light", warmRoles, true);
             CheckPaletteParity(typeof(UiTokens.Dark), typeof(UiTokens.Light), "dark/light palettes");
             CheckPalette(typeof(UiTokens.OverlayDark), "overlay-dark", OverlayRoles, false);
             CheckPalette(typeof(UiTokens.OverlayLight), "overlay-light", OverlayRoles, false);
             CheckPaletteParity(typeof(UiTokens.OverlayDark), typeof(UiTokens.OverlayLight), "menu overlay palettes");
-            CheckExactScale("radius", new[] { UiTokens.RadiusSmall, UiTokens.RadiusControl, UiTokens.RadiusWindow, UiTokens.RadiusPanel }, new[] { 4.0, 8.0, 12.0, 16.0 });
-            CheckExactScale("type", new[] { UiTokens.FontCaption, UiTokens.FontBody, UiTokens.FontSubtitle, UiTokens.FontTitle }, new[] { 11.0, 12.0, 13.0, 16.0 });
+            CheckClaudeWarmValues();
+            CheckWidgetPalette();
+            CheckExactScale("radius", new[] { UiTokens.RadiusSmall, UiTokens.RadiusControl, UiTokens.RadiusWindow, UiTokens.RadiusPanel }, new[] { 4.0, 8.0, 10.0, 12.0 });
+            CheckExactScale("type", new[] { UiTokens.FontCaption, UiTokens.FontBody, UiTokens.FontSubtitle, UiTokens.FontTitle }, new[] { 11.0, 13.0, 14.0, 16.0 });
             CheckExactScale("spacing", new[] { UiTokens.Space1, UiTokens.Space2, UiTokens.Space3, UiTokens.Space4, UiTokens.Space6 }, new[] { 4.0, 8.0, 12.0, 16.0, 24.0 });
             CheckExactScale("motion", new[] { (double)UiTokens.DurationFastMs, UiTokens.DurationNormalMs, UiTokens.DurationSlowMs }, new[] { 100.0, 150.0, 200.0 });
             CheckHexParsing();
@@ -99,10 +109,12 @@ namespace Kobold.UiTokensCheck
 
             if (requireDistinctRoles)
             {
-                var roleValues = requiredRoles
+                // Only the six gray roles must be distinct; Surface and
+                // OnAccent deliberately share a value in the light theme.
+                var roleValues = GrayRoles
                     .Select(role => (string)theme.GetField(role, PublicStatic).GetValue(null))
                     .ToList();
-                if (roleValues.Distinct(StringComparer.OrdinalIgnoreCase).Count() != requiredRoles.Length)
+                if (roleValues.Distinct(StringComparer.OrdinalIgnoreCase).Count() != GrayRoles.Length)
                     Errors.Add(name + " palette roles are not distinct");
             }
 
@@ -129,6 +141,86 @@ namespace Kobold.UiTokensCheck
 
             if (ok) Console.WriteLine("PASS " + name + " scale = " + string.Join("/", expected));
             else Errors.Add(name + " scale = " + string.Join("/", actual) + " (expected " + string.Join("/", expected) + ")");
+        }
+
+        /// <summary>
+        /// Pins the approved Claude Warm direction: the exact canvas/surface/
+        /// hairline/ink/clay values, not just "some hex".
+        /// </summary>
+        private static void CheckClaudeWarmValues()
+        {
+            CheckHex("light Background", UiTokens.Light.Background, "#F7F2E8");
+            CheckHex("light Surface", UiTokens.Light.Surface, "#FFFDF8");
+            CheckHex("light Surface2", UiTokens.Light.Surface2, "#EFE7D9");
+            CheckHex("light Border", UiTokens.Light.Border, "#DFD4C2");
+            CheckHex("light TextPrimary", UiTokens.Light.TextPrimary, "#1B1813");
+            CheckHex("light TextSecondary", UiTokens.Light.TextSecondary, "#403A31");
+            CheckHex("light TextMuted", UiTokens.Light.TextMuted, "#6F675B");
+            CheckHex("light Accent", UiTokens.Light.Accent, "#CC785C");
+            CheckHex("light AccentSoft", UiTokens.Light.AccentSoft, "#F3DFD4");
+
+            CheckHex("dark Background", UiTokens.Dark.Background, "#191714");
+            CheckHex("dark Surface", UiTokens.Dark.Surface, "#211E1A");
+            CheckHex("dark Surface2", UiTokens.Dark.Surface2, "#2A261F");
+            CheckHex("dark Border", UiTokens.Dark.Border, "#3D372E");
+            CheckHex("dark TextPrimary", UiTokens.Dark.TextPrimary, "#FAF6EE");
+            CheckHex("dark TextSecondary", UiTokens.Dark.TextSecondary, "#CBC3B5");
+            CheckHex("dark TextMuted", UiTokens.Dark.TextMuted, "#91887A");
+            CheckHex("dark Accent", UiTokens.Dark.Accent, "#D97757");
+            CheckHex("dark AccentSoft", UiTokens.Dark.AccentSoft, "#3B2A22");
+
+            if (!UiTokens.FontFamilyDisplay.Contains("Fraunces") ||
+                !UiTokens.FontFamilyDisplay.Contains("SimSun"))
+            {
+                Errors.Add("display font family must contain Fraunces + SimSun: " + UiTokens.FontFamilyDisplay);
+            }
+            else
+            {
+                Console.WriteLine("PASS display font stack = " + UiTokens.FontFamilyDisplay);
+            }
+        }
+
+        private static void CheckHex(string label, string actual, string expected)
+        {
+            if (string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine("PASS " + label + " = " + expected);
+            else
+                Errors.Add(label + " = " + actual + " (expected " + expected + ")");
+        }
+
+        /// <summary>The low-saturation nine-colour widget/folder palette, in order.</summary>
+        private static void CheckWidgetPalette()
+        {
+            var expected = new[]
+            {
+                "#CC785C", "#B5654A", "#D4A017", "#788C5D", "#5DB8A6",
+                "#6A9BCC", "#9C7CA5", "#B56576", "#948B7D"
+            };
+
+            CheckPaletteArray("widget palette", UiTokens.FolderPalette, expected);
+            CheckPaletteArray("folder icon palette", UiTokens.FolderIconPalette, expected);
+            if (UiTokens.FolderIconPaletteNames.Length != expected.Length)
+                Errors.Add("folder palette names: " + UiTokens.FolderIconPaletteNames.Length +
+                    " names for " + expected.Length + " colours");
+        }
+
+        private static void CheckPaletteArray(string label, string[] actual, string[] expected)
+        {
+            if (actual.Length != expected.Length)
+            {
+                Errors.Add(label + ": " + actual.Length + " colours (expected " + expected.Length + ")");
+                return;
+            }
+
+            for (int i = 0; i < expected.Length; i++)
+            {
+                if (!string.Equals(actual[i], expected[i], StringComparison.OrdinalIgnoreCase))
+                {
+                    Errors.Add(label + " entry " + i + " = " + actual[i] + " (expected " + expected[i] + ")");
+                    return;
+                }
+            }
+            Console.WriteLine("PASS " + label + " = " + string.Join("/", expected));
         }
 
         private static void CheckHexParsing()

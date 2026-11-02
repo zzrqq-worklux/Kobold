@@ -17,6 +17,7 @@ namespace Kobold.Core
         public const string BrushKeyPrefix = "Kobold.Brush.";
         public const string RadiusKeyPrefix = "Kobold.Radius.";
         public const string FontKeyPrefix = "Kobold.Font.";
+        public const string FontFamilyKeyPrefix = "Kobold.FontFamily.";
         public const string SpaceKeyPrefix = "Kobold.Space.";
 
         #region Theme Changed Event
@@ -114,6 +115,7 @@ namespace Kobold.Core
 
         public static SolidColorBrush BackgroundBrush { get; private set; }
         public static SolidColorBrush SurfaceBrush { get; private set; }
+        public static SolidColorBrush Surface2Brush { get; private set; }
         public static SolidColorBrush SurfaceHoverBrush { get; private set; }
         public static SolidColorBrush BorderBrush { get; private set; }
         public static SolidColorBrush TextBrush { get; private set; }
@@ -145,6 +147,15 @@ namespace Kobold.Core
         public static SolidColorBrush IslandForegroundBrush { get; private set; }
         public static SolidColorBrush DragGhostBrush { get; private set; }
 
+        // Claude Warm accent family (theme-aware) and display fonts.
+        public static SolidColorBrush AccentBrush { get; private set; }
+        public static SolidColorBrush AccentHoverBrush { get; private set; }
+        public static SolidColorBrush AccentSoftBrush { get; private set; }
+        public static SolidColorBrush OnAccentBrush { get; private set; }
+        public static SolidColorBrush DangerBrush { get; private set; }
+        public static FontFamily UiFontFamily { get; private set; }
+        public static FontFamily DisplayFontFamily { get; private set; }
+
         // Floating surfaces (menus, tooltips)
         public static SolidColorBrush OverlayBackgroundBrush { get; private set; }
         public static SolidColorBrush OverlayBorderBrush { get; private set; }
@@ -175,11 +186,13 @@ namespace Kobold.Core
 
         public static readonly SolidColorBrush WhiteBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.White));
         public static readonly SolidColorBrush TransparentBrush = FreezeColor(Colors.Transparent);
-        public static readonly SolidColorBrush OnAccentBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.OnAccent));
-        public static readonly SolidColorBrush AccentBlueBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.Accent));
-        public static readonly SolidColorBrush AccentHoverBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.AccentHover));
-        public static readonly SolidColorBrush DangerBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.Danger));
         public static readonly SolidColorBrush PinGoldBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.PinGold));
+
+        /// <summary>Compatibility alias for callers that predate the themed accent.</summary>
+        public static SolidColorBrush AccentBlueBrush
+        {
+            get { return AccentBrush; }
+        }
         public static readonly SolidColorBrush PinDarkGoldBrush = FreezeColor(Utils.HexToColor(UiTokens.Shared.PinDarkGold));
 
         public static readonly SolidColorBrush DarkHoverBrush = FreezeColor(Color.FromArgb(35, 255, 255, 255));
@@ -214,6 +227,7 @@ namespace Kobold.Core
 
             BackgroundBrush = Themed("Background", UiTokens.Dark.Background, UiTokens.Light.Background);
             SurfaceBrush = Themed("Surface", UiTokens.Dark.Surface, UiTokens.Light.Surface);
+            Surface2Brush = Themed("Surface2", UiTokens.Dark.Surface2, UiTokens.Light.Surface2);
             SurfaceHoverBrush = Themed("SurfaceHover", UiTokens.Dark.SurfaceHover, UiTokens.Light.SurfaceHover);
             BorderBrush = Themed("Border", UiTokens.Dark.Border, UiTokens.Light.Border);
             TextBrush = Themed("TextPrimary", UiTokens.Dark.TextPrimary, UiTokens.Light.TextPrimary);
@@ -244,6 +258,12 @@ namespace Kobold.Core
             IslandDividerBrush = Themed("IslandDivider", UiTokens.Dark.IslandDivider, UiTokens.Light.IslandDivider);
             IslandForegroundBrush = Themed("IslandForeground", UiTokens.Dark.IslandForeground, UiTokens.Light.IslandForeground);
             DragGhostBrush = Themed("DragGhost", UiTokens.Dark.DragGhost, UiTokens.Light.DragGhost);
+
+            AccentBrush = Themed("Accent", UiTokens.Dark.Accent, UiTokens.Light.Accent);
+            AccentHoverBrush = Themed("AccentHover", UiTokens.Dark.AccentHover, UiTokens.Light.AccentHover);
+            AccentSoftBrush = Themed("AccentSoft", UiTokens.Dark.AccentSoft, UiTokens.Light.AccentSoft);
+            OnAccentBrush = Themed("OnAccent", UiTokens.Dark.OnAccent, UiTokens.Light.OnAccent);
+            DangerBrush = Themed("Danger", UiTokens.Dark.Danger, UiTokens.Light.Danger);
 
             OverlayBackgroundBrush = Themed("OverlayBackground", UiTokens.OverlayDark.Background, UiTokens.OverlayLight.Background);
             OverlayBorderBrush = Themed("OverlayBorder", UiTokens.OverlayDark.Border, UiTokens.OverlayLight.Border);
@@ -276,6 +296,13 @@ namespace Kobold.Core
             resources[FontKeyPrefix + "Subtitle"] = UiTokens.FontSubtitle;
             resources[FontKeyPrefix + "Title"] = UiTokens.FontTitle;
 
+            // FontFamily values must be installed as FontFamily objects (XAML
+            // cannot convert a boxed string resource into the property type).
+            resources[FontFamilyKeyPrefix + "Ui"] = new FontFamily(UiTokens.FontFamilyUi);
+            resources[FontFamilyKeyPrefix + "Display"] = new FontFamily(UiTokens.FontFamilyDisplay);
+            UiFontFamily = new FontFamily(UiTokens.FontFamilyUi);
+            DisplayFontFamily = new FontFamily(UiTokens.FontFamilyDisplay);
+
             resources[SpaceKeyPrefix + "1"] = UiTokens.Space1;
             resources[SpaceKeyPrefix + "2"] = UiTokens.Space2;
             resources[SpaceKeyPrefix + "3"] = UiTokens.Space3;
@@ -288,23 +315,22 @@ namespace Kobold.Core
             var resources = Application.Current?.Resources;
             if (resources == null) return;
 
-            // High contrast: the accent follows the system highlight color so
-            // selected/focused controls stay legible against the system palette.
-            resources[BrushKeyPrefix + "Accent"] = IsHighContrast
-                ? FreezeColor(SystemColors.HighlightColor)
-                : AccentBlueBrush;
+            // The accent family is themed and follows the high-contrast
+            // override dictionary like every other semantic brush.
+            resources[BrushKeyPrefix + "Accent"] = AccentBrush;
             resources[BrushKeyPrefix + "AccentHover"] = AccentHoverBrush;
-            resources[BrushKeyPrefix + "OnAccent"] = IsHighContrast
-                ? FreezeColor(SystemColors.HighlightTextColor)
-                : OnAccentBrush;
+            resources[BrushKeyPrefix + "AccentSoft"] = AccentSoftBrush;
+            resources[BrushKeyPrefix + "OnAccent"] = OnAccentBrush;
             resources[BrushKeyPrefix + "Danger"] = DangerBrush;
             resources[BrushKeyPrefix + "PinGold"] = PinGoldBrush;
             resources[BrushKeyPrefix + "PinDarkGold"] = PinDarkGoldBrush;
 
-            // Gradient stops need Color (not Brush) resources; selection colors
-            // are identical in both themes.
-            resources["Kobold.Color.SelectionFillTop"] = Utils.HexToColor(UiTokens.Dark.SelectionFillTop);
-            resources["Kobold.Color.SelectionFillBottom"] = Utils.HexToColor(UiTokens.Dark.SelectionFillBottom);
+            // Gradient stops need Color (not Brush) resources; each theme keeps
+            // its own clay selection wash.
+            string selectionTop = _isDarkTheme ? UiTokens.Dark.SelectionFillTop : UiTokens.Light.SelectionFillTop;
+            string selectionBottom = _isDarkTheme ? UiTokens.Dark.SelectionFillBottom : UiTokens.Light.SelectionFillBottom;
+            resources["Kobold.Color.SelectionFillTop"] = Utils.HexToColor(selectionTop);
+            resources["Kobold.Color.SelectionFillBottom"] = Utils.HexToColor(selectionBottom);
 
             // The folder widget's selected-item fill as one brush resource
             // (fix round 15, R3): a widget shadows it locally to follow its own
@@ -314,8 +340,8 @@ namespace Kobold.Core
                 StartPoint = new Point(0, 0),
                 EndPoint = new Point(0, 1)
             };
-            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(UiTokens.Dark.SelectionFillTop), 0));
-            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(UiTokens.Dark.SelectionFillBottom), 1));
+            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(selectionTop), 0));
+            selectionFill.GradientStops.Add(new GradientStop(Utils.HexToColor(selectionBottom), 1));
             selectionFill.Freeze();
             resources[BrushKeyPrefix + "SelectionFill"] = selectionFill;
         }

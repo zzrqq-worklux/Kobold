@@ -65,33 +65,17 @@ namespace Kobold.Controls
         
         private void UpdatePanelColor()
         {
-            Color baseColor = Utils.HexToColor(_data.Color);
-
-            // The chrome owns the backdrop gradient and the header tint (the
-            // exact folder maths are pinned in XamlLoadCheck); pushing the
-            // colour and the configured opacity repaints both. The opacity
-            // scales the background ALPHA only, so panel content stays crisp.
+            // Claude Warm: the panel is a near-opaque theme surface, never a
+            // widget-colour wash. The widget colour tints the 1 DIP outer
+            // border, the header rail/dot and the item selection.
             Chrome.PanelColor = _data.Color;
             Chrome.ApplyOpacity(GetPanelOpacity());
 
-            // Fix round 15 (R3): the item-selection visual follows the widget's
-            // own colour (the raw base colour, no readability fallback). The
-            // ItemTemplate's DynamicResource lookups resolve these keys up the
-            // tree, so overriding them on the chrome's shell repaints the
-            // selection on every colour, theme and opacity path that lands here.
-            var selectionBorder = new SolidColorBrush(baseColor);
-            selectionBorder.Freeze();
-            Chrome.Shell.Resources["Kobold.Brush.SelectionBorder"] = selectionBorder;
-
-            var selectionFill = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0, 1)
-            };
-            selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x15, baseColor.R, baseColor.G, baseColor.B), 0));
-            selectionFill.GradientStops.Add(new GradientStop(Color.FromArgb(0x25, baseColor.R, baseColor.G, baseColor.B), 1));
-            selectionFill.Freeze();
-            Chrome.Shell.Resources["Kobold.Brush.SelectionFill"] = selectionFill;
+            Color accent = WidgetAccent.Readable(_data.Color);
+            Chrome.Shell.Resources["Kobold.Brush.SelectionBorder"] =
+                WidgetAccent.Frozen(accent);
+            Chrome.Shell.Resources["Kobold.Brush.SelectionFill"] =
+                WidgetAccent.Frozen(Color.FromArgb(0x1F, accent.R, accent.G, accent.B));
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 <UserControl x:Class="Kobold.Controls.WidgetChrome"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icons="clr-namespace:Kobold.Controls"
              TextOptions.TextFormattingMode="Display">
 
     <!-- Content-agnostic widget shell: rounded border + shadow, a 40px header
@@ -8,7 +9,7 @@
          values and DynamicResource keys mirror FolderWidget.xaml's panel shell. -->
     <Grid>
         <Border x:Name="Shell" x:FieldModifier="public"
-                CornerRadius="16"
+                CornerRadius="12"
                 BorderThickness="1" BorderBrush="{DynamicResource Kobold.Brush.PanelBorder}"
                 RenderOptions.BitmapScalingMode="HighQuality"
                 SnapsToDevicePixels="True">
@@ -24,7 +25,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
-                <Border x:Name="Header" x:FieldModifier="public" Grid.Row="0" CornerRadius="16,16,0,0" Padding="12,0"
+                <Border x:Name="Header" x:FieldModifier="public" Grid.Row="0" CornerRadius="12,12,0,0" Padding="12,0"
                         Cursor="Hand"
                         MouseLeftButtonDown="Header_MouseLeftButtonDown"
                         MouseMove="Header_MouseMove"
@@ -47,16 +48,24 @@
                              header drag never starts from it. -->
                         <Grid x:Name="TitleGroup" Grid.Column="1" Background="Transparent">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="TitleText" x:FieldModifier="public" Grid.Column="0" FontSize="13" FontWeight="SemiBold"
+                            <!-- 6px widget-colour marker: the title stays serif ink,
+                                 the dot carries the panel's identity. -->
+                            <Ellipse x:Name="TitleAccentDot" Width="6" Height="6"
+                                     Margin="0,0,7,0" VerticalAlignment="Center"
+                                     Visibility="Collapsed"/>
+                            <TextBlock x:Name="TitleText" x:FieldModifier="public" Grid.Column="1"
+                                       FontFamily="{DynamicResource Kobold.FontFamily.Display}"
+                                       FontSize="15" FontWeight="Medium"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             <!-- The chevron sits in a 24x24 transparent border so
                                  the hit target is a comfortable square, not just
                                  the glyph run. The glyph's ink comes from
                                  ApplyTheme (one source of truth). -->
-                            <Border x:Name="TitleChevron" x:FieldModifier="public" Grid.Column="1"
+                            <Border x:Name="TitleChevron" x:FieldModifier="public" Grid.Column="2"
                                     Width="24" Height="24" Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" HorizontalAlignment="Center"
                                     Margin="6,0,0,0" Visibility="Collapsed"
@@ -64,8 +73,10 @@
                                     MouseLeftButtonUp="TitleChevron_MouseLeftButtonUp"
                                     MouseEnter="TitleChevron_MouseEnter"
                                     MouseLeave="TitleChevron_MouseLeave">
-                                <TextBlock x:Name="TitleChevronGlyph" Text="▾" FontSize="12" Padding="2,0"
-                                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                <icons:IconPresenter x:Name="TitleChevronIcon" Icon="Chevron" Rotation="90"
+                                                     Size="12" StrokeThickness="1.7"
+                                                     Brush="{DynamicResource Kobold.Brush.SecondaryText}"
+                                                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Border>
                         </Grid>
                         <ContentPresenter x:Name="HeaderTrailing" x:FieldModifier="public" Grid.Column="2" VerticalAlignment="Center"/>
@@ -79,11 +90,10 @@
                             <Border.RenderTransform>
                                 <ScaleTransform x:Name="LockButtonScale" x:FieldModifier="public" ScaleX="1" ScaleY="1" CenterX="12" CenterY="12"/>
                             </Border.RenderTransform>
-                            <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <Path x:Name="LockIcon" x:FieldModifier="public"
-                                      Data="M2,5 L2,4 C2,1.5 4,0 6,0 C8,0 10,1.5 10,4 L10,5 L8,5 L8,4 C8,2.5 7,1.5 6,1.5 C5,1.5 4,2.5 4,4 L4,5 Z M1,5 L11,5 L11,12 L1,12 Z M5.5,7.5 L6.5,7.5 L6.5,9.5 L5.5,9.5 Z"
-                                      Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"/>
-                            </Canvas>
+                            <icons:IconPresenter x:Name="LockIconPresenter" x:FieldModifier="public"
+                                                 Icon="Lock" Size="14" StrokeThickness="1.7"
+                                                 Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                                 VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
 
                         <!-- Pin button -->
@@ -92,17 +102,10 @@
                                 Background="Transparent" Cursor="Hand"
                                 VerticalAlignment="Center" Margin="8,0,0,0"
                                 MouseLeftButtonDown="PinButton_MouseLeftButtonDown">
-                            <Canvas Width="14" Height="14" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <!-- Pin Icon (pushpin shape) -->
-                                <Path x:Name="PinIcon" x:FieldModifier="public"
-                                      Data="M4,0 L10,0 L10,2 L9,2 L9,6 L11,8 L11,9 L8,9 L8,14 L6,14 L6,9 L3,9 L3,8 L5,6 L5,2 L4,2 Z"
-                                      Fill="{DynamicResource Kobold.Brush.IconFill}" Stroke="{DynamicResource Kobold.Brush.IconStroke}" StrokeThickness="0.5"
-                                      RenderTransformOrigin="0.5,0.5">
-                                    <Path.RenderTransform>
-                                        <RotateTransform x:Name="PinIconRotation" x:FieldModifier="public" Angle="45"/>
-                                    </Path.RenderTransform>
-                                </Path>
-                            </Canvas>
+                            <icons:IconPresenter x:Name="PinIconPresenter" x:FieldModifier="public"
+                                                 Icon="Pin" Size="14" StrokeThickness="1.7" Rotation="45"
+                                                 Brush="{DynamicResource Kobold.Brush.IconFill}"
+                                                 VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
                     </Grid>
                 </Border>
@@ -111,6 +114,16 @@
                 <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="2"/>
             </Grid>
         </Border>
+
+        <!-- One 3px widget-colour top band, drawn OVER the shell border. It
+             covers the shell's 1px top hairline, so the top edge is a single
+             accent line rather than a 1px border + 2px rail seam. It lives
+             outside the shell so the layout border stays 1px. -->
+        <Border x:Name="AccentRail" Height="3" Margin="0"
+                HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                CornerRadius="12,12,0,0"
+                Background="Transparent" Visibility="Collapsed"
+                IsHitTestVisible="False"/>
 
         <!-- Native resize affordances on top of the shell: four 5 DIP
              invisible bands along the edges plus a 16x16 bottom-right grip.

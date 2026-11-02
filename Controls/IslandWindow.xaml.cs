@@ -10,6 +10,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Controls.IconRenderers;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
@@ -31,6 +32,14 @@ namespace Kobold.Controls
 
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
+
+        // Live panel visibility, keyed by widget id. SetOpenState updates the
+        // existing tile in place; a rebuild (icon style / widget add/remove)
+        // re-applies it to the new tile.
+        private readonly Dictionary<string, bool> _openStates =
+            new Dictionary<string, bool>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _widgetColors =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly DispatcherTimer _leaveTimer;
         private readonly DispatcherTimer _expandTimer;
 
@@ -136,7 +145,7 @@ namespace Kobold.Controls
                 ToggleDesktopIcons();
             };
             UpdateDesktopTile();
-            ApplySystemTileIconStyle(WidgetManager.Instance.Config.IconStyle ?? "classic");
+            IconStyleManager.Set(WidgetManager.Instance.Config.IconStyle ?? IconStyleIds.Classic);
 
             UpdateWindowGeometry();
         }
@@ -151,8 +160,8 @@ namespace Kobold.Controls
         /// <summary>Rebuilds the tiles so a changed IconStyle shows immediately.</summary>
         public void RefreshIconStyle()
         {
+            IconStyleManager.Set(WidgetManager.Instance.Config.IconStyle ?? IconStyleIds.Classic);
             RebuildTiles();
-            ApplySystemTileIconStyle(WidgetManager.Instance.Config.IconStyle ?? "classic");
         }
 
         private void OnThemeChanged()
@@ -162,6 +171,7 @@ namespace Kobold.Controls
                 PillShape.Fill = _isExpanded
                     ? ThemeManager.IslandBackgroundExpandedBrush
                     : ThemeManager.IslandBackgroundBrush;
+                UpdateAllTileOpenStates();
             });
         }
 
@@ -198,6 +208,22 @@ namespace Kobold.Controls
         public void SetWidgets(IEnumerable<WidgetData> widgets)
         {
             _widgets = widgets?.ToList() ?? new List<WidgetData>();
+
+            // Drop visibility for widgets that no longer exist, and keep the
+            // colours the tile wash/dot need.
+            var live = new HashSet<string>(_widgets.Select(w => w.Id), StringComparer.Ordinal);
+            foreach (string id in _openStates.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _openStates.Remove(id);
+            }
+
+            _widgetColors.Clear();
+            foreach (var widget in _widgets)
+            {
+                if (widget != null && !string.IsNullOrEmpty(widget.Id))
+                    _widgetColors[widget.Id] = widget.Color;
+            }
+
             RebuildTiles();
             UpdateWindowGeometry();
 
@@ -208,6 +234,46 @@ namespace Kobold.Controls
                 SyncScrollBarFromScroller();
                 FlashScrollBar();
             }
+        }
+
+        /// <summary>
+        /// Mirrors one panel's visibility onto its island tile. Only the tile's
+        /// background and dot change; the tile is never rebuilt.
+        /// </summary>
+        public void SetOpenState(string widgetId, bool isOpen)
+        {
+            if (string.IsNullOrEmpty(widgetId)) return;
+
+            bool changed;
+            if (isOpen)
+            {
+                changed = !_openStates.ContainsKey(widgetId);
+                _openStates[widgetId] = true;
+            }
+            else
+            {
+                changed = _openStates.Remove(widgetId);
+            }
+
+            if (changed) UpdateTileOpenState(widgetId);
+        }
+
+        /// <summary>
+        /// Replaces the whole visibility snapshot (startup restore / island
+        /// refresh) and repaints the existing tiles in place.
+        /// </summary>
+        public void SetOpenStates(IEnumerable<string> openIds)
+        {
+            _openStates.Clear();
+            if (openIds != null)
+            {
+                foreach (string id in openIds)
+                {
+                    if (!string.IsNullOrEmpty(id)) _openStates[id] = true;
+                }
+            }
+
+            UpdateAllTileOpenStates();
         }
 
         #region Hover State Machine
@@ -762,32 +828,10 @@ namespace Kobold.Controls
         private void UpdateDesktopTile()
         {
             bool hidden = WidgetManager.Instance.Config.HideDesktopIcons;
-            Visibility slash = hidden ? Visibility.Visible : Visibility.Collapsed;
-            DesktopSlash.Visibility = slash;
-            DesktopSlashHandDrawn.Visibility = slash;
+            DesktopSlash.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
 
             string action = Localization.Get(hidden ? "Island_DesktopClickShow" : "Island_DesktopClickHide");
             DesktopTile.ToolTip = action + " · " + Localization.Get("Island_DesktopOpenHint");
-        }
-
-        /// <summary>
-        /// Shows the classic or hand-drawn glyphs on the three system tiles
-        /// (desktop, settings, add). Only the exact "handdrawn" id picks the
-        /// hand-drawn canvases; classic/unknown fall back to classic, matching
-        /// <see cref="IconRendererFactory"/>.
-        /// </summary>
-        private void ApplySystemTileIconStyle(string style)
-        {
-            bool handDrawn = style == "handdrawn";
-            Visibility classic = handDrawn ? Visibility.Collapsed : Visibility.Visible;
-            Visibility drawn = handDrawn ? Visibility.Visible : Visibility.Collapsed;
-
-            DesktopTileClassic.Visibility = classic;
-            DesktopTileHandDrawn.Visibility = drawn;
-            SettingsTileClassic.Visibility = classic;
-            SettingsTileHandDrawn.Visibility = drawn;
-            AddTileClassic.Visibility = classic;
-            AddTileHandDrawn.Visibility = drawn;
         }
 
         private Border CreateTile(WidgetData widget, string iconStyle)
@@ -797,20 +841,58 @@ namespace Kobold.Controls
             IconRendererFactory.CreateByKey(kind != null ? kind.IconKey : "folder", iconStyle)
                 .Render(iconCanvas, widget.Color);
 
+            bool open = _openStates.ContainsKey(widget.Id);
+            var accent = WidgetAccent.ReadableBrush(widget.Color);
+
+            var dot = new Ellipse
+            {
+                Width = 3,
+                Height = 3,
+                Tag = "TileDot",
+                Fill = accent,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 3),
+                IsHitTestVisible = false,
+                Visibility = open ? Visibility.Visible : Visibility.Collapsed
+            };
+
+            var content = new Grid();
+            content.Children.Add(new Viewbox
+            {
+                Width = TileIconSize,
+                Height = TileIconSize,
+                Child = iconCanvas,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(dot);
+
             var tile = new Border
             {
                 Width = WidgetConstants.ISLAND_TILE_SIZE,
                 Height = WidgetConstants.ISLAND_TILE_SIZE,
                 CornerRadius = new CornerRadius(8),
-                Background = Brushes.Transparent,
+                Background = open ? TileOpenBackground(widget.Id) : Brushes.Transparent,
                 Cursor = Cursors.Hand,
                 ToolTip = widget.Name,
                 Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
-                Child = new Viewbox { Width = TileIconSize, Height = TileIconSize, Child = iconCanvas }
+                Tag = widget.Id,
+                Child = content
             };
 
-            tile.MouseEnter += (s, e) => tile.Background = ThemeManager.IslandHoverBrush;
-            tile.MouseLeave += (s, e) => tile.Background = Brushes.Transparent;
+            tile.MouseEnter += (s, e) =>
+            {
+                tile.Background = _openStates.ContainsKey(widget.Id)
+                    ? TileOpenBackground(widget.Id)
+                    : ThemeManager.IslandHoverBrush;
+            };
+            tile.MouseLeave += (s, e) =>
+            {
+                tile.Background = _openStates.ContainsKey(widget.Id)
+                    ? TileOpenBackground(widget.Id)
+                    : Brushes.Transparent;
+            };
             tile.MouseLeftButtonUp += (s, e) => ActivateTile(widget.Id);
             tile.MouseRightButtonUp += (s, e) =>
             {
@@ -822,6 +904,62 @@ namespace Kobold.Controls
 
             return tile;
         }
+
+        private void UpdateTileOpenState(string widgetId)
+        {
+            foreach (var child in TilePanel.Children)
+            {
+                var tile = child as Border;
+                if (tile == null || !string.Equals(tile.Tag as string, widgetId, StringComparison.Ordinal))
+                    continue;
+                ApplyTileOpenState(tile);
+            }
+        }
+
+        private void UpdateAllTileOpenStates()
+        {
+            if (TilePanel == null) return;
+            foreach (var child in TilePanel.Children)
+            {
+                var tile = child as Border;
+                if (tile != null) ApplyTileOpenState(tile);
+            }
+        }
+
+        private void ApplyTileOpenState(Border tile)
+        {
+            string id = tile.Tag as string;
+            bool open = !string.IsNullOrEmpty(id) && _openStates.ContainsKey(id);
+            tile.Background = open ? TileOpenBackground(id) : Brushes.Transparent;
+
+            var content = tile.Child as Grid;
+            if (content == null) return;
+            foreach (var child in content.Children)
+            {
+                var dot = child as Ellipse;
+                if (dot == null || !"TileDot".Equals(dot.Tag as string)) continue;
+                dot.Fill = WidgetAccent.ReadableBrush(WidgetColorOf(id));
+                dot.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+                break;
+            }
+        }
+
+        private string WidgetColorOf(string widgetId)
+        {
+            string color;
+            return !string.IsNullOrEmpty(widgetId) && _widgetColors.TryGetValue(widgetId, out color)
+                ? color
+                : UiTokens.DefaultFolderColor;
+        }
+
+        /// <summary>A 14% widget-colour wash over the island surface.</summary>
+        private Brush TileOpenBackground(string widgetId)
+        {
+            return WidgetAccent.Frozen(WidgetAccent.Tint(
+                ThemeManager.IslandBackgroundBrush.Color, WidgetColorOf(widgetId), 0.14));
+        }
+
+
 
         private void ActivateTile(string widgetId)
         {

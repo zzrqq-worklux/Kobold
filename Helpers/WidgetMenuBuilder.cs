@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using Kobold.Controls;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Core.Icons;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Helpers
@@ -29,13 +30,14 @@ namespace Kobold.Helpers
         {
             var menu = new MenuBuilder(host.Data.Color)
                 .AddItem(host.IsPanelOpen ? "Menu_HideWidget" : "Menu_ShowWidget",
-                    () => WidgetManager.Instance.ToggleWidgetPanel(host))
-                .AddItem("Menu_Rename", () => AsWindow(host)?.BeginRename())
-                .AddItem("Menu_ChangeColor", () => AsWindow(host)?.BeginColorChange())
+                    () => WidgetManager.Instance.ToggleWidgetPanel(host), true,
+                    host.IsPanelOpen ? IconId.EyeOff : IconId.Eye)
+                .AddItem("Menu_Rename", () => AsWindow(host)?.BeginRename(), true, IconId.Edit)
+                .AddItem("Menu_ChangeColor", () => AsWindow(host)?.BeginColorChange(), true, IconId.Palette)
                 .AddItem(host.Data.IsLocked ? "Menu_UnlockWidget" : "Menu_LockWidget",
-                    () => ToggleLock(host))
+                    () => ToggleLock(host), true, IconId.Lock)
                 .AddItem(host.Data.IsPanelPinned ? "Menu_UnpinWidget" : "Menu_PinWidget",
-                    () => TogglePin(host));
+                    () => TogglePin(host), true, IconId.Pin);
 
             if (host.Data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
             if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
@@ -43,7 +45,7 @@ namespace Kobold.Helpers
             if (host.Data is SearchData) AddSearchActions(menu);
 
             var built = menu.AddSeparator()
-                .AddItem("Menu_Delete", () => Delete(host))
+                .AddItem("Menu_Delete", () => Delete(host), true, IconId.Delete, ThemeManager.DangerBrush)
                 .Build();
 
             if (onClosed != null) built.Closed += (s, e) => onClosed();
@@ -62,7 +64,8 @@ namespace Kobold.Helpers
                 string kindId = kind.Id;
                 var item = new MenuItem
                 {
-                    Header = Localization.Format("UI_NewWidgetFormat", Localization.Get(KindNameKey(kind)))
+                    Header = Localization.Format("UI_NewWidgetFormat", Localization.Get(KindNameKey(kind))),
+                    Icon = MenuIcons.Create(KindIcon(kind.Id))
                 };
                 item.Click += (s, e) => onCreate?.Invoke(kindId);
                 items.Add(item);
@@ -74,6 +77,14 @@ namespace Kobold.Helpers
         private static string KindNameKey(WidgetKind kind)
         {
             return "UI_WidgetKind" + char.ToUpperInvariant(kind.Id[0]) + kind.Id.Substring(1);
+        }
+
+        private static IconId KindIcon(string kindId)
+        {
+            if (kindId == "todo") return IconId.Check;
+            if (kindId == "note") return IconId.Edit;
+            if (kindId == "search") return IconId.Search;
+            return IconId.Folder;
         }
 
         private static WidgetWindowBase AsWindow(IWidgetWindow host) => host as WidgetWindowBase;
@@ -142,7 +153,11 @@ namespace Kobold.Helpers
         /// </summary>
         private static MenuItem CreateItemSizeMenu()
         {
-            var sizeItem = new MenuItem { Header = Localization.Get("Menu_ItemSize") };
+            var sizeItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_ItemSize"),
+                Icon = MenuIcons.Create(IconId.IconSize)
+            };
             var sizes = new[] {
                 ("Size_Small", 0.9),
                 ("Size_Normal", 1.0),
@@ -195,7 +210,11 @@ namespace Kobold.Helpers
         /// </summary>
         private static MenuItem CreateHolidayRegionMenu(IWidgetWindow host)
         {
-            var regionItem = new MenuItem { Header = Localization.Get("Menu_HolidayRegion") };
+            var regionItem = new MenuItem
+            {
+                Header = Localization.Get("Menu_HolidayRegion"),
+                Icon = MenuIcons.Create(IconId.Calendar)
+            };
             string current = PublicHolidays.NormalizeRegion((host.Data as TodoData)?.HolidayRegion);
 
             string[] keys =
@@ -240,12 +259,12 @@ namespace Kobold.Helpers
         private static void AddSearchActions(MenuBuilder menu)
         {
             FileSearchIndexService service = FileSearchIndexService.Instance;
-            menu.AddItem("Search_Rebuild", () => service.RequestRebuild());
+            menu.AddItem("Search_Rebuild", () => service.RequestRebuild(), true, IconId.Refresh);
 
             // A cancel entry only means something while a full scan is running.
             if (service.Status.State == FileSearchState.Indexing)
             {
-                menu.AddItem("Search_Cancel", () => service.CancelScan());
+                menu.AddItem("Search_Cancel", () => service.CancelScan(), true, IconId.Close);
             }
 
             bool paused = service.Status.State == FileSearchState.Paused;
@@ -259,7 +278,7 @@ namespace Kobold.Helpers
                 {
                     service.Pause();
                 }
-            });
+            }, true, paused ? IconId.Play : IconId.Pause);
         }
 
         #endregion
@@ -277,7 +296,11 @@ namespace Kobold.Helpers
         /// </summary>
         private static MenuItem CreateNoteFontMenu(IWidgetWindow host, NoteData data)
         {
-            var root = new MenuItem { Header = Localization.Get("Menu_NoteFontSize") };
+            var root = new MenuItem
+            {
+                Header = Localization.Get("Menu_NoteFontSize"),
+                Icon = MenuIcons.Create(IconId.TextSize)
+            };
             AddFontEntry(root, host, data, "Note_FontSmall", NoteFontScale.Small);
             AddFontEntry(root, host, data, "Note_FontMedium", NoteFontScale.Medium);
             AddFontEntry(root, host, data, "Note_FontLarge", NoteFontScale.Large);

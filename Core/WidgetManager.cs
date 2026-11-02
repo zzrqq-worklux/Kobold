@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Core.Icons;
 using Kobold.Controls;
 using Kobold.Services;
 using Kobold.Windows;
@@ -84,6 +85,7 @@ namespace Kobold.Core
             
             // Initialize theme system with current theme
             ThemeManager.Initialize(_config.Theme ?? "dark");
+            IconStyleManager.Set(_config.IconStyle ?? IconStyleIds.Classic);
 
             // WPF keeps its render caches for the life of the process (hiding or
             // closing a window returns almost nothing), so a long-idle app hands
@@ -163,6 +165,7 @@ namespace Kobold.Core
         public void RefreshIsland()
         {
             _island?.SetWidgets(_config.Widgets);
+            _island?.SetOpenStates(_widgets.Where(w => w.IsPanelOpen).Select(w => w.WidgetId));
         }
 
         /// <summary>
@@ -347,6 +350,11 @@ namespace Kobold.Core
                 SaveConfig();
                 RefreshIsland();
             };
+
+            // Keep the island tile in step with the real panel state. The
+            // island may not exist yet during startup; the closure resolves it
+            // when the event fires, and RefreshIsland also seeds the snapshot.
+            widget.PanelVisibilityChanged += open => _island?.SetOpenState(widget.WidgetId, open);
 
             _widgets.Add(widget);
             FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);

@@ -25,5 +25,8 @@ namespace Kobold.Controls
 
         event Action<IWidgetWindow> OnDeleted;
         event Action OnDataChanged;
+
+        /// <summary>Raised when the expanded panel becomes visible or hidden.</summary>
+        event Action<bool> PanelVisibilityChanged;
     }
 }

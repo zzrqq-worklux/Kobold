@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Kobold.Controls;
 using Kobold.Core;
+using Kobold.Core.Icons;
+using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.MenuRenderCheck
@@ -45,8 +50,11 @@ namespace Kobold.MenuRenderCheck
                 app.InitializeComponent();               // App.xaml: the menu styles
                 WidgetManager.Instance.ToString();       // theme tokens
                 WidgetPaletteMatchesFolderPalette();
+                MenuTemplateHostsIconPresenter();
 
                 var widget = new FolderWidget(new FolderData());
+                WidgetMenuUsesIconPresenters(widget);
+                MenuHeadersCarryNoGlyphPrefixes(widget);
                 var factory = typeof(FolderWidget).GetMethod("CreateFolderColorEntry",
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 if (factory == null) { Console.WriteLine("TOP FAIL: CreateFolderColorEntry not found"); return 1; }
@@ -56,7 +64,7 @@ namespace Kobold.MenuRenderCheck
                 if (entry == null) { Console.WriteLine("TOP FAIL: the folder color entry was not built"); return 1; }
 
                 FolderColorEntryIsSingle(entry);
-                FolderColorEntryPaintsItsSwatch(entry);
+                FolderColorEntryUsesPalette(entry);
 
                 Check(!FolderColor.HasCustomIcon(null),
                     "folder color: no custom icon hides the default");
@@ -99,26 +107,154 @@ namespace Kobold.MenuRenderCheck
             else Errors.Add(what);
         }
 
+        /// <summary>
+        /// The implicit MenuItem template must reserve an icon column and host
+        /// an IconPresenter; before Claude Warm it had no icon slot at all.
+        /// </summary>
+        private static void MenuTemplateHostsIconPresenter()
+        {
+            var style = Application.Current.TryFindResource(typeof(MenuItem)) as Style;
+            if (style == null)
+            {
+                Errors.Add("menu template: the implicit MenuItem style is missing");
+                return;
+            }
+
+            var item = new MenuItem
+            {
+                Header = "template-check",
+                Icon = MenuIcons.Create(IconId.Eye)
+            };
+            item.Style = style;
+            item.Measure(new Size(240, 48));
+            item.Arrange(new Rect(0, 0, 240, 48));
+            item.UpdateLayout();
+            item.ApplyTemplate();
+
+            Check(FindVisual<IconPresenter>(item) != null,
+                "menu template: hosts an IconPresenter (icon/check/arrow column)");
+
+            var iconHost = item.Template.FindName("IconHost", item) as ContentPresenter;
+            var headerHost = item.Template.FindName("HeaderHost", item) as ContentPresenter;
+            if (iconHost == null || headerHost == null)
+            {
+                Errors.Add("menu template: IconHost/HeaderHost were not found");
+                return;
+            }
+
+            Check(iconHost.ActualWidth >= 15.5,
+                "menu template: the icon column is 16px wide (got " + iconHost.ActualWidth + ")");
+
+            double iconLeft = iconHost.TranslatePoint(new Point(0, 0), item).X;
+            double iconRight = iconHost.TranslatePoint(new Point(iconHost.ActualWidth, 0), item).X;
+            double headerLeft = headerHost.TranslatePoint(new Point(0, 0), item).X;
+            Check(headerLeft >= iconRight,
+                "menu template: the header starts after the icon (icon right " + iconRight +
+                ", header left " + headerLeft + ")");
+            Check(iconLeft <= 10,
+                "menu template: the icon starts near the menu edge (got " + iconLeft + ")");
+            Check(headerLeft - iconLeft <= 27,
+                "menu template: no empty check gutter (icon " + iconLeft + ", header " + headerLeft + ")");
+        }
+
+        /// <summary>
+        /// Every icon the common widget menu puts on an item must be an
+        /// IconPresenter whose id has both baked styles. The check also pins
+        /// that the menu actually carries icons (it used to carry none).
+        /// </summary>
+        private static void WidgetMenuUsesIconPresenters(FolderWidget widget)
+        {
+            ContextMenu menu = WidgetMenuBuilder.Build(widget, null);
+            int icons = 0;
+            int bad = 0;
+            foreach (var item in Flatten(menu.Items))
+            {
+                if (item.Icon == null) continue;
+                icons++;
+                var presenter = item.Icon as IconPresenter;
+                if (presenter == null)
+                {
+                    bad++;
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(IconCatalog.GetPathData(presenter.Icon, false)) ||
+                    string.IsNullOrEmpty(IconCatalog.GetPathData(presenter.Icon, true)))
+                {
+                    bad++;
+                }
+            }
+
+            Check(icons >= 5, "widget menu: carries at least five IconPresenter icons (got " + icons + ")");
+            Check(bad == 0, "widget menu: every icon is an IconPresenter with both styles (" + bad + " bad)");
+        }
+
+        private static IEnumerable<MenuItem> Flatten(ItemCollection items)
+        {
+            foreach (var raw in items)
+            {
+                var item = raw as MenuItem;
+                if (item == null) continue;
+                yield return item;
+                foreach (var child in Flatten(item.Items)) yield return child;
+            }
+        }
+
+        private static void MenuHeadersCarryNoGlyphPrefixes(FolderWidget widget)
+        {
+            var rootMenu = (ContextMenu)typeof(FolderWidget)
+                .GetMethod("BuildRootItemMenu", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(widget, new object[] { new DisplayItem { Path = "C:\\missing", IsDirectory = false } });
+
+            int bad = 0;
+            foreach (var item in Flatten(rootMenu.Items))
+            {
+                string header = item.Header as string;
+                if (header == null) continue;
+                if (header.StartsWith("＋", StringComparison.Ordinal) ||
+                    header.IndexOf("✓", StringComparison.Ordinal) >= 0)
+                {
+                    bad++;
+                }
+            }
+
+            Check(bad == 0, "menus: no ＋/✓ text glyphs in headers (" + bad + " bad)");
+        }
+
+        private static T FindVisual<T>(DependencyObject root) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                var match = child as T;
+                if (match != null) return match;
+                var nested = FindVisual<T>(child);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
         private static void FolderColorEntryIsSingle(MenuItem entry)
         {
             if (entry.Items.Count != 0)
                 Errors.Add("the folder color entry has a submenu");
             if (!"FolderColorEntry".Equals(entry.Tag as string))
                 Errors.Add("the folder color entry is not tagged");
-            var header = entry.Header as StackPanel;
-            if (header == null || header.Children.Count < 2)
-                Errors.Add("the folder color entry header is not a swatch + label");
+            var header = entry.Header as string;
+            if (header == null || header.IndexOf(Localization.Get("Menu_FolderColor"), StringComparison.Ordinal) < 0)
+                Errors.Add("the folder color entry has no localized label");
         }
 
-        private static void FolderColorEntryPaintsItsSwatch(MenuItem entry)
+        private static void FolderColorEntryUsesPalette(MenuItem entry)
         {
-            var header = entry.Header as StackPanel;
-            var swatch = header == null ? null : header.Children[0] as System.Windows.Shapes.Rectangle;
-            if (swatch == null || swatch.Width < 16 || swatch.Height < 16)
-                Errors.Add("the folder color entry has no 16px swatch");
-            var label = header == null ? null : header.Children[1] as TextBlock;
-            if (label == null || label.Text.IndexOf(Localization.Get("Menu_FolderColor"), StringComparison.Ordinal) < 0)
-                Errors.Add("the folder color entry has no localized label");
+            var icon = entry.Icon as IconPresenter;
+            if (icon == null)
+                Errors.Add("the folder color entry has no IconPresenter");
+            else if (icon.Icon != IconId.Palette)
+                Errors.Add("the folder color entry icon is " + icon.Icon + " (expected Palette)");
+            else
+                Console.WriteLine("PASS folder color entry: Palette IconPresenter");
         }
 
         private static void FolderColorEntryIsWired(ContextMenu menu, string where)
@@ -159,8 +295,8 @@ namespace Kobold.MenuRenderCheck
             // Hard-coded so breaking both arrays at once still trips the pin.
             var expected = new[]
             {
-                "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
-                "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+                "#CC785C", "#B5654A", "#D4A017", "#788C5D", "#5DB8A6",
+                "#6A9BCC", "#9C7CA5", "#B56576", "#948B7D"
             };
             Check(widgets.Length == expected.Length,
                 "widget palette: matches the agreed nine-colour count");

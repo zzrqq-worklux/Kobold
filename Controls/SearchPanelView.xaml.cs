@@ -13,6 +13,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Core.FileSearch;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -26,7 +27,8 @@ namespace Kobold.Controls
     public sealed class SearchResultRow
     {
         public SearchEntry Entry { get; set; }
-        public string Glyph { get; set; }
+        public IconId IconId { get; set; }
+        public Brush IconBrush { get; set; }
         public string Name { get; set; }
         public string Path { get; set; }
         public string SizeText { get; set; }
@@ -171,6 +173,8 @@ namespace Kobold.Controls
             }
             PreviewRequestForChecks = null;
             _dragRow = null;
+            if (SearchFocusRing != null) SearchFocusRing.Visibility = Visibility.Collapsed;
+            if (SearchBoxShell != null) SearchBoxShell.BorderBrush = ThemeManager.BorderBrush;
             // A popup must not outlive the view it belongs to.
             if (_resultMenu != null) _resultMenu.IsOpen = false;
             _resultMenu = null;
@@ -226,15 +230,48 @@ namespace Kobold.Controls
                 string color = _data == null || string.IsNullOrEmpty(_data.Color)
                     ? UiTokens.DefaultFolderColor
                     : _data.Color;
-                accent = new SolidColorBrush(Utils.HexToColor(color));
-                accent.Freeze();
+                accent = WidgetAccent.ReadableBrush(color);
             }
 
             // SearchAccent drives the selected result row; the local
             // Kobold.Brush.Accent override gives the native TextBox template the
-            // same widget-coloured focus border and selection.
+            // same widget-coloured selection.
             Resources["SearchAccent"] = accent;
             Resources["Kobold.Brush.Accent"] = accent;
+
+            // The icon+input shell owns the visible focus ring now. A soft
+            // widget-colour wash sits outside the 1px border; high contrast
+            // falls back to the system highlight.
+            if (SearchFocusRing != null)
+            {
+                Color ringColor = ThemeManager.IsHighContrast
+                    ? accent.Color
+                    : Utils.MixColor(ThemeManager.SurfaceBrush.Color, accent.Color, 0.18);
+                var ring = new SolidColorBrush(ringColor);
+                ring.Freeze();
+                SearchFocusRing.BorderBrush = ring;
+                SearchFocusRing.Opacity = ThemeManager.IsHighContrast ? 0.7 : 0.9;
+            }
+
+            if (SearchBox != null && SearchBox.IsKeyboardFocusWithin && SearchBoxShell != null)
+            {
+                SearchBoxShell.BorderBrush = accent;
+            }
+        }
+
+        private void SearchBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (SearchBoxShell == null || SearchFocusRing == null) return;
+            SearchFocusRing.Visibility = Visibility.Visible;
+            SearchBoxShell.BorderBrush =
+                Resources["SearchAccent"] as Brush ?? ThemeManager.AccentBrush;
+        }
+
+        private void SearchBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (SearchBoxShell == null || SearchFocusRing == null) return;
+            SearchFocusRing.Visibility = Visibility.Collapsed;
+            SearchBoxShell.BorderBrush = ThemeManager.BorderBrush;
         }
 
         /// <summary>
@@ -687,12 +724,78 @@ namespace Kobold.Controls
             return new SearchResultRow
             {
                 Entry = entry,
-                Glyph = entry.IsDirectory ? "📁" : "📄",
+                IconId = IconFor(entry),
+                IconBrush = BrushFor(entry),
                 Name = entry.Name ?? string.Empty,
                 Path = parent ?? string.Empty,
                 SizeText = entry.IsDirectory ? string.Empty : FormatSize(entry.SizeBytes),
                 ModifiedText = modified
             };
+        }
+
+        /// <summary>File-type icon for a search result (folders first).</summary>
+        internal static IconId IconFor(SearchEntry entry)
+        {
+            if (entry == null) return IconId.File;
+            if (entry.IsDirectory) return IconId.Folder;
+
+            string ext = (entry.Extension ?? string.Empty).TrimStart('.').ToLowerInvariant();
+            if (ext.Length == 0 && !string.IsNullOrEmpty(entry.Name))
+            {
+                // Older index rows may carry an empty Extension column; the
+                // display name still gives the result its typed icon.
+                ext = Path.GetExtension(entry.Name).TrimStart('.').ToLowerInvariant();
+            }
+            switch (ext)
+            {
+                case "xls":
+                case "xlsx":
+                case "xlsm":
+                case "csv":
+                    return IconId.Sheet;
+                case "doc":
+                case "docx":
+                case "rtf":
+                case "odt":
+                case "ppt":
+                case "pptx":
+                    return IconId.Doc;
+                case "png":
+                case "jpg":
+                case "jpeg":
+                case "gif":
+                case "bmp":
+                case "webp":
+                case "svg":
+                    return IconId.Image;
+                case "zip":
+                case "rar":
+                case "7z":
+                case "gz":
+                    return IconId.Archive;
+                default:
+                    return IconId.File;
+            }
+        }
+
+        private static Brush BrushFor(SearchEntry entry)
+        {
+            if (ThemeManager.IsHighContrast) return ThemeManager.TextBrush;
+
+            string hex;
+            switch (IconFor(entry))
+            {
+                case IconId.Folder: hex = UiTokens.FolderPalette[0]; break;
+                case IconId.Sheet: hex = UiTokens.FolderPalette[3]; break;
+                case IconId.Doc: hex = UiTokens.FolderPalette[5]; break;
+                case IconId.Image: hex = UiTokens.FolderPalette[2]; break;
+                case IconId.Archive: hex = UiTokens.FolderPalette[1]; break;
+                default: hex = UiTokens.FolderPalette[7]; break;
+            }
+
+            var brush = new SolidColorBrush(Utils.HexToColor(hex));
+            brush.Freeze();
+            return brush;
         }
 
         private static string FormatSize(long bytes)
@@ -1297,13 +1400,25 @@ namespace Kobold.Controls
 
         private ContextMenu BuildResultMenu()
         {
-            _openMenuItem = new MenuItem { Header = Localization.Get("Search_Open") };
+            _openMenuItem = new MenuItem
+            {
+                Header = Localization.Get("Search_Open"),
+                Icon = MenuIcons.Create(IconId.Folder)
+            };
             _openMenuItem.Click += (s, e) => OpenSelected();
 
-            _locationMenuItem = new MenuItem { Header = Localization.Get("Search_OpenLocation") };
+            _locationMenuItem = new MenuItem
+            {
+                Header = Localization.Get("Search_OpenLocation"),
+                Icon = MenuIcons.Create(IconId.Desktop)
+            };
             _locationMenuItem.Click += (s, e) => OpenLocationSelected();
 
-            _copyMenuItem = new MenuItem { Header = Localization.Get("Search_CopyPath") };
+            _copyMenuItem = new MenuItem
+            {
+                Header = Localization.Get("Search_CopyPath"),
+                Icon = MenuIcons.Create(IconId.Copy)
+            };
             _copyMenuItem.Click += (s, e) => CopyPathSelected();
 
             var menu = new ContextMenu();

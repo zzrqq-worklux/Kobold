@@ -6,7 +6,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using Kobold.Controls;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Helpers
@@ -138,15 +140,22 @@ namespace Kobold.Helpers
             };
             header.Children.Add(titleText);
 
-            var close = new TextBlock
+            var close = new Border
             {
                 Tag = "PaletteClose",
-                Text = "\u00D7",
-                FontSize = 14,
-                Foreground = ThemeManager.MutedTextBrush,
+                Width = 24,
+                Height = 24,
+                Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(UiTokens.Space2, 0, 0, 0)
+                Margin = new Thickness(UiTokens.Space2, 0, 0, 0),
+                Child = new IconPresenter
+                {
+                    Icon = IconId.Close,
+                    Size = 14,
+                    StrokeThickness = 1.7,
+                    Brush = ThemeManager.MutedTextBrush
+                }
             };
             close.MouseLeftButtonUp += (s, e) => window.Close();
             Grid.SetColumn(close, 1);
@@ -177,13 +186,15 @@ namespace Kobold.Helpers
 
             if (isCurrent)
             {
-                swatch.Child = new TextBlock
+                // The check is an IconPresenter, so it follows the classic /
+                // hand-drawn axis like every other UI icon.
+                swatch.Child = new IconPresenter
                 {
                     Tag = "PaletteCheck",
-                    Text = "\u2713",
-                    FontSize = 20,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = ThemeManager.TextBrush,
+                    Icon = IconId.Check,
+                    Size = 18,
+                    StrokeThickness = 2.0,
+                    Brush = CheckInk(fill.Color),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
@@ -206,6 +217,21 @@ namespace Kobold.Helpers
             };
 
             return swatch;
+        }
+
+        /// <summary>White on a dark swatch, ink on a light one; high contrast
+        /// keeps the system highlight text.</summary>
+        private static Brush CheckInk(Color swatch)
+        {
+            if (ThemeManager.IsHighContrast)
+                return ThemeManager.OnAccentBrush;
+
+            Color ink = WidgetAccent.PerceivedBrightness(swatch) > 0.6
+                ? Utils.HexToColor(UiTokens.Light.TextPrimary)
+                : Colors.White;
+            var brush = new SolidColorBrush(ink);
+            brush.Freeze();
+            return brush;
         }
 
         private static string CurrentColorName(IReadOnlyList<string> palette, string current)

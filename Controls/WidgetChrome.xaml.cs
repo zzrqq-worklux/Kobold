@@ -132,18 +132,18 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The host widget's colour. The whole panel backdrop is tinted from it
-        /// (same gradient maths as FolderWidget's panel); null/empty keeps the
-        /// neutral surface so colourless usage is unchanged.
+        /// The host widget's colour, used only to tint the 1 DIP outer border.
+        /// The panel surface stays the theme's near-opaque Background; this is
+        /// the agreed "border tint, never a whole-panel wash" treatment.
         /// </summary>
         public string PanelColor
         {
-            get => _panelColor;
+            get { return _panelColor; }
             set
             {
                 if (string.Equals(_panelColor, value, StringComparison.Ordinal)) return;
                 _panelColor = value;
-                UpdatePanelBackground();
+                UpdatePanelBorder();
             }
         }
 
@@ -172,7 +172,7 @@ namespace Kobold.Controls
             UpdatePinVisual();
             UpdatePanelBackground();
             TitleText.Foreground = ThemeManager.TextBrush;
-            TitleChevronGlyph.Foreground = ThemeManager.SecondaryTextBrush;
+            TitleChevronIcon.Brush = ThemeManager.SecondaryTextBrush;
 
             // A high-contrast toggle changes the accent source: keep a running
             // comet on the new theme without stopping it.
@@ -194,55 +194,74 @@ namespace Kobold.Controls
         #region Theme and state visuals
 
         /// <summary>
-        /// Mirrors FolderWidget's panel colours: the backdrop is tinted from
-        /// <see cref="PanelColor"/> when one is set, otherwise from the
-        /// theme's neutral panel surface.
+        /// Claude Warm: the panel is a near-opaque theme surface, never a
+        /// widget-colour wash. Opacity scales the alpha only, so the content
+        /// stays crisp; the header sits one step darker on Surface2.
         /// </summary>
         private void UpdatePanelBackground()
         {
-            bool isDark = ThemeManager.IsDarkTheme;
-            Color baseColor = string.IsNullOrEmpty(_panelColor)
-                ? Utils.HexToColor(isDark ? UiTokens.Dark.Surface : UiTokens.Light.Surface)
-                : Utils.HexToColor(_panelColor);
-            Color darkColor = Utils.DarkenColor(baseColor, 0.3);
+            Shell.Background = WithOpacity(ThemeManager.BackgroundBrush, _panelOpacity);
+            Header.Background = WithOpacity(ThemeManager.Surface2Brush, _panelOpacity);
+            UpdatePanelBorder();
+        }
 
-            var panelBrush = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(1, 1)
-            };
+        /// <summary>
+        /// A subtle widget-colour tint on the 1 DIP hairline. High contrast
+        /// keeps the system border; a missing colour returns the neutral
+        /// PanelBorder token.
+        /// </summary>
+        private void UpdatePanelBorder()
+        {
+            bool hasColor = !string.IsNullOrEmpty(_panelColor);
+            Color accent = hasColor
+                ? (ThemeManager.IsHighContrast ? ThemeManager.AccentBrush.Color : WidgetAccent.Readable(_panelColor))
+                : ThemeManager.PanelBorderBrush.Color;
 
-            if (isDark)
+            Color border = ThemeManager.PanelBorderBrush.Color;
+            if (hasColor && !ThemeManager.IsHighContrast)
             {
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(210 * _panelOpacity), darkColor.R, darkColor.G, darkColor.B), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(230 * _panelOpacity), (byte)(darkColor.R * 0.6), (byte)(darkColor.G * 0.6), (byte)(darkColor.B * 0.6)), 1));
+                border = Utils.MixColor(border, accent, 0.65);
             }
-            else
+
+            var brush = new SolidColorBrush(border);
+            brush.Freeze();
+            Shell.BorderBrush = brush;
+
+            var accentBrush = WidgetAccent.Frozen(accent);
+            Visibility accentVisibility = hasColor ? Visibility.Visible : Visibility.Collapsed;
+            // The rail is a sibling over the shell, so it covers the shell's
+            // 1px top hairline without changing the layout border thickness.
+            if (AccentRail != null)
             {
-                Color lightColor = Utils.LightenColor(baseColor, 0.6);
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(240 * _panelOpacity), 250, 250, 250), 0));
-                panelBrush.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(250 * _panelOpacity), lightColor.R, lightColor.G, lightColor.B), 1));
+                AccentRail.Background = accentBrush;
+                AccentRail.Visibility = accentVisibility;
             }
+            if (TitleAccentDot != null)
+            {
+                TitleAccentDot.Fill = accentBrush;
+                TitleAccentDot.Visibility = accentVisibility;
+            }
+        }
 
-            Shell.Background = panelBrush;
-
-            Header.Background = new SolidColorBrush(isDark
-                ? Color.FromArgb((byte)(50 * _panelOpacity), 255, 255, 255)
-                : Color.FromArgb((byte)(40 * _panelOpacity), 0, 0, 0));
+        private static SolidColorBrush WithOpacity(SolidColorBrush source, double opacity)
+        {
+            Color color = source.Color;
+            byte alpha = (byte)Math.Round(255 * Math.Max(0, Math.Min(1, opacity)));
+            var brush = new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+            brush.Freeze();
+            return brush;
         }
 
         private void UpdateLockVisual()
         {
             if (_isLocked)
             {
-                LockIcon.Fill = ThemeManager.PinGoldBrush;
-                LockIcon.Stroke = ThemeManager.PinDarkGoldBrush;
+                LockIconPresenter.Brush = ThemeManager.PinGoldBrush;
                 LockButton.ToolTip = Localization.Get("UI_UnlockTooltip");
             }
             else
             {
-                LockIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
-                LockIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
+                LockIconPresenter.Brush = ThemeManager.PinUnpinnedFillBrush;
                 LockButton.ToolTip = Localization.Get("UI_LockTooltip");
             }
 
@@ -259,18 +278,16 @@ namespace Kobold.Controls
         {
             if (_isPinned)
             {
-                // Pinned state - rotate to 0 (vertical) and highlight
-                PinIconRotation.Angle = 0;
-                PinIcon.Fill = ThemeManager.PinGoldBrush;
-                PinIcon.Stroke = ThemeManager.PinDarkGoldBrush;
+                // Pinned state - upright and highlighted
+                PinIconPresenter.Rotation = 0;
+                PinIconPresenter.Brush = ThemeManager.PinGoldBrush;
                 PinButton.ToolTip = Localization.Get("UI_UnpinTooltip");
             }
             else
             {
-                // Unpinned state - rotate 45 degrees and dim
-                PinIconRotation.Angle = 45;
-                PinIcon.Fill = ThemeManager.PinUnpinnedFillBrush;
-                PinIcon.Stroke = ThemeManager.PinUnpinnedStrokeBrush;
+                // Unpinned state - tilted and dim
+                PinIconPresenter.Rotation = 45;
+                PinIconPresenter.Brush = ThemeManager.PinUnpinnedFillBrush;
                 PinButton.ToolTip = Localization.Get("UI_PinTooltip");
             }
         }

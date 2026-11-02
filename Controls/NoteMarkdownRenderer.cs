@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using Kobold.Core;
+using Kobold.Core.Icons;
 
 namespace Kobold.Controls
 {
@@ -121,7 +122,6 @@ namespace Kobold.Controls
         /// <summary>The task box's side, edge and the hand-drawn check's path.</summary>
         private const double BoxSize = 14;
         private const double BoxStroke = 1.6;
-        private const string CheckPathData = "M 3,7.6 L 5.9,10.5 L 11.2,4.1";
 
         /// <summary>
         /// Paints <paramref name="blocks"/> into a fresh document. <paramref name="callbacks"/>
@@ -351,15 +351,14 @@ namespace Kobold.Controls
 
             if (completed)
             {
-                box.Child = new Path
+                box.Child = new IconPresenter
                 {
-                    Data = Geometry.Parse(CheckPathData),
-                    Stroke = ctx.Palette.Accent,
-                    StrokeThickness = BoxStroke,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    StrokeLineJoin = PenLineJoin.Round,
-                    Stretch = Stretch.None
+                    Icon = IconId.Check,
+                    Size = 10,
+                    StrokeThickness = 1.9,
+                    Brush = ctx.Palette.Accent,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
                 };
             }
 

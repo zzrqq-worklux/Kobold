@@ -10,139 +10,154 @@ namespace Kobold.Core
     /// - Every color literal in the app lives here (guarded by UiTokensCheck).
     /// - Dark/Light must expose the same field names.
     /// - OverlayDark/OverlayLight style menus and tooltips per theme.
+    /// - The palette is a base theme; IconStyle (classic/handdrawn) is an
+    ///   independent axis.
     /// </summary>
     public static class UiTokens
     {
         public static class Dark
         {
-            public const string Background = "#1E1E1E";
-            public const string Surface = "#282828";
-            public const string Border = "#3C3C3C";
-            public const string TextMuted = "#808080";
-            public const string TextSecondary = "#B0B0B0";
-            public const string TextPrimary = "#F0F0F0";
-            public const string TextFaint = "#60FFFFFF";
-            public const string ControlBackground = "#2D2D2D";
-            public const string ControlBorder = "#3C3C3C";
-            public const string ControlBorderHover = "#505050";
-            public const string SurfaceHover = "#3C3C3C";
-            public const string ButtonSecondary = "#3C3C3C";
-            public const string ButtonSecondaryHover = "#4A4A4A";
-            public const string IconFill = "#80FFFFFF";
-            public const string IconStroke = "#40FFFFFF";
-            public const string MissingBadge = "#CCB0B0B0";
-            public const string PanelBorder = "#30FFFFFF";
-            public const string DropIndicator = "#80FFFFFF";
-            public const string SelectionBorder = "#80B4FF";
-            public const string SelectionFillTop = "#1580B4FF";
-            public const string SelectionFillBottom = "#2580B4FF";
-            public const string LassoFill = "#2060A0FF";
-            public const string LassoStroke = "#60A0FF";
-            public const string ScrollThumb = "#4A4A4A";
-            public const string ScrollThumbHover = "#5A5A5A";
-            public const string SliderTrack = "#3C3C3C";
-            public const string SliderThumb = "#B0B0B0";
-            public const string IslandBackground = "#CC202020";
-            public const string IslandBackgroundExpanded = "#E6202020";
-            public const string IslandBorder = "#00000000";
-            public const string IslandHover = "#33FFFFFF";
-            public const string IslandDivider = "#33FFFFFF";
-            public const string IslandForeground = "#FFFFFF";
-            public const string DragGhost = "#643C3C3C";
+            public const string Background = "#191714";
+            public const string Surface = "#211E1A";
+            public const string Surface2 = "#2A261F";
+            public const string Border = "#3D372E";
+            public const string TextMuted = "#91887A";
+            public const string TextSecondary = "#CBC3B5";
+            public const string TextPrimary = "#FAF6EE";
+            public const string TextFaint = "#6F675B";
+            public const string ControlBackground = "#211E1A";
+            public const string ControlBorder = "#3D372E";
+            public const string ControlBorderHover = "#51493D";
+            public const string SurfaceHover = "#2A261F";
+            public const string ButtonSecondary = "#2A261F";
+            public const string ButtonSecondaryHover = "#332D25";
+            public const string IconFill = "#CCFAF6EE";
+            public const string IconStroke = "#40FAF6EE";
+            public const string MissingBadge = "#CCE06C75";
+            public const string PanelBorder = "#CC3D372E";
+            public const string DropIndicator = "#CCD97757";
+            public const string SelectionBorder = "#CCD97757";
+            public const string SelectionFillTop = "#2AD97757";
+            public const string SelectionFillBottom = "#3DD97757";
+            public const string LassoFill = "#208AB4DD";
+            public const string LassoStroke = "#808AB4DD";
+            public const string ScrollThumb = "#3D372E";
+            public const string ScrollThumbHover = "#51493D";
+            public const string SliderTrack = "#3D372E";
+            public const string SliderThumb = "#91887A";
+            public const string IslandBackground = "#F2221F1A";
+            public const string IslandBackgroundExpanded = "#F8221F1A";
+            public const string IslandBorder = "#CC3D372E";
+            public const string IslandHover = "#1FFAF6EE";
+            public const string IslandDivider = "#263D372E";
+            public const string IslandForeground = "#FAF6EE";
+            public const string DragGhost = "#642A261F";
+            public const string Accent = "#D97757";
+            public const string AccentHover = "#E89268";
+            public const string AccentSoft = "#3B2A22";
+            public const string OnAccent = "#FFFDF8";
+            public const string Danger = "#E06C75";
         }
 
         public static class Light
         {
-            public const string Background = "#F3F3F3";
-            public const string Surface = "#FFFFFF";
-            public const string Border = "#D6D6D6";
-            public const string TextMuted = "#8A8A8A";
-            public const string TextSecondary = "#5A5A5A";
-            public const string TextPrimary = "#1F1F1F";
-            public const string TextFaint = "#60000000";
-            public const string ControlBackground = "#FFFFFF";
-            public const string ControlBorder = "#C9C9C9";
-            public const string ControlBorderHover = "#A8A8A8";
-            public const string SurfaceHover = "#ECECEC";
-            public const string ButtonSecondary = "#E5E5E5";
-            public const string ButtonSecondaryHover = "#D9D9D9";
-            public const string IconFill = "#80000000";
-            public const string IconStroke = "#40000000";
-            public const string MissingBadge = "#CC909090";
-            public const string PanelBorder = "#30000000";
-            public const string DropIndicator = "#803B82F6";
-            public const string SelectionBorder = "#80B4FF";
-            public const string SelectionFillTop = "#1580B4FF";
-            public const string SelectionFillBottom = "#2580B4FF";
-            public const string LassoFill = "#2060A0FF";
-            public const string LassoStroke = "#60A0FF";
-            public const string ScrollThumb = "#C0C0C0";
-            public const string ScrollThumbHover = "#A8A8A8";
-            public const string SliderTrack = "#D6D6D6";
-            public const string SliderThumb = "#8A8A8A";
-            public const string IslandBackground = "#CCFFFFFF";
-            public const string IslandBackgroundExpanded = "#E6FFFFFF";
-            public const string IslandBorder = "#33000000";
-            public const string IslandHover = "#14000000";
-            public const string IslandDivider = "#26000000";
-            public const string IslandForeground = "#1F1F1F";
-            public const string DragGhost = "#64FFFFFF";
+            public const string Background = "#F7F2E8";
+            public const string Surface = "#FFFDF8";
+            public const string Surface2 = "#EFE7D9";
+            public const string Border = "#DFD4C2";
+            public const string TextMuted = "#6F675B";
+            public const string TextSecondary = "#403A31";
+            public const string TextPrimary = "#1B1813";
+            public const string TextFaint = "#948B7D";
+            public const string ControlBackground = "#FFFDF8";
+            public const string ControlBorder = "#DFD4C2";
+            public const string ControlBorderHover = "#C9BCA8";
+            public const string SurfaceHover = "#EFE7D9";
+            public const string ButtonSecondary = "#EFE7D9";
+            public const string ButtonSecondaryHover = "#E7DDCD";
+            public const string IconFill = "#B31B1813";
+            public const string IconStroke = "#401B1813";
+            public const string MissingBadge = "#CCA9583E";
+            public const string PanelBorder = "#CCDFD4C2";
+            public const string DropIndicator = "#CCCC785C";
+            public const string SelectionBorder = "#CCCC785C";
+            public const string SelectionFillTop = "#1FCC785C";
+            public const string SelectionFillBottom = "#33CC785C";
+            public const string LassoFill = "#206A9BCC";
+            public const string LassoStroke = "#806A9BCC";
+            public const string ScrollThumb = "#C9BCA8";
+            public const string ScrollThumbHover = "#B3A48E";
+            public const string SliderTrack = "#DFD4C2";
+            public const string SliderThumb = "#6F675B";
+            public const string IslandBackground = "#F2F6F0E5";
+            public const string IslandBackgroundExpanded = "#F8F6F0E5";
+            public const string IslandBorder = "#CCDFD4C2";
+            public const string IslandHover = "#1F1B1813";
+            public const string IslandDivider = "#26DFD4C2";
+            public const string IslandForeground = "#1B1813";
+            public const string DragGhost = "#64FFFDF8";
+            public const string Accent = "#CC785C";
+            public const string AccentHover = "#A9583E";
+            public const string AccentSoft = "#F3DFD4";
+            public const string OnAccent = "#FFFDF8";
+            public const string Danger = "#A53E2A";
         }
 
         /// <summary>Floating surfaces (menus, tooltips) - dark theme.</summary>
         public static class OverlayDark
         {
-            public const string Background = "#282828";
-            public const string Border = "#3C3C3C";
-            public const string Hover = "#3C3C3C";
-            public const string Checked = "#484848";
-            public const string Text = "#F0F0F0";
-            public const string Muted = "#808080";
-            public const string Divider = "#3C3C3C";
-            public const string TooltipBackground = "#F0202020";
-            public const string TooltipBorder = "#40FFFFFF";
+            public const string Background = "#F2211E1A";
+            public const string Border = "#3D372E";
+            public const string Hover = "#2A261F";
+            public const string Checked = "#332D25";
+            public const string Text = "#FAF6EE";
+            public const string Muted = "#91887A";
+            public const string Divider = "#3D372E";
+            public const string TooltipBackground = "#F2191714";
+            public const string TooltipBorder = "#3D372E";
         }
 
         /// <summary>Floating surfaces (menus, tooltips) - light theme.</summary>
         public static class OverlayLight
         {
-            public const string Background = "#F9F9F9";
-            public const string Border = "#D6D6D6";
-            public const string Hover = "#ECECEC";
-            public const string Checked = "#E0E0E0";
-            public const string Text = "#1F1F1F";
-            public const string Muted = "#6E6E6E";
-            public const string Divider = "#E3E3E3";
-            public const string TooltipBackground = "#F2FFFFFF";
-            public const string TooltipBorder = "#40000000";
+            public const string Background = "#FFFDF8";
+            public const string Border = "#DFD4C2";
+            public const string Hover = "#EFE7D9";
+            public const string Checked = "#E7DDCD";
+            public const string Text = "#1B1813";
+            public const string Muted = "#6F675B";
+            public const string Divider = "#E9E0D2";
+            public const string TooltipBackground = "#F2FFFDF8";
+            public const string TooltipBorder = "#DFD4C2";
         }
 
-        /// <summary>Theme-independent brand colors.</summary>
+        /// <summary>Theme-independent brand colors / fallbacks.</summary>
         public static class Shared
         {
-            public const string Accent = "#3B82F6";
-            public const string AccentHover = "#2563EB";
-            public const string OnAccent = "#FFFFFF";
+            public const string Accent = "#CC785C";
+            public const string AccentHover = "#A9583E";
+            public const string OnAccent = "#FFFDF8";
             /// <summary>Dark ink for bright accent surfaces (luminance > 0.6).</summary>
-            public const string OnAccentDark = "#1F1F1F";
+            public const string OnAccentDark = "#1B1813";
             public const string White = "#FFFFFF";
-            public const string Danger = "#E81123";
+            public const string Danger = "#A53E2A";
             public const string PinGold = "#FFD700";
             public const string PinDarkGold = "#B8860B";
         }
 
-        public const string DefaultFolderColor = "#3B82F6";
+        /// <summary>Fallback widget colour (clay).</summary>
+        public const string DefaultFolderColor = "#CC785C";
 
         /// <summary>
-        /// Widget colour choices offered by the picker. Must stay identical to
-        /// <see cref="FolderIconPalette"/> - same hues, same order - so both
-        /// pickers read as one family; tests/MenuRenderCheck pins the two
-        /// together. Existing widget colours outside this set are left as-is.
+        /// Low-saturation Claude Warm widget colours offered by the picker.
+        /// Must stay identical to <see cref="FolderIconPalette"/> - same hues,
+        /// same order - so both pickers read as one family;
+        /// tests/MenuRenderCheck pins the two together.
         /// </summary>
         public static readonly string[] FolderPalette =
         {
-            "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
-            "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+            "#CC785C", "#B5654A", "#D4A017", "#788C5D", "#5DB8A6",
+            "#6A9BCC", "#9C7CA5", "#B56576", "#948B7D"
         };
 
         /// <summary>
@@ -152,8 +167,8 @@ namespace Kobold.Core
         /// </summary>
         public static readonly string[] FolderIconPalette =
         {
-            "#EF4444", "#F97316", "#F59E0B", "#84CC16", "#22C55E",
-            "#06B6D4", "#3B82F6", "#8B5CF6", "#94A3B8"
+            "#CC785C", "#B5654A", "#D4A017", "#788C5D", "#5DB8A6",
+            "#6A9BCC", "#9C7CA5", "#B56576", "#948B7D"
         };
 
         /// <summary>
@@ -163,24 +178,38 @@ namespace Kobold.Core
         /// </summary>
         public static readonly string[] FolderIconPaletteNames =
         {
-            "Color_Red", "Color_Orange", "Color_Yellow", "Color_Lime", "Color_Green",
-            "Color_Cyan", "Color_Blue", "Color_Purple", "Color_Gray"
+            "Color_Clay", "Color_Terracotta", "Color_Ochre", "Color_Sage", "Color_Teal",
+            "Color_DustyBlue", "Color_Heather", "Color_Fig", "Color_WarmGray"
         };
+
+        #region Font families
+
+        /// <summary>Body/UI stack: Segoe UI with the Chinese UI fallback.</summary>
+        public const string FontFamilyUi = "Segoe UI, Microsoft YaHei UI, Microsoft YaHei";
+
+        /// <summary>
+        /// Display stack for titles: the mockup's Fraunces/Noto Serif SC look,
+        /// without bundling a font. Chinese falls through to SimSun.
+        /// </summary>
+        public const string FontFamilyDisplay =
+            "Fraunces, Noto Serif SC, Source Han Serif SC, Songti SC, SimSun, Georgia";
+
+        #endregion
 
         #region Radius scale
 
         public const double RadiusSmall = 4;
         public const double RadiusControl = 8;
-        public const double RadiusWindow = 12;
-        public const double RadiusPanel = 16;
+        public const double RadiusWindow = 10;
+        public const double RadiusPanel = 12;
 
         #endregion
 
         #region Type scale
 
         public const double FontCaption = 11;
-        public const double FontBody = 12;
-        public const double FontSubtitle = 13;
+        public const double FontBody = 13;
+        public const double FontSubtitle = 14;
         public const double FontTitle = 16;
 
         #endregion
@@ -200,14 +229,6 @@ namespace Kobold.Core
         public const int DurationFastMs = 100;
         public const int DurationNormalMs = 150;
         public const int DurationSlowMs = 200;
-
-        #endregion
-
-        #region Widget menu tint (context menus pick up their widget color)
-
-        public const double MenuTintBackground = 0.14;
-        public const double MenuTintState = 0.28;
-        public const double MenuTintBorder = 0.25;
 
         #endregion
 

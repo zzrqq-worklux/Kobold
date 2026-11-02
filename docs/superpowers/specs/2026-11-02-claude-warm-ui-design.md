@@ -1,0 +1,195 @@
+# Claude Warm UI + Hand-drawn Icon System + Island Open State — Design
+
+**Date:** 2026-11-02
+**Source of truth:** `docs/mockups/2026-10-30-claude-warm.html`
+**Reference screenshots:** `docs/mockups/2026-10-30-claude-warm.png`, `docs/mockups/2026-10-30-claude-warm-handdrawn.png`
+
+## Goal
+
+Land the approved Claude Warm visual direction across Kobold while keeping the
+existing hand-drawn widget icon style as a fully independent second axis, and
+make the island reflect each widget panel's real open/hidden state.
+
+## Confirmed Decisions
+
+1. Warm cream light palette (`#F7F2E8`), warm charcoal dark palette
+   (`#191714`), terracotta/clay accent (`#CC785C` light, `#D97757` dark).
+2. Serif titles, sans-serif UI/body. Use the system serif stack
+   (Fraunces → Noto Serif SC → Songti SC → SimSun → Georgia). Do **not** bundle
+   a font in this round.
+3. Palette and icon style are independent axes: Claude Warm palette + classic
+   or hand-drawn icons in any combination.
+4. In hand-drawn mode every icon is a baked hand-drawn asset: chrome, island,
+   menus, file types, settings, tray, and control glyphs. No classic/emoji/text
+   glyph fallback.
+5. Hand-drawn assets are fixed path/Geometry data generated offline. No runtime
+   turbulence/filter/random generation.
+6. An open widget tile uses a 14% widget-colour wash and a 3 px widget-colour
+   dot at the bottom; a hidden tile is transparent. The collapsed island stays
+   a clean bar with no dot (user decision 2026-11-02, revised).
+7. Panel treatment is **border/rail tint, never a whole-panel wash**: the 1 DIP
+   outer border mixes the widget colour 65% into the theme hairline; a 2px
+   widget-colour rail sits at the header's top edge and a 6px dot precedes the
+   serif title. The body and header stay the theme Background / Surface2.
+7. Do not replace window bases with WPF-UI `FluentWindow`; Kobold windows are
+   custom transparent chrome.
+8. No git commit unless the user explicitly asks.
+
+## Palette Tokens
+
+| Role | Light | Dark |
+|---|---|---|
+| Background | `#F7F2E8` | `#191714` |
+| Surface | `#FFFDF8` | `#211E1A` |
+| Surface2 | `#EFE7D9` | `#2A261F` |
+| Border / hairline | `#DFD4C2` | `#3D372E` |
+| TextPrimary / ink | `#1B1813` | `#FAF6EE` |
+| TextSecondary / body | `#403A31` | `#CBC3B5` |
+| TextMuted | `#6F675B` | `#91887A` |
+| TextFaint | `#948B7D` | `#6F675B` |
+| Accent / clay | `#CC785C` | `#D97757` |
+| AccentHover | `#A9583E` | `#E89268` |
+| AccentSoft | `#F3DFD4` | `#3B2A22` |
+| OnAccent | `#FFFDF8` | `#FFFDF8` |
+| Danger | `#A53E2A` | `#E06C75` |
+| Island | `#F6F0E5` | `#221F1A` |
+
+Widget palette (same for widget picker and folder-icon picker, in order):
+
+`#CC785C` clay, `#B5654A` terracotta, `#D4A017` ochre, `#788C5D` sage,
+`#5DB8A6` teal, `#6A9BCC` dusty blue, `#9C7CA5` heather, `#B56576` fig,
+`#948B7D` warm gray.
+
+Radii: small 4, control 8, window 10, panel 12. Body 13, subtitle 14, title 16.
+Panel backdrop: near-opaque theme Background; header: Surface2. The widget
+colour accent system is:
+- 1 DIP outer border: 65% widget-colour mix with the theme hairline;
+- header top rail: 2px widget colour;
+- title marker: 6px widget-colour dot;
+- folder selection: widget-colour border + 12% widget-colour fill;
+- island open tile: 14% widget-colour wash + widget-colour dot;
+- search/todo/note content accents: widget colour (existing).
+
+The body/header never receive a whole-panel wash. Extreme light/dark widget
+colours are darkened/lightened through `WidgetAccent.Readable`.
+
+## Icon Architecture
+
+### Layers
+
+- **64 px content icons** — existing `Controls/IconRenderers/*` for folder,
+  todo, note and search. Untouched; still used by widget tiles and the island
+  add menu.
+- **24 px UI icons** — new `IconId` / `IconCatalog` / `IconPresenter` layer for
+  chrome, island system tiles, menus, settings, tray, file types and control
+  glyphs.
+
+### Types
+
+```csharp
+namespace Kobold.Core.Icons
+{
+    public enum IconId { Settings, Lock, Pin, Search, Folder, File, Sheet, Doc,
+        Image, Plus, Chevron, Edit, Palette, Grid, IconSize, Delete, Desktop,
+        Close, Check, Copy, Refresh, Archive, More, Eye, EyeOff, Globe, Info,
+        Calendar, TextSize, Play, Pause, Home, Help, Terminal, Alert }
+
+    public static class IconStyleIds
+    {
+        public const string Classic = "classic";
+        public const string HandDrawn = "handdrawn";
+    }
+
+    public static class IconStyleManager
+    {
+        public static string Current { get; }
+        public static bool IsHandDrawn { get; }
+        public static event Action Changed;
+        public static void Set(string style);
+    }
+
+    public static class IconCatalog
+    {
+        public static string GetPathData(IconId id, bool handDrawn);
+        public static Geometry Get(IconId id, bool handDrawn);
+        public static IReadOnlyCollection<IconId> All { get; }
+    }
+}
+```
+
+`IconCatalog.g.cs` is generated by `tools/generate-icons.ps1` from
+`assets/icons/24/{classic,handdrawn}/*.svg`. Geometry is parsed once and frozen.
+
+### Presenter
+
+`Controls/IconPresenter.cs` is a `FrameworkElement` with DPs:
+
+- `Icon: IconId`
+- `IconStyle: string` (null/empty = global `IconStyleManager.Current`)
+- `Brush: Brush` (null = `ThemeManager.MutedTextBrush`, live on theme change)
+- `Size: double` (default 16)
+- `Rotation: double` (default 0)
+- `StrokeThickness: double` (default 1.6 in the 24×24 coordinate space)
+
+It draws the catalog geometry with round caps/joins, scales to `Size`, and
+subscribes to `IconStyleManager.Changed` + `ThemeManager.ThemeChanged` while
+loaded. `Chevron` is rotated for back/down/right; `Close` is not a text `✕`.
+
+### Replacement Map
+
+| Surface | Old | New |
+|---|---|---|
+| Widget chrome | `▾`, lock Path, pin Path | `Chevron`, `Lock`, `Pin` presenters |
+| Island system tiles | classic/handdrawn Canvas pairs | `Desktop`, `Plus`, `Settings` presenters |
+| Folder header | back/path/help Paths | `Chevron` (rotated), `Help` |
+| Folder badges/empty | `📂`, vendor image, `!` | `Folder`, `Archive`, `Alert` |
+| Todo | `‹ ›`, `＋`, `✓` | `Chevron` (rotated), `Plus`, `Check` |
+| Note | `＋ `, `✓`, task Path | `Plus`, `Check` presenters |
+| Search | `📁/📄`, no box icon | `Folder`/`Sheet`/`Doc`/`Image`/`File`, `Search` |
+| Settings | 8 emoji headers, `✕`, emoji combo text | header icons, `Close`, plain localized combo labels |
+| Menus | no icon column | icon column + `Check` + `Chevron` submenu arrow |
+| Controls | Path arrows/marks | `Chevron`, `Check` presenters |
+| Tray menu | no icons | `Plus`, `Eye`, `EyeOff`, `Settings`, `Close` |
+
+No pure-text menu entry gains an icon just to fill space. Every menu item that
+does have an icon uses `IconPresenter`, so the hand-drawn set is complete by
+construction. The check mark shares the 16px icon slot (it replaces the icon
+when checked), so an unchecked menu does not reserve a separate check gutter;
+the gap after the icon lives in the 26px column, never in the icon's margin
+(a margin would clip the presenter to 6px).
+
+## Island Open State
+
+- `WidgetWindowBase` raises `PanelVisibilityChanged(bool isOpen)` whenever
+  `_isExpanded` changes (show and hide).
+- `WidgetManager` subscribes for each created widget and calls
+  `IslandWindow.SetOpenState(widgetId, isOpen)`.
+- `IslandWindow` keeps a `Dictionary<string,bool>` of open ids.
+- `CreateTile` builds `Grid { Viewbox(64px icon), Ellipse dot }` inside the
+  tile Border, sets `Tag = widget.Id`.
+- `SetOpenState` updates only the tile background and dot visibility; it never
+  rebuilds the tile. Open = `AccentSoftBrush` background + visible dot.
+- `RefreshIsland` seeds states from the live widget windows.
+- The collapsed pill is a clean bar: no dot or other open-state marker.
+
+## Testing
+
+- New `tests/IconCatalogCheck`: all 35 ids have classic + handdrawn path data,
+  both parse, bounds are non-empty and inside the 24×24 canvas, hand-drawn
+  fingerprints differ from classic, and an `IconPresenter` renders pixels for
+  both styles.
+- `XamlLoadCheck` grows pins for the chrome/island/settings/todo/note/search
+  glyph replacement and the island open-state update (same tile instance).
+- `MenuRenderCheck` grows pins that every `MenuItem.Icon` is an `IconPresenter`
+  whose id has both styles, and that menus carry no `＋`/`✓` text glyphs.
+- `UiTokensCheck` pins the new palette roles, radii, type scale and the exact
+  Claude Warm values.
+- A source scan rejects emoji/text-glyph icon fallbacks in production XAML/C#.
+
+## Non-goals
+
+- Bundling a Chinese serif font.
+- Replacing the 64 px widget icon renderers.
+- Replacing window bases with WPF-UI.
+- Changing SearchDiagnostics or the file-search index behaviour.
+- Committing to git.

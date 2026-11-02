@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Hardcodet.Wpf.TaskbarNotification;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -76,7 +77,8 @@ namespace Kobold.Services
             var addItem = new MenuItem 
             { 
                 Header = Localization.Get("Tray_AddWidget"),
-                FontWeight = FontWeights.Bold
+                FontWeight = FontWeights.Bold,
+                Icon = MenuIcons.Create(IconId.Plus)
             };
             foreach (var kindItem in WidgetMenuBuilder.BuildKindChoices(
                 kind => WidgetManager.Instance.CreateWidget(kind)))
@@ -85,19 +87,35 @@ namespace Kobold.Services
             }
             
             // Show All
-            var showAllItem = new MenuItem { Header = Localization.Get("Tray_ShowAll") };
+            var showAllItem = new MenuItem
+            {
+                Header = Localization.Get("Tray_ShowAll"),
+                Icon = MenuIcons.Create(IconId.Eye)
+            };
             showAllItem.Click += (s, e) => WidgetManager.Instance.ShowAll();
             
             // Hide All
-            var hideAllItem = new MenuItem { Header = Localization.Get("Tray_HideAll") };
+            var hideAllItem = new MenuItem
+            {
+                Header = Localization.Get("Tray_HideAll"),
+                Icon = MenuIcons.Create(IconId.EyeOff)
+            };
             hideAllItem.Click += (s, e) => WidgetManager.Instance.HideAll();
             
             // Settings
-            var settingsItem = new MenuItem { Header = Localization.Get("Tray_Settings") };
+            var settingsItem = new MenuItem
+            {
+                Header = Localization.Get("Tray_Settings"),
+                Icon = MenuIcons.Create(IconId.Settings)
+            };
             settingsItem.Click += (s, e) => ShowSettings();
             
             // Exit
-            var exitItem = new MenuItem { Header = Localization.Get("Tray_Exit") };
+            var exitItem = new MenuItem
+            {
+                Header = Localization.Get("Tray_Exit"),
+                Icon = MenuIcons.Create(IconId.Close, ThemeManager.DangerBrush)
+            };
             exitItem.Click += (s, e) =>
             {
                 WidgetManager.Instance.Shutdown();

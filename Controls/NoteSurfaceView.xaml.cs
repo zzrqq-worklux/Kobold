@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -936,52 +937,64 @@ namespace Kobold.Controls
         private void FillEditorMenu(ContextMenu menu)
         {
             menu.Items.Clear();
-            menu.Items.Add(CommandEntry("Menu_Cut", ApplicationCommands.Cut));
-            menu.Items.Add(CommandEntry("Menu_Copy", ApplicationCommands.Copy));
-            menu.Items.Add(CommandEntry("Menu_Paste", ApplicationCommands.Paste));
-            menu.Items.Add(CommandEntry("Menu_SelectAll", ApplicationCommands.SelectAll));
+            menu.Items.Add(CommandEntry("Menu_Cut", ApplicationCommands.Cut, IconId.Edit));
+            menu.Items.Add(CommandEntry("Menu_Copy", ApplicationCommands.Copy, IconId.Copy));
+            menu.Items.Add(CommandEntry("Menu_Paste", ApplicationCommands.Paste, IconId.Copy));
+            menu.Items.Add(CommandEntry("Menu_SelectAll", ApplicationCommands.SelectAll, IconId.Check));
             menu.Items.Add(new Separator());
 
-            var heading = new MenuItem { Header = Localization.Get("Menu_Heading") };
+            var heading = new MenuItem
+            {
+                Header = Localization.Get("Menu_Heading"),
+                Icon = MenuIcons.Create(IconId.TextSize)
+            };
             for (int level = 1; level <= 6; level++)
             {
                 int chosen = level;
-                var entry = new MenuItem { Header = Localization.Format("Menu_InsertHeading", chosen) };
+                var entry = new MenuItem
+                {
+                    Header = Localization.Format("Menu_InsertHeading", chosen),
+                    Icon = MenuIcons.Create(IconId.TextSize)
+                };
                 entry.Click += (s, e) => ApplyEditorOp(
                     (text, start, length) => NoteEditorOps.InsertHeading(text, start, length, chosen));
                 heading.Items.Add(entry);
             }
             menu.Items.Add(heading);
 
-            var format = new MenuItem { Header = Localization.Get("Menu_Format") };
-            format.Items.Add(InsertEntry("Menu_FormatBold",
+            var format = new MenuItem
+            {
+                Header = Localization.Get("Menu_Format"),
+                Icon = MenuIcons.Create(IconId.Edit)
+            };
+            format.Items.Add(InsertEntry("Menu_FormatBold", IconId.Edit,
                 (text, start, length) => NoteEditorOps.WrapBold(text, start, length, Localization.Get("Note_PlaceholderBold"))));
-            format.Items.Add(InsertEntry("Menu_FormatItalic",
+            format.Items.Add(InsertEntry("Menu_FormatItalic", IconId.Edit,
                 (text, start, length) => NoteEditorOps.WrapItalic(text, start, length, Localization.Get("Note_PlaceholderItalic"))));
-            format.Items.Add(InsertEntry("Menu_FormatStrike",
+            format.Items.Add(InsertEntry("Menu_FormatStrike", IconId.Edit,
                 (text, start, length) => NoteEditorOps.WrapStrike(text, start, length, Localization.Get("Note_PlaceholderStrike"))));
-            format.Items.Add(InsertEntry("Menu_FormatCode",
+            format.Items.Add(InsertEntry("Menu_FormatCode", IconId.Terminal,
                 (text, start, length) => NoteEditorOps.WrapInlineCode(text, start, length, Localization.Get("Note_PlaceholderInlineCode"))));
-            format.Items.Add(InsertEntry("Menu_FormatLink",
+            format.Items.Add(InsertEntry("Menu_FormatLink", IconId.Globe,
                 (text, start, length) => NoteEditorOps.WrapLink(text, start, length, Localization.Get("Note_PlaceholderLink"))));
             menu.Items.Add(format);
 
             string firstColumn = Localization.Format("Note_TableColumnFormat", 1);
             string secondColumn = Localization.Format("Note_TableColumnFormat", 2);
 
-            menu.Items.Add(InsertEntry("Menu_InsertBullets",
+            menu.Items.Add(InsertEntry("Menu_InsertBullets", IconId.More,
                 (text, start, length) => NoteEditorOps.InsertBullet(text, start, length)));
-            menu.Items.Add(InsertEntry("Menu_InsertNumbers",
+            menu.Items.Add(InsertEntry("Menu_InsertNumbers", IconId.More,
                 (text, start, length) => NoteEditorOps.InsertNumbered(text, start, length)));
-            menu.Items.Add(InsertEntry("Menu_InsertTasks",
+            menu.Items.Add(InsertEntry("Menu_InsertTasks", IconId.Check,
                 (text, start, length) => NoteEditorOps.InsertTask(text, start, length)));
-            menu.Items.Add(InsertEntry("Menu_InsertQuote",
+            menu.Items.Add(InsertEntry("Menu_InsertQuote", IconId.Doc,
                 (text, start, length) => NoteEditorOps.InsertQuote(text, start, length)));
-            menu.Items.Add(InsertEntry("Menu_InsertCode",
+            menu.Items.Add(InsertEntry("Menu_InsertCode", IconId.Terminal,
                 (text, start, length) => NoteEditorOps.InsertCodeBlock(text, start, length)));
-            menu.Items.Add(InsertEntry("Menu_InsertTable",
+            menu.Items.Add(InsertEntry("Menu_InsertTable", IconId.Grid,
                 (text, start, length) => NoteEditorOps.InsertTable(text, start, length, firstColumn, secondColumn)));
-            menu.Items.Add(InsertEntry("Menu_InsertDivider",
+            menu.Items.Add(InsertEntry("Menu_InsertDivider", IconId.More,
                 (text, start, length) => NoteEditorOps.InsertDivider(text, start, length)));
 
             MenuBuilder.Prepare(menu, _data.Color);
@@ -990,20 +1003,26 @@ namespace Kobold.Controls
         /// <summary>One of the standard four: the header is ours, the behaviour
         /// is WPF's own routed command aimed at the box (the menu itself takes
         /// the focus, so the target is pinned rather than inferred).</summary>
-        private MenuItem CommandEntry(string labelKey, ICommand command)
+        private MenuItem CommandEntry(string labelKey, ICommand command, IconId icon)
         {
             return new MenuItem
             {
                 Header = Localization.Get(labelKey),
+                Icon = MenuIcons.Create(icon),
                 Command = command,
                 CommandTarget = EditBox
             };
         }
 
         /// <summary>One insert entry: its localized label and the op it runs.</summary>
-        private MenuItem InsertEntry(string labelKey, Func<string, int, int, (string, int, int)> op)
+        private MenuItem InsertEntry(string labelKey, IconId icon,
+            Func<string, int, int, (string, int, int)> op)
         {
-            var item = new MenuItem { Header = Localization.Get(labelKey) };
+            var item = new MenuItem
+            {
+                Header = Localization.Get(labelKey),
+                Icon = MenuIcons.Create(icon)
+            };
             item.Click += (s, e) => ApplyEditorOp(op);
             return item;
         }

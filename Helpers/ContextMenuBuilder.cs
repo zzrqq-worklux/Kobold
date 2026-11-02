@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Helpers
@@ -14,25 +15,26 @@ namespace Kobold.Helpers
     public class MenuBuilder
     {
         private readonly ContextMenu _menu;
-        private readonly string _tintColor;
 
         /// <summary>
-        /// Creates a menu builder. Pass the widget color to tint the menu so
-        /// it reads as belonging to that widget (null keeps the default dark).
+        /// Creates a menu builder. The constructor keeps the historical
+        /// optional colour argument so call sites can migrate incrementally;
+        /// Claude Warm no longer tints the menu surface.
         /// </summary>
         public MenuBuilder(string tintColor = null)
         {
             _menu = new ContextMenu();
-            _tintColor = tintColor;
         }
 
         /// <summary>
         /// Add a simple menu item with click handler. isEnabled=false renders it
         /// greyed out (used when a browse selection makes the action ambiguous).
         /// </summary>
-        public MenuBuilder AddItem(string localizationKey, Action onClick, bool isEnabled = true)
+        public MenuBuilder AddItem(string localizationKey, Action onClick, bool isEnabled = true,
+            IconId? icon = null, Brush iconBrush = null)
         {
             var item = new MenuItem { Header = Localization.Get(localizationKey), IsEnabled = isEnabled };
+            if (icon.HasValue) item.Icon = MenuIcons.Create(icon.Value, iconBrush);
             item.Click += (s, e) => onClick?.Invoke();
             _menu.Items.Add(item);
             return this;
@@ -41,9 +43,10 @@ namespace Kobold.Helpers
         /// <summary>
         /// Add a checkable menu item
         /// </summary>
-        public MenuBuilder AddCheckItem(string header, bool isChecked, Action onClick)
+        public MenuBuilder AddCheckItem(string header, bool isChecked, Action onClick, IconId? icon = null)
         {
             var item = new MenuItem { Header = header, IsChecked = isChecked };
+            if (icon.HasValue) item.Icon = MenuIcons.Create(icon.Value);
             item.Click += (s, e) => onClick?.Invoke();
             _menu.Items.Add(item);
             return this;
@@ -52,9 +55,11 @@ namespace Kobold.Helpers
         /// <summary>
         /// Add a submenu with items
         /// </summary>
-        public MenuBuilder AddSubmenu(string localizationKey, Action<SubmenuBuilder> configure)
+        public MenuBuilder AddSubmenu(string localizationKey, Action<SubmenuBuilder> configure,
+            IconId? icon = null)
         {
             var submenu = new MenuItem { Header = Localization.Get(localizationKey) };
+            if (icon.HasValue) submenu.Icon = MenuIcons.Create(icon.Value);
             var builder = new SubmenuBuilder(submenu);
             configure(builder);
             _menu.Items.Add(submenu);
@@ -84,7 +89,7 @@ namespace Kobold.Helpers
         /// </summary>
         public void Show()
         {
-            Prepare(_menu, _tintColor);
+            Prepare(_menu);
             _menu.IsOpen = true;
         }
 
@@ -93,18 +98,18 @@ namespace Kobold.Helpers
         /// </summary>
         public ContextMenu Build()
         {
-            Prepare(_menu, _tintColor);
+            Prepare(_menu);
             return _menu;
         }
 
         /// <summary>
-        /// Shared menu preparation: always extend to the right of the cursor,
-        /// and tint with the widget color when one is given.
+        /// Shared menu preparation: always extend to the right of the cursor.
+        /// The surface stays theme-neutral; the widget colour is an accent on
+        /// the content, never a whole-menu wash.
         /// </summary>
         public static void Prepare(ContextMenu menu, string widgetColor = null)
         {
             ForceRightSidePlacement(menu);
-            if (!string.IsNullOrEmpty(widgetColor)) ApplyWidgetTint(menu, widgetColor);
         }
 
         private static void ForceRightSidePlacement(ContextMenu menu)
@@ -132,30 +137,6 @@ namespace Kobold.Helpers
             };
         }
 
-        /// <summary>
-        /// Tints a context menu with a widget color by overriding the
-        /// 'Kobold.Brush.Overlay*' keys on the menu itself; the global
-        /// templates resolve those keys first. The mix base is the active
-        /// theme's surface color, so dark themes get a subtle hue and light
-        /// themes a pastel wash. Strength lives in UiTokens.MenuTint*.
-        /// </summary>
-        private static void ApplyWidgetTint(ContextMenu menu, string widgetColor)
-        {
-            var tint = Utils.HexToColor(widgetColor);
-
-            SetTint(menu, "OverlayBackground", ThemeManager.OverlayBackgroundBrush.Color, tint, UiTokens.MenuTintBackground);
-            SetTint(menu, "OverlayHover", ThemeManager.OverlayHoverBrush.Color, tint, UiTokens.MenuTintState);
-            SetTint(menu, "OverlayChecked", ThemeManager.OverlayCheckedBrush.Color, tint, UiTokens.MenuTintState);
-            SetTint(menu, "OverlayBorder", ThemeManager.OverlayBorderBrush.Color, tint, UiTokens.MenuTintBorder);
-            SetTint(menu, "OverlayDivider", ThemeManager.OverlayDividerBrush.Color, tint, UiTokens.MenuTintBorder);
-        }
-
-        private static void SetTint(ContextMenu menu, string key, Color baseColor, Color tint, double amount)
-        {
-            var brush = new SolidColorBrush(Utils.MixColor(baseColor, tint, amount));
-            brush.Freeze();
-            menu.Resources[ThemeManager.BrushKeyPrefix + key] = brush;
-        }
     }
 
     /// <summary>
@@ -173,9 +154,10 @@ namespace Kobold.Helpers
         /// <summary>
         /// Add a checkable item to submenu
         /// </summary>
-        public SubmenuBuilder AddCheckItem(string header, bool isChecked, Action onClick)
+        public SubmenuBuilder AddCheckItem(string header, bool isChecked, Action onClick, IconId? icon = null)
         {
             var item = new MenuItem { Header = header, IsChecked = isChecked };
+            if (icon.HasValue) item.Icon = MenuIcons.Create(icon.Value);
             item.Click += (s, e) => onClick?.Invoke();
             _parent.Items.Add(item);
             return this;
@@ -184,9 +166,10 @@ namespace Kobold.Helpers
         /// <summary>
         /// Add a simple item to submenu
         /// </summary>
-        public SubmenuBuilder AddItem(string header, Action onClick)
+        public SubmenuBuilder AddItem(string header, Action onClick, IconId? icon = null)
         {
             var item = new MenuItem { Header = header };
+            if (icon.HasValue) item.Icon = MenuIcons.Create(icon.Value);
             item.Click += (s, e) => onClick?.Invoke();
             _parent.Items.Add(item);
             return this;

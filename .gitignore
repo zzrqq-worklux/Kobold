@@ -295,3 +295,6 @@ Setup/
 
 # Installer self-test sandbox (used when %TEMP% is blocked by security software)
 tools/tests/.sandbox/
+
+# Local visual verification screenshots (personal desktop content - never push)
+docs/screenshots/

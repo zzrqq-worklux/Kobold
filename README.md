@@ -385,7 +385,7 @@ runners (the window/desktop-heavy checks stay local), `installer` = the
 installer self-check (logic only, temp folders, no registry writes) and
 `all` = checks + installer.
 
-The `all` matrix is **33 checks**: 31 console checks (including
+The `all` matrix is **34 checks**: 32 console checks (including
 `FileSearchCheck` for the SQLite index, scanner, watcher and service), the
 config pin and the installer tests.
 
@@ -703,7 +703,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List  
 会话的检查留在本地）；`installer` = 安装器纯逻辑自检（只在临时目录，不写注册表）；
 `all` = 两者之和。
 
-`all` 矩阵共 **33 项**：31 个控制台自检（含 `FileSearchCheck`：SQLite 索引、
+`all` 矩阵共 **34 项**：32 个控制台自检（含 `FileSearchCheck`：SQLite 索引、
 扫描器、监听与服务）、配置 pin 和安装器测试。
 
 Release 输出是平铺布局：`Kobold.exe` 加 11 个运行时文件，其中包括 SQLite 原生

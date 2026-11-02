@@ -1,6 +1,7 @@
 <Application x:Class="Kobold.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icons="clr-namespace:Kobold.Controls"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <ResourceDictionary>
@@ -22,7 +23,7 @@
                             <Grid Background="Transparent" Margin="10">
                                 <Border x:Name="Surface" Background="{DynamicResource Kobold.Brush.OverlayBackground}"
                                         BorderBrush="{DynamicResource Kobold.Brush.OverlayBorder}" BorderThickness="1"
-                                        CornerRadius="12" Padding="8">
+                                        CornerRadius="10" Padding="6">
                                     <Border.Effect>
                                         <DropShadowEffect BlurRadius="12" ShadowDepth="5" Opacity="0.40" Color="Black" RenderingBias="Quality"/>
                                     </Border.Effect>
@@ -55,26 +56,43 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="{x:Type MenuItem}">
                             <Border x:Name="Bg" Background="Transparent" Padding="0">
-                                <Border x:Name="Pill" Margin="4,1" CornerRadius="8" Padding="12,8" Background="Transparent">
+                                <Border x:Name="Pill" Margin="0,1" CornerRadius="8" Padding="9,0" MinHeight="32"
+                                        Background="Transparent">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
+                                            <!-- 26 = 16px icon + 10px gap. There is NO separate
+                                                 check column: the check shares this slot and replaces
+                                                 the icon when an item is checked, so unchecked menus
+                                                 do not reserve an empty 18px gutter. -->
+                                            <ColumnDefinition Width="26"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <ContentPresenter Grid.Column="0" ContentSource="Header"
+                                        <!-- Icon slot: every menu icon is an IconPresenter, so the
+                                             classic/hand-drawn switch is automatic. -->
+                                        <ContentPresenter x:Name="IconHost" Grid.Column="0" ContentSource="Icon"
+                                                          Width="16" Height="16" Margin="0"
+                                                          HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                        <!-- Checked state: the same clay check as the hand-drawn controls. -->
+                                        <icons:IconPresenter x:Name="Check" Grid.Column="0" Icon="Check" Size="12"
+                                                             StrokeThickness="1.8"
+                                                             Brush="{DynamicResource Kobold.Brush.Accent}"
+                                                             VerticalAlignment="Center" HorizontalAlignment="Left"
+                                                             Visibility="Collapsed"/>
+                                        <ContentPresenter x:Name="HeaderHost" Grid.Column="1" ContentSource="Header"
                                                           VerticalAlignment="Center" RecognizesAccessKey="True"/>
-                                        <Path x:Name="Arrow" Grid.Column="1" Data="M0,0 L4.5,5.5 L0,11"
-                                              Stroke="{DynamicResource Kobold.Brush.OverlayMuted}" StrokeThickness="1.5"
-                                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                              Fill="{x:Null}" Margin="12,0,0,0" VerticalAlignment="Center"
-                                              Visibility="Collapsed"/>
+                                        <icons:IconPresenter x:Name="Arrow" Grid.Column="2" Icon="Chevron" Size="12"
+                                                             StrokeThickness="1.7"
+                                                             Brush="{DynamicResource Kobold.Brush.OverlayMuted}"
+                                                             Margin="12,0,0,0" VerticalAlignment="Center"
+                                                             Visibility="Collapsed"/>
                                         <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
                                                IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
                                                Placement="Right" HorizontalOffset="-12" VerticalOffset="-14">
                                             <Grid Background="Transparent" Margin="10">
                                                 <Border Background="{DynamicResource Kobold.Brush.OverlayBackground}"
                                                         BorderBrush="{DynamicResource Kobold.Brush.OverlayBorder}" BorderThickness="1"
-                                                        CornerRadius="12" Padding="8">
+                                                        CornerRadius="10" Padding="6">
                                                     <Border.Effect>
                                                         <DropShadowEffect BlurRadius="12" ShadowDepth="5" Opacity="0.40" Color="Black" RenderingBias="Quality"/>
                                                     </Border.Effect>
@@ -94,6 +112,8 @@
                                 </Trigger>
                                 <Trigger Property="IsChecked" Value="True">
                                     <Setter TargetName="Pill" Property="Background" Value="{DynamicResource Kobold.Brush.OverlayChecked}"/>
+                                    <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
+                                    <Setter TargetName="IconHost" Property="Visibility" Value="Collapsed"/>
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="Pill" Property="Opacity" Value="0.5"/>

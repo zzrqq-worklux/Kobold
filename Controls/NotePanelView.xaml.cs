@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Kobold.Core;
+using Kobold.Core.Icons;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
@@ -297,13 +298,13 @@ namespace Kobold.Controls
                 Margin = new Thickness(0, 0, 0, 4)
             };
             actions.Children.Add(BuildTitleMenuAction(
-                "NoteMenuNew",
-                "＋ " + Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote")),
+                "NoteMenuNew", IconId.Plus,
+                Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote")),
                 StartNewNote));
             if (!IsHome)
             {
                 actions.Children.Add(BuildTitleMenuAction(
-                    "NoteMenuHome", Localization.Get("UI_NoteHome"), GoHome));
+                    "NoteMenuHome", IconId.Home, Localization.Get("UI_NoteHome"), GoHome));
             }
             panel.Children.Add(actions);
 
@@ -359,7 +360,8 @@ namespace Kobold.Controls
             var newItem = new MenuItem
             {
                 Tag = "NoteMenuNew",
-                Header = "＋ " + Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"))
+                Header = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote")),
+                Icon = MenuIcons.Create(IconId.Plus)
             };
             newItem.Click += (s, e) =>
             {
@@ -373,7 +375,8 @@ namespace Kobold.Controls
                 var home = new MenuItem
                 {
                     Tag = "NoteMenuHome",
-                    Header = Localization.Get("UI_NoteHome")
+                    Header = Localization.Get("UI_NoteHome"),
+                    Icon = MenuIcons.Create(IconId.Home)
                 };
                 home.Click += (s, e) =>
                 {
@@ -414,11 +417,12 @@ namespace Kobold.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MENU_CHECK_WIDTH) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var check = new TextBlock
+            var check = new IconPresenter
             {
                 Tag = "NoteMenuCheck",
-                Text = current ? "✓" : string.Empty,
-                Foreground = ThemeManager.SecondaryTextBrush,
+                Icon = IconId.Check,
+                Size = 12,
+                Visibility = current ? Visibility.Visible : Visibility.Collapsed,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(check, 0);
@@ -440,12 +444,27 @@ namespace Kobold.Controls
         }
 
         /// <summary>One flat action button of the dropdown (new / home).</summary>
-        private Button BuildTitleMenuAction(string tag, string text, Action action)
+        private Button BuildTitleMenuAction(string tag, IconId icon, string text, Action action)
         {
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(new IconPresenter
+            {
+                Icon = icon,
+                Size = 15,
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = text,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
             var button = new Button
             {
                 Tag = tag,
-                Content = new TextBlock { Text = text, TextTrimming = TextTrimming.CharacterEllipsis },
+                Content = content,
                 Style = FindResource("Kobold.Style.LauncherItem") as Style,
                 MinHeight = 32
             };
@@ -470,11 +489,12 @@ namespace Kobold.Controls
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MENU_CHECK_WIDTH) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var check = new TextBlock
+            var check = new IconPresenter
             {
                 Tag = "NoteMenuCheck",
-                Text = current ? "✓" : string.Empty,
-                Foreground = ThemeManager.SecondaryTextBrush,
+                Icon = IconId.Check,
+                Size = 12,
+                Visibility = current ? Visibility.Visible : Visibility.Collapsed,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(check, 0);
@@ -846,7 +866,8 @@ namespace Kobold.Controls
 
             var newItem = new MenuItem
             {
-                Header = "＋ " + Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote"))
+                Header = Localization.Format("UI_NewWidgetFormat", Localization.Get("UI_WidgetKindNote")),
+                Icon = MenuIcons.Create(IconId.Plus)
             };
             newItem.Click += (s, e) =>
             {
@@ -857,7 +878,11 @@ namespace Kobold.Controls
 
             if (!IsHome)
             {
-                var home = new MenuItem { Header = Localization.Get("UI_NoteHome") };
+                var home = new MenuItem
+                {
+                    Header = Localization.Get("UI_NoteHome"),
+                    Icon = MenuIcons.Create(IconId.Home)
+                };
                 home.Click += (s, e) =>
                 {
                     CloseTitleMenu();
@@ -894,8 +919,18 @@ namespace Kobold.Controls
             var progress = NoteOps.TaskProgressOf(note.Text);
             if (progress.HasValue)
             {
-                content.Children.Add(NewLine("✓ " + progress.Value.done + "/" + progress.Value.total,
+                var progressRow = new StackPanel { Orientation = Orientation.Horizontal };
+                progressRow.Children.Add(new IconPresenter
+                {
+                    Icon = IconId.Check,
+                    Size = 10,
+                    Brush = ThemeManager.SecondaryTextBrush,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                progressRow.Children.Add(NewLine(progress.Value.done + "/" + progress.Value.total,
                     META_FONT, FontWeights.Normal, ThemeManager.SecondaryTextBrush));
+                content.Children.Add(progressRow);
             }
 
             var card = new Border
