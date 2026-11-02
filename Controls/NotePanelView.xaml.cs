@@ -88,6 +88,16 @@ namespace Kobold.Controls
             InitializeComponent();
 
             _surface = new NoteSurfaceView();
+
+            // The rendered box is a read-only RichTextBox: without a custom
+            // ContextMenu WPF opens its built-in text menu and marks the
+            // opening event handled, so the full note menu never appears over
+            // the note text. Carry one menu and refill it in place per opening.
+            var readingMenu = new ContextMenu();
+            _surface.ReadingText.ContextMenu = readingMenu;
+            _surface.ReadingText.ContextMenuOpening += (s, e) => FillNoteContextMenu(readingMenu);
+            MenuBuilder.Prepare(readingMenu, null);
+
             _surfaceHost = new Border
             {
                 Padding = new Thickness(10, 8, 10, 8),
@@ -356,6 +366,20 @@ namespace Kobold.Controls
         public ContextMenu BuildNoteContextMenu()
         {
             var menu = new ContextMenu();
+            FillNoteContextMenu(menu);
+            MenuBuilder.Prepare(menu, _data == null ? null : _data.Color);
+            return menu;
+        }
+
+        /// <summary>
+        /// Fills one menu with the full note actions and note list. The panel
+        /// builds a fresh menu for the blank-area route and refills the
+        /// reading box's carried menu in place on every right-click, so WPF's
+        /// text editor steps aside and the full menu opens over the note text.
+        /// </summary>
+        private void FillNoteContextMenu(ContextMenu menu)
+        {
+            menu.Items.Clear();
 
             var newItem = new MenuItem
             {
@@ -418,9 +442,6 @@ namespace Kobold.Controls
                 };
                 menu.Items.Add(item);
             }
-
-            MenuBuilder.Prepare(menu, _data == null ? null : _data.Color);
-            return menu;
         }
 
         /// <summary>One flat action button of the dropdown (new / home).</summary>

@@ -128,6 +128,14 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// The rendered read-only box. The panel owns its ContextMenu: a
+        /// RichTextBox with no custom menu opens WPF's built-in text menu and
+        /// marks ContextMenuOpening handled, so the panel's full note menu
+        /// would never appear over the note text.
+        /// </summary>
+        internal RichTextBox ReadingText => ReadingBox;
+
+        /// <summary>
         /// Binds the surface to one note of a widget's data and paints the
         /// rendered state: the document box is shown, the three editing panes
         /// are hidden and any edit session is dropped, so a reused surface

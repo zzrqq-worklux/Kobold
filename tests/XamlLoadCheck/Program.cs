@@ -693,6 +693,8 @@ namespace Kobold.XamlLoadCheck
                     NoteRenderedRightClickOpensTheFullMenu);
                 failures += TryCheck("note: the full note menu checks each entry once",
                     NoteRenderedMenuChecksOnlyOnce);
+                failures += TryCheck("note: the reading box owns the full note menu",
+                    NoteReadingBoxOwnsTheFullNoteMenu);
                 failures += TryCheck("launcher: the note menu wears the shared card", NoteTitleMenuUsesTheLauncherStyle);
                 failures += TryCheck("note: the title menu switches notes", NoteTitleMenuSwitchesNotes);
                 failures += TryCheck("note: the title menu starts a new note", NoteTitleMenuStartsANewNote);
@@ -13301,6 +13303,63 @@ namespace Kobold.XamlLoadCheck
             }
             if (checks != 1)
                 throw new InvalidOperationException("the note menu checks " + checks + " entries");
+        }
+
+        /// <summary>
+        /// The rendered note's text is a read-only RichTextBox: its built-in
+        /// Cut/Copy/Paste menu would swallow the right-click before the panel
+        /// sees it. The box must carry the full note menu instead, and that
+        /// menu's note entries must switch the open note.
+        /// </summary>
+        private static void NoteReadingBoxOwnsTheFullNoteMenu()
+        {
+            ThemeManager.Initialize("dark");
+            var data = new NoteData { Name = "Notebook" };
+            data.Notes.Add(NewNote("a", "Alpha", new DateTime(2026, 3, 5, 9, 0, 0)));
+            data.Notes.Add(NewNote("b", "Beta", new DateTime(2026, 3, 5, 11, 0, 0)));
+
+            var view = new NoteWidget(data).PanelView;
+            view.Refresh();
+            view.OpenNote("b");
+
+            var reading = SurfaceNamed(NoteSurface(view), "ReadingBox") as RichTextBox;
+            if (reading == null)
+                throw new InvalidOperationException("the reading box is missing");
+            if (reading.ContextMenu == null)
+                throw new InvalidOperationException("the reading box still falls back to its built-in text menu");
+
+            RaiseContextMenuOpening(reading);
+            var menu = reading.ContextMenu;
+            if (menu.Items.Count != 5)
+                throw new InvalidOperationException(
+                    "the reading-box menu has " + menu.Items.Count + " item(s), wanted 5");
+            if (!"NoteMenuNew".Equals((menu.Items[0] as MenuItem)?.Tag as string))
+                throw new InvalidOperationException("the reading-box menu has no new entry");
+            if (!"NoteMenuHome".Equals((menu.Items[1] as MenuItem)?.Tag as string))
+                throw new InvalidOperationException("the reading-box menu has no home entry");
+            if (!(menu.Items[2] is Separator))
+                throw new InvalidOperationException("the reading-box menu has no separator");
+
+            MenuItem alpha = null;
+            for (int i = 3; i < menu.Items.Count; i++)
+            {
+                var item = menu.Items[i] as MenuItem;
+                if (item != null && "a".Equals(item.Tag as string)) alpha = item;
+            }
+            if (alpha == null)
+                throw new InvalidOperationException("the reading-box menu has no note entry");
+            alpha.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            if (PrivateField<string>(view, "_expandedId") != "a")
+                throw new InvalidOperationException("the reading-box menu did not switch notes");
+        }
+
+        /// <summary>Raises the real ContextMenuOpening route on one element.</summary>
+        private static void RaiseContextMenuOpening(DependencyObject source)
+        {
+            var args = (ContextMenuEventArgs)Activator.CreateInstance(typeof(ContextMenuEventArgs),
+                BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { source, true }, null);
+            args.RoutedEvent = ContextMenuService.ContextMenuOpeningEvent;
+            ((UIElement)source).RaiseEvent(args);
         }
 
         private static string ContextMenuTitle(MenuItem item)
