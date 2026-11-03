@@ -412,36 +412,59 @@ namespace Kobold.Controls
 
             menu.Items.Add(new Separator());
 
+            foreach (var note in DisplayNotes())
+            {
+                menu.Items.Add(BuildNoteMenuItem(note));
+            }
+        }
+
+        /// <summary>
+        /// The notes in display order, nulls dropped - the shared source of
+        /// the full menu and the blank-area menu.
+        /// </summary>
+        private List<NoteItem> DisplayNotes()
+        {
+            var notes = new List<NoteItem>();
             foreach (var note in NoteOps.SortForDisplay(_data == null ? null : _data.Notes))
             {
-                if (note == null) continue;
-                string title = NoteOps.TitleOf(note.Text);
-                var item = new MenuItem
-                {
-                    Tag = note.Id,
-                    // The shared MenuItem template paints IsChecked in its
-                    // 26px icon slot; the header must stay a plain title or
-                    // the current row would show a second check.
-                    IsChecked = note.Id == _expandedId,
-                    Header = new TextBlock
-                    {
-                        Text = string.IsNullOrWhiteSpace(title)
-                            ? Localization.Get("UI_NoteUntitled")
-                            : title,
-                        Foreground = ThemeManager.TextBrush,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        MaxWidth = Math.Max(120, Math.Min(MENU_MAX_WIDTH,
-                            ActualWidth > 0 ? ActualWidth - 100 : MENU_MAX_WIDTH))
-                    }
-                };
-                item.Click += (s, e) =>
-                {
-                    CloseTitleMenu();
-                    OpenNote(note.Id);
-                };
-                menu.Items.Add(item);
+                if (note != null) notes.Add(note);
             }
+            return notes;
+        }
+
+        /// <summary>
+        /// One note entry shared by every note menu: the current note is
+        /// checked through the shared template, never through a second check
+        /// column in the header.
+        /// </summary>
+        private MenuItem BuildNoteMenuItem(NoteItem note)
+        {
+            string title = NoteOps.TitleOf(note.Text);
+            var item = new MenuItem
+            {
+                Tag = note.Id,
+                // The shared MenuItem template paints IsChecked in its 26px
+                // icon slot; the header must stay a plain title or the current
+                // row would show a second check.
+                IsChecked = note.Id == _expandedId,
+                Header = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(title)
+                        ? Localization.Get("UI_NoteUntitled")
+                        : title,
+                    Foreground = ThemeManager.TextBrush,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    MaxWidth = Math.Max(120, Math.Min(MENU_MAX_WIDTH,
+                        ActualWidth > 0 ? ActualWidth - 100 : MENU_MAX_WIDTH))
+                }
+            };
+            item.Click += (s, e) =>
+            {
+                CloseTitleMenu();
+                OpenNote(note.Id);
+            };
+            return item;
         }
 
         /// <summary>One flat action button of the dropdown (new / home).</summary>
@@ -858,8 +881,9 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The create/back menu used at home and while editing. The rendered
-        /// detail uses <see cref="BuildNoteContextMenu"/> instead.
+        /// The blank-area menu used at home and while editing: create, the
+        /// home action in the detail, and the note list. The rendered detail
+        /// uses <see cref="BuildNoteContextMenu"/> instead.
         /// </summary>
         private ContextMenu BuildBlankMenu()
         {
@@ -890,6 +914,16 @@ namespace Kobold.Controls
                     GoHome();
                 };
                 builder.AddMenuItem(home);
+            }
+
+            // The blank area is the largest right-click target on the home
+            // page: list the notes here too, so switching never requires
+            // hitting a card or the title chevron.
+            var notes = DisplayNotes();
+            if (notes.Count > 0)
+            {
+                builder.AddSeparator();
+                foreach (var note in notes) builder.AddMenuItem(BuildNoteMenuItem(note));
             }
 
             return builder.Build();

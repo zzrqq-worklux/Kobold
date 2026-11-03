@@ -13894,10 +13894,10 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T4 (spec 3.3): the blank area's menu carries the create entry at home
-        /// and create + "back to the notes" in the detail (home hides the home
-        /// entry). This pin owns the menu the builder returns; the detail
-        /// padding-band route is pinned separately.
+        /// T4 (spec 3.3): the blank-area menu carries create + the note list at
+        /// home, and create + back to the notes + the note list in the detail.
+        /// The note item switches the view directly, so the home page's largest
+        /// right-click target is also a switch entry.
         /// </summary>
         private static void NoteBlankMenuFollowsTheState()
         {
@@ -13913,20 +13913,27 @@ namespace Kobold.XamlLoadCheck
 
             var homeMenu = InvokeNoteBlankMenu(view);
             if (homeMenu == null) throw new InvalidOperationException("the home has no blank menu");
-            if (homeMenu.Items.Count != 1)
+            if (homeMenu.Items.Count != 3)
                 throw new InvalidOperationException(
-                    "the home blank menu has " + homeMenu.Items.Count + " item(s), wanted 1");
+                    "the home blank menu has " + homeMenu.Items.Count + " item(s), wanted 3");
             if (HeaderOf(homeMenu.Items[0]) != newWanted)
                 throw new InvalidOperationException(
                     "the home blank menu reads '" + HeaderOf(homeMenu.Items[0]) + "'");
             AssertMenuIcon(homeMenu.Items[0], IconId.Plus);
+            if (!(homeMenu.Items[1] is Separator))
+                throw new InvalidOperationException("the home blank menu has no separator");
+            var homeNote = homeMenu.Items[2] as MenuItem;
+            if (homeNote == null || !"a".Equals(homeNote.Tag as string))
+                throw new InvalidOperationException("the home blank menu has no note entry");
+            homeNote.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            if (PrivateField<string>(view, "_expandedId") != "a")
+                throw new InvalidOperationException("the home blank menu did not switch notes");
 
-            ClickNoteCard(view, 0);
             var detailMenu = InvokeNoteBlankMenu(view);
             if (detailMenu == null) throw new InvalidOperationException("the detail has no blank menu");
-            if (detailMenu.Items.Count != 2)
+            if (detailMenu.Items.Count != 4)
                 throw new InvalidOperationException(
-                    "the detail blank menu has " + detailMenu.Items.Count + " item(s), wanted 2");
+                    "the detail blank menu has " + detailMenu.Items.Count + " item(s), wanted 4");
             if (HeaderOf(detailMenu.Items[0]) != newWanted)
                 throw new InvalidOperationException(
                     "the detail blank menu reads '" + HeaderOf(detailMenu.Items[0]) + "'");
@@ -13935,6 +13942,13 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException(
                     "the detail blank menu's home entry reads '" + HeaderOf(detailMenu.Items[1]) + "'");
             AssertMenuIcon(detailMenu.Items[1], IconId.Home);
+            if (!(detailMenu.Items[2] is Separator))
+                throw new InvalidOperationException("the detail blank menu has no separator");
+            var detailNote = detailMenu.Items[3] as MenuItem;
+            if (detailNote == null || !"a".Equals(detailNote.Tag as string))
+                throw new InvalidOperationException("the detail blank menu has no note entry");
+            if (!detailNote.IsChecked)
+                throw new InvalidOperationException("the detail blank menu does not check the open note");
         }
 
         /// <summary>
