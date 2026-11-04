@@ -270,6 +270,225 @@ namespace Kobold.ConfigSafetyCheck
                 "note font scale: the saved scale reads back after a reload");
 
             RunWidgetColorMigrationChecks();
+            RunGroupConfigChecks();
+        }
+
+        /// <summary>
+        /// Group persistence: an old config stays readable and gains no Groups
+        /// block, a broken membership block is repaired without losing widget
+        /// data, and a corrupt Groups entry never sends the config down the
+        /// unreadable/default path.
+        /// </summary>
+        private static void RunGroupConfigChecks()
+        {
+            // --- An old config without Groups loads and saves without one.
+            string dir = NewCase("groups-old");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+            File.WriteAllText(main,
+                @"{ ""Language"": ""ja"", ""Widgets"": [ { ""Kind"": ""folder"", ""Id"": ""w1"", ""Items"": [] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            Check(cfg.Groups == null || cfg.Groups.Count == 0,
+                "groups: an old config loads with no groups");
+            cfg.Save();
+            var saved = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(main));
+            Check(saved["Groups"] == null, "groups: saving an old config writes no Groups block");
+            Check(saved["Widgets"] is Newtonsoft.Json.Linq.JArray,
+                "groups: the old config still saves its widgets");
+            var reloaded = AppConfig.Load(main, backup);
+            Check(reloaded.Widgets.Count == 1 && reloaded.Widgets[0].Id == "w1"
+                  && (reloaded.Groups == null || reloaded.Groups.Count == 0),
+                "groups: the saved old config stays loadable");
+
+            // --- A 1-member group, an orphan and duplicate orders repair losslessly.
+            string dir2 = NewCase("groups-repair");
+            string main2 = Path.Combine(dir2, "config.json");
+            string backup2 = main2 + ".backup";
+            File.WriteAllText(main2, @"{
+  ""Groups"": [
+    { ""Id"": ""solo"", ""ActiveWidgetId"": ""s1"" },
+    { ""Id"": ""pair"", ""ActiveWidgetId"": ""p1"" }
+  ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""s1"", ""Name"": ""Solo"", ""GroupId"": ""solo"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""p1"", ""Name"": ""PairA"", ""GroupId"": ""pair"", ""GroupOrder"": 4, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""p2"", ""Name"": ""PairB"", ""GroupId"": ""pair"", ""GroupOrder"": 4, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""o1"", ""Name"": ""Orphan"", ""GroupId"": ""gone"", ""GroupOrder"": 2, ""Items"": [] }
+  ]
+}");
+
+            var repaired = AppConfig.Load(main2, backup2);
+            Check(repaired.Widgets.Count == 4, "groups: repairing keeps every widget");
+            Check(repaired.Groups != null && repaired.Groups.Count == 1
+                  && repaired.Groups[0].Id == "pair",
+                "groups: the 1-member group is dropped and the pair survives");
+            Check(FindWidget(repaired, "s1") != null && FindWidget(repaired, "s1").Name == "Solo"
+                  && FindWidget(repaired, "s1").GroupId == null
+                  && FindWidget(repaired, "s1").GroupOrder == null,
+                "groups: the dissolved member keeps its data and loses its membership");
+            Check(FindWidget(repaired, "o1") != null && FindWidget(repaired, "o1").Name == "Orphan"
+                  && FindWidget(repaired, "o1").GroupId == null
+                  && FindWidget(repaired, "o1").GroupOrder == null,
+                "groups: the orphan keeps its data and loses its membership");
+            Check(FindWidget(repaired, "p1") != null && FindWidget(repaired, "p1").GroupOrder == 0
+                  && FindWidget(repaired, "p2") != null && FindWidget(repaired, "p2").GroupOrder == 1,
+                "groups: duplicate orders normalize to 0..n-1");
+            Check(Directory.GetFiles(dir2, "*.failed-*").Length == 0,
+                "groups: repairing is not treated as an unreadable config");
+
+            // --- A corrupt Groups entry does not make the config unreadable.
+            string dir3 = NewCase("groups-corrupt-entry");
+            string main3 = Path.Combine(dir3, "config.json");
+            string backup3 = main3 + ".backup";
+            File.WriteAllText(main3, @"{
+  ""Groups"": [ null, { ""Id"": null }, { ""Id"": ""  "" } ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""k1"", ""Name"": ""KeepA"", ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""k2"", ""Name"": ""KeepB"", ""Items"": [] }
+  ]
+}");
+
+            var corrupt = AppConfig.Load(main3, backup3);
+            Check(corrupt.Widgets.Count == 2 && corrupt.Widgets[0].Id == "k1"
+                  && corrupt.Widgets[1].Id == "k2",
+                "groups: a corrupt Groups entry keeps the widgets (no default fallback)");
+            Check(corrupt.Widgets[0].Name == "KeepA" && corrupt.Widgets[1].Name == "KeepB",
+                "groups: the corrupt Groups entry loses no widget data");
+            Check(Directory.GetFiles(dir3, "*.failed-*").Length == 0,
+                "groups: a corrupt Groups entry raises no evidence copy");
+            Check(corrupt.Groups == null || corrupt.Groups.Count == 0,
+                "groups: the corrupt Groups entries are dropped");
+
+            // --- A wrong-typed Groups block is not a config failure: the
+            // widgets must survive and no evidence copy may appear.
+            string dir4 = NewCase("groups-wrong-type");
+            string main4 = Path.Combine(dir4, "config.json");
+            string backup4 = main4 + ".backup";
+            File.WriteAllText(main4, @"{
+  ""Groups"": ""oops"",
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""wt1"", ""Name"": ""WrongA"", ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""wt2"", ""Name"": ""WrongB"", ""Items"": [] }
+  ]
+}");
+
+            var wrongType = AppConfig.Load(main4, backup4);
+            Check(wrongType.Widgets.Count == 2
+                  && FindWidget(wrongType, "wt1") != null && FindWidget(wrongType, "wt1").Name == "WrongA"
+                  && FindWidget(wrongType, "wt2") != null && FindWidget(wrongType, "wt2").Name == "WrongB",
+                "groups: a wrong-typed Groups block keeps both widgets");
+            Check(Directory.GetFiles(dir4, "*.failed-*").Length == 0,
+                "groups: a wrong-typed Groups block raises no evidence copy");
+            Check(wrongType.Groups == null || wrongType.Groups.Count == 0,
+                "groups: a wrong-typed Groups block loads no groups");
+
+            // --- Junk entries (null, a number, a null id, a bad field type)
+            // are skipped one by one: the widgets survive with no default
+            // fallback and no evidence copy.
+            string dir5 = NewCase("groups-junk-entries");
+            string main5 = Path.Combine(dir5, "config.json");
+            string backup5 = main5 + ".backup";
+            File.WriteAllText(main5, @"{
+  ""Groups"": [ null, 5, { ""Id"": null }, { ""Id"": ""g1"", ""PanelWidth"": ""wide"" } ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""j1"", ""Name"": ""JunkA"", ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""j2"", ""Name"": ""JunkB"", ""Items"": [] }
+  ]
+}");
+
+            var junk = AppConfig.Load(main5, backup5);
+            Check(junk.Widgets.Count == 2
+                  && FindWidget(junk, "j1") != null && FindWidget(junk, "j1").Name == "JunkA"
+                  && FindWidget(junk, "j2") != null && FindWidget(junk, "j2").Name == "JunkB",
+                "groups: junk entries keep the widgets (no default fallback)");
+            Check(Directory.GetFiles(dir5, "*.failed-*").Length == 0,
+                "groups: junk entries raise no evidence copy");
+            Check(junk.Groups == null || junk.Groups.Count == 0,
+                "groups: junk entries are all skipped");
+
+            // --- One malformed entry next to a valid pair: the pair survives
+            // and the malformed group's members fall back to plain widgets
+            // with their data intact.
+            string dir6 = NewCase("groups-mixed-entries");
+            string main6 = Path.Combine(dir6, "config.json");
+            string backup6 = main6 + ".backup";
+            File.WriteAllText(main6, @"{
+  ""Groups"": [
+    { ""Id"": ""bad"", ""PanelWidth"": ""wide"" },
+    { ""Id"": ""ok"", ""ActiveWidgetId"": ""a1"" }
+  ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""a1"", ""Name"": ""PairA"", ""GroupId"": ""ok"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""a2"", ""Name"": ""PairB"", ""GroupId"": ""ok"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""b1"", ""Name"": ""BadA"", ""GroupId"": ""bad"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""b2"", ""Name"": ""BadB"", ""GroupId"": ""bad"", ""GroupOrder"": 1, ""Items"": [] }
+  ]
+}");
+
+            var mixed = AppConfig.Load(main6, backup6);
+            Check(mixed.Widgets.Count == 4, "groups: a malformed entry loses no widget");
+            Check(mixed.Groups != null && mixed.Groups.Count == 1 && mixed.Groups[0].Id == "ok",
+                "groups: the valid pair survives next to a malformed entry");
+            Check(FindWidget(mixed, "a1") != null && FindWidget(mixed, "a1").GroupId == "ok"
+                  && FindWidget(mixed, "a2") != null && FindWidget(mixed, "a2").GroupId == "ok"
+                  && FindWidget(mixed, "a1").GroupOrder == 0 && FindWidget(mixed, "a2").GroupOrder == 1,
+                "groups: the valid pair keeps its normalized tab order");
+            Check(FindWidget(mixed, "b1") != null && FindWidget(mixed, "b1").Name == "BadA"
+                  && FindWidget(mixed, "b1").GroupId == null && FindWidget(mixed, "b1").GroupOrder == null
+                  && FindWidget(mixed, "b2") != null && FindWidget(mixed, "b2").Name == "BadB"
+                  && FindWidget(mixed, "b2").GroupId == null && FindWidget(mixed, "b2").GroupOrder == null,
+                "groups: the malformed group's members become plain widgets");
+            Check(Directory.GetFiles(dir6, "*.failed-*").Length == 0,
+                "groups: a malformed entry next to a valid pair raises no evidence copy");
+
+            // --- A save round-trips a valid Groups array through the converter.
+            string dir7 = NewCase("groups-roundtrip");
+            string main7 = Path.Combine(dir7, "config.json");
+            string backup7 = main7 + ".backup";
+            var roundTrip = AppConfig.Load(main7, backup7);
+            roundTrip.Widgets.Add(new NoteData { Id = "rt-n1", Name = "RT1", GroupId = "rt-g", GroupOrder = 0 });
+            roundTrip.Widgets.Add(new NoteData { Id = "rt-n2", Name = "RT2", GroupId = "rt-g", GroupOrder = 1 });
+            roundTrip.Groups = new List<WidgetGroup>
+            {
+                new WidgetGroup
+                {
+                    Id = "rt-g",
+                    ActiveWidgetId = "rt-n2",
+                    PanelWidth = 480,
+                    PanelHeight = 360,
+                    IsLocked = true
+                }
+            };
+            roundTrip.Save();
+
+            var savedRoot = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(main7));
+            var savedGroups = savedRoot["Groups"] as Newtonsoft.Json.Linq.JArray;
+            Check(savedGroups != null && savedGroups.Count == 1,
+                "groups: a save writes a valid Groups array (converter round-trip)");
+            Check(savedGroups != null && savedGroups.Count == 1
+                  && (string)savedGroups[0]["Id"] == "rt-g"
+                  && (double?)savedGroups[0]["PanelWidth"] == 480
+                  && (bool?)savedGroups[0]["IsLocked"] == true,
+                "groups: the saved array keeps the group fields");
+
+            var roundTripReload = AppConfig.Load(main7, backup7);
+            Check(roundTripReload.Groups != null && roundTripReload.Groups.Count == 1
+                  && roundTripReload.Groups[0].Id == "rt-g"
+                  && roundTripReload.Groups[0].ActiveWidgetId == "rt-n2"
+                  && roundTripReload.Groups[0].PanelWidth == 480
+                  && roundTripReload.Groups[0].PanelHeight == 360
+                  && roundTripReload.Groups[0].IsLocked,
+                "groups: the saved array reads back through the converter");
+        }
+
+        private static WidgetData FindWidget(AppConfig cfg, string id)
+        {
+            foreach (var widget in cfg.Widgets)
+            {
+                if (widget != null && widget.Id == id) return widget;
+            }
+            return null;
         }
 
         /// <summary>

@@ -42,6 +42,11 @@ namespace Kobold.Controls
 
         private int _lastItemCount;
 
+        // Bumped by every UpdateUI. A background icon load from an older
+        // generation must not repaint the newer items after a folder-color
+        // change rebuilt the list.
+        private int _iconLoadGeneration;
+
         // The adaptive layout's current column count (bound by the items grid).
         private int _adaptiveColumns = WidgetConstants.DEFAULT_GRID_COLUMNS;
 
@@ -294,12 +299,22 @@ namespace Kobold.Controls
                 }
             }
 
+            int generation = ++_iconLoadGeneration;
             System.Threading.Tasks.Task.Run(() =>
             {
-                foreach (var item in realIcons) ApplyIcon(item, GetFileIcon(item.Path));
-                foreach (var folder in extraFolders) ApplyIcon(folder, GetFileIcon(folder.Path));
+                foreach (var item in realIcons)
+                {
+                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
+                    ApplyIcon(item, GetFileIcon(item.Path));
+                }
+                foreach (var folder in extraFolders)
+                {
+                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
+                    ApplyIcon(folder, GetFileIcon(folder.Path));
+                }
                 if (genericFiles.Count > 0)
                 {
+                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
                     var generic = GetGenericFileIcon();
                     foreach (var item in genericFiles) ApplyIcon(item, generic);
                 }

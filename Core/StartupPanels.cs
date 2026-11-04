@@ -20,7 +20,11 @@ namespace Kobold.Core
 
             foreach (var widget in widgets)
             {
-                if (widget != null && widget.IsExpanded) restore.Add(widget);
+                // A grouped member's own IsExpanded is bookkeeping only: the
+                // group's IsExpanded drives its restore (GroupStartupPolicy),
+                // so restoring the member separately would open a second window.
+                if (widget != null && string.IsNullOrEmpty(widget.GroupId) && widget.IsExpanded)
+                    restore.Add(widget);
             }
             return restore;
         }

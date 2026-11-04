@@ -23,11 +23,8 @@ namespace Kobold.Controls
     /// carry/order rules. All dates come from the widget data or DateTime.Today;
     /// nothing here touches WidgetManager at load time.
     /// </summary>
-    public partial class TodoCalendarView : UserControl
+    public partial class TodoCalendarView : UserControl, IWidgetContentView
     {
-        /// <summary>Window chrome above the content: 40 header + 2 DIP shell border.</summary>
-        private const double CHROME_HEIGHT = 42;
-
         // The calendar/list split and every size around it come from the pure
         // layout engine (A4.1): the renderer consumes PanelLayoutAdapter's
         // constants and AdaptTodo output, so the panel never drifts from the
@@ -40,7 +37,7 @@ namespace Kobold.Controls
         private const double CHILD_FONT = 13;
 
         private TodoData _data;
-        private TodoWidget _host;
+        private IWidgetViewHost _host;
 
         private DateTime _selected;
         private int _viewYear;
@@ -120,6 +117,20 @@ namespace Kobold.Controls
         /// </summary>
         public void Attach(TodoData data, TodoWidget host)
         {
+            AttachCore(data, host);
+        }
+
+        /// <summary>
+        /// The host-neutral attach: the group window (T4) drives this one,
+        /// while the standalone window keeps its concrete overload.
+        /// </summary>
+        void IWidgetContentView.Attach(WidgetData data, IWidgetViewHost host)
+        {
+            AttachCore(data as TodoData, host);
+        }
+
+        private void AttachCore(TodoData data, IWidgetViewHost host)
+        {
             _data = data ?? new TodoData();
             _host = host;
             _selected = (_data.SelectedDate ?? DateTime.Today).Date;
@@ -131,6 +142,73 @@ namespace Kobold.Controls
 
             Refresh();
         }
+
+        #region IWidgetContentView
+
+        WidgetData IWidgetContentView.Data => _data;
+
+        FrameworkElement IWidgetContentView.View => this;
+
+        /// <summary>
+        /// The date context the chrome shows while this widget is a group tab:
+        /// the selected day in the live language (M月d日 · 周X for zh).
+        /// </summary>
+        public string ChromeTitle
+        {
+            get
+            {
+                CultureInfo culture = _culture
+                    ?? TodoCalendar.CultureForLanguage(Localization.CurrentLanguage);
+                if (Localization.CurrentLanguage == "zh")
+                {
+                    string weekday = "日一二三四五六"[(int)_selected.DayOfWeek].ToString();
+                    return _selected.ToString("M月d日", culture) + " · 周" + weekday;
+                }
+                if (Localization.CurrentLanguage == "ja")
+                {
+                    return _selected.ToString("M月d日 (ddd)", culture);
+                }
+                return _selected.ToString("ddd, MMM d", culture);
+            }
+        }
+
+        bool IWidgetContentView.HasTitleMenu => false;
+
+        /// <summary>The calendar has no hide-time commit beyond the current blur path.</summary>
+        public void Activate()
+        {
+        }
+
+        public void Deactivate()
+        {
+        }
+
+        void IWidgetContentView.RefreshChromeTitle()
+        {
+        }
+
+        void IWidgetContentView.ToggleTitleMenu(FrameworkElement anchor)
+        {
+        }
+
+        /// <summary>
+        /// Ctrl+Z in the list context walks the undo stack back a step (the
+        /// newest delete or tick); a focused text box keeps its own text undo.
+        /// </summary>
+        public bool HandlePreviewKeyDown(KeyEventArgs e)
+        {
+            if (e == null) return false;
+            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return false;
+            if (Keyboard.FocusedElement is TextBox) return false;
+            return TryUndo();
+        }
+
+        void IWidgetContentView.FlushPendingEdit()
+        {
+            CommitActiveEditorNow();
+        }
+
+        #endregion
 
         /// <summary>
         /// Repaints everything from the data: call on load, after every edit
@@ -168,21 +246,18 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The content height the engine should lay out for: the live panel
-        /// height while open, the persisted panel size otherwise (both minus
-        /// the chrome), or the natural fallback for a panel that has neither.
+        /// The content height the engine should lay out for: whatever the host
+        /// publishes while it has a real panel size, or the natural fallback
+        /// for a host that has neither. The host owns the chrome subtraction
+        /// (40 header + the shell border), so a group tab and a standalone
+        /// window feed the same number here.
         /// </summary>
         private double CurrentContentHeight(int weekCount, int naturalRows, bool dayIsEmpty)
         {
             if (_host != null)
             {
-                if (_host.IsPanelOpen)
-                {
-                    double live = _host.Height;
-                    if (!double.IsNaN(live) && live > 0) return Math.Max(0, live - CHROME_HEIGHT);
-                }
-                if (_data != null && _data.PanelWidth.HasValue && _data.PanelHeight.HasValue)
-                    return Math.Max(0, _host.GetPanelSize().height - CHROME_HEIGHT);
+                double content = _host.ContentHeight;
+                if (content > 0) return content;
             }
             return NaturalHeight(weekCount, naturalRows, dayIsEmpty);
         }

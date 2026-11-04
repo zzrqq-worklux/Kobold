@@ -45,6 +45,16 @@ namespace Kobold.Core
         public List<FolderData> Folders { get; set; }
 
         /// <summary>
+        /// Tab groups; null until the user merges widgets, which keeps an
+        /// untouched config free of the block. Membership is stored on the
+        /// widgets (<see cref="WidgetData.GroupId"/>). A damaged block is read
+        /// tolerantly (bad entries skipped) so it can never cost the widgets.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        [JsonConverter(typeof(WidgetGroupListConverter))]
+        public List<WidgetGroup> Groups { get; set; }
+
+        /// <summary>
         /// Optional file-search settings; null until the user configures the
         /// feature, in which case nothing is written for it.
         /// </summary>
@@ -133,6 +143,10 @@ namespace Kobold.Core
             // Legacy Folders move into Widgets before anything reads the list
             // or writes it back. New-format configs are already migrated.
             loaded.MigrateLegacyWidgets();
+
+            // Group membership is validated once the widget list is final. A
+            // broken block only clears membership fields, never widget data.
+            loaded.RepairGroups();
 
             // Optional file-search settings are repaired only when present; a
             // missing block stays null (unconfigured) and is never written.
@@ -319,6 +333,125 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Repairs the loaded group block. Only well-formed groups with at
+        /// least two members survive; every other membership field is cleared,
+        /// so a hand-edited or stale block can never strand widget data or
+        /// make the whole config unreadable.
+        /// </summary>
+        private void RepairGroups()
+        {
+            // No groups at all: every membership field is an orphan.
+            if (Groups == null || Groups.Count == 0)
+            {
+                Groups = null;
+                ClearMembership(Widgets);
+                return;
+            }
+
+            // Drop null/blank ids and duplicate ids (first one wins), then the
+            // groups that could not even show two tabs.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var surviving = new List<WidgetGroup>();
+            foreach (var group in Groups)
+            {
+                if (group == null || string.IsNullOrWhiteSpace(group.Id)) continue;
+                if (!seen.Add(group.Id)) continue;
+                if (CountMembers(group.Id) < 2) continue;
+                surviving.Add(group);
+            }
+
+            var survivingIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var group in surviving) survivingIds.Add(group.Id);
+
+            // Anything pointing at a dropped/unknown group loses both fields.
+            foreach (var widget in Widgets)
+            {
+                if (widget == null) continue;
+                if (widget.GroupId == null || !survivingIds.Contains(widget.GroupId))
+                {
+                    widget.GroupId = null;
+                    widget.GroupOrder = null;
+                }
+            }
+
+            foreach (var group in surviving)
+            {
+                var members = OrderedMembers(group.Id);
+                for (int i = 0; i < members.Count; i++) members[i].GroupOrder = i;
+
+                // A missing/unknown active id falls back to the first tab.
+                bool activeIsMember = false;
+                if (!string.IsNullOrEmpty(group.ActiveWidgetId))
+                {
+                    foreach (var member in members)
+                    {
+                        if (string.Equals(member.Id, group.ActiveWidgetId, StringComparison.Ordinal))
+                        {
+                            activeIsMember = true;
+                            break;
+                        }
+                    }
+                }
+                if (!activeIsMember) group.ActiveWidgetId = members[0].Id;
+            }
+
+            if (surviving.Count == 0) Groups = null;
+            else Groups = surviving;
+        }
+
+        /// <summary>
+        /// The members of a group in normalized tab order: by the stored
+        /// order, with the config index breaking ties (and standing in for a
+        /// missing order).
+        /// </summary>
+        private List<WidgetData> OrderedMembers(string groupId)
+        {
+            var indexed = new List<KeyValuePair<int, WidgetData>>();
+            for (int i = 0; i < Widgets.Count; i++)
+            {
+                if (IsMember(Widgets[i], groupId))
+                    indexed.Add(new KeyValuePair<int, WidgetData>(i, Widgets[i]));
+            }
+
+            indexed.Sort((a, b) =>
+            {
+                int left = a.Value.GroupOrder ?? int.MaxValue;
+                int right = b.Value.GroupOrder ?? int.MaxValue;
+                return left != right ? left.CompareTo(right) : a.Key.CompareTo(b.Key);
+            });
+
+            var ordered = new List<WidgetData>(indexed.Count);
+            foreach (var entry in indexed) ordered.Add(entry.Value);
+            return ordered;
+        }
+
+        private static bool IsMember(WidgetData widget, string groupId)
+        {
+            return widget != null && string.Equals(widget.GroupId, groupId, StringComparison.Ordinal);
+        }
+
+        private int CountMembers(string groupId)
+        {
+            int count = 0;
+            foreach (var widget in Widgets)
+            {
+                if (IsMember(widget, groupId)) count++;
+            }
+            return count;
+        }
+
+        private static void ClearMembership(IEnumerable<WidgetData> widgets)
+        {
+            if (widgets == null) return;
+            foreach (var widget in widgets)
+            {
+                if (widget == null) continue;
+                widget.GroupId = null;
+                widget.GroupOrder = null;
+            }
+        }
+
+        /// <summary>
         /// Keeps a copy of a file that could not be read, so a later save can
         /// never destroy the user's real data without a trace. Best effort: if
         /// the copy itself fails, startup still continues.
@@ -393,6 +526,12 @@ namespace Kobold.Core
                     // downgrade promise the docs make.
                     var root = JObject.Parse(json);
                     root["Folders"] = JValue.CreateNull();
+
+                    // An unconfigured or empty group list is not written at
+                    // all: an old config keeps its exact shape, and a dissolved
+                    // last group leaves no empty block behind.
+                    if (Groups == null || Groups.Count == 0) root.Remove("Groups");
+
                     json = root.ToString(Formatting.Indented);
 
                     AtomicFile.WriteAllText(configPath, json);
@@ -497,13 +636,70 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Removes a widget of any kind by ID
+        /// Removes a widget of any kind by ID. A group the widget belonged to
+        /// is cleaned up with it: below two members the group dissolves and
+        /// the last member becomes a plain panel, otherwise the active tab
+        /// falls back to the first survivor.
         /// </summary>
         public void RemoveWidget(string id)
         {
             lock (_saveLock)
             {
+                var affectedGroups = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var widget in Widgets)
+                {
+                    if (widget != null && widget.Id == id && widget.GroupId != null)
+                        affectedGroups.Add(widget.GroupId);
+                }
+
                 Widgets.RemoveAll(w => w.Id == id);
+
+                if (Groups != null)
+                {
+                    foreach (var groupId in affectedGroups)
+                    {
+                        WidgetGroup group = null;
+                        foreach (var candidate in Groups)
+                        {
+                            if (candidate != null
+                                && string.Equals(candidate.Id, groupId, StringComparison.Ordinal))
+                            {
+                                group = candidate;
+                                break;
+                            }
+                        }
+                        if (group == null) continue;
+
+                        var members = OrderedMembers(groupId);
+                        if (members.Count < 2)
+                        {
+                            // A single surviving widget is no group: dissolve
+                            // it and let that widget stand on its own.
+                            Groups.Remove(group);
+                            foreach (var member in members)
+                            {
+                                member.GroupId = null;
+                                member.GroupOrder = null;
+                            }
+                            continue;
+                        }
+
+                        for (int i = 0; i < members.Count; i++) members[i].GroupOrder = i;
+
+                        bool activeIsMember = false;
+                        foreach (var member in members)
+                        {
+                            if (string.Equals(member.Id, group.ActiveWidgetId, StringComparison.Ordinal))
+                            {
+                                activeIsMember = true;
+                                break;
+                            }
+                        }
+                        if (!activeIsMember) group.ActiveWidgetId = members[0].Id;
+                    }
+
+                    if (Groups.Count == 0) Groups = null;
+                }
             }
             SaveDebounced();
         }

@@ -35,6 +35,8 @@ namespace Kobold.Controls
             lock (_cacheLock)
             {
                 _iconCache.Remove(path.ToLowerInvariant());
+                string customKey = FolderIconSource.GetCacheKey(path);
+                if (customKey != null) _iconCache.Remove(customKey);
             }
         }
 
@@ -43,6 +45,7 @@ namespace Kobold.Controls
             try
             {
                 string cacheKey;
+                string customIconKey = null;
                 uint attributes = 0;
                 bool byAttributes = false;
 
@@ -55,13 +58,15 @@ namespace Kobold.Controls
                 }
                 else if (System.IO.Directory.Exists(path))
                 {
-                    // A colored folder carries the System flag and a desktop.ini,
-                    // and only then is its icon folder-specific: ask the shell for
-                    // the real path so it reads that file. Every other folder
-                    // shares one generic icon (memory guard for long listings).
+                    // A colored folder carries the System flag and a desktop.ini.
+                    // When it points at a standalone .ico, read that file directly:
+                    // the shell's icon cache can keep returning the previous color
+                    // after desktop.ini changes. Every other folder shares one
+                    // generic icon (memory guard for long listings).
                     if ((System.IO.File.GetAttributes(path) & System.IO.FileAttributes.System) != 0)
                     {
-                        cacheKey = path.ToLowerInvariant();
+                        customIconKey = FolderIconSource.GetCacheKey(path);
+                        cacheKey = customIconKey ?? path.ToLowerInvariant();
                         byAttributes = false;
                     }
                     else
@@ -90,6 +95,20 @@ namespace Kobold.Controls
                 }
 
                 if (!byAttributes && !System.IO.File.Exists(path) && !System.IO.Directory.Exists(path)) return null;
+
+                if (customIconKey != null)
+                {
+                    var customIcon = FolderIconSource.Load(path);
+                    if (customIcon != null)
+                    {
+                        lock (_cacheLock)
+                        {
+                            if (_iconCache.Count > 500) _iconCache.Clear();
+                            if (!_iconCache.ContainsKey(cacheKey)) _iconCache[cacheKey] = customIcon;
+                        }
+                        return customIcon;
+                    }
+                }
 
                 // Load icon from Shell
                 var shinfo = new SHFILEINFO();

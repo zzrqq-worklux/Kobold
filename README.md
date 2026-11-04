@@ -109,6 +109,15 @@ development base.
   — a completed parent goes with its whole subtree, completed sub-todos under
   an open parent go one by one — and is greyed out when the day has none;
   Ctrl+Z brings the batch back.
+- **Widget groups** — merge a todo, note or search widget into one group
+  window by dragging one panel's header onto another. The members sit behind
+  bare top tabs: no pill or divider, just a 2px underline in the active
+  widget's colour, while the title shows the active tab's context. Lock, pin
+  and the panel geometry belong to the group; on the island every member
+  carries a count badge and only the active one shows the open ring. Drag a
+  tab out (or right-click **Detach this widget**) to split it off again, and a
+  group that drops to one member dissolves by itself. Folder widgets stay
+  standalone in this release.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in

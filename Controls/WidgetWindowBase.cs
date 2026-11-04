@@ -1,13 +1,36 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Helpers;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
+    /// <summary>
+    /// The panel state a <see cref="WidgetWindowBase"/> drives: a standalone
+    /// widget reads/writes through a small adapter over its own
+    /// <see cref="WidgetData"/>, a group window (T4) through its
+    /// <see cref="Kobold.Core.WidgetGroup"/>. Every panel show/hide, geometry
+    /// and lock/pin read or write goes through this seam so both window kinds
+    /// share one panel implementation.
+    /// </summary>
+    internal interface IPanelState
+    {
+        string Id { get; }
+        double? PanelX { get; set; }
+        double? PanelY { get; set; }
+        double? PanelDpiScale { get; set; }
+        double? PanelWidth { get; set; }
+        double? PanelHeight { get; set; }
+        bool IsExpanded { get; set; }
+        bool IsLocked { get; set; }
+        bool IsPanelPinned { get; set; }
+    }
+
     /// <summary>
     /// Shared behaviour for every widget window: the panel show/hide cycle and
     /// its animation, panel position/DPI restore, the configured opacity, the
@@ -31,6 +54,10 @@ namespace Kobold.Controls
         private const double TODO_MIN_HEIGHT = 337;
 
         private readonly WidgetData _data;
+
+        // The panel state this window drives: an adapter over the datum for a
+        // standalone widget, the WidgetGroup proxy for a group window (T4).
+        private readonly IPanelState _state;
 
         // Panel drag state: screen cursor positions and the click-vs-drag flag.
         private Point _dragStartCursor;
@@ -57,6 +84,13 @@ namespace Kobold.Controls
 
         private bool _isExpanded;
 
+        // True while this window wears the merge-target border hint.
+        private bool _mergeHint;
+
+        // The window the live header-drag hint is currently painted on; the
+        // drag keeps it while the cursor stays over the same candidate.
+        private IWidgetWindow _mergeHintTarget;
+
         // >0 while one of our own modal dialogs is up: Deactivated must not
         // collapse the panel underneath it.
         private int _modalDepth;
@@ -74,9 +108,21 @@ namespace Kobold.Controls
         /// </summary>
         public event Action<bool> PanelVisibilityChanged;
 
-        protected WidgetWindowBase(WidgetData data)
+        protected WidgetWindowBase(WidgetData data) : this(data, new DataPanelState(data))
+        {
+        }
+
+        /// <summary>
+        /// The group seam: the chrome and the modals stay bound to the
+        /// first member datum, while every panel geometry/flag/id read and
+        /// write goes through the group's state proxy. A standalone widget
+        /// adapts its own datum, so every value read or written is the same
+        /// field it used before.
+        /// </summary>
+        private protected WidgetWindowBase(WidgetData data, IPanelState state)
         {
             _data = data;
+            _state = state;
 
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -91,6 +137,7 @@ namespace Kobold.Controls
             Loaded += (s, e) => RefreshTheme();
             Closing += (s, e) =>
             {
+                ClearMergeHint();
                 ThemeManager.ThemeChanged -= OnThemeChanged;
                 WindowSwitcher.ReleaseOwner(this);
             };
@@ -124,14 +171,20 @@ namespace Kobold.Controls
             chrome.ResizeMoved += OnResizeMoved;
             chrome.ResizeEnded += OnResizeEnded;
             chrome.HeaderRightClicked += () => ShowWidgetMenu();
+            // Losing the header capture mid-drag (another window takes it, a
+            // modal/panel teardown) drops the hover hint once the input turn
+            // ends; on a normal release HeaderDragEnded has already cleared it,
+            // so the deferred call is a no-op and cannot flicker the target.
+            chrome.Header.LostMouseCapture += (s, e) =>
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(ClearMergeHint));
             chrome.ApplyOpacity(GetPanelOpacity());
             UpdateUI();
         }
 
         #region IWidgetWindow
 
-        public string WidgetId => _data.Id;
-        public WidgetData Data => _data;
+        public string WidgetId => _state.Id;
+        public virtual WidgetData Data => _data;
         public bool IsPanelOpen => _isExpanded;
         public bool IsModalOpen => _modalDepth > 0;
 
@@ -153,11 +206,11 @@ namespace Kobold.Controls
         /// </summary>
         public (double width, double height) GetPanelSize()
         {
-            if (_data.PanelWidth.HasValue && _data.PanelHeight.HasValue)
+            if (_state.PanelWidth.HasValue && _state.PanelHeight.HasValue)
             {
                 var (minWidth, minHeight) = GetMinPanelSize();
-                return (Math.Max(minWidth, _data.PanelWidth.Value),
-                        Math.Max(minHeight, _data.PanelHeight.Value));
+                return (Math.Max(minWidth, _state.PanelWidth.Value),
+                        Math.Max(minHeight, _state.PanelHeight.Value));
             }
 
             var (contentWidth, contentHeight) = GetContentSize();
@@ -180,8 +233,8 @@ namespace Kobold.Controls
             Width = panelWidth;
             Height = panelHeight;
 
-            double x = _data.PanelX ?? defaultLeft;
-            double y = _data.PanelY ?? defaultTop;
+            double x = _state.PanelX ?? defaultLeft;
+            double y = _state.PanelY ?? defaultTop;
             (x, y) = ResolvePanelPosition(x, y, panelWidth, panelHeight);
             Left = x;
             Top = y;
@@ -233,9 +286,32 @@ namespace Kobold.Controls
         {
             if (Chrome == null) return;
             Chrome.Title = _data.Name;
-            Chrome.IsLocked = _data.IsLocked;
-            Chrome.IsPinned = _data.IsPanelPinned;
+            Chrome.IsLocked = _state.IsLocked;
+            Chrome.IsPinned = _state.IsPanelPinned;
             Chrome.PanelColor = _data.Color;
+        }
+
+        /// <summary>
+        /// Highlights the shell border while this window is a merge target:
+        /// the accent theme token on the existing border (no extra strip) and
+        /// the chrome's normal border when cleared. Safe to call repeatedly.
+        /// </summary>
+        public void SetMergeHint(bool on)
+        {
+            if (_mergeHint == on) return;
+            _mergeHint = on;
+            if (Chrome == null) return;
+
+            if (on)
+            {
+                Chrome.Shell.BorderBrush = ThemeManager.AccentBrush;
+                return;
+            }
+
+            // UpdatePanelBorder owns the resting shell border (the panel
+            // colour tint or the neutral token), so a full theme repaint
+            // restores exactly what the chrome would paint anyway.
+            Chrome.ApplyTheme();
         }
 
         /// <summary>Re-applies the theme and the configured panel opacity.</summary>
@@ -260,17 +336,19 @@ namespace Kobold.Controls
         /// <summary>Toggles the content lock and remembers it.</summary>
         public void ToggleLock()
         {
-            _data.IsLocked = !_data.IsLocked;
+            _state.IsLocked = !_state.IsLocked;
             UpdateUI();
             OnDataChanged?.Invoke();
+            OnPanelStateChanged();
         }
 
         /// <summary>Toggles "keep open" and remembers it.</summary>
         public void TogglePin()
         {
-            _data.IsPanelPinned = !_data.IsPanelPinned;
+            _state.IsPanelPinned = !_state.IsPanelPinned;
             UpdateUI();
             OnDataChanged?.Invoke();
+            OnPanelStateChanged();
         }
 
         /// <summary>Prompts for a new name; committed through the usual change path.</summary>
@@ -353,7 +431,7 @@ namespace Kobold.Controls
             finally
             {
                 _modalDepth--;
-                if (_modalDepth == 0 && _isExpanded && !_data.IsPanelPinned && !IsActive)
+                if (_modalDepth == 0 && _isExpanded && !_state.IsPanelPinned && !IsActive)
                 {
                     HidePanel();
                 }
@@ -390,10 +468,11 @@ namespace Kobold.Controls
         /// </summary>
         private void PersistPanelState(bool open)
         {
-            if (_data.IsExpanded == open) return;
+            if (_state.IsExpanded == open) return;
 
-            _data.IsExpanded = open;
+            _state.IsExpanded = open;
             WidgetManager.Instance.SaveConfig();
+            OnPanelStateChanged();
         }
 
         /// <summary>
@@ -408,7 +487,7 @@ namespace Kobold.Controls
             try
             {
                 double currentScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-                var device = PanelPlacement.ToDeviceRect(x, y, width, height, _data.PanelDpiScale ?? 0, currentScale);
+                var device = PanelPlacement.ToDeviceRect(x, y, width, height, _state.PanelDpiScale ?? 0, currentScale);
                 var monitors = MonitorInterop.GetMonitors();
                 if (monitors.Count == 0) return ClampToVirtualScreen(x, y, width, height);
 
@@ -485,11 +564,15 @@ namespace Kobold.Controls
 
         private void Window_Deactivated(object sender, EventArgs e)
         {
+            // Losing activation ends any live hover hint; a closing/source
+            // panel must never leave another window's border lit.
+            ClearMergeHint();
+
             // Our own modal dialog is up: keep the panel alive underneath it.
             if (_modalDepth > 0) return;
 
             // Don't close the panel if it is pinned.
-            if (_isExpanded && !_data.IsPanelPinned)
+            if (_isExpanded && !_state.IsPanelPinned)
             {
                 HidePanel();
             }
@@ -506,6 +589,9 @@ namespace Kobold.Controls
 
         private void OnHeaderDragStarted(Point cursor)
         {
+            // A fresh gesture never inherits a hint from a lost/cancelled drag.
+            ClearMergeHint();
+
             // Snapshot the anchor; a click without movement is not a drag.
             _dragStarted = true;
             _dragStartCursor = cursor;
@@ -534,6 +620,10 @@ namespace Kobold.Controls
             Left += (cursor.X - _dragLastCursor.X) / dpi;
             Top += (cursor.Y - _dragLastCursor.Y) / dpi;
             _dragLastCursor = cursor;
+
+            // Live drop hint: while a real drag is over an eligible panel, that
+            // panel wears the accent border. Only a target change repaints.
+            UpdateMergeHint(cursor);
         }
 
         private void OnHeaderDragEnded(Point cursor)
@@ -541,15 +631,143 @@ namespace Kobold.Controls
             // The drag is over even when it was a click: reset the anchor flag
             // before the early return so the next drag starts clean.
             _dragStarted = false;
-            if (!_isDraggingWindow) return; // a click, not a drag
+            if (!_isDraggingWindow)
+            {
+                ClearMergeHint();
+                return; // a click, not a drag
+            }
 
             _isDraggingWindow = false;
             // Remember where the user parked this panel, and the DPI scale its
             // (DIP) coordinates are relative to.
-            _data.PanelX = Left;
-            _data.PanelY = Top;
-            _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            _state.PanelX = Left;
+            _state.PanelY = Top;
+            _state.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
             OnDataChanged?.Invoke();
+            OnPanelStateChanged();
+
+            try
+            {
+                // A real header drag is also the merge gesture: drop onto another
+                // widget's panel and it joins that host instead of just moving.
+                TryMergeFromHeaderDrag(cursor);
+            }
+            finally
+            {
+                // The merge may have closed/replaced the target host; clearing
+                // the remembered instance is always safe.
+                ClearMergeHint();
+            }
+        }
+
+        /// <summary>
+        /// The header-drag drop half of merge: find the first visible widget
+        /// window under the release point, keep its hint lit and hand the
+        /// merge to the manager. A group is never a source and the policy
+        /// rejects locked/locked-group/Folder pairs; no target keeps the
+        /// plain move.
+        /// </summary>
+        private void TryMergeFromHeaderDrag(Point cursor)
+        {
+            if (this is WidgetGroupWindow) return;
+            double scale = _dragDpiScale > 0 ? _dragDpiScale : 1.0;
+            if (!GroupDragPolicy.IsDragOut(
+                    (cursor.X - _dragStartCursor.X) / scale,
+                    (cursor.Y - _dragStartCursor.Y) / scale)) return;
+
+            IWidgetWindow target = FindMergeTarget(cursor);
+            if (target == null) return;
+
+            SetMergeHintTarget(target);
+            WidgetManager.Instance.MergeWidgets(this, target);
+        }
+
+        /// <summary>
+        /// The live hover half of the merge hint: repaints only when the
+        /// candidate under the cursor changes, so a move within one panel does
+        /// not re-apply the chrome theme every frame.
+        /// </summary>
+        private void UpdateMergeHint(Point cursor)
+        {
+            if (this is WidgetGroupWindow) return;
+
+            // The hint belongs to a merge-sized gesture: a window drag that
+            // never reached the merge threshold (or came back inside it) shows
+            // none.
+            double scale = _dragDpiScale > 0 ? _dragDpiScale : 1.0;
+            if (!GroupDragPolicy.IsDragOut(
+                    (cursor.X - _dragStartCursor.X) / scale,
+                    (cursor.Y - _dragStartCursor.Y) / scale))
+            {
+                ClearMergeHint();
+                return;
+            }
+
+            SetMergeHintTarget(FindMergeTarget(cursor));
+        }
+
+        /// <summary>
+        /// The eligible merge target under a screen point: the first visible
+        /// candidate (the source is skipped by the policy) that passes
+        /// <see cref="GroupDragPolicy.CanMerge"/>; locked/locked-group/Folder
+        /// hosts never qualify, so they never hint.
+        /// </summary>
+        private IWidgetWindow FindMergeTarget(Point cursor)
+        {
+            IWidgetWindow found = GroupDragPolicy.FindTarget(cursor, this, MergeCandidates, ScreenBounds);
+            if (found == null || !GroupDragPolicy.CanMerge(this, found)) return null;
+            return found;
+        }
+
+        /// <summary>Moves the hint to one target; the same target is a no-op.</summary>
+        private void SetMergeHintTarget(IWidgetWindow target)
+        {
+            if (ReferenceEquals(target, _mergeHintTarget)) return;
+
+            var previous = _mergeHintTarget as WidgetWindowBase;
+            _mergeHintTarget = target;
+            if (previous != null) previous.SetMergeHint(false);
+
+            var next = target as WidgetWindowBase;
+            if (next != null) next.SetMergeHint(true);
+        }
+
+        private void ClearMergeHint() => SetMergeHintTarget(null);
+
+        /// <summary>
+        /// The windows a header drag may merge into. Production reads the live
+        /// manager host list; the checks override it so the hint can be driven
+        /// without registering windows with the singleton.
+        /// </summary>
+        internal IReadOnlyList<IWidgetWindow> MergeCandidatesOverride { get; set; }
+
+        private IReadOnlyList<IWidgetWindow> MergeCandidates =>
+            MergeCandidatesOverride ?? WidgetManager.Instance.Widgets;
+
+        /// <summary>
+        /// The window's physical screen rectangle (DPI-scaled), as the merge
+        /// hit test expects. A never-shown or closing window has no rect.
+        /// </summary>
+        private static Rect ScreenBounds(IWidgetWindow window)
+        {
+            var host = window as Window;
+            if (host == null || !host.IsVisible) return Rect.Empty;
+
+            try
+            {
+                Point origin = host.PointToScreen(new Point(0, 0));
+                DpiScale dpi = VisualTreeHelper.GetDpi(host);
+                return new Rect(origin.X, origin.Y,
+                    host.ActualWidth * dpi.DpiScaleX,
+                    host.ActualHeight * dpi.DpiScaleY);
+            }
+            catch (Exception ex)
+            {
+                // A window without a live presentation source has no rect;
+                // it simply is not a drop target.
+                Debug.WriteLine("[Kobold] merge bounds fallback: " + ex.Message);
+                return Rect.Empty;
+            }
         }
 
         #endregion
@@ -638,6 +856,13 @@ namespace Kobold.Controls
         /// </summary>
         protected virtual void OnPanelSizeChanged() { }
 
+        /// <summary>
+        /// Called after every panel state write (persist, drag, resize, lock,
+        /// pin). The group window (T5) mirrors the state onto its
+        /// <see cref="WidgetGroup"/> here; standalone widgets need nothing.
+        /// </summary>
+        protected virtual void OnPanelStateChanged() { }
+
         private void OnResizeEnded(Point cursor)
         {
             // The gesture is over even when it was a click: reset the anchor
@@ -651,12 +876,13 @@ namespace Kobold.Controls
             // Remember the chosen size and the fitted position. Saved directly
             // rather than through OnDataChanged: the island's tiles do not
             // depend on the panel geometry, so no rebuild is needed.
-            _data.PanelWidth = Width;
-            _data.PanelHeight = Height;
-            _data.PanelX = Left;
-            _data.PanelY = Top;
-            _data.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            _state.PanelWidth = Width;
+            _state.PanelHeight = Height;
+            _state.PanelX = Left;
+            _state.PanelY = Top;
+            _state.PanelDpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
             WidgetManager.Instance.SaveConfig();
+            OnPanelStateChanged();
         }
 
         private static double ClampPanelSize(double value, double min, double max)
@@ -665,5 +891,31 @@ namespace Kobold.Controls
         }
 
         #endregion
+
+        /// <summary>
+        /// Adapts a standalone widget's datum to the panel seam. C# has no
+        /// structural interface implementation, so the base wraps the datum;
+        /// every member forwards to the same data property, keeping the
+        /// standalone behavior identical.
+        /// </summary>
+        private sealed class DataPanelState : IPanelState
+        {
+            private readonly WidgetData _data;
+
+            public DataPanelState(WidgetData data)
+            {
+                _data = data;
+            }
+
+            public string Id => _data.Id;
+            public double? PanelX { get => _data.PanelX; set => _data.PanelX = value; }
+            public double? PanelY { get => _data.PanelY; set => _data.PanelY = value; }
+            public double? PanelDpiScale { get => _data.PanelDpiScale; set => _data.PanelDpiScale = value; }
+            public double? PanelWidth { get => _data.PanelWidth; set => _data.PanelWidth = value; }
+            public double? PanelHeight { get => _data.PanelHeight; set => _data.PanelHeight = value; }
+            public bool IsExpanded { get => _data.IsExpanded; set => _data.IsExpanded = value; }
+            public bool IsLocked { get => _data.IsLocked; set => _data.IsLocked = value; }
+            public bool IsPanelPinned { get => _data.IsPanelPinned; set => _data.IsPanelPinned = value; }
+        }
     }
 }

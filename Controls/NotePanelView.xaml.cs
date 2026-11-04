@@ -26,7 +26,7 @@ namespace Kobold.Controls
     /// orchestration: the home / detail switch, the blank-text rule and the
     /// title dropdown.
     /// </summary>
-    public partial class NotePanelView : UserControl
+    public partial class NotePanelView : UserControl, IWidgetContentView
     {
         /// <summary>The card's title size (T11: 14, semibold).</summary>
         private const double TITLE_FONT = 14;
@@ -54,7 +54,7 @@ namespace Kobold.Controls
         private const double MENU_CHECK_WIDTH = 18;
 
         private NoteData _data;
-        private NoteWidget _host;
+        private IWidgetViewHost _host;
 
         /// <summary>The opened note's id; null is the home, so the two states
         /// never show at the same time.</summary>
@@ -127,12 +127,85 @@ namespace Kobold.Controls
         /// </summary>
         public void Attach(NoteData data, NoteWidget host)
         {
+            AttachCore(data, host);
+        }
+
+        void IWidgetContentView.Attach(WidgetData data, IWidgetViewHost host)
+        {
+            AttachCore(data as NoteData, host);
+        }
+
+        private void AttachCore(NoteData data, IWidgetViewHost host)
+        {
             _data = data ?? new NoteData();
             _host = host;
             _expandedId = null;
             _mountedNoteId = null;
             RebuildHome();
         }
+
+        #region IWidgetContentView
+
+        WidgetData IWidgetContentView.Data => _data;
+
+        FrameworkElement IWidgetContentView.View => this;
+
+        /// <summary>The note kind owns the title chevron: its menu switches notes.</summary>
+        public bool HasTitleMenu => true;
+
+        /// <summary>A group tab becoming visible keeps the current state as-is.</summary>
+        public void Activate()
+        {
+        }
+
+        /// <summary>
+        /// The panel leaves (close / collapse / a group tab switch): the title
+        /// menu never outlives it and a half-typed block is settled, exactly
+        /// like the standalone window's close and hide hooks.
+        /// </summary>
+        public void Deactivate()
+        {
+            CloseTitleMenu();
+            FlushPendingEdit();
+        }
+
+        void IWidgetContentView.RefreshChromeTitle()
+        {
+            _host?.RefreshChromeTitle(ChromeTitle);
+        }
+
+        void IWidgetContentView.ToggleTitleMenu(FrameworkElement anchor)
+        {
+            ToggleTitleMenu(anchor);
+        }
+
+        /// <summary>
+        /// The window-level key router: Esc closes the title dropdown before
+        /// the panel's own Esc router navigates home, and Ctrl+Z in the list
+        /// context walks the undo stack back a step (a focused text box keeps
+        /// its own text undo).
+        /// </summary>
+        public bool HandlePreviewKeyDown(KeyEventArgs e)
+        {
+            if (e == null) return false;
+
+            if (e.Key == Key.Escape && IsTitleMenuOpen)
+            {
+                CloseTitleMenu();
+                return true;
+            }
+
+            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return false;
+            if (Keyboard.FocusedElement is TextBox) return false;
+            return TryUndo();
+        }
+
+        void IWidgetContentView.HandleMouseDownOutsideEditor(object source)
+        {
+            // The note's click-away lives in the view's own Root handler.
+        }
+
+        #endregion
 
         /// <summary>The expanded note's id; null is the home.</summary>
         public bool IsHome

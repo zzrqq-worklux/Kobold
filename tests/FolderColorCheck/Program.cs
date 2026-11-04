@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Kobold.Core;
 using Kobold.Helpers;
 
@@ -42,6 +44,7 @@ namespace Kobold.FolderColorCheck
                 SpecialFolderIconsAreRefused();
                 RestoreIsIdempotent();
                 BadInputFailsSafely();
+                CustomIconReloadsAfterColorChange();
             }
             finally
             {
@@ -171,6 +174,79 @@ namespace Kobold.FolderColorCheck
                 "bad input: a null folder fails");
             Check(FolderColor.GetIconResource(Path.Combine(_root, "missing")) == null,
                 "bad input: reading a missing folder returns null");
+        }
+
+        /// <summary>
+        /// The widget must read the icon the desktop.ini names, not the shell's
+        /// cached copy: after a second color the shell may still hand back the
+        /// first icon. The source's cache key must follow the icon file, and a
+        /// reload must paint the new color.
+        /// </summary>
+        private static void CustomIconReloadsAfterColorChange()
+        {
+            string folder = NewFolder("case-icon-reload");
+            string icons = Path.Combine(_root, "icons-reload");
+            string pink = FolderIconFactory.EnsureIcon("#CC785C", icons);
+            string teal = FolderIconFactory.EnsureIcon("#5DB8A6", icons);
+            if (pink == null || teal == null)
+            {
+                Check(false, "reload: the icon factory built both test icons");
+                return;
+            }
+
+            Check(FolderColor.Apply(folder, pink, 0) == FolderColorResult.Applied,
+                "reload: the first color applies");
+            string firstKey = FolderIconSource.GetCacheKey(folder);
+            var before = FolderIconSource.Load(folder) as BitmapSource;
+            Color beforeColor = DominantColor(before);
+            Check(firstKey != null, "reload: a custom icon has a cache key");
+            Check(before != null && IsPink(beforeColor),
+                "reload: the first icon is the pink one (got " + beforeColor + ")");
+
+            Check(FolderColor.Apply(folder, teal, 0) == FolderColorResult.Applied,
+                "reload: the second color applies");
+            string secondKey = FolderIconSource.GetCacheKey(folder);
+            var after = FolderIconSource.Load(folder) as BitmapSource;
+            Color afterColor = DominantColor(after);
+            Check(secondKey != null && !string.Equals(firstKey, secondKey, StringComparison.Ordinal),
+                "reload: the cache key changes when the icon changes");
+            Check(after != null && ColorDistance(beforeColor, afterColor) > 40,
+                "reload: the second icon is the new color (got " + afterColor + ")");
+        }
+
+        private static Color DominantColor(BitmapSource source)
+        {
+            if (source == null) return Colors.Transparent;
+
+            var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+            int width = converted.PixelWidth, height = converted.PixelHeight;
+            if (width == 0 || height == 0) return Colors.Transparent;
+
+            var pixels = new byte[width * height * 4];
+            converted.CopyPixels(pixels, width * 4, 0);
+            long r = 0, g = 0, b = 0, n = 0;
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i + 3] < 200) continue;
+                int bb = pixels[i], gg = pixels[i + 1], rr = pixels[i + 2];
+                int max = Math.Max(rr, Math.Max(gg, bb));
+                int min = Math.Min(rr, Math.Min(gg, bb));
+                if (max - min <= 30) continue;
+                r += rr; g += gg; b += bb; n++;
+            }
+            return n == 0
+                ? Colors.Transparent
+                : Color.FromRgb((byte)(r / n), (byte)(g / n), (byte)(b / n));
+        }
+
+        private static bool IsPink(Color color)
+        {
+            return color.R > color.G && color.R > color.B;
+        }
+
+        private static int ColorDistance(Color a, Color b)
+        {
+            return Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B);
         }
 
         private static void TryDelete(string path)

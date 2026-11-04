@@ -44,14 +44,14 @@ namespace Kobold.Controls
     /// are marshaled with <see cref="Dispatcher.BeginInvoke"/> (never Invoke:
     /// a blocking call can deadlock against a scan or shutdown).
     /// </summary>
-    public partial class SearchPanelView : UserControl
+    public partial class SearchPanelView : UserControl, IWidgetContentView
     {
         private const int DebounceMilliseconds = 200;
         private const int ResultLimit = 300;
         private const int FrequentLimit = 10;
 
         private SearchData _data;
-        private WidgetWindowBase _host;
+        private IWidgetViewHost _host;
         private FileSearchIndexService _service;
         private DispatcherTimer _debounce;
         private CancellationTokenSource _queryCts;
@@ -92,14 +92,24 @@ namespace Kobold.Controls
         /// <summary>The widget data this view was attached to.</summary>
         public SearchData Data => _data;
 
-        /// <summary>The window that hosts the view in its chrome content slot.</summary>
-        public WidgetWindowBase HostWindow => _host;
+        /// <summary>The window that hosts the view in its chrome content slot, when it is one.</summary>
+        public WidgetWindowBase HostWindow => _host as WidgetWindowBase;
 
         /// <summary>
         /// Binds the view to its data and host. No service work happens here:
         /// the service is only touched once the view is in a live tree.
         /// </summary>
         public void Attach(SearchData data, WidgetWindowBase host)
+        {
+            AttachCore(data, host as IWidgetViewHost);
+        }
+
+        void IWidgetContentView.Attach(WidgetData data, IWidgetViewHost host)
+        {
+            AttachCore(data as SearchData, host);
+        }
+
+        private void AttachCore(SearchData data, IWidgetViewHost host)
         {
             _data = data;
             _host = host;
@@ -130,6 +140,83 @@ namespace Kobold.Controls
             ApplyLocalization();
             _attached = true;
         }
+
+        #region IWidgetContentView
+
+        WidgetData IWidgetContentView.Data => _data;
+
+        FrameworkElement IWidgetContentView.View => this;
+
+        /// <summary>The search box's title: the widget name (no note-style state).</summary>
+        public string ChromeTitle => _data == null ? string.Empty : _data.Name ?? string.Empty;
+
+        bool IWidgetContentView.HasTitleMenu => false;
+
+        /// <summary>
+        /// Repaints from the current data and service snapshot: labels, the
+        /// accent and the status line. Never dispatches a query or touches the
+        /// index.
+        /// </summary>
+        public void Refresh()
+        {
+            if (_detached) return;
+            RefreshLocalization();
+            RefreshStatus();
+            RefreshAccent();
+        }
+
+        /// <summary>
+        /// The panel became visible: re-read the service snapshot and queue the
+        /// focus until the window is really shown (the standalone window's
+        /// OnPanelShown body).
+        /// </summary>
+        public void Activate()
+        {
+            RefreshStatus();
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (IsVisible) FocusSearch();
+            }));
+        }
+
+        /// <summary>
+        /// The panel went away: a hidden panel must not keep the loading glow
+        /// running while a query or a scan is still in flight.
+        /// </summary>
+        public void Deactivate()
+        {
+            WidgetChrome chrome = _host == null ? null : _host.Chrome;
+            if (chrome != null) chrome.StopGlow();
+        }
+
+        void IWidgetContentView.RefreshChromeTitle()
+        {
+        }
+
+        void IWidgetContentView.ToggleTitleMenu(FrameworkElement anchor)
+        {
+        }
+
+        bool IWidgetContentView.HandlePreviewKeyDown(KeyEventArgs e)
+        {
+            return false;
+        }
+
+        void IWidgetContentView.HandleMouseDownOutsideEditor(object source)
+        {
+        }
+
+        void IWidgetContentView.FlushPendingEdit()
+        {
+        }
+
+        /// <summary>The search view carries no structural undo stack.</summary>
+        public bool TryUndo()
+        {
+            return false;
+        }
+
+        #endregion
 
         /// <summary>
         /// Drops every subscription, stops the debounce timer and cancels the
@@ -1220,8 +1307,8 @@ namespace Kobold.Controls
         {
             bool on = !_detached && (_queryGlowOn || IsIndexState(_viewState));
 
-            WidgetWindowBase host = _host;
-            WidgetChrome chrome = host == null ? null : host.PanelChrome;
+            IWidgetViewHost host = _host;
+            WidgetChrome chrome = host == null ? null : host.Chrome;
             if (chrome == null) return;
 
             if (on)

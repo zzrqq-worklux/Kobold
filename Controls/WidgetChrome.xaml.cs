@@ -163,6 +163,27 @@ namespace Kobold.Controls
         public FrameworkElement TitleMenuAnchor => TitleGroup;
 
         /// <summary>
+        /// Installs the optional bare tab row above the header. Existing
+        /// widgets never call this, so their row stays 0 and the header keeps
+        /// its top corners; a group window passes its strip and 32.
+        /// </summary>
+        public void SetTabRow(FrameworkElement content, double height)
+        {
+            if (height <= 0 || double.IsNaN(height))
+            {
+                TabHost.Content = null;
+                TabRowDefinition.Height = new GridLength(0);
+                Header.CornerRadius = new CornerRadius(12, 12, 0, 0);
+                return;
+            }
+
+            TabHost.Content = content;
+            TabRowDefinition.Height = new GridLength(height);
+            // The tab row now owns the shell's top corners.
+            Header.CornerRadius = new CornerRadius(0);
+        }
+
+        /// <summary>
         /// Repaints everything theme-dependent: panel backdrop, header tint,
         /// title, the title chevron and the lock/pin icon states.
         /// </summary>

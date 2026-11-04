@@ -476,6 +476,10 @@ namespace Kobold.XamlLoadCheck
                     WidgetPanelVisibilityRaisesEvent);
                 failures += TryCheck("island: open state updates the tile in place",
                     IslandOpenStateUpdatesInPlace);
+                failures += TryCheck("island: group members carry a count badge",
+                    IslandGroupBadgeMarksMembers);
+                failures += TryCheck("island: only the active group member carries the open ring",
+                    IslandOpenStateFollowsTheActiveMember);
 
 
                 // Task 2 pin: the island's + tile opens the launcher card with
@@ -882,6 +886,82 @@ namespace Kobold.XamlLoadCheck
                     NoteFontMenuChecksAndWrites);
                 failures += TryCheck("menu: the folder menu has no note font submenu",
                     FolderMenuHasNoNoteFontSubmenu);
+
+                // Task T2 pins: the view host abstraction - a view attaches to
+                // any IWidgetViewHost (the fake below), reads its content
+                // height, routes the chrome title / flush / undo through the
+                // interface, drives the host chrome's query glow and maps a
+                // datum to its view through WidgetViewFactory. The pins prove
+                // the views no longer need a concrete window (the T0 spike's
+                // hidden-widget crutch).
+                failures += TryCheck("view host: todo lays out from the host content height",
+                    TodoViewFollowsHostContentHeight);
+                failures += TryCheck("view host: note drives the chrome title, flush and undo through the interface",
+                    NoteViewRunsThroughTheInterface);
+                failures += TryCheck("view host: search drives the host chrome and its glow",
+                    SearchViewUsesTheHostChrome);
+                failures += TryCheck("view factory: every kind maps to its content view",
+                    WidgetViewFactoryMapsKindData);
+
+                // Task T4 pins: the group window hosts the real member views
+                // behind 32px bare tabs over the shared 40px chrome header,
+                // switches by visibility only, keeps the context title / note
+                // chevron / group lock and pin live, lets a resize reach every
+                // view, and exposes the tab/current menu structure.
+                failures += TryCheck("group: the window hosts bare tabs over the shared chrome",
+                    GroupWindowHostsBareTabs);
+                failures += TryCheck("group: a tab switch swaps visibility and keeps the views and window size",
+                    GroupTabSwitchKeepsTheViewAndWindowSize);
+                failures += TryCheck("group: the title follows the active view and the note chevron",
+                    GroupTitleFollowsTheActiveView);
+                failures += TryCheck("group: lock and pin follow the group state",
+                    GroupLockAndPinFollowTheGroup);
+                failures += TryCheck("group: a resize flows into each member view",
+                    GroupResizeFlowsIntoTheMemberViews);
+                failures += TryCheck("group: the tab menu carries switch/detach/hide",
+                    GroupMenuCarriesTheSwitchDetachAndHide);
+
+                // Task T6 pins: the detach entry is live for an unlocked pair
+                // and reaches the window's detach seam; a locked group refuses
+                // menu detach; the merge hint repaints/restores the shell
+                // border; the tab strip exposes the drag gesture and a
+                // sub-threshold press/release never detaches; the real group
+                // window is rejected as a merge source.
+                failures += TryCheck("group: the detach entry is enabled unlocked and refused when locked",
+                    GroupDetachMenuFollowsTheLock);
+                failures += TryCheck("group: the merge hint repaints and restores the shell border",
+                    SetMergeHintHighlightsAndRestoresTheShellBorder);
+                failures += TryCheck("group: the hovered merge target wears the hint during the drag",
+                    MergeHintFollowsTheHoveredTargetDuringTheDrag);
+                failures += TryCheck("group: a sub-threshold tab press/up never detaches",
+                    TabStripDragGestureRespectsTheThreshold);
+                failures += TryCheck("drag policy: a real group window is never a merge source",
+                    GroupDragPolicyRejectsARealGroupSource);
+                failures += TryCheck("drag policy: the drop target is the first rect under the cursor",
+                    GroupDragPolicyFindsTheDropTarget);
+
+                // T5 fix pin: a group member has no window of its own, so
+                // removal must resolve it through FindHostForWidget. This drives
+                // the real manager in its config sandbox (no fake manager) and
+                // runs after the isolated pins because it performs the one-shot
+                // app initialization.
+                failures += TryCheck("group: removing a member resolves through the group host",
+                    ManagerRemovesGroupMembersThroughTheirHost);
+
+                // T6 manager pin: merge/detach/auto-dissolve through the real
+                // manager hosts. Runs last so it can reuse the initialized app
+                // and island from the T5 pin.
+                failures += TryCheck("group: merge, detach and the last-pair dissolve",
+                    ManagerMergesAndDetachesThroughTheGroupHost);
+
+                // Task T7 pins: the group minimum is the tallest member's
+                // minimum plus the 32px tab row, and closing the group window
+                // flushes a live whole-note edit into NoteData before the view
+                // goes away ("关闭组窗口 flush 所有成员").
+                failures += TryCheck("group: the panel minimum includes the tab row",
+                    GroupMinimumIncludesTheTabRow);
+                failures += TryCheck("group: closing the window flushes a live note edit",
+                    GroupCloseFlushesTheNoteEdit);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -8277,6 +8357,418 @@ namespace Kobold.XamlLoadCheck
             {
                 island.Close();
             }
+        }
+
+        /// <summary>
+        /// T5 pin: a grouped member's island tile keeps its 44x44 size and
+        /// gains exactly one small, click-through count badge; the group adds
+        /// no tile of its own.
+        /// </summary>
+        private static void IslandGroupBadgeMarksMembers()
+        {
+            ThemeManager.Initialize("dark");
+            var first = new FolderData { Name = "待办", Color = "#B5654A" };
+            var second = new FolderData { Name = "笔记", Color = "#4A7BB5" };
+            var island = new IslandWindow();
+            try
+            {
+                var info = new WidgetGroupTileInfo { MemberCount = 2, MemberNames = "待办 / 笔记" };
+                var groupInfo = new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal)
+                {
+                    { first.Id, info },
+                    { second.Id, info }
+                };
+                island.SetWidgets(new WidgetData[] { first, second }, groupInfo);
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                if (TilePanelOf(island).Children.Count != 2)
+                    throw new InvalidOperationException("the group added an extra tile");
+
+                foreach (var widget in new[] { first, second })
+                {
+                    var tile = FindIslandTile(island, widget.Id);
+                    if (tile == null)
+                        throw new InvalidOperationException("a group member tile was not built");
+                    if (tile.Width != WidgetConstants.ISLAND_TILE_SIZE
+                        || tile.Height != WidgetConstants.ISLAND_TILE_SIZE)
+                        throw new InvalidOperationException("the group badge changed the tile size");
+
+                    var badge = FindGroupBadge(tile);
+                    if (badge == null)
+                        throw new InvalidOperationException("a grouped tile has no GroupBadge");
+                    if (badge.IsHitTestVisible)
+                        throw new InvalidOperationException("the group badge intercepts clicks");
+                    if (badge.Width != 14 || badge.Height != 14)
+                        throw new InvalidOperationException("the group badge is not 14x14");
+
+                    var text = badge.Child as TextBlock;
+                    if (text == null || text.Text != "2")
+                        throw new InvalidOperationException("the group badge does not show the member count");
+                }
+
+                // An ungrouped tile in the same build carries no badge at all.
+                island.SetWidgets(new WidgetData[] { first });
+                island.UpdateLayout();
+                if (FindGroupBadge(FindIslandTile(island, first.Id)) != null)
+                    throw new InvalidOperationException("an ungrouped tile still carries a GroupBadge");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        /// <summary>
+        /// T5 pin: the manager passes only the active member's id, so the other
+        /// member's dot/ring stays collapsed even though the group is open.
+        /// </summary>
+        private static void IslandOpenStateFollowsTheActiveMember()
+        {
+            ThemeManager.Initialize("dark");
+            var active = new FolderData { Name = "active", Color = "#B5654A" };
+            var hidden = new FolderData { Name = "inactive", Color = "#4A7BB5" };
+            var island = new IslandWindow();
+            try
+            {
+                island.SetWidgets(new WidgetData[] { active, hidden });
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                island.SetOpenStates(new[] { active.Id });
+
+                var activeTile = FindIslandTile(island, active.Id);
+                var hiddenTile = FindIslandTile(island, hidden.Id);
+                if (activeTile == null || hiddenTile == null)
+                    throw new InvalidOperationException("the member tiles were not built");
+                if (TileDotOf(activeTile).Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("the active member tile lost its open ring");
+                if (TileDotOf(hiddenTile).Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("an inactive group member tile shows an open ring");
+                if (hiddenTile.Background != Brushes.Transparent)
+                    throw new InvalidOperationException("an inactive group member tile carries the open wash");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        /// <summary>
+        /// T5 fix pin: a group member has no window whose WidgetId is its own id
+        /// (the group window carries the group id), so RemoveWidget must resolve
+        /// the member through FindHostForWidget. Drives the real manager in its
+        /// config sandbox - no fake manager - and runs last because it performs
+        /// the one-shot app initialization.
+        /// </summary>
+        private static void ManagerRemovesGroupMembersThroughTheirHost()
+        {
+            ThemeManager.Initialize("dark");
+
+            WidgetManager manager = WidgetManager.Instance;
+            var first = new NoteData { Id = "t5-member-a", Name = "A", Color = "#B5654A" };
+            var second = new NoteData { Id = "t5-member-b", Name = "B", Color = "#4A7BB5" };
+            var third = new NoteData { Id = "t5-member-c", Name = "C", Color = "#788C5D" };
+            first.GroupId = "t5-group";
+            second.GroupId = "t5-group";
+            third.GroupId = "t5-group";
+            first.GroupOrder = 0;
+            second.GroupOrder = 1;
+            third.GroupOrder = 2;
+
+            manager.Config.Widgets.Clear();
+            manager.Config.Widgets.Add(first);
+            manager.Config.Widgets.Add(second);
+            manager.Config.Widgets.Add(third);
+            manager.Config.Groups = new List<WidgetGroup>
+            {
+                new WidgetGroup { Id = "t5-group", ActiveWidgetId = second.Id, IsExpanded = false }
+            };
+
+            manager.Initialize();
+
+            // The member resolves only through its group host before removal.
+            var memberHost = manager.FindHostForWidget(second.Id) as WidgetGroupWindow;
+            if (memberHost == null || memberHost.WidgetId != "t5-group")
+                throw new InvalidOperationException("a member did not resolve to its group host");
+
+            manager.RemoveWidget(second.Id);
+
+            if (manager.Config.Widgets.Count != 2)
+                throw new InvalidOperationException("removing a member did not remove exactly one widget");
+            if (manager.FindHostForWidget(second.Id) != null)
+                throw new InvalidOperationException("the removed member still resolves to a host");
+            var rebuilt = manager.FindHostForWidget(first.Id) as WidgetGroupWindow;
+            if (rebuilt == null)
+                throw new InvalidOperationException("the surviving pair lost its group host");
+            if (!rebuilt.ContainsWidget(first.Id) || !rebuilt.ContainsWidget(third.Id)
+                || rebuilt.ContainsWidget(second.Id))
+                throw new InvalidOperationException("the rebuilt group host carries the wrong tabs");
+            if (manager.Config.Groups == null || manager.Config.Groups.Count != 1)
+                throw new InvalidOperationException("the pair did not keep its group");
+
+            // Dropping the pair to one member dissolves the group.
+            manager.RemoveWidget(third.Id);
+
+            if (manager.Config.Groups != null && manager.Config.Groups.Count != 0)
+                throw new InvalidOperationException("dropping to one member did not dissolve the group");
+            if (manager.Config.Widgets.Count != 1 || manager.Config.Widgets[0].Id != first.Id)
+                throw new InvalidOperationException("the last member did not survive the dissolve");
+            if (manager.FindHostForWidget(third.Id) != null)
+                throw new InvalidOperationException("the removed member still resolves to a host");
+            var standalone = manager.FindHostForWidget(first.Id);
+            if (standalone == null || standalone is WidgetGroupWindow)
+                throw new InvalidOperationException("the last member did not become a standalone host");
+            if (standalone.WidgetId != first.Id)
+                throw new InvalidOperationException("the standalone host does not own the last member");
+            if (!string.IsNullOrEmpty(manager.Config.Widgets[0].GroupId))
+                throw new InvalidOperationException("the last member kept its group membership");
+        }
+
+        /// <summary>
+        /// T6 manager pin: the merge/detach state machine through the real
+        /// hosts - standalone + standalone becomes a group (target first and
+        /// active), a standalone merges into a group as the last tab without
+        /// stealing focus, detaching keeps the group while two tabs remain,
+        /// a locked group refuses both directions, and the last pair
+        /// dissolves into two standalone hosts. Runs after the T5 manager pin
+        /// so it reuses the one-shot app initialization; it rebuilds hosts
+        /// through Initialize (panels start closed), so it never opens a
+        /// panel or steals focus from whatever is running on the desktop.
+        /// </summary>
+        private static void ManagerMergesAndDetachesThroughTheGroupHost()
+        {
+            ThemeManager.Initialize("dark");
+
+            WidgetManager manager = WidgetManager.Instance;
+
+            // Clear the previous pin's hosts/config and stand three fresh,
+            // closed widgets up through the same batch path the app uses.
+            foreach (var existing in manager.Config.Widgets.ToList())
+            {
+                manager.RemoveWidget(existing.Id);
+            }
+
+            var todoData = new TodoData { Id = "t6-merge-todo", Name = "T6 Todo", Color = "#6A9BCC" };
+            var noteData = new NoteData { Id = "t6-merge-note", Name = "T6 Note", Color = "#788C5D" };
+            var secondNoteData = new NoteData { Id = "t6-merge-note2", Name = "T6 Note 2", Color = "#B5654A" };
+            manager.Config.Widgets.Add(todoData);
+            manager.Config.Widgets.Add(noteData);
+            manager.Config.Widgets.Add(secondNoteData);
+            manager.Initialize();
+
+            try
+            {
+                IWidgetWindow todoHost = manager.FindHostForWidget(todoData.Id);
+                IWidgetWindow noteHost = manager.FindHostForWidget(noteData.Id);
+                IWidgetWindow secondNoteHost = manager.FindHostForWidget(secondNoteData.Id);
+                if (todoHost == null || noteHost == null || secondNoteHost == null)
+                    throw new InvalidOperationException("a standalone host was not created");
+                if (todoHost.IsPanelOpen || noteHost.IsPanelOpen || secondNoteHost.IsPanelOpen)
+                    throw new InvalidOperationException("a check host opened a panel");
+
+                double? todoPanelWidth = todoData.PanelWidth;
+                double? todoPanelHeight = todoData.PanelHeight;
+
+                // Standalone + standalone: the target leads the new group.
+                if (!manager.MergeWidgets(noteHost, todoHost))
+                    throw new InvalidOperationException("a standalone todo + note did not merge");
+
+                var groupHost = manager.FindHostForWidget(todoData.Id) as WidgetGroupWindow;
+                if (groupHost == null)
+                    throw new InvalidOperationException("the merge produced no group host for the target");
+                if (!ReferenceEquals(manager.FindHostForWidget(noteData.Id), groupHost))
+                    throw new InvalidOperationException("the merged source kept a host of its own");
+                if (!groupHost.ContainsWidget(noteData.Id) || groupHost.Members.Count != 2)
+                    throw new InvalidOperationException("the new group does not carry both tabs");
+
+                WidgetGroup group = groupHost.Group;
+                if (group == null || group.Id != groupHost.WidgetId)
+                    throw new InvalidOperationException("the group host does not own its group state");
+                if (group.ActiveWidgetId != todoData.Id || groupHost.ActiveMemberId != todoData.Id)
+                    throw new InvalidOperationException("the merged source stole the active tab");
+                if (todoData.GroupId != group.Id || noteData.GroupId != group.Id)
+                    throw new InvalidOperationException("the merged widgets do not share the new group id");
+                if (todoData.GroupOrder != 0 || noteData.GroupOrder != 1)
+                    throw new InvalidOperationException("the source was not appended after the target");
+                if (groupHost.IsPanelOpen)
+                    throw new InvalidOperationException("a closed target's merge opened the group");
+                if (manager.Config.Groups == null || manager.Config.Groups.Count != 1)
+                    throw new InvalidOperationException("the merge did not add exactly one group");
+                if (todoData.PanelWidth != todoPanelWidth || todoData.PanelHeight != todoPanelHeight)
+                    throw new InvalidOperationException("merging wrote a member's panel size");
+
+                // A standalone merges into the group as the last tab.
+                if (!manager.MergeWidgets(secondNoteHost, groupHost))
+                    throw new InvalidOperationException("a standalone note did not merge into the group");
+
+                groupHost = manager.FindHostForWidget(todoData.Id) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 3)
+                    throw new InvalidOperationException("the group did not grow to three tabs");
+                if (groupHost.ActiveMemberId != todoData.Id)
+                    throw new InvalidOperationException("the second merged source stole the active tab");
+                if (secondNoteData.GroupOrder != 2)
+                    throw new InvalidOperationException("the second merged source was not appended");
+                string groupId = groupHost.WidgetId;
+
+                // Detach from three: the pair survives, the source stands alone.
+                if (!manager.DetachWidget(groupId, noteData.Id))
+                    throw new InvalidOperationException("detaching the note tab was refused");
+                if (noteData.GroupId != null || noteData.GroupOrder != null)
+                    throw new InvalidOperationException("the detached member kept its membership");
+                var detachedNote = manager.FindHostForWidget(noteData.Id);
+                if (detachedNote == null || detachedNote is WidgetGroupWindow)
+                    throw new InvalidOperationException("the detached member got no standalone host");
+                groupHost = manager.FindHostForWidget(todoData.Id) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 2 || groupHost.ContainsWidget(noteData.Id))
+                    throw new InvalidOperationException("the group did not survive the detach with two tabs");
+                if (manager.Config.Groups == null || manager.Config.Groups.Count != 1)
+                    throw new InvalidOperationException("the surviving pair lost its group");
+
+                // A locked group refuses both directions.
+                groupHost.Group.IsLocked = true;
+                if (manager.MergeWidgets(detachedNote, groupHost))
+                    throw new InvalidOperationException("a locked group accepted a merge");
+                if (manager.DetachWidget(groupId, secondNoteData.Id))
+                    throw new InvalidOperationException("a locked group detached a tab");
+                groupHost.Group.IsLocked = false;
+
+                // Detach down to one: the group dissolves into two standalone hosts.
+                if (!manager.DetachWidget(groupId, todoData.Id))
+                    throw new InvalidOperationException("the second detach was refused");
+                if (manager.Config.Groups != null && manager.Config.Groups.Count != 0)
+                    throw new InvalidOperationException("the last-pair detach did not dissolve the group");
+                if (todoData.GroupId != null || todoData.GroupOrder != null)
+                    throw new InvalidOperationException("the detached last member kept its membership");
+                if (secondNoteData.GroupId != null || secondNoteData.GroupOrder != null)
+                    throw new InvalidOperationException("the survivor kept its membership");
+
+                var survivor = manager.FindHostForWidget(secondNoteData.Id);
+                var detachedLast = manager.FindHostForWidget(todoData.Id);
+                if (survivor == null || survivor is WidgetGroupWindow)
+                    throw new InvalidOperationException("the survivor did not become a standalone host");
+                if (detachedLast == null || detachedLast is WidgetGroupWindow)
+                    throw new InvalidOperationException("the last detached member got no standalone host");
+            }
+            finally
+            {
+                // Release only the hosts this pin created; the config is the
+                // throwaway check sandbox and no panel was ever shown.
+                manager.RemoveWidget(todoData.Id);
+                manager.RemoveWidget(noteData.Id);
+                manager.RemoveWidget(secondNoteData.Id);
+            }
+        }
+
+        /// <summary>
+        /// Task T7: the group minimum is the tallest member's minimum plus the
+        /// 32px tab row (Todo 342x337 => 342x369). A persisted smaller size is
+        /// clamped up, and a shrink drag can never stop below that minimum.
+        /// </summary>
+        private static void GroupMinimumIncludesTheTabRow()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                group.PanelWidth = 200;
+                group.PanelHeight = 200;
+                var (width, height) = window.GetPanelSize();
+                if (width < 342 || height < 369)
+                {
+                    throw new InvalidOperationException(
+                        "a 200x200 group was accepted as " + width + "x" + height +
+                        ", wanted at least 342x369");
+                }
+
+                // A shrink drag pushes far past the minimum: it must stop there.
+                double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+                InvokeResizeStarted(window, WidgetResizeEdge.BottomRight, new Point(100, 100));
+                PrivateBaseMethod("OnResizeMoved").Invoke(window,
+                    new object[] { new Point(100 - 500 * scale, 100 - 500 * scale) });
+
+                if (Math.Abs(window.Width - 342) > 0.5 || Math.Abs(window.Height - 369) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the shrinking group drag made the panel " + window.Width + "x" + window.Height +
+                        ", wanted 342x369");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Task T7: a group window close flushes every member. A live whole-note
+        /// edit on the real surface reaches NoteData before the view goes away.
+        /// </summary>
+        private static void GroupCloseFlushesTheNoteEdit()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            var when = new DateTime(2026, 3, 5, 9, 0, 0);
+            note.Notes.Add(new NoteItem
+            {
+                Id = "t7-note",
+                Text = "first line",
+                CreatedAt = when,
+                ModifiedAt = when
+            });
+            try
+            {
+                ShowGroupWindow(window);
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                var noteView = (NotePanelView)window.ContentSlots[1].Content;
+                noteView.OpenNote("t7-note");
+                if (noteView.IsHome)
+                    throw new InvalidOperationException("the note detail did not open");
+
+                var surface = NoteSurface(noteView);
+                surface.BeginEditWhole();
+                var edit = SurfaceEditBox(surface);
+                edit.Text = (note.Notes[0].Text ?? string.Empty) + "\nappended tail";
+                if (note.Notes[0].Text != "first line")
+                    throw new InvalidOperationException(
+                        "the edit reached NoteData before the close");
+
+                window.Close();
+
+                if (window.IsVisible)
+                    throw new InvalidOperationException("the group window stayed visible after Close");
+                if (note.Notes[0].Text != "first line\nappended tail")
+                    throw new InvalidOperationException(
+                        "the close did not flush the edit into NoteData: '"
+                        + (note.Notes[0].Text ?? string.Empty).Replace("\n", "\\n") + "'");
+                if (surface.IsEditing)
+                    throw new InvalidOperationException("the note surface stayed in edit mode after Close");
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        private static Border FindGroupBadge(Border tile)
+        {
+            if (tile == null) return null;
+            var grid = tile.Child as Grid;
+            if (grid == null) return null;
+            foreach (var child in grid.Children)
+            {
+                var badge = child as Border;
+                if (badge != null && "GroupBadge".Equals(badge.Tag as string)) return badge;
+            }
+            return null;
         }
 
         private static StackPanel TilePanelOf(IslandWindow island)
@@ -16713,6 +17205,1208 @@ namespace Kobold.XamlLoadCheck
             var menu = WidgetMenuBuilder.Build(widget, null);
             if (FindMenuByHeader(menu, Localization.Get("Menu_NoteFontSize")) != null)
                 throw new InvalidOperationException("the folder menu carries the note 字号 submenu");
+        }
+
+        #endregion
+
+        #region View host (Task T2)
+
+        /// <summary>
+        /// A host the pins control by hand: it records the title pushes and the
+        /// data-change notifications and hands the view an explicit content
+        /// height, so the layout no longer has to come from a real window.
+        /// </summary>
+        private sealed class FakeViewHost : IWidgetViewHost
+        {
+            public FakeViewHost(WidgetData data)
+            {
+                Data = data;
+                PanelSize = (340, 400);
+            }
+
+            public WidgetData Data { get; set; }
+
+            public WidgetChrome Chrome { get; set; }
+
+            public bool IsPanelOpen { get; set; }
+
+            public double ContentWidth { get; set; }
+
+            public double ContentHeight { get; set; }
+
+            public (double width, double height) PanelSize { get; set; }
+
+            public int NotifyCount { get; private set; }
+
+            public List<string> Titles { get; } = new List<string>();
+
+            public int PersistSelectionCount { get; private set; }
+
+            public int MenuCount { get; private set; }
+
+            public (double width, double height) GetPanelSize()
+            {
+                return PanelSize;
+            }
+
+            public void NotifyDataChanged()
+            {
+                NotifyCount++;
+            }
+
+            public void RefreshChromeTitle(string title = null)
+            {
+                Titles.Add(title);
+            }
+
+            public void PersistSelection()
+            {
+                PersistSelectionCount++;
+            }
+
+            public void ShowWidgetMenu()
+            {
+                MenuCount++;
+            }
+        }
+
+        /// <summary>
+        /// T2: the todo layout follows whatever content height the host
+        /// publishes - no window is involved. The 300-high host renders one
+        /// pinned row and does not throw; the 500-high host must grow the list
+        /// viewport. The view lives in an invisible offscreen HwndSource so the
+        /// layout is real.
+        /// </summary>
+        private static void TodoViewFollowsHostContentHeight()
+        {
+            ThemeManager.Initialize("dark");
+
+            DateTime today = DateTime.Today;
+            var data = new TodoData { SelectedDate = today };
+            for (int i = 1; i <= 12; i++) TodoListOps.AddItem(data, "Item " + i, today);
+
+            var host = new FakeViewHost(data)
+            {
+                ContentWidth = 340,
+                ContentHeight = 300
+            };
+            var view = new TodoCalendarView();
+            var face = (IWidgetContentView)view;
+            face.Attach(data, host);
+
+            var source = new System.Windows.Interop.HwndSource(
+                new System.Windows.Interop.HwndSourceParameters("xamlloadcheck-t2-todo")
+                {
+                    WindowStyle = 0,
+                    Width = 400,
+                    Height = 700,
+                    PositionX = -10000,
+                    PositionY = -10000
+                });
+            source.RootVisual = view;
+            try
+            {
+                var scroller = view.FindName("ItemsScroller") as ScrollViewer;
+                if (scroller == null) throw new InvalidOperationException("ItemsScroller not found");
+
+                view.Refresh();
+                view.UpdateLayout();
+                double small = scroller.ActualHeight;
+                if (double.IsNaN(small) || small <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "a 300-high host laid out a " + small + " list viewport");
+                }
+
+                host.ContentHeight = 500;
+                view.Refresh();
+                view.UpdateLayout();
+                double large = scroller.ActualHeight;
+                if (large <= small)
+                {
+                    throw new InvalidOperationException(
+                        "the list viewport did not follow the host: " + small + " -> " + large);
+                }
+            }
+            finally
+            {
+                source.RootVisual = null;
+                source.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// T2: the note view works off the interface alone - the exposed title
+        /// matches the concrete property, a title refresh reaches the host, a
+        /// flush is safe on a home view, and the interface undo restores a
+        /// deleted note.
+        /// </summary>
+        private static void NoteViewRunsThroughTheInterface()
+        {
+            ThemeManager.Initialize("dark");
+
+            var first = NewNote("a", "First", new DateTime(2026, 3, 5, 9, 0, 0));
+            var data = new NoteData();
+            data.Notes.Add(first);
+
+            var host = new FakeViewHost(data);
+            var view = new NotePanelView();
+            var face = (IWidgetContentView)view;
+            face.Attach(data, host);
+
+            if (face.ChromeTitle != view.ChromeTitle)
+            {
+                throw new InvalidOperationException(
+                    "the interface title '" + face.ChromeTitle + "' differs from the view title '" +
+                    view.ChromeTitle + "'");
+            }
+            if (!face.HasTitleMenu)
+            {
+                throw new InvalidOperationException("the note view reports no title menu");
+            }
+
+            int titlesBefore = host.Titles.Count;
+            face.RefreshChromeTitle();
+            if (host.Titles.Count != titlesBefore + 1 || host.Titles[host.Titles.Count - 1] != view.ChromeTitle)
+            {
+                throw new InvalidOperationException(
+                    "the host received " + host.Titles.Count + " title(s), wanted the view's current title");
+            }
+
+            face.FlushPendingEdit(); // home view: safe no-op
+            if (!view.IsHome)
+            {
+                throw new InvalidOperationException("the home flush navigated the view");
+            }
+
+            InvokeNoteDelete(view, first);
+            if (data.Notes.Count != 0)
+            {
+                throw new InvalidOperationException("the fixture delete did not stick");
+            }
+            if (!face.TryUndo())
+            {
+                throw new InvalidOperationException("the interface undo reported nothing to restore");
+            }
+            if (data.Notes.Count != 1 || data.Notes[0] != first)
+            {
+                throw new InvalidOperationException("the interface undo did not restore the note");
+            }
+        }
+
+        /// <summary>
+        /// T2: the search view resolves its chrome through the host - the query
+        /// glow lights the host's chrome and the deactivate path stops it. No
+        /// service or scan is touched.
+        /// </summary>
+        private static void SearchViewUsesTheHostChrome()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new SearchData { Name = "Search check" };
+            var chrome = new WidgetChrome();
+            ArrangeChrome(chrome, 422, 562);
+
+            var host = new FakeViewHost(data)
+            {
+                Chrome = chrome,
+                IsPanelOpen = true,
+                ContentWidth = 420,
+                ContentHeight = 500,
+                PanelSize = (422, 562)
+            };
+            var view = new SearchPanelView();
+            var face = (IWidgetContentView)view;
+            face.Attach(data, host);
+
+            if (face.ChromeTitle != data.Name)
+            {
+                throw new InvalidOperationException(
+                    "the search view title is '" + face.ChromeTitle + "'");
+            }
+            if (face.HasTitleMenu)
+            {
+                throw new InvalidOperationException("the search view reports a title menu");
+            }
+
+            view.RefreshAccent(); // the accent path must run off the interface host
+
+            var setGlow = typeof(SearchPanelView).GetMethod("SetQueryGlow",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (setGlow == null) throw new InvalidOperationException("SearchPanelView.SetQueryGlow was not found");
+
+            setGlow.Invoke(view, new object[] { true });
+            if (!chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("the query did not light the host's chrome");
+            }
+
+            face.Deactivate();
+            if (chrome.IsGlowActive)
+            {
+                throw new InvalidOperationException("deactivate left the host's chrome glowing");
+            }
+
+            face.FlushPendingEdit();
+            face.HandleMouseDownOutsideEditor(chrome);
+            if (face.TryUndo())
+            {
+                throw new InvalidOperationException("the search view reports an undo");
+            }
+        }
+
+        /// <summary>
+        /// T2: the kind-to-view registry - the three migrated kinds build their
+        /// real view, while folder (T3a) and an unknown datum have none.
+        /// </summary>
+        private static void WidgetViewFactoryMapsKindData()
+        {
+            ThemeManager.Initialize("dark");
+
+            if (!(WidgetViewFactory.Create(new TodoData()) is TodoCalendarView))
+            {
+                throw new InvalidOperationException("todo data did not map to TodoCalendarView");
+            }
+            if (!(WidgetViewFactory.Create(new NoteData()) is NotePanelView))
+            {
+                throw new InvalidOperationException("note data did not map to NotePanelView");
+            }
+            if (!(WidgetViewFactory.Create(new SearchData()) is SearchPanelView))
+            {
+                throw new InvalidOperationException("search data did not map to SearchPanelView");
+            }
+            if (WidgetViewFactory.Create(new FolderData()) != null)
+            {
+                throw new InvalidOperationException("folder data mapped to a view before T3a");
+            }
+            if (WidgetViewFactory.Create(new UnknownData()) != null)
+            {
+                throw new InvalidOperationException("unknown data mapped to a view");
+            }
+            if (WidgetViewFactory.Create(null) != null)
+            {
+                throw new InvalidOperationException("null data mapped to a view");
+            }
+        }
+
+        #endregion
+
+        #region Task T4 group window pins
+
+        /// <summary>
+        /// A two-member group (todo + note) at the default 760x540. The member
+        /// colours are explicit so the tab underline pin can name its hex.
+        /// </summary>
+        private static WidgetGroupWindow NewGroupWindow(out WidgetGroup group, out TodoData todo, out NoteData note)
+        {
+            ThemeManager.Initialize("dark");
+
+            todo = new TodoData
+            {
+                Id = "todo-1",
+                Name = "Todo",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today
+            };
+            for (int i = 0; i < 10; i++)
+            {
+                TodoListOps.AddItem(todo, "Item " + (i + 1), DateTime.Today);
+            }
+
+            note = new NoteData { Id = "note-1", Name = "Note", Color = "#788C5D" };
+
+            group = new WidgetGroup
+            {
+                Id = "g1",
+                ActiveWidgetId = "todo-1",
+                PanelWidth = 760,
+                PanelHeight = 540
+            };
+
+            return new WidgetGroupWindow(group, new List<WidgetData> { todo, note });
+        }
+
+        /// <summary>Shows the group offscreen so its real chrome and slots arrange.</summary>
+        private static void ShowGroupWindow(WidgetGroupWindow window)
+        {
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Left = -32000;
+            window.Top = -32000;
+            window.ShowActivated = false;
+            window.Show();
+            window.UpdateLayout();
+        }
+
+        private static bool IsTransparent(Brush brush)
+        {
+            if (brush == null) return true;
+            var solid = brush as SolidColorBrush;
+            return solid != null && solid.Color.A == 0;
+        }
+
+        /// <summary>
+        /// The shell is the shared 40px chrome; above it a 32px bare tab row
+        /// (no pill, no Path marker, no 3px colour strip) carries one tab per
+        /// member with exactly one 2px member-coloured, tab-wide, bottom
+        /// underline. The group id is the window id while Data is the active
+        /// member.
+        /// </summary>
+        private static void GroupWindowHostsBareTabs()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                if (window.WidgetId != "g1")
+                {
+                    throw new InvalidOperationException("the group window id is " + window.WidgetId);
+                }
+                var active = window.Data as TodoData;
+                if (active == null || active.Id != "todo-1")
+                {
+                    throw new InvalidOperationException("Data is not the active todo member");
+                }
+
+                var strip = window.TabStrip;
+                if (strip == null) throw new InvalidOperationException("the tab strip is missing");
+                if (Math.Abs(strip.Height - 32) > 0.01)
+                {
+                    throw new InvalidOperationException("the tab row is " + strip.Height + " high, wanted 32");
+                }
+                if (Math.Abs(window.GroupChrome.Header.ActualHeight - 40) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the chrome header is " + window.GroupChrome.Header.ActualHeight + " high, wanted 40");
+                }
+                if (strip.TabButtons.Count != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the strip has " + strip.TabButtons.Count + " tabs, wanted 2");
+                }
+
+                int visible = 0;
+                int visibleIndex = -1;
+                for (int i = 0; i < strip.Underlines.Count; i++)
+                {
+                    if (strip.Underlines[i].Visibility != Visibility.Visible) continue;
+                    visible++;
+                    visibleIndex = i;
+                }
+                if (visible != 1)
+                {
+                    throw new InvalidOperationException(visible + " underlines are visible, wanted exactly 1");
+                }
+
+                Border underline = strip.Underlines[visibleIndex];
+                if (Math.Abs(underline.Height - 2) > 0.01)
+                {
+                    throw new InvalidOperationException("the underline is " + underline.Height + " high, wanted 2");
+                }
+                if (Math.Abs(underline.CornerRadius.TopLeft - 1) > 0.01)
+                {
+                    throw new InvalidOperationException("the underline radius is " + underline.CornerRadius.TopLeft);
+                }
+                if (underline.VerticalAlignment != VerticalAlignment.Bottom)
+                {
+                    throw new InvalidOperationException("the underline is not bottom-aligned");
+                }
+
+                var brush = underline.Background as SolidColorBrush;
+                Color wanted = Utils.HexToColor("#6A9BCC");
+                if (brush == null || brush.Color != wanted)
+                {
+                    throw new InvalidOperationException(
+                        "the active underline is " + (brush == null ? "<null>" : Describe(brush.Color)) +
+                        ", wanted " + Describe(wanted));
+                }
+
+                double tabWidth = strip.TabButtons[visibleIndex].ActualWidth;
+                if (Math.Abs(underline.ActualWidth - tabWidth) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the underline is " + underline.ActualWidth + " wide, the tab is " + tabWidth);
+                }
+
+                for (int i = 0; i < strip.TabButtons.Count; i++)
+                {
+                    Grid tab = strip.TabButtons[i];
+                    if (!IsTransparent(tab.Background))
+                    {
+                        throw new InvalidOperationException("tab " + i + " is not transparent");
+                    }
+                    foreach (var child in tab.Children)
+                    {
+                        if (child is Path)
+                        {
+                            throw new InvalidOperationException("tab " + i + " carries a Path marker");
+                        }
+                        var border = child as Border;
+                        if (border != null && !ReferenceEquals(border, strip.Underlines[i]) &&
+                            border.Height > 0 && border.Height <= 3)
+                        {
+                            throw new InvalidOperationException(
+                                "tab " + i + " carries a " + border.Height + "px colour strip");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Switching a tab only toggles Visibility: the real view instances stay
+        /// put, the active member feeds Data, the title follows its context and
+        /// the window never resizes.
+        /// </summary>
+        private static void GroupTabSwitchKeepsTheViewAndWindowSize()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                var slots = window.ContentSlots;
+                if (slots.Count != 2)
+                {
+                    throw new InvalidOperationException("the group has " + slots.Count + " content slots");
+                }
+                object todoView = slots[0].Content;
+                object noteView = slots[1].Content;
+                if (!(todoView is TodoCalendarView) || !(noteView is NotePanelView))
+                {
+                    throw new InvalidOperationException("the slots do not host the real views");
+                }
+                if (slots[0].Visibility != Visibility.Visible || slots[1].Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException("the initial slots are not todo-visible / note-collapsed");
+                }
+
+                double width = window.Width;
+                double height = window.Height;
+
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                if (slots[1].Visibility != Visibility.Visible || slots[0].Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException("the note tab did not reveal its slot");
+                }
+                var activeNote = window.Data as NoteData;
+                if (activeNote == null || activeNote.Id != "note-1")
+                {
+                    throw new InvalidOperationException("Data did not switch to the note member");
+                }
+                if (window.GroupChrome.Title != ((NotePanelView)noteView).ChromeTitle)
+                {
+                    throw new InvalidOperationException(
+                        "the title is '" + window.GroupChrome.Title + "', wanted the note ChromeTitle");
+                }
+                if (!ReferenceEquals(slots[0].Content, todoView) || !ReferenceEquals(slots[1].Content, noteView))
+                {
+                    throw new InvalidOperationException("a tab switch recreated a view");
+                }
+                if (window.Width != width || window.Height != height)
+                {
+                    throw new InvalidOperationException(
+                        "a tab switch resized the window to " + window.Width + "x" + window.Height);
+                }
+
+                window.SetActive(0);
+                window.UpdateLayout();
+
+                if (slots[0].Visibility != Visibility.Visible || slots[1].Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException("switching back did not restore the todo slot");
+                }
+                if (!(window.Data is TodoData) || !ReferenceEquals(slots[0].Content, todoView))
+                {
+                    throw new InvalidOperationException("the todo tab did not come back intact");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// The chrome title is the active context (date / note title), and the
+        /// note's title chevron is only offered on the note tab and opens the
+        /// note's own title menu.
+        /// </summary>
+        private static void GroupTitleFollowsTheActiveView()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                var todoView = (TodoCalendarView)window.ContentSlots[0].Content;
+                if (window.GroupChrome.Title != todoView.ChromeTitle)
+                {
+                    throw new InvalidOperationException(
+                        "the todo title is '" + window.GroupChrome.Title + "', wanted '" + todoView.ChromeTitle + "'");
+                }
+                if (window.GroupChrome.TitleMenuEnabled)
+                {
+                    throw new InvalidOperationException("the todo tab offers a title menu");
+                }
+
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                var noteView = (NotePanelView)window.ContentSlots[1].Content;
+                if (!window.GroupChrome.TitleMenuEnabled)
+                {
+                    throw new InvalidOperationException("the note tab does not enable the title chevron");
+                }
+                if (window.GroupChrome.Title != noteView.ChromeTitle)
+                {
+                    throw new InvalidOperationException(
+                        "the note title is '" + window.GroupChrome.Title + "', wanted '" + noteView.ChromeTitle + "'");
+                }
+
+                var chevron = window.GroupChrome.TitleChevron;
+                chevron.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                });
+                chevron.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.MouseLeftButtonUpEvent
+                });
+                if (!noteView.IsTitleMenuOpen)
+                {
+                    throw new InvalidOperationException("the title chevron did not open the note title menu");
+                }
+                noteView.CloseTitleMenu();
+
+                window.SetActive(0);
+                if (window.GroupChrome.TitleMenuEnabled)
+                {
+                    throw new InvalidOperationException("the title chevron stayed enabled on the todo tab");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Lock and pin are group-level: the state lives on WidgetGroup and the
+        /// shared chrome mirrors it (a locked header refuses the drag, a locked
+        /// chrome hides the resize layer).
+        /// </summary>
+        private static void GroupLockAndPinFollowTheGroup()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                if (window.GroupChrome.IsLocked || window.GroupChrome.IsPinned)
+                {
+                    throw new InvalidOperationException("the fresh group chrome is locked or pinned");
+                }
+
+                window.ToggleLock();
+                if (!group.IsLocked || !window.GroupChrome.IsLocked)
+                {
+                    throw new InvalidOperationException("ToggleLock did not reach the group and the chrome");
+                }
+                if (window.GroupChrome.Header.Cursor != Cursors.No)
+                {
+                    throw new InvalidOperationException("the locked header does not show the forbidden cursor");
+                }
+                if (window.GroupChrome.ResizeLayer.IsHitTestVisible)
+                {
+                    throw new InvalidOperationException("the locked chrome still hit-tests its resize layer");
+                }
+
+                window.TogglePin();
+                if (!group.IsPanelPinned || !window.GroupChrome.IsPinned)
+                {
+                    throw new InvalidOperationException("TogglePin did not reach the group and the chrome");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// A group resize re-fits the views: the host content box follows the
+        /// window, the todo view re-lays out its list viewport, and a tab switch
+        /// leaves the window size alone.
+        /// </summary>
+        private static void GroupResizeFlowsIntoTheMemberViews()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                window.SetActive(0);
+                window.UpdateLayout();
+                var todoView = (TodoCalendarView)window.ContentSlots[0].Content;
+                double initial = ((IWidgetViewHost)window).ContentHeight;
+                double viewportInitial = todoView.ItemsScroller.Height;
+                if (initial <= 0 || viewportInitial <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "the initial group content box is " + initial + " / viewport " + viewportInitial);
+                }
+
+                window.Width = 700;
+                window.Height = 500;
+                window.UpdateLayout();
+                double small = ((IWidgetViewHost)window).ContentHeight;
+                double viewportSmall = todoView.ItemsScroller.Height;
+                if (small <= 0 || Math.Abs(small - initial) < 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the content box did not follow the 700x500 resize: " + initial + " -> " + small);
+                }
+                if (Math.Abs(todoView.ActualHeight - small) > 1.5)
+                {
+                    throw new InvalidOperationException(
+                        "the todo view is " + todoView.ActualHeight + " high, wanted the content box " + small);
+                }
+                if (Math.Abs(viewportSmall - viewportInitial) < 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the todo list viewport stayed " + viewportInitial + " after the resize");
+                }
+
+                window.Width = 820;
+                window.Height = 600;
+                window.UpdateLayout();
+                double large = ((IWidgetViewHost)window).ContentHeight;
+                double viewportLarge = todoView.ItemsScroller.Height;
+                if (large <= 0 || Math.Abs(large - small) < 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the content box did not follow the 820x600 resize: " + small + " -> " + large);
+                }
+                if (Math.Abs(viewportLarge - viewportSmall) < 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the todo list viewport stayed " + viewportSmall + " after growing");
+                }
+
+                double width = window.Width;
+                double height = window.Height;
+                window.SetActive(1);
+                window.UpdateLayout();
+                if (window.Width != width || window.Height != height)
+                {
+                    throw new InvalidOperationException("a tab switch after a resize changed the window size");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// The group menu carries one switch entry per member (checked on the
+        /// active one), the live detach entry (T6: enabled for an unlocked
+        /// pair, reaching the window's detach seam) and the hide-group entry.
+        /// </summary>
+        private static void GroupMenuCarriesTheSwitchDetachAndHide()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                var menu = window.BuildWidgetMenu(null);
+                int switches = 0;
+                int checkedSwitches = 0;
+                MenuItem detach = null;
+                MenuItem hide = null;
+
+                foreach (var entry in menu.Items)
+                {
+                    var item = entry as MenuItem;
+                    if (item == null) continue;
+                    var header = item.Header as string;
+                    if (header != null && header.StartsWith("切换到该标签", StringComparison.Ordinal))
+                    {
+                        switches++;
+                        if (item.IsChecked) checkedSwitches++;
+                    }
+                    else if (header == "分离此组件")
+                    {
+                        detach = item;
+                    }
+                    else if (header == "隐藏整组")
+                    {
+                        hide = item;
+                    }
+                }
+
+                if (switches != 2)
+                {
+                    throw new InvalidOperationException("the group menu has " + switches + " switch entries, wanted 2");
+                }
+                if (checkedSwitches != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the group menu checks " + checkedSwitches + " switch entries, wanted 1");
+                }
+                if (detach == null)
+                {
+                    throw new InvalidOperationException("the group menu has no detach entry");
+                }
+                if (!detach.IsEnabled)
+                {
+                    throw new InvalidOperationException("the detach entry is disabled for an unlocked pair");
+                }
+                if (hide == null)
+                {
+                    throw new InvalidOperationException("the group menu has no hide-group entry");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// T6: the detach entry is enabled for an unlocked pair and its click
+        /// reaches the window's detach seam (<see cref="WidgetGroupWindow.DetachRequested"/>);
+        /// a locked group disables the entry and refuses the same request.
+        /// </summary>
+        private static void GroupDetachMenuFollowsTheLock()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                var requested = new List<string>();
+                window.DetachRequested += id => requested.Add(id);
+
+                MenuItem detach = FindGroupMenuItem(window.BuildWidgetMenu(null), "分离此组件");
+                if (detach == null) throw new InvalidOperationException("the unlocked menu has no detach entry");
+                if (!detach.IsEnabled)
+                    throw new InvalidOperationException("the unlocked menu disables detach");
+
+                detach.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                if (requested.Count != 1 || requested[0] != "todo-1")
+                {
+                    throw new InvalidOperationException(
+                        "the detach click reached " + requested.Count + " request(s), wanted the active todo-1");
+                }
+
+                group.IsLocked = true;
+                MenuItem lockedDetach = FindGroupMenuItem(window.BuildWidgetMenu(null), "分离此组件");
+                if (lockedDetach == null) throw new InvalidOperationException("the locked menu has no detach entry");
+                if (lockedDetach.IsEnabled)
+                    throw new InvalidOperationException("the locked menu still enables detach");
+
+                requested.Clear();
+                lockedDetach.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                if (window.RequestDetachActive())
+                    throw new InvalidOperationException("a locked group accepted a detach request");
+                if (requested.Count != 0)
+                    throw new InvalidOperationException("a locked group raised a detach request");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>T6: the merge hint is a theme-token border repaint that restores exactly.</summary>
+        private static void SetMergeHintHighlightsAndRestoresTheShellBorder()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                var shell = window.GroupChrome.Shell;
+                var baseline = shell.BorderBrush as SolidColorBrush;
+                if (baseline == null) throw new InvalidOperationException("the shell has no border brush");
+                Thickness thickness = shell.BorderThickness;
+
+                window.SetMergeHint(true);
+                var hinted = shell.BorderBrush as SolidColorBrush;
+                if (hinted == null) throw new InvalidOperationException("the merge hint cleared the border brush");
+                if (hinted.Color == baseline.Color)
+                    throw new InvalidOperationException("the merge hint did not repaint the shell border");
+                if (shell.BorderThickness != thickness)
+                    throw new InvalidOperationException("the merge hint changed the shell border thickness");
+
+                window.SetMergeHint(true); // repeated calls are safe
+                var hintedAgain = shell.BorderBrush as SolidColorBrush;
+                if (hintedAgain == null || hintedAgain.Color != hinted.Color)
+                    throw new InvalidOperationException("a repeated merge hint changed the border brush");
+
+                window.SetMergeHint(false);
+                var restored = shell.BorderBrush as SolidColorBrush;
+                if (restored == null || restored.Color != baseline.Color)
+                    throw new InvalidOperationException("the merge hint did not restore the shell border");
+
+                window.SetMergeHint(false);
+                var restoredAgain = shell.BorderBrush as SolidColorBrush;
+                if (restoredAgain == null || restoredAgain.Color != baseline.Color)
+                    throw new InvalidOperationException("a repeated merge clear changed the shell border");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// T6 tab drag gesture seam: the 12 DIP threshold, the sub-threshold
+        /// press/up (no event, no detach), the in-window drag (event, no
+        /// detach) and the out-of-window drag (event -> detach request), plus
+        /// the locked-group refusal. The real mouse gesture is a manual smoke
+        /// item; this pin drives the same gesture methods.
+        /// </summary>
+        private static void TabStripDragGestureRespectsTheThreshold()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+
+                var strip = window.TabStrip;
+                if (strip == null) throw new InvalidOperationException("the group has no tab strip");
+                if (Math.Abs(WidgetGroupTabStrip.DragThreshold - GroupDragPolicy.DefaultDragThreshold) > 0.001)
+                {
+                    throw new InvalidOperationException(
+                        "the strip threshold is " + WidgetGroupTabStrip.DragThreshold + ", wanted "
+                        + GroupDragPolicy.DefaultDragThreshold);
+                }
+
+                var completions = new List<KeyValuePair<int, bool>>();
+                strip.TabDragCompleted += (index, outside) =>
+                    completions.Add(new KeyValuePair<int, bool>(index, outside));
+
+                var detaches = new List<string>();
+                window.DetachRequested += id => detaches.Add(id);
+
+                // Below threshold: the press and release are a click, not a drag.
+                if (!strip.BeginTabDrag(1, new Point(10, 10)))
+                    throw new InvalidOperationException("the strip refused a valid tab press");
+                if (strip.UpdateTabDrag(new Point(15, 13)))
+                    throw new InvalidOperationException("a sub-threshold move started a drag");
+                if (strip.EndTabDrag(new Point(15, 13)))
+                    throw new InvalidOperationException("a sub-threshold release completed a drag");
+                if (completions.Count != 0 || detaches.Count != 0)
+                    throw new InvalidOperationException("a sub-threshold press/release detached a tab");
+                if (strip.IsTabDragActive)
+                    throw new InvalidOperationException("the strip stayed in a drag after the release");
+
+                // Above threshold but released inside the group: no detach.
+                strip.BeginTabDrag(1, new Point(10, 10));
+                if (!strip.UpdateTabDrag(new Point(40, 10)))
+                    throw new InvalidOperationException("an over-threshold move did not start a drag");
+                if (!strip.IsTabDragActive)
+                    throw new InvalidOperationException("the strip did not record the active drag");
+                if (!strip.EndTabDrag(new Point(40, 10)))
+                    throw new InvalidOperationException("an over-threshold release did not complete the drag");
+                if (completions.Count != 1 || completions[0].Key != 1 || completions[0].Value)
+                    throw new InvalidOperationException("an in-window release reported an outside drag");
+                if (detaches.Count != 0)
+                    throw new InvalidOperationException("an in-window release detached a tab");
+
+                // Above threshold, released outside the window: detach request.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(new Point(40, 10));
+                if (!strip.EndTabDrag(new Point(100000, 100000)))
+                    throw new InvalidOperationException("an outside release did not complete the drag");
+                if (completions.Count != 2 || completions[1].Key != 0 || !completions[1].Value)
+                    throw new InvalidOperationException("the outside release was not reported as outside");
+                if (detaches.Count != 1 || detaches[0] != "todo-1")
+                    throw new InvalidOperationException("the outside release did not request the tab's detach");
+
+                // Locked group: the gesture still completes but nothing detaches.
+                group.IsLocked = true;
+                detaches.Clear();
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(new Point(40, 10));
+                strip.EndTabDrag(new Point(100000, 100000));
+                if (detaches.Count != 0)
+                    throw new InvalidOperationException("a locked group detached a dragged-out tab");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// T6: the real group window is rejected as a merge source while an
+        /// unlocked group stays a valid target and a locked one is refused.
+        /// <see cref="GroupDragPolicy"/>'s pure pins live in WidgetGroupsCheck.
+        /// </summary>
+        private static void GroupDragPolicyRejectsARealGroupSource()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            var standalone = new NoteWidget(new NoteData { Id = "t6-standalone", Name = "Solo", Color = "#788C5D" });
+            try
+            {
+                if (GroupDragPolicy.CanMerge(window, standalone))
+                    throw new InvalidOperationException("the real group window is accepted as a merge source");
+                if (!GroupDragPolicy.CanMerge(standalone, window))
+                    throw new InvalidOperationException("an unlocked group was refused as a merge target");
+
+                group.IsLocked = true;
+                if (GroupDragPolicy.CanMerge(standalone, window))
+                    throw new InvalidOperationException("a locked group was accepted as a merge target");
+            }
+            finally
+            {
+                standalone.Close();
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// T6 hit-test pin (the geometry part of the pure policy; it needs
+        /// WindowsBase, which the no-WPF WidgetGroupsCheck project does not
+        /// reference): the source is skipped, the first supplied screen rect
+        /// containing the cursor wins, and null/invalid inputs are safe.
+        /// </summary>
+        private static void GroupDragPolicyFindsTheDropTarget()
+        {
+            ThemeManager.Initialize("dark");
+
+            var source = new TodoWidget(new TodoData { Id = "ft-source", Name = "S", Color = "#6A9BCC" });
+            var first = new NoteWidget(new NoteData { Id = "ft-first", Name = "F", Color = "#788C5D" });
+            var second = new NoteWidget(new NoteData { Id = "ft-second", Name = "G", Color = "#B5654A" });
+            var third = new NoteWidget(new NoteData { Id = "ft-third", Name = "H", Color = "#4A7BB5" });
+            try
+            {
+                var rects = new Dictionary<IWidgetWindow, Rect>
+                {
+                    { first, new Rect(0, 0, 100, 80) },
+                    { second, new Rect(200, 120, 90, 70) },
+                    { third, new Rect(400, 300, 60, 60) }
+                };
+                Func<IWidgetWindow, Rect> bounds = window =>
+                {
+                    Rect rect;
+                    return rects.TryGetValue(window, out rect) ? rect : Rect.Empty;
+                };
+                var candidates = new IWidgetWindow[] { source, first, second, third, null };
+
+                if (!ReferenceEquals(GroupDragPolicy.FindTarget(new Point(10, 10), source, candidates, bounds), first))
+                    throw new InvalidOperationException("the rect containing the cursor did not win");
+                if (GroupDragPolicy.FindTarget(new Point(10, 10), first, candidates, bounds) != null)
+                    throw new InvalidOperationException("the source targeted itself");
+                if (!ReferenceEquals(GroupDragPolicy.FindTarget(new Point(250, 140), source, candidates, bounds), second))
+                    throw new InvalidOperationException("a later candidate's rect was not found");
+                if (GroupDragPolicy.FindTarget(new Point(900, 900), source, candidates, bounds) != null)
+                    throw new InvalidOperationException("a point outside every rect found a target");
+
+                if (GroupDragPolicy.FindTarget(new Point(10, 10), source, new IWidgetWindow[] { null }, bounds) != null)
+                    throw new InvalidOperationException("a null candidate became a target");
+                if (GroupDragPolicy.FindTarget(new Point(10, 10), source, candidates, window => Rect.Empty) != null)
+                    throw new InvalidOperationException("an empty rect became a target");
+                if (GroupDragPolicy.FindTarget(new Point(10, 10), source, null, bounds) != null
+                    || GroupDragPolicy.FindTarget(new Point(10, 10), source, candidates, null) != null)
+                    throw new InvalidOperationException("a null candidate list/bounds was not safe");
+            }
+            finally
+            {
+                source.Close();
+                first.Close();
+                second.Close();
+                third.Close();
+            }
+        }
+
+        /// <summary>
+        /// T6 live hint: while the header drag is over an eligible panel it
+        /// wears the accent border, moving away restores it, an ineligible
+        /// candidate (locked widget, locked group, Folder) never hints, a
+        /// move within the same target does not repaint it again, and the
+        /// release clears the hint. The windows are shown offscreen (no
+        /// activation); the candidate list is the check seam, so no host has
+        /// to be registered with the singleton.
+        /// </summary>
+        private static void MergeHintFollowsTheHoveredTargetDuringTheDrag()
+        {
+            ThemeManager.Initialize("dark");
+
+            var source = new TodoWidget(new TodoData { Id = "hint-source", Name = "S", Color = "#6A9BCC" });
+            var note = new NoteWidget(new NoteData { Id = "hint-note", Name = "N", Color = "#788C5D" });
+            var locked = new NoteWidget(new NoteData { Id = "hint-locked", Name = "L", Color = "#B5654A" });
+            var folder = new FolderWidget(new FolderData { Id = "hint-folder", Name = "F", Color = "#4A7BB5" });
+            WidgetGroup group;
+            TodoData groupTodo;
+            NoteData groupNote;
+            var groupWindow = NewGroupWindow(out group, out groupTodo, out groupNote);
+
+            try
+            {
+                EnsureRealDpi(source);
+                // Windows clamps window coordinates near +/-32767 *physical*
+                // pixels, so the offscreen DIP positions must scale with the
+                // monitor DPI; 900 DIP apart still separates every panel size.
+                const double spacing = 900;
+                double start = -(spacing * 4) - 200;
+                ShowOffscreenWindow(note, start);
+                ShowOffscreenWindow(locked, start + spacing);
+                ShowOffscreenWindow(folder, start + spacing * 2);
+                ShowOffscreenWindow(groupWindow, start + spacing * 3);
+                locked.Data.IsLocked = true;
+
+                source.MergeCandidatesOverride = new IWidgetWindow[]
+                {
+                    note, locked, folder, groupWindow
+                };
+
+                MethodInfo started = PrivateBaseMethod("OnHeaderDragStarted");
+                MethodInfo moved = PrivateBaseMethod("OnHeaderDragMoved");
+                MethodInfo ended = PrivateBaseMethod("OnHeaderDragEnded");
+
+                Point noteCenter = ScreenCenterOf(note);
+                Point lockedCenter = ScreenCenterOf(locked);
+                Point folderCenter = ScreenCenterOf(folder);
+                Point groupCenter = ScreenCenterOf(groupWindow);
+                if (noteCenter == lockedCenter || noteCenter == folderCenter
+                    || lockedCenter == folderCenter || folderCenter == groupCenter)
+                {
+                    throw new InvalidOperationException(
+                        "the offscreen check windows overlap: " + noteCenter + " / " + lockedCenter
+                        + " / " + folderCenter + " / " + groupCenter);
+                }
+
+                Color noteBase = ShellBorderColor(note);
+                Color lockedBase = ShellBorderColor(locked);
+                Color folderBase = ShellBorderColor(folder);
+                Color groupBase = ShellBorderColor(groupWindow);
+
+                started.Invoke(source, new object[] { new Point(noteCenter.X - 3000, noteCenter.Y) });
+                moved.Invoke(source, new object[] { noteCenter });
+                if (ShellBorderColor(note) == noteBase)
+                    throw new InvalidOperationException("the hovered note did not show the merge hint");
+
+                // The same-target move must leave the painted border alone: a
+                // sentinel survives unless the hint re-applies the theme.
+                var sentinel = new SolidColorBrush(Colors.Magenta);
+                sentinel.Freeze();
+                note.PanelChrome.Shell.BorderBrush = sentinel;
+                moved.Invoke(source, new object[] { new Point(noteCenter.X + 2, noteCenter.Y + 2) });
+                if (!ReferenceEquals(note.PanelChrome.Shell.BorderBrush, sentinel))
+                    throw new InvalidOperationException("a same-target move repainted the hint again");
+
+                moved.Invoke(source, new object[] { lockedCenter });
+                if (ShellBorderColor(note) != noteBase)
+                    throw new InvalidOperationException("leaving the note did not restore its border");
+                if (ShellBorderColor(locked) != lockedBase)
+                    throw new InvalidOperationException("a locked widget showed the merge hint");
+
+                moved.Invoke(source, new object[] { folderCenter });
+                if (ShellBorderColor(folder) != folderBase)
+                    throw new InvalidOperationException("a Folder target showed the merge hint");
+
+                moved.Invoke(source, new object[] { groupCenter });
+                if (ShellBorderColor(groupWindow) == groupBase)
+                    throw new InvalidOperationException("an unlocked group did not show the merge hint");
+
+                group.IsLocked = true;
+                moved.Invoke(source, new object[] { new Point(groupCenter.X + 2, groupCenter.Y) });
+                if (ShellBorderColor(groupWindow) != groupBase)
+                    throw new InvalidOperationException("a locked group kept the merge hint");
+                group.IsLocked = false;
+
+                moved.Invoke(source, new object[] { noteCenter });
+                if (ShellBorderColor(note) == noteBase)
+                    throw new InvalidOperationException("the note hint did not come back");
+
+                ended.Invoke(source, new object[] { noteCenter });
+                if (ShellBorderColor(note) != noteBase)
+                    throw new InvalidOperationException("the release left the merge hint painted");
+            }
+            finally
+            {
+                try { source.MergeCandidatesOverride = null; } catch { }
+                source.Close();
+                note.Close();
+                locked.Close();
+                folder.Close();
+                groupWindow.Close();
+            }
+        }
+
+        /// <summary>Shows a window far offscreen without activation (a real handle/rect).</summary>
+        private static void ShowOffscreenWindow(Window window, double left)
+        {
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Left = left;
+            window.Top = -32000;
+            window.ShowActivated = false;
+            window.Show();
+            window.UpdateLayout();
+        }
+
+        private static Point ScreenCenterOf(Window window)
+        {
+            Point origin = window.PointToScreen(new Point(0, 0));
+            DpiScale dpi = VisualTreeHelper.GetDpi(window);
+            double width = (window.ActualWidth > 0 ? window.ActualWidth : window.Width) * dpi.DpiScaleX;
+            double height = (window.ActualHeight > 0 ? window.ActualHeight : window.Height) * dpi.DpiScaleY;
+            return new Point(origin.X + width / 2, origin.Y + height / 2);
+        }
+
+        private static Color ShellBorderColor(WidgetWindowBase window)
+        {
+            var brush = window.PanelChrome == null ? null : window.PanelChrome.Shell.BorderBrush as SolidColorBrush;
+            if (brush == null) throw new InvalidOperationException("a window has no shell border brush");
+            return brush.Color;
+        }
+
+        private static MenuItem FindGroupMenuItem(ContextMenu menu, string header)        {
+            foreach (var entry in menu.Items)
+            {
+                var item = entry as MenuItem;
+                if (item != null && string.Equals(item.Header as string, header, StringComparison.Ordinal))
+                    return item;
+            }
+            return null;
         }
 
         #endregion

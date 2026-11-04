@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,6 +33,12 @@ namespace Kobold.Controls
 
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
+
+        // Group projection keyed by member id: the count badge and the member
+        // names its tooltip adds. Replaced wholesale on every SetWidgets so a
+        // dissolved group leaves no stale badge behind.
+        private readonly Dictionary<string, WidgetGroupTileInfo> _groupInfo =
+            new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal);
 
         // Live panel visibility, keyed by widget id. SetOpenState updates the
         // existing tile in place; a rebuild (icon style / widget add/remove)
@@ -204,10 +211,26 @@ namespace Kobold.Controls
             return MonitorInterop.WorkAreaDipForWindow(this);
         }
 
-        /// <summary>Feeds the widget list rendered as tiles when expanded.</summary>
-        public void SetWidgets(IEnumerable<WidgetData> widgets)
+        /// <summary>
+        /// Feeds the widget list rendered as tiles when expanded. A grouped
+        /// member also receives its group's tile info (member count and names);
+        /// the optional argument keeps every existing SetWidgets(list) call
+        /// source-compatible.
+        /// </summary>
+        public void SetWidgets(IEnumerable<WidgetData> widgets,
+            IReadOnlyDictionary<string, WidgetGroupTileInfo> groupInfo = null)
         {
             _widgets = widgets?.ToList() ?? new List<WidgetData>();
+
+            _groupInfo.Clear();
+            if (groupInfo != null)
+            {
+                foreach (var pair in groupInfo)
+                {
+                    if (!string.IsNullOrEmpty(pair.Key) && pair.Value != null)
+                        _groupInfo[pair.Key] = pair.Value;
+                }
+            }
 
             // Drop visibility for widgets that no longer exist, and keep the
             // colours the tile wash/dot need.
@@ -844,6 +867,12 @@ namespace Kobold.Controls
             bool open = _openStates.ContainsKey(widget.Id);
             var accent = WidgetAccent.ReadableBrush(widget.Color);
 
+            WidgetGroupTileInfo groupInfo = null;
+            bool grouped = !string.IsNullOrEmpty(widget.Id)
+                && _groupInfo.TryGetValue(widget.Id, out groupInfo)
+                && groupInfo != null
+                && groupInfo.MemberCount >= 2;
+
             var dot = new Ellipse
             {
                 Width = 3,
@@ -868,6 +897,42 @@ namespace Kobold.Controls
             });
             content.Children.Add(dot);
 
+            if (grouped)
+            {
+                // A click-through count badge in the tile's top-right corner:
+                // the tile stays 44x44 and the row's layout math is untouched.
+                content.Children.Add(new Border
+                {
+                    Tag = "GroupBadge",
+                    Width = 14,
+                    Height = 14,
+                    CornerRadius = new CornerRadius(7),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = accent,
+                    Background = ThemeManager.IslandBackgroundBrush,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 1, 0),
+                    IsHitTestVisible = false,
+                    Child = new TextBlock
+                    {
+                        Text = groupInfo.MemberCount.ToString(CultureInfo.InvariantCulture),
+                        FontSize = 9,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = accent,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                });
+            }
+
+            string tooltip = widget.Name;
+            if (grouped && !string.IsNullOrWhiteSpace(groupInfo.MemberNames))
+            {
+                tooltip = (string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip + Environment.NewLine)
+                    + groupInfo.MemberNames;
+            }
+
             var tile = new Border
             {
                 Width = WidgetConstants.ISLAND_TILE_SIZE,
@@ -875,7 +940,7 @@ namespace Kobold.Controls
                 CornerRadius = new CornerRadius(8),
                 Background = open ? TileOpenBackground(widget.Id) : Brushes.Transparent,
                 Cursor = Cursors.Hand,
-                ToolTip = widget.Name,
+                ToolTip = tooltip,
                 Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
                 Tag = widget.Id,
                 Child = content

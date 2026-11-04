@@ -26,5 +26,13 @@ namespace Kobold.Controls
             Func<WidgetData, IWidgetWindow> factory;
             return Factories.TryGetValue(data.Kind, out factory) ? factory(data) : null;
         }
+
+        /// <summary>
+        /// The shared window for a tab group. Groups are not a widget kind, so
+        /// they are not in the registry; the manager creates them directly from
+        /// the group state plus its ordered member data.
+        /// </summary>
+        public static IWidgetWindow CreateGroup(WidgetGroup group, IList<WidgetData> members)
+            => new WidgetGroupWindow(group, members);
     }
 }

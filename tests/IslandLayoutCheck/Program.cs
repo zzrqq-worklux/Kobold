@@ -137,6 +137,23 @@ namespace Kobold.IslandLayoutCheck
                 "the clamp works in a second monitor's own coordinates");
             Check(IslandLayout.ClampCenter(-1900, 500, -1920, 1920) == -1670,
                 "the clamp works left of the primary monitor too");
+
+            // T5: a group adds no tile and no layout slot - its three members
+            // are three tiles, exactly like three ungrouped widgets (the count
+            // badge rides inside each tile, so the middle section is unchanged).
+            var group = new WidgetGroup { Id = "g1", ActiveWidgetId = "m1" };
+            var grouped = new List<WidgetData>
+            {
+                new FolderData { Id = "m1", GroupId = "g1", GroupOrder = 0 },
+                new FolderData { Id = "m2", GroupId = "g1", GroupOrder = 1 },
+                new FolderData { Id = "m3", GroupId = "g1", GroupOrder = 2 }
+            };
+            int memberTiles = GroupHostPolicy.MembersOf(group, grouped).Count;
+            Check(memberTiles == 3, "island: a three-member group still contributes three tiles");
+            Check(IslandLayout.MiddleContentWidth(memberTiles) == IslandLayout.MiddleContentWidth(3),
+                "island: grouping does not change the middle content width");
+            Check(Math.Abs(IslandLayout.ContentWidth(memberTiles, 1560) - IslandLayout.ContentWidth(3, 1560)) < 0.001,
+                "island: grouping does not change the capsule width");
         }
     }
 }

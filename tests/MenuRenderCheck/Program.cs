@@ -51,6 +51,7 @@ namespace Kobold.MenuRenderCheck
                 WidgetManager.Instance.ToString();       // theme tokens
                 WidgetPaletteMatchesFolderPalette();
                 MenuTemplateHostsIconPresenter();
+                GroupTabMenuCarriesTheGroupActions();
 
                 var widget = new FolderWidget(new FolderData());
                 WidgetMenuUsesIconPresenters(widget);
@@ -99,6 +100,73 @@ namespace Kobold.MenuRenderCheck
             Console.WriteLine("FAILURES (" + Errors.Count + "):");
             foreach (var e in Errors) Console.WriteLine("  - " + e);
             return 1;
+        }
+
+        /// <summary>
+        /// T4 + T6: the group window's tab/current menu keeps the structure
+        /// the group actions hang off - one switch entry per member, the live
+        /// detach entry (enabled for an unlocked pair, disabled once the group
+        /// is locked) and the hide-group entry.
+        /// </summary>
+        private static void GroupTabMenuCarriesTheGroupActions()
+        {
+            ThemeManager.Initialize("dark");
+
+            var todo = new TodoData { Id = "todo-1", Name = "Todo", Color = "#6A9BCC" };
+            var note = new NoteData { Id = "note-1", Name = "Note", Color = "#788C5D" };
+            var group = new WidgetGroup { Id = "g1", ActiveWidgetId = "todo-1" };
+            var window = new WidgetGroupWindow(group, new List<WidgetData> { todo, note });
+
+            ContextMenu menu = window.BuildWidgetMenu(null);
+            int switches = 0;
+            int checkedSwitches = 0;
+            MenuItem detach = null;
+            MenuItem hide = null;
+
+            foreach (var raw in menu.Items)
+            {
+                var item = raw as MenuItem;
+                if (item == null) continue;
+                var header = item.Header as string;
+                if (header != null && header.StartsWith("切换到该标签", StringComparison.Ordinal))
+                {
+                    switches++;
+                    if (item.IsChecked) checkedSwitches++;
+                }
+                else if (header == "分离此组件")
+                {
+                    detach = item;
+                }
+                else if (header == "隐藏整组")
+                {
+                    hide = item;
+                }
+            }
+
+            Check(switches == 2, "group menu: one switch entry per member (got " + switches + ")");
+            Check(checkedSwitches == 1, "group menu: exactly the active member is checked (got " + checkedSwitches + ")");
+            Check(detach != null, "group menu: the detach entry exists");
+            Check(detach != null && detach.IsEnabled,
+                "group menu: the detach entry is enabled for an unlocked pair");
+            Check(detach != null && detach.ToolTip is string,
+                "group menu: the detach entry explains the drag-out/离开 action");
+            Check(hide != null, "group menu: the hide-group entry exists");
+
+            // T6: the same entry turns disabled while the group is locked.
+            group.IsLocked = true;
+            MenuItem lockedDetach = null;
+            foreach (var raw in window.BuildWidgetMenu(null).Items)
+            {
+                var item = raw as MenuItem;
+                if (item != null && string.Equals(item.Header as string, "分离此组件", StringComparison.Ordinal))
+                {
+                    lockedDetach = item;
+                    break;
+                }
+            }
+            Check(lockedDetach != null, "group menu: a locked group still shows the detach entry");
+            Check(lockedDetach != null && !lockedDetach.IsEnabled,
+                "group menu: the detach entry is disabled for a locked group");
         }
 
         private static void Check(bool ok, string what)

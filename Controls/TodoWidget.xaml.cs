@@ -1,5 +1,4 @@
 using System;
-using System.Windows.Controls;
 using System.Windows.Input;
 using Kobold.Core;
 using Kobold.Helpers;
@@ -12,7 +11,7 @@ namespace Kobold.Controls
     /// go through it and are persisted via the base's OnDataChanged path,
     /// while selected-day changes use the lighter debounced save only.
     /// </summary>
-    public partial class TodoWidget : WidgetWindowBase
+    public partial class TodoWidget : WidgetWindowBase, IWidgetViewHost
     {
         /// <summary>Content width of the finished todo panel (calendar + day list).</summary>
         private const double CONTENT_WIDTH = 340;
@@ -45,10 +44,37 @@ namespace Kobold.Controls
         /// (the newest delete or tick); a focused text box keeps its own text undo.</summary>
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return;
-            if (Keyboard.FocusedElement is TextBox) return;
-            if (_view != null && _view.TryUndo()) e.Handled = true;
+            if (_view != null && _view.HandlePreviewKeyDown(e)) e.Handled = true;
         }
+
+        #region IWidgetViewHost
+
+        WidgetData IWidgetViewHost.Data => Data;
+
+        WidgetChrome IWidgetViewHost.Chrome => Chrome;
+
+        bool IWidgetViewHost.IsPanelOpen => IsPanelOpen;
+
+        double IWidgetViewHost.ContentWidth => WidgetViewHostMetrics.ContentWidth(this);
+
+        double IWidgetViewHost.ContentHeight => WidgetViewHostMetrics.ContentHeight(this);
+
+        (double width, double height) IWidgetViewHost.GetPanelSize() => GetPanelSize();
+
+        void IWidgetViewHost.NotifyDataChanged() => NotifyDataChanged();
+
+        void IWidgetViewHost.RefreshChromeTitle(string title)
+        {
+            if (Chrome == null) return;
+            Chrome.Title = title ?? (Data == null ? string.Empty : Data.Name ?? string.Empty);
+            Chrome.TitleText.ToolTip = null;
+        }
+
+        void IWidgetViewHost.PersistSelection() => PersistSelection();
+
+        void IWidgetViewHost.ShowWidgetMenu() => ShowWidgetMenu(null);
+
+        #endregion
 
         protected override (double width, double height) GetContentSize()
         {

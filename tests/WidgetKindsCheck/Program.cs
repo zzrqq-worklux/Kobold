@@ -78,6 +78,71 @@ namespace Kobold.WidgetKindsCheck
             CorruptWidgetListsAreUnreadable();
             PanelSizeMigrationChecks();
             FileSearchSettingsRoundTrip();
+            GroupFieldsRoundTrip();
+        }
+
+        /// <summary>
+        /// Group membership rides on the shared widget payload: the Kind
+        /// converter keeps GroupId/GroupOrder for a todo and a note, and an
+        /// ungrouped widget writes neither key.
+        /// </summary>
+        private static void GroupFieldsRoundTrip()
+        {
+            string dir = NewCase("group-fields");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{ ""Groups"": [ { ""Id"": ""g1"", ""ActiveWidgetId"": ""t1"" } ], " +
+                @"""Widgets"": [ " +
+                @"{ ""Kind"": ""todo"", ""Id"": ""t1"", ""GroupId"": ""g1"", ""GroupOrder"": 0, ""Items"": [] }, " +
+                @"{ ""Kind"": ""note"", ""Id"": ""n1"", ""GroupId"": ""g1"", ""GroupOrder"": 1, ""Notes"": [] }, " +
+                @"{ ""Kind"": ""folder"", ""Id"": ""plain"", ""Items"": [] } ] }");
+
+            var cfg = AppConfig.Load(main, backup);
+            var todo = cfg.Widgets.Count == 3 ? cfg.Widgets[0] as TodoData : null;
+            var note = cfg.Widgets.Count == 3 ? cfg.Widgets[1] as NoteData : null;
+            var plain = cfg.Widgets.Count == 3 ? cfg.Widgets[2] : null;
+            Check(todo != null && todo.GroupId == "g1" && todo.GroupOrder == 0,
+                "group: a todo keeps GroupId and GroupOrder");
+            Check(note != null && note.GroupId == "g1" && note.GroupOrder == 1,
+                "group: a note keeps GroupId and GroupOrder");
+            Check(plain != null && plain.GroupId == null && plain.GroupOrder == null,
+                "group: an ungrouped widget has no membership");
+
+            cfg.Save();
+            var root = JObject.Parse(File.ReadAllText(main));
+            var savedTodo = FindSavedWidget(root, "t1");
+            var savedNote = FindSavedWidget(root, "n1");
+            var savedPlain = FindSavedWidget(root, "plain");
+            Check(savedTodo != null && (string)savedTodo["GroupId"] == "g1"
+                  && (int?)savedTodo["GroupOrder"] == 0,
+                "group: a saved todo carries GroupId and GroupOrder");
+            Check(savedNote != null && (string)savedNote["GroupId"] == "g1"
+                  && (int?)savedNote["GroupOrder"] == 1,
+                "group: a saved note carries GroupId and GroupOrder");
+            Check(savedPlain != null && savedPlain["GroupId"] == null
+                  && savedPlain["GroupOrder"] == null,
+                "group: an ungrouped widget writes no GroupId or GroupOrder key");
+
+            var reloaded = AppConfig.Load(main, backup);
+            var rtTodo = reloaded.Widgets.Count == 3 ? reloaded.Widgets[0] as TodoData : null;
+            var rtNote = reloaded.Widgets.Count == 3 ? reloaded.Widgets[1] as NoteData : null;
+            Check(rtTodo != null && rtTodo.GroupId == "g1" && rtTodo.GroupOrder == 0,
+                "group: the todo membership survives a save and reload");
+            Check(rtNote != null && rtNote.GroupId == "g1" && rtNote.GroupOrder == 1,
+                "group: the note membership survives a save and reload");
+        }
+
+        private static JObject FindSavedWidget(JObject root, string id)
+        {
+            var widgets = root["Widgets"] as JArray;
+            if (widgets == null) return null;
+            foreach (var token in widgets)
+            {
+                var obj = token as JObject;
+                if (obj != null && (string)obj["Id"] == id) return obj;
+            }
+            return null;
         }
 
         /// <summary>

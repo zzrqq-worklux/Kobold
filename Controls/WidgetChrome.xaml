@@ -19,13 +19,20 @@
 
             <Grid>
                 <Grid.RowDefinitions>
+                    <!-- 0 until a group window installs a tab row: the header
+                         then owns the shell's top corners. -->
+                    <RowDefinition x:Name="TabRowDefinition" Height="0"/>
                     <RowDefinition Height="40"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <!-- Optional bare tab row (group windows only). The host keeps
+                     it empty and collapsed for every existing widget. -->
+                <ContentPresenter x:Name="TabHost" x:FieldModifier="public" Grid.Row="0"/>
+
                 <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
-                <Border x:Name="Header" x:FieldModifier="public" Grid.Row="0" CornerRadius="12,12,0,0" Padding="12,0"
+                <Border x:Name="Header" x:FieldModifier="public" Grid.Row="1" CornerRadius="12,12,0,0" Padding="12,0"
                         Cursor="Hand"
                         MouseLeftButtonDown="Header_MouseLeftButtonDown"
                         MouseMove="Header_MouseMove"
@@ -110,8 +117,8 @@
                     </Grid>
                 </Border>
 
-                <ContentPresenter x:Name="ContentHost" x:FieldModifier="public" Grid.Row="1"/>
-                <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="2"/>
+                <ContentPresenter x:Name="ContentHost" x:FieldModifier="public" Grid.Row="2"/>
+                <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="3"/>
             </Grid>
         </Border>
 

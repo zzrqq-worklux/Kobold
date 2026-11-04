@@ -25,7 +25,10 @@ namespace Kobold.Core
         private const string ShellClassInfo = ".ShellClassInfo";
 
         private const uint SHCNE_ASSOCCHANGED = 0x08000000;
+        private const uint SHCNE_UPDATEDIR = 0x00001000;
+        private const uint SHCNE_UPDATEITEM = 0x00002000;
         private const uint SHCNF_IDLIST = 0x0000;
+        private const uint SHCNF_PATHW = 0x0005;
         private const uint WM_SETTINGCHANGE = 0x001A;
         private const uint SMTO_ABORTIFHUNG = 0x0002;
         private static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
@@ -57,10 +60,25 @@ namespace Kobold.Core
 
                 string iniPath = Path.Combine(folderPath, "desktop.ini");
 
+                // A desktop.ini left read-only by another tool would make the
+                // profile write fail silently; clear that bit first.
+                if (File.Exists(iniPath))
+                {
+                    var iniAttributes = File.GetAttributes(iniPath);
+                    if ((iniAttributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(iniPath, iniAttributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+
                 // Writing the entry ourselves keeps whatever else a desktop.ini
                 // holds; the shell's folder-customisation API rewrites the file.
-                WritePrivateProfileStringW(ShellClassInfo, "IconResource",
+                // The return value matters: without this check a failed write
+                // still reported Applied and the old icon stayed in place.
+                uint written = WritePrivateProfileStringW(ShellClassInfo, "IconResource",
                     iconPath + "," + iconIndex, iniPath);
+                if (written == 0) return FolderColorResult.Failed;
+
                 WritePrivateProfileStringW(ShellClassInfo, "IconFile", null, iniPath);
                 WritePrivateProfileStringW(ShellClassInfo, "IconIndex", null, iniPath);
 
@@ -73,7 +91,16 @@ namespace Kobold.Core
                 // System bit on the folder is the part Explorer actually checks.
                 File.SetAttributes(folderPath, File.GetAttributes(folderPath) | FileAttributes.System);
 
-                RefreshShell();
+                // Read back the value we just wrote: a profile write that did
+                // not land must never be reported as a color change.
+                string applied = GetIconResource(folderPath);
+                if (string.IsNullOrEmpty(applied) ||
+                    !applied.StartsWith(iconPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return FolderColorResult.Failed;
+                }
+
+                RefreshShell(folderPath);
                 return FolderColorResult.Applied;
             }
             catch (Exception)
@@ -97,6 +124,7 @@ namespace Kobold.Core
                 if (!File.Exists(iniPath))
                 {
                     PathUnmakeSystemFolder(folderPath);
+                    RefreshShell(folderPath);
                     return FolderColorResult.Restored;
                 }
 
@@ -110,13 +138,13 @@ namespace Kobold.Core
                         WritePrivateProfileStringW(ShellClassInfo, null, null, iniPath);
                     }
 
-                    RefreshShell();
+                    RefreshShell(folderPath);
                     return FolderColorResult.Restored;
                 }
 
                 File.Delete(iniPath);
                 PathUnmakeSystemFolder(folderPath);
-                RefreshShell();
+                RefreshShell(folderPath);
                 return FolderColorResult.Restored;
             }
             catch (Exception)
@@ -164,6 +192,34 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// The file behind a custom icon resource ("path,index" or just a path),
+        /// or null when there is no resource. The index is stripped because the
+        /// widget's generated icons are standalone .ico files.
+        /// </summary>
+        public static string GetIconFile(string iconResource)
+        {
+            if (string.IsNullOrWhiteSpace(iconResource)) return null;
+
+            string path = iconResource.Trim();
+            int comma = path.LastIndexOf(',');
+            if (comma > 0)
+            {
+                int index;
+                string suffix = path.Substring(comma + 1).Trim();
+                if (int.TryParse(suffix, out index)) path = path.Substring(0, comma);
+            }
+
+            path = path.Trim().Trim('"');
+            return string.IsNullOrEmpty(path) ? null : path;
+        }
+
+        /// <summary>The .ico (or other icon container) a colored folder points at.</summary>
+        public static string GetIconFilePath(string folderPath)
+        {
+            return GetIconFile(GetIconResource(folderPath));
+        }
+
+        /// <summary>
         /// True for icons that live in C:\Windows - those folders (Downloads,
         /// Documents, Music...) come from the OS and restoring them later would be
         /// guesswork, so they are left alone.
@@ -182,12 +238,23 @@ namespace Kobold.Core
             return path.StartsWith(windows, StringComparison.Ordinal);
         }
 
-        /// <summary>Tells the shell its icon cache is stale.</summary>
-        public static void RefreshShell()
+        /// <summary>
+        /// Tells the shell its icon cache is stale. The folder-specific
+        /// notifications matter: SHCNE_ASSOCCHANGED alone leaves a folder's
+        /// desktop.ini icon cached, so Explorer and SHGetFileInfo can keep
+        /// returning the previous color.
+        /// </summary>
+        public static void RefreshShell(string folderPath = null)
         {
             try
             {
                 SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
+
+                if (!string.IsNullOrWhiteSpace(folderPath))
+                {
+                    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, folderPath, null);
+                    SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, folderPath, null);
+                }
 
                 IntPtr result;
                 SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, IntPtr.Zero, IntPtr.Zero,
@@ -319,6 +386,10 @@ namespace Kobold.Core
 
         [DllImport("shell32.dll")]
         private static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+
+        // SHCNF_PATHW carries a null-terminated path, not an ITEMIDLIST.
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern void SHChangeNotify(uint eventId, uint flags, string item1, string item2);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam,

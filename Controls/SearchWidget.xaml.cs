@@ -10,7 +10,7 @@ namespace Kobold.Controls
     /// only supplies the chrome and closes the view's subscriptions when the
     /// panel goes away.
     /// </summary>
-    public partial class SearchWidget : WidgetWindowBase
+    public partial class SearchWidget : WidgetWindowBase, IWidgetViewHost
     {
         /// <summary>Content block of the default search panel (box + results).</summary>
         private const double CONTENT_WIDTH = 420;
@@ -83,7 +83,7 @@ namespace Kobold.Controls
         protected override void OnPanelHidden()
         {
             base.OnPanelHidden();
-            if (SearchChrome != null) SearchChrome.StopGlow();
+            _view?.Deactivate();
         }
 
         /// <summary>The search box takes focus as soon as the panel is shown.</summary>
@@ -94,14 +94,40 @@ namespace Kobold.Controls
             // IsPanelOpen is still false, so a scan/reconcile glow was recorded
             // but not painted. The panel is open now: refresh again so a reopen
             // mid-scan relights the comet.
-            _view?.RefreshStatus();
-            // ShowPanel raises this before Show(); queue the focus until the
-            // window is actually visible.
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (IsVisible) _view?.FocusSearch();
-            }));
+            _view?.Activate();
         }
+
+        #region IWidgetViewHost
+
+        WidgetData IWidgetViewHost.Data => Data;
+
+        WidgetChrome IWidgetViewHost.Chrome => Chrome;
+
+        bool IWidgetViewHost.IsPanelOpen => IsPanelOpen;
+
+        double IWidgetViewHost.ContentWidth => WidgetViewHostMetrics.ContentWidth(this);
+
+        double IWidgetViewHost.ContentHeight => WidgetViewHostMetrics.ContentHeight(this);
+
+        (double width, double height) IWidgetViewHost.GetPanelSize() => GetPanelSize();
+
+        void IWidgetViewHost.NotifyDataChanged() => NotifyDataChanged();
+
+        void IWidgetViewHost.RefreshChromeTitle(string title)
+        {
+            if (Chrome == null) return;
+            Chrome.Title = title ?? (Data == null ? string.Empty : Data.Name ?? string.Empty);
+            Chrome.TitleText.ToolTip = null;
+        }
+
+        void IWidgetViewHost.PersistSelection()
+        {
+            // The search kind has no selection to remember.
+        }
+
+        void IWidgetViewHost.ShowWidgetMenu() => ShowWidgetMenu(null);
+
+        #endregion
 
         public override void ShowWidgetMenu(Action onClosed = null)
         {

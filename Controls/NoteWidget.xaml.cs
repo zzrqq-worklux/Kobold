@@ -15,7 +15,7 @@ namespace Kobold.Controls
     /// dropdown and the editor's insert menu all live in
     /// <see cref="NotePanelView"/> and its one surface.
     /// </summary>
-    public partial class NoteWidget : WidgetWindowBase
+    public partial class NoteWidget : WidgetWindowBase, IWidgetViewHost
     {
         /// <summary>Kind minimum (spec 6.5): chrome header + one card.</summary>
         private const double MIN_WIDTH = 260;
@@ -58,8 +58,7 @@ namespace Kobold.Controls
             // timer fires. An open title dropdown never outlives the panel.
             Closing += (s, e) =>
             {
-                _view?.CloseTitleMenu();
-                _view?.FlushPendingEdit();
+                _view?.Deactivate();
                 WidgetManager.SaveConfigIfLoaded();
             };
         }
@@ -79,17 +78,35 @@ namespace Kobold.Controls
         /// </summary>
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape && _view != null && _view.IsTitleMenuOpen)
-            {
-                _view.CloseTitleMenu();
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Key != Key.Z || Keyboard.Modifiers != ModifierKeys.Control) return;
-            if (Keyboard.FocusedElement is TextBox) return;
-            if (_view != null && _view.TryUndo()) e.Handled = true;
+            if (_view != null && _view.HandlePreviewKeyDown(e)) e.Handled = true;
         }
+
+        #region IWidgetViewHost
+
+        WidgetData IWidgetViewHost.Data => Data;
+
+        WidgetChrome IWidgetViewHost.Chrome => Chrome;
+
+        bool IWidgetViewHost.IsPanelOpen => IsPanelOpen;
+
+        double IWidgetViewHost.ContentWidth => WidgetViewHostMetrics.ContentWidth(this);
+
+        double IWidgetViewHost.ContentHeight => WidgetViewHostMetrics.ContentHeight(this);
+
+        (double width, double height) IWidgetViewHost.GetPanelSize() => GetPanelSize();
+
+        void IWidgetViewHost.NotifyDataChanged() => NotifyDataChanged();
+
+        void IWidgetViewHost.RefreshChromeTitle(string title) => RefreshChromeTitle(title);
+
+        void IWidgetViewHost.PersistSelection()
+        {
+            // The note kind has no selection to remember.
+        }
+
+        void IWidgetViewHost.ShowWidgetMenu() => ShowWidgetMenu(null);
+
+        #endregion
 
         /// <summary>
         /// The legacy path of <see cref="WidgetWindowBase.GetPanelSize"/> adds
@@ -111,8 +128,7 @@ namespace Kobold.Controls
         /// </summary>
         protected override void OnPanelHidden()
         {
-            _view?.CloseTitleMenu();
-            _view?.FlushPendingEdit();
+            _view?.Deactivate();
             base.OnPanelHidden();
         }
 
@@ -124,13 +140,14 @@ namespace Kobold.Controls
         /// Only the chrome changes - the view is never called back, so the
         /// navigation paths may call this freely.
         /// </summary>
-        internal void RefreshChromeTitle()
+        internal void RefreshChromeTitle(string title = null)
         {
             if (Chrome == null) return;
 
-            string title = _view != null ? _view.ChromeTitle : _noteData == null ? null : _noteData.Name;
-            Chrome.Title = title ?? string.Empty;
-            Chrome.TitleText.ToolTip = _view == null || _view.IsHome ? null : title;
+            string resolved = title
+                ?? (_view != null ? _view.ChromeTitle : _noteData == null ? null : _noteData.Name);
+            Chrome.Title = resolved ?? string.Empty;
+            Chrome.TitleText.ToolTip = _view == null || _view.IsHome ? null : resolved;
         }
 
         /// <summary>The note panel's minimum (spec 6.5): the base's defaults are folder/todo only.</summary>
