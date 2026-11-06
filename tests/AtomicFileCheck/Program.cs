@@ -92,6 +92,38 @@ namespace Kobold.AtomicFileCheck
             string unicode = Path.Combine(_root, "case5", "config.json");
             AtomicFile.WriteAllText(unicode, "设置");
             Check(File.ReadAllText(unicode) == "设置", "non-ASCII contents round-trip");
+
+            // 6. Backup rotation: each write makes the old target the backup, so
+            //    after two writes main = newest and backup = previous.
+            string dir6 = Path.Combine(_root, "case6");
+            Directory.CreateDirectory(dir6);
+            string target6 = Path.Combine(dir6, "config.json");
+            string backup6 = target6 + ".backup";
+            AtomicFile.WriteAllText(target6, "v1", backup6);
+            AtomicFile.WriteAllText(target6, "v2", backup6);
+            Check(File.ReadAllText(target6) == "v2", "backup rotation: main holds the newest write");
+            Check(File.ReadAllText(backup6) == "v1", "backup rotation: backup holds the previous write");
+            Check(!File.Exists(target6 + ".tmp") && !File.Exists(backup6 + ".tmp"),
+                "backup rotation: no temp file left behind");
+
+            // The two-argument overload keeps its old behavior: no backup file.
+            string plain6 = Path.Combine(dir6, "plain.json");
+            AtomicFile.WriteAllText(plain6, "plain");
+            Check(File.ReadAllText(plain6) == "plain" && !File.Exists(plain6 + ".backup"),
+                "two-argument write still works and creates no backup");
+
+            // 7. First write to a missing target must not clobber an existing
+            //    recovery backup: File.Move creates the main file only.
+            string dir7 = Path.Combine(_root, "case7");
+            Directory.CreateDirectory(dir7);
+            string target7 = Path.Combine(dir7, "config.json");
+            string backup7 = target7 + ".backup";
+            File.WriteAllText(backup7, "recovery");
+            AtomicFile.WriteAllText(target7, "fresh", backup7);
+            Check(File.ReadAllText(target7) == "fresh",
+                "first write with a missing target creates the main file");
+            Check(File.ReadAllText(backup7) == "recovery",
+                "first write with a missing target leaves the recovery backup alone");
         }
     }
 }

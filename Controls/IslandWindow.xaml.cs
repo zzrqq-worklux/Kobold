@@ -34,6 +34,11 @@ namespace Kobold.Controls
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
 
+        // Identity of the currently built tiles (id/kind/colour/name). A
+        // membership-only refresh keeps every Border and updates badges and
+        // tooltips in place; anything that changes the visuals rebuilds.
+        private string _tileSignature;
+
         // Group projection keyed by member id: the count badge and the member
         // names its tooltip adds. Replaced wholesale on every SetWidgets so a
         // dissolved group leaves no stale badge behind.
@@ -247,10 +252,29 @@ namespace Kobold.Controls
                     _widgetColors[widget.Id] = widget.Color;
             }
 
-            RebuildTiles();
-            UpdateWindowGeometry();
+            // A group-membership refresh only changes badges/tooltips: keep
+            // every existing Border when the tile list itself is unchanged.
+            var visible = _widgets.Where(HasWindowKind).ToList();
+            string signature = TileSignature(visible);
+            bool rebuild = signature != _tileSignature
+                || TilePanel.Children.Count != visible.Count;
+            double middleWidthBefore = TileScroller.Width;
 
-            if (_isExpanded)
+            if (rebuild)
+            {
+                RebuildTiles();
+            }
+            else
+            {
+                UpdateTileGroupDecorations(visible);
+            }
+
+            // The island must not resize or run its expand animation for a
+            // membership-only refresh either.
+            bool geometryChanged = Math.Abs(TileScroller.Width - middleWidthBefore) > 0.01;
+            if (rebuild || geometryChanged) UpdateWindowGeometry();
+
+            if (_isExpanded && (rebuild || geometryChanged))
             {
                 double width = GetExpandedWidth();
                 AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
@@ -592,6 +616,7 @@ namespace Kobold.Controls
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
             var widgets = _widgets.Where(HasWindowKind).ToList();
+            _tileSignature = TileSignature(widgets);
             foreach (var widget in widgets)
             {
                 TilePanel.Children.Add(CreateTile(widget, iconStyle));
@@ -867,11 +892,8 @@ namespace Kobold.Controls
             bool open = _openStates.ContainsKey(widget.Id);
             var accent = WidgetAccent.ReadableBrush(widget.Color);
 
-            WidgetGroupTileInfo groupInfo = null;
-            bool grouped = !string.IsNullOrEmpty(widget.Id)
-                && _groupInfo.TryGetValue(widget.Id, out groupInfo)
-                && groupInfo != null
-                && groupInfo.MemberCount >= 2;
+            WidgetGroupTileInfo groupInfo = GroupInfoFor(widget);
+            bool grouped = groupInfo != null;
 
             var dot = new Ellipse
             {
@@ -901,36 +923,7 @@ namespace Kobold.Controls
             {
                 // A click-through count badge in the tile's top-right corner:
                 // the tile stays 44x44 and the row's layout math is untouched.
-                content.Children.Add(new Border
-                {
-                    Tag = "GroupBadge",
-                    Width = 14,
-                    Height = 14,
-                    CornerRadius = new CornerRadius(7),
-                    BorderThickness = new Thickness(1),
-                    BorderBrush = accent,
-                    Background = ThemeManager.IslandBackgroundBrush,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 1, 1, 0),
-                    IsHitTestVisible = false,
-                    Child = new TextBlock
-                    {
-                        Text = groupInfo.MemberCount.ToString(CultureInfo.InvariantCulture),
-                        FontSize = 9,
-                        FontWeight = FontWeights.SemiBold,
-                        Foreground = accent,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    }
-                });
-            }
-
-            string tooltip = widget.Name;
-            if (grouped && !string.IsNullOrWhiteSpace(groupInfo.MemberNames))
-            {
-                tooltip = (string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip + Environment.NewLine)
-                    + groupInfo.MemberNames;
+                content.Children.Add(CreateGroupBadge(groupInfo, accent));
             }
 
             var tile = new Border
@@ -940,7 +933,7 @@ namespace Kobold.Controls
                 CornerRadius = new CornerRadius(8),
                 Background = open ? TileOpenBackground(widget.Id) : Brushes.Transparent,
                 Cursor = Cursors.Hand,
-                ToolTip = tooltip,
+                ToolTip = TileTooltip(widget, grouped ? groupInfo : null),
                 Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
                 Tag = widget.Id,
                 Child = content
@@ -968,6 +961,128 @@ namespace Kobold.Controls
             };
 
             return tile;
+        }
+
+        /// <summary>
+        /// The identity of the tile visuals: a change here means the icons or
+        /// the base tooltip changed and the tiles must be rebuilt. Group
+        /// membership and open state are deliberately absent - both repaint in
+        /// place.
+        /// </summary>
+        private static string TileSignature(IEnumerable<WidgetData> widgets)
+        {
+            return string.Join("\u001e", widgets.Select(widget =>
+                (widget == null ? string.Empty : widget.Id) + "\u001f" +
+                (widget == null ? string.Empty : widget.Kind) + "\u001f" +
+                (widget == null ? string.Empty : widget.Color) + "\u001f" +
+                (widget == null ? string.Empty : widget.Name)));
+        }
+
+        /// <summary>Refreshes the group badge/tooltip of every existing tile, keeping the Borders.</summary>
+        private void UpdateTileGroupDecorations(IList<WidgetData> widgets)
+        {
+            int count = Math.Min(widgets.Count, TilePanel.Children.Count);
+            for (int i = 0; i < count; i++)
+            {
+                var tile = TilePanel.Children[i] as Border;
+                if (tile != null) ApplyTileGroupDecoration(tile, widgets[i]);
+            }
+        }
+
+        /// <summary>Adds, updates or removes one tile's count badge and member-name tooltip.</summary>
+        private void ApplyTileGroupDecoration(Border tile, WidgetData widget)
+        {
+            var content = tile.Child as Grid;
+            if (content == null || widget == null) return;
+
+            WidgetGroupTileInfo info = GroupInfoFor(widget);
+            var accent = WidgetAccent.ReadableBrush(widget.Color);
+            var existing = GroupBadgeOf(content);
+
+            if (info != null)
+            {
+                if (existing == null)
+                {
+                    content.Children.Add(CreateGroupBadge(info, accent));
+                }
+                else
+                {
+                    UpdateGroupBadge(existing, info, accent);
+                }
+            }
+            else if (existing != null)
+            {
+                content.Children.Remove(existing);
+            }
+
+            tile.ToolTip = TileTooltip(widget, info);
+        }
+
+        /// <summary>The group projection for a tile, or null when it is not a grouped member.</summary>
+        private WidgetGroupTileInfo GroupInfoFor(WidgetData widget)
+        {
+            WidgetGroupTileInfo info;
+            if (widget == null || string.IsNullOrEmpty(widget.Id)) return null;
+            if (!_groupInfo.TryGetValue(widget.Id, out info)) return null;
+            return info != null && info.MemberCount >= 2 ? info : null;
+        }
+
+        /// <summary>The one 14x14 click-through count badge both tile paths use.</summary>
+        private static Border CreateGroupBadge(WidgetGroupTileInfo info, Brush accent)
+        {
+            var badge = new Border
+            {
+                Tag = "GroupBadge",
+                Width = 14,
+                Height = 14,
+                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(1),
+                Background = ThemeManager.IslandBackgroundBrush,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 1, 1, 0),
+                IsHitTestVisible = false,
+                Child = new TextBlock
+                {
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            UpdateGroupBadge(badge, info, accent);
+            return badge;
+        }
+
+        private static void UpdateGroupBadge(Border badge, WidgetGroupTileInfo info, Brush accent)
+        {
+            badge.BorderBrush = accent;
+            badge.Background = ThemeManager.IslandBackgroundBrush;
+            var text = badge.Child as TextBlock;
+            if (text == null) return;
+            text.Text = info.MemberCount.ToString(CultureInfo.InvariantCulture);
+            text.Foreground = accent;
+        }
+
+        private static Border GroupBadgeOf(Grid content)
+        {
+            foreach (var child in content.Children)
+            {
+                var border = child as Border;
+                if (border != null && "GroupBadge".Equals(border.Tag as string)) return border;
+            }
+            return null;
+        }
+
+        private static string TileTooltip(WidgetData widget, WidgetGroupTileInfo info)
+        {
+            string tooltip = widget == null ? null : widget.Name;
+            if (info != null && !string.IsNullOrWhiteSpace(info.MemberNames))
+            {
+                tooltip = (string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip + Environment.NewLine)
+                    + info.MemberNames;
+            }
+            return tooltip;
         }
 
         private void UpdateTileOpenState(string widgetId)

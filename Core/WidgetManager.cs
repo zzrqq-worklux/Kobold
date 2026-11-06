@@ -37,6 +37,13 @@ namespace Kobold.Core
         private readonly System.Windows.Threading.DispatcherTimer _trimTimer;
         private DateTime _lastInteractionUtc = DateTime.UtcNow;
 
+        // >0 while a merge/detach swap is in flight. Island refreshes raised
+        // by visibility/data events inside the scope only set the pending flag;
+        // the outermost EndHostTransition repaints once, after the new host is
+        // in place and the old one is gone.
+        private int _hostTransitionDepth;
+        private bool _islandRefreshPending;
+
         public static WidgetManager Instance
         {
             get
@@ -211,10 +218,41 @@ namespace Kobold.Core
         /// </summary>
         public void RefreshIsland()
         {
+            if (_hostTransitionDepth > 0)
+            {
+                _islandRefreshPending = true;
+                return;
+            }
+            RefreshIslandNow();
+        }
+
+        private void RefreshIslandNow()
+        {
             var groupInfo = BuildGroupTileInfo();
             _island?.SetWidgets(_config.Widgets, groupInfo);
             _island?.SetOpenStates(GroupHostPolicy.OpenTileIds(
                 _config.Groups, _config.Widgets, IsHostOpen));
+        }
+
+        /// <summary>
+        /// Starts a host swap. Every island refresh raised until the matching
+        /// <see cref="EndHostTransition"/> is folded into one deferred repaint,
+        /// so a visibility event cannot rebuild the island mid-swap.
+        /// </summary>
+        private void BeginHostTransition()
+        {
+            _hostTransitionDepth++;
+        }
+
+        /// <summary>Ends a host swap; the outermost call performs exactly one refresh.</summary>
+        private void EndHostTransition()
+        {
+            if (_hostTransitionDepth <= 0) return;
+            _hostTransitionDepth--;
+            if (_hostTransitionDepth > 0 || !_islandRefreshPending) return;
+
+            _islandRefreshPending = false;
+            RefreshIslandNow();
         }
 
         /// <summary>The island projection of every group with at least two members.</summary>
@@ -373,12 +411,12 @@ namespace Kobold.Core
         }
 
         /// <summary>Opens a widget's panel; defaults to centered below the island when unplaced.</summary>
-        private void OpenPanel(IWidgetWindow widget, bool activate = true)
+        private void OpenPanel(IWidgetWindow widget, bool activate = true, bool animate = true)
         {
             if (widget == null || _island == null) return;
             var (panelWidth, _) = widget.GetPanelSize();
             double left = _island.CenterX - panelWidth / 2; // clamped per-monitor inside ShowPanel
-            widget.ShowPanel(left, _island.PanelTop, activate);
+            widget.ShowPanel(left, _island.PanelTop, activate, animate);
         }
 
         /// <summary>Toggles a widget's panel - shared by the widget menu.</summary>
@@ -503,9 +541,11 @@ namespace Kobold.Core
         /// Creates the window for an existing config entry and wires it to the
         /// manager. Unknown kinds have no window: they stay config-only.
         /// </summary>
-        private IWidgetWindow CreateWidgetInternal(WidgetData data)
+        private IWidgetWindow CreateWidgetInternal(WidgetData data, IWidgetContentView contents = null)
         {
-            var widget = CreateWindow(data);
+            IWidgetWindow widget = contents == null
+                ? CreateWindow(data)
+                : WidgetWindowFactory.Create(data, contents);
             if (widget == null) return null;
 
             widget.OnDeleted += (w) =>
@@ -536,15 +576,45 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Creates a standalone host around an already-released live view. A
+        /// kind/adoption failure falls back to a fresh view so the datum never
+        /// loses its reachable host; the flushed data is the source of truth.
+        /// </summary>
+        private IWidgetWindow CreateStandaloneHost(WidgetData data, IWidgetContentView contents)
+        {
+            if (data == null) return null;
+
+            try
+            {
+                return CreateWidgetInternal(data, contents);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Kobold] adopted-host fallback: " + ex.Message);
+            }
+
+            try
+            {
+                return CreateWidgetInternal(data);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Kobold] standalone-host fallback: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Creates the shared window for a config group and wires it to the
         /// manager. Group state is live in <see cref="AppConfig.Groups"/>, so the
         /// existing save path persists geometry, flags and the active member.
         /// </summary>
-        private WidgetGroupWindow CreateGroupInternal(WidgetGroup group, List<WidgetData> members)
+        private WidgetGroupWindow CreateGroupInternal(WidgetGroup group, List<WidgetData> members,
+            List<IWidgetContentView> views = null)
         {
             if (group == null || members == null || members.Count < 2) return null;
 
-            var window = WidgetWindowFactory.CreateGroup(group, members) as WidgetGroupWindow;
+            var window = WidgetWindowFactory.CreateGroup(group, members, views) as WidgetGroupWindow;
             if (window == null) return null;
 
             WireGroupWindow(window);
@@ -584,13 +654,35 @@ namespace Kobold.Core
             if (window == null) return;
 
             var members = GroupHostPolicy.MembersOf(window.Group, _config.Widgets);
-            _widgets.Remove(window);
-            window.Close();
+            WidgetGroup group = window.Group;
 
-            foreach (var member in members) _config.RemoveWidget(member.Id);
+            BeginHostTransition();
+            try
+            {
+                _widgets.Remove(window);
+                window.Close();
 
-            RefreshIsland();
-            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                // Drop the group entry once; removing each member afterwards
+                // must not re-discover and clean the same group repeatedly.
+                RemoveGroupFromConfig(group);
+                foreach (var member in members) _config.RemoveWidget(member.Id);
+
+                RefreshIsland();
+                FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+            }
+            finally
+            {
+                EndHostTransition();
+            }
+        }
+
+        /// <summary>Removes one group state entry (never its member widgets).</summary>
+        private void RemoveGroupFromConfig(WidgetGroup group)
+        {
+            if (group == null || _config.Groups == null) return;
+
+            _config.Groups.Remove(group);
+            if (_config.Groups.Count == 0) _config.Groups = null;
         }
 
         /// <summary>
@@ -642,80 +734,120 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Removes one member from a group host and rebuilds its window:
-        /// the group survives with its remaining members, or the last survivor
-        /// becomes a standalone widget. Open state and the active member are
-        /// preserved (the active falls back to the first surviving tab).
+        /// Deletes one member from a group host. The group survives in place
+        /// with its remaining members, or dissolves into standalone hosts (the
+        /// survivor keeps its exact live view). The deleted member's view is
+        /// discarded; no surviving view is recreated.
         /// </summary>
-        private void RemoveGroupMember(WidgetGroupWindow oldWindow, string memberId)
+        private void RemoveGroupMember(WidgetGroupWindow groupWindow, string memberId)
         {
-            WidgetGroup group = oldWindow.Group;
+            if (groupWindow == null) return;
+
+            WidgetGroup group = groupWindow.Group;
+            if (group == null)
+            {
+                RemoveWidgetFromConfigOnly(memberId);
+                return;
+            }
+
             var membersBefore = GroupHostPolicy.MembersOf(group, _config.Widgets);
-            bool wasOpen = oldWindow.IsPanelOpen;
+            bool wasOpen = groupWindow.IsPanelOpen;
+            int index = _widgets.IndexOf(groupWindow);
 
-            int index = _widgets.IndexOf(oldWindow);
-            _widgets.Remove(oldWindow);
-            oldWindow.Close();
-
-            _config.RemoveWidget(memberId);
+            // Capture the group placement before the window may go away.
+            double? left = group.PanelX ?? Finite(groupWindow.Left);
+            double? top = group.PanelY ?? Finite(groupWindow.Top);
+            double currentDpi = DpiScaleOf(groupWindow);
+            double? dpi = group.PanelX.HasValue || group.PanelY.HasValue
+                ? (group.PanelDpiScale ?? currentDpi)
+                : currentDpi;
 
             var survivors = new List<WidgetData>();
             foreach (var member in membersBefore)
             {
-                if (string.Equals(member.Id, memberId, StringComparison.Ordinal)) continue;
+                if (member == null || string.Equals(member.Id, memberId, StringComparison.Ordinal)) continue;
                 if (IsInConfig(member.Id)) survivors.Add(member);
             }
 
-            bool groupSurvives = group != null
-                && survivors.Count >= 2
+            bool groupSurvives = survivors.Count >= 2
                 && _config.Groups != null
                 && _config.Groups.Contains(group);
 
-            if (groupSurvives)
+            BeginHostTransition();
+            try
             {
-                if (GroupHostPolicy.IndexOfMember(group, _config.Widgets, group.ActiveWidgetId) < 0)
-                    group.ActiveWidgetId = survivors[0].Id;
+                // Take the deleted member out first, then either keep the
+                // surviving group in place or dissolve its last survivor.
+                DiscardContentView(groupWindow.RemoveMember(memberId));
 
-                try
+                if (groupSurvives)
                 {
-                    var rebuilt = CreateGroupInternal(group, survivors);
-                    if (rebuilt != null)
-                    {
-                        MoveHostTo(rebuilt, index);
-                        if (wasOpen) OpenPanel(rebuilt, activate: false);
-                    }
+                    for (int i = 0; i < survivors.Count; i++) survivors[i].GroupOrder = i;
+                    if (GroupHostPolicy.IndexOfMember(group, _config.Widgets, group.ActiveWidgetId) < 0)
+                        group.ActiveWidgetId = survivors[0].Id;
+
+                    // The group window is untouched: same instance, same tabs,
+                    // same size/position/open state.
+                    _config.RemoveWidget(memberId);
+
+                    SaveConfig();
+                    RefreshIsland();
+                    FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                    return;
                 }
-                catch (Exception ex)
+
+                // The group cannot survive: move every remaining member's live
+                // view into its own host before the old window closes.
+                var dissolved = new List<KeyValuePair<WidgetData, IWidgetContentView>>();
+                for (int i = 0; i < survivors.Count; i++)
                 {
-                    // A member kind without a group view cannot be hosted: keep
-                    // every survivor reachable through its own window instead.
-                    Debug.WriteLine("[Kobold] group rebuild fallback: " + ex.Message);
-                    CreateStandaloneHosts(survivors, index, wasOpen);
+                    WidgetData survivor = survivors[i];
+                    IWidgetContentView view = groupWindow.RemoveMember(survivor.Id);
+                    ApplyDissolvedStandaloneState(survivor, group, left, top, dpi, wasOpen, i + 1);
+                    dissolved.Add(new KeyValuePair<WidgetData, IWidgetContentView>(survivor, view));
                 }
+
+                RemoveGroupFromConfig(group);
+
+                int insert = index;
+                foreach (var entry in dissolved)
+                {
+                    var host = CreateStandaloneHost(entry.Key, entry.Value);
+                    if (host == null) continue;
+
+                    MoveHostTo(host, insert);
+                    if (insert >= 0) insert++;
+                    if (wasOpen) OpenPanel(host, activate: false, animate: false);
+                }
+
+                CloseHost(groupWindow, flush: false);
+                RemoveWidgetFromConfigOnly(memberId);
+
+                SaveConfig();
+                RefreshIsland();
+                FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
             }
-            else if (survivors.Count == 1)
+            finally
             {
-                CreateStandaloneHosts(survivors, index, wasOpen);
+                EndHostTransition();
             }
-
-            RefreshIsland();
-            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
         }
 
-        /// <summary>Last-resort hosts: one standalone window per surviving member.</summary>
-        private void CreateStandaloneHosts(List<WidgetData> members, int index, bool open)
+        /// <summary>Drops a config entry without going through a host lookup.</summary>
+        private void RemoveWidgetFromConfigOnly(string widgetId)
         {
-            if (members == null) return;
+            if (string.IsNullOrEmpty(widgetId)) return;
+            if (IsInConfig(widgetId)) _config.RemoveWidget(widgetId);
+        }
 
-            foreach (var member in members)
-            {
-                var standalone = CreateWidgetInternal(member);
-                if (standalone == null) continue;
-
-                MoveHostTo(standalone, index);
-                if (index >= 0) index++;
-                if (open) OpenPanel(standalone, activate: false);
-            }
+        /// <summary>
+        /// The deleted member's view is no longer hosted: settle any service
+        /// subscription it owns (the search kind) before letting it go.
+        /// </summary>
+        private static void DiscardContentView(IWidgetContentView view)
+        {
+            var search = view as SearchPanelView;
+            if (search != null) search.Detach();
         }
 
         private bool IsInConfig(string widgetId)
@@ -761,9 +893,10 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// Adds the source as the last tab of an existing group. The group's
-        /// active member and open state survive; the rebuilt window replaces
-        /// the old one and the source never takes focus.
+        /// Adds the source as the last tab of an existing group without
+        /// touching that group's window: the live view moves in, the active
+        /// member and open state survive, and only the now-empty source host
+        /// is closed. A failed adoption restores the source standalone.
         /// </summary>
         private bool MergeIntoGroup(IWidgetWindow source, WidgetGroupWindow targetGroup)
         {
@@ -776,59 +909,92 @@ namespace Kobold.Core
             if (GroupDragPolicy.ShouldDissolve(members.Count)) return false;
 
             bool wasOpen = targetGroup.IsPanelOpen;
+            bool groupWasActive = IsHostActive(targetGroup);
+            bool sourceWasActive = IsHostActive(source);
+            bool sourceWasOpen = source.IsPanelOpen;
             string activeId = GroupHostPolicy.ActiveMemberId(group, _config.Widgets);
-            int index = _widgets.IndexOf(targetGroup);
+            int sourceIndex = _widgets.IndexOf(source);
 
-            // The source takes the last tab; its own panel geometry is untouched.
-            source.Data.GroupId = group.Id;
-            source.Data.GroupOrder = GroupDragPolicy.InsertIndex(members.Count);
-            group.ActiveWidgetId = activeId;
-
-            RemoveHost(source);
-            RemoveHost(targetGroup); // flushes every member view before the rebuild
-
-            var rebuiltMembers = new List<WidgetData>(members);
-            rebuiltMembers.Add(source.Data);
-
-            WidgetGroupWindow rebuilt = null;
+            BeginHostTransition();
             try
             {
-                rebuilt = CreateGroupInternal(group, rebuiltMembers);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[Kobold] merge rebuild fallback: " + ex.Message);
-            }
+                var (sourceWidth, sourceHeight) = source.GetPanelSize();
+                IWidgetContentView sourceView = TakeStandaloneView(source);
 
-            if (rebuilt == null)
-            {
-                // No group view for the pair: keep every widget reachable as
-                // its own panel (the same fallback startup uses).
-                CreateStandaloneHosts(rebuiltMembers, index, wasOpen);
+                // The existing group's dimensions win over the incoming widget:
+                // its remembered size is recorded only when it has none (P0-B),
+                // and the incoming size never feeds the group geometry.
+                if (!source.Data.PanelWidth.HasValue) source.Data.PanelWidth = sourceWidth;
+                if (!source.Data.PanelHeight.HasValue) source.Data.PanelHeight = sourceHeight;
+
+                string previousGroupId = source.Data.GroupId;
+                int? previousGroupOrder = source.Data.GroupOrder;
+                source.Data.GroupId = group.Id;
+                source.Data.GroupOrder = GroupDragPolicy.InsertIndex(members.Count);
+                group.ActiveWidgetId = activeId;
+
+                try
+                {
+                    // grow:false: an existing group always keeps its size; the
+                    // incoming view simply uses the group's content box.
+                    targetGroup.AddMember(source.Data, sourceView, grow: false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Kobold] merge into group fallback: " + ex.Message);
+
+                    // Undo a partially-added tab, then restore the source's
+                    // live view in its own window. Never leave it host-less.
+                    if (targetGroup.ContainsWidget(source.Data.Id))
+                    {
+                        try { targetGroup.RemoveMember(source.Data.Id); }
+                        catch (Exception undo) { Debug.WriteLine("[Kobold] merge undo: " + undo.Message); }
+                    }
+                    source.Data.GroupId = previousGroupId;
+                    source.Data.GroupOrder = previousGroupOrder;
+                    group.ActiveWidgetId = activeId;
+
+                    CloseHost(source, flush: false);
+                    var restored = CreateStandaloneHost(source.Data, sourceView);
+                    if (restored != null)
+                    {
+                        MoveHostTo(restored, sourceIndex);
+                        if (sourceWasOpen) OpenPanel(restored, activate: false, animate: false);
+                    }
+
+                    SaveConfig();
+                    RefreshIsland();
+                    FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                    return false;
+                }
+
+                // The group owns the moved view now; close the empty shell
+                // without flushing/deactivating that view a second time.
+                CloseHost(source, flush: false);
+
+                if (wasOpen && (groupWasActive || sourceWasActive))
+                {
+                    ActivateHost(targetGroup);
+                }
+
                 SaveConfig();
                 RefreshIsland();
                 FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
-                return false;
+                return true;
             }
-
-            MoveHostTo(rebuilt, index);
-            if (wasOpen)
+            finally
             {
-                OpenPanel(rebuilt, activate: false);
-                if (activeId != null) rebuilt.SetActiveByWidgetId(activeId);
+                EndHostTransition();
             }
-
-            SaveConfig();
-            RefreshIsland();
-            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
-            return true;
         }
 
         /// <summary>
-        /// Creates one group from two standalone hosts. The group inherits the
-        /// target's placement/open/lock/pin, is sized for the larger panel (the
-        /// tab row is the extra 32 DIP on the height in the source term) and
-        /// the window clamps that up to its own minimum.
+        /// Creates one group from two standalone hosts around their live views.
+        /// The group inherits the target's placement/open/lock/pin, is sized
+        /// for the larger panel (the tab row is the extra 32 DIP on the height
+        /// in the source term) and the window clamps that up to its own
+        /// minimum. An open target shows the new group before either old
+        /// window closes.
         /// </summary>
         private bool MergeIntoStandalone(IWidgetWindow source, IWidgetWindow target)
         {
@@ -837,6 +1003,9 @@ namespace Kobold.Core
             if (targetData == null || sourceData == null) return false;
 
             bool wasOpen = target.IsPanelOpen;
+            bool sourceWasOpen = source.IsPanelOpen;
+            bool targetWasActive = IsHostActive(target);
+            bool sourceWasActive = IsHostActive(source);
             int index = _widgets.IndexOf(target);
 
             var targetWindow = target as Window;
@@ -851,78 +1020,121 @@ namespace Kobold.Core
             var (targetWidth, targetHeight) = target.GetPanelSize();
             var (sourceWidth, sourceHeight) = source.GetPanelSize();
 
-            var group = new WidgetGroup
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                ActiveWidgetId = targetData.Id,
-                PanelX = left,
-                PanelY = top,
-                PanelDpiScale = dpi,
-                PanelWidth = Math.Max(targetWidth, sourceWidth),
-                PanelHeight = Math.Max(targetHeight, sourceHeight + WidgetGroupTabStrip.RowHeight),
-                IsExpanded = wasOpen,
-                IsLocked = targetData.IsLocked,
-                IsPanelPinned = targetData.IsPanelPinned
-            };
-
-            if (_config.Groups == null) _config.Groups = new List<WidgetGroup>();
-            _config.Groups.Add(group);
-
-            targetData.GroupId = group.Id;
-            targetData.GroupOrder = 0;
-            sourceData.GroupId = group.Id;
-            sourceData.GroupOrder = 1;
-
-            RemoveHost(source);
-            RemoveHost(target);
-
-            WidgetGroupWindow groupWindow = null;
+            BeginHostTransition();
             try
             {
-                groupWindow = CreateGroupInternal(group, new List<WidgetData> { targetData, sourceData });
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[Kobold] merge group fallback: " + ex.Message);
-            }
+                // Capture both live views before any state mutates; the two old
+                // shells are closed only after their replacements are arranged.
+                IWidgetContentView targetView = TakeStandaloneView(target);
+                IWidgetContentView sourceView = TakeStandaloneView(source);
 
-            if (groupWindow == null)
-            {
-                // Undo the membership and keep both widgets as own panels.
-                _config.Groups.Remove(group);
-                if (_config.Groups.Count == 0) _config.Groups = null;
-                targetData.GroupId = null;
-                targetData.GroupOrder = null;
-                sourceData.GroupId = null;
-                sourceData.GroupOrder = null;
-                CreateStandaloneHosts(new List<WidgetData> { targetData, sourceData }, index, wasOpen);
+                var group = new WidgetGroup
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ActiveWidgetId = targetData.Id,
+                    PanelX = left,
+                    PanelY = top,
+                    PanelDpiScale = dpi,
+                    PanelWidth = Math.Max(targetWidth, sourceWidth),
+                    PanelHeight = Math.Max(targetHeight, sourceHeight + WidgetGroupTabStrip.RowHeight),
+                    IsExpanded = wasOpen,
+                    IsLocked = targetData.IsLocked,
+                    IsPanelPinned = targetData.IsPanelPinned
+                };
+
+                if (_config.Groups == null) _config.Groups = new List<WidgetGroup>();
+                _config.Groups.Add(group);
+
+                targetData.GroupId = group.Id;
+                targetData.GroupOrder = 0;
+                sourceData.GroupId = group.Id;
+                sourceData.GroupOrder = 1;
+
+                WidgetGroupWindow groupWindow = null;
+                try
+                {
+                    groupWindow = CreateGroupInternal(group,
+                        new List<WidgetData> { targetData, sourceData },
+                        new List<IWidgetContentView> { targetView, sourceView });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[Kobold] merge group fallback: " + ex.Message);
+                }
+
+                if (groupWindow == null)
+                {
+                    // Undo the membership and keep both widgets as own panels,
+                    // around their exact live views when adoption works.
+                    RemoveGroupFromConfig(group);
+                    targetData.GroupId = null;
+                    targetData.GroupOrder = null;
+                    sourceData.GroupId = null;
+                    sourceData.GroupOrder = null;
+
+                    CloseHost(source, flush: false);
+                    CloseHost(target, flush: false);
+
+                    var restoredTarget = CreateStandaloneHost(targetData, targetView);
+                    var restoredSource = CreateStandaloneHost(sourceData, sourceView);
+                    if (restoredTarget != null)
+                    {
+                        MoveHostTo(restoredTarget, index);
+                        if (wasOpen) OpenPanel(restoredTarget, activate: false, animate: false);
+                    }
+                    if (restoredSource != null)
+                    {
+                        MoveHostTo(restoredSource, index < 0 ? -1 : index + 1);
+                        if (sourceWasOpen) OpenPanel(restoredSource, activate: false, animate: false);
+                    }
+
+                    SaveConfig();
+                    RefreshIsland();
+                    FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                    return false;
+                }
+
+                // GetPanelSize clamps the requested size up to the group's kind
+                // minimum; that clamped size is what the group remembers.
+                var (groupWidth, groupHeight) = groupWindow.GetPanelSize();
+                group.PanelWidth = groupWidth;
+                group.PanelHeight = groupHeight;
+
+                if (wasOpen)
+                {
+                    // Show-before-close: the replacement is visible and laid
+                    // out at the target's position before the old hosts go.
+                    groupWindow.ShowPanel(left ?? 0, top ?? 0, activate: false, animate: false);
+                    groupWindow.UpdateLayout();
+                }
+
+                CloseHost(source, flush: false);
+                CloseHost(target, flush: false);
+
+                MoveHostTo(groupWindow, index);
+                if (wasOpen && (targetWasActive || sourceWasActive))
+                {
+                    ActivateHost(groupWindow);
+                }
+
                 SaveConfig();
                 RefreshIsland();
                 FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
-                return false;
+                return true;
             }
-
-            // GetPanelSize clamps the requested size up to the group's kind
-            // minimum; that clamped size is what the group remembers.
-            var (groupWidth, groupHeight) = groupWindow.GetPanelSize();
-            group.PanelWidth = groupWidth;
-            group.PanelHeight = groupHeight;
-
-            MoveHostTo(groupWindow, index);
-            if (wasOpen) OpenPanel(groupWindow, activate: false);
-
-            SaveConfig();
-            RefreshIsland();
-            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
-            return true;
+            finally
+            {
+                EndHostTransition();
+            }
         }
 
         /// <summary>
-        /// Detaches one tab from its group. Two or more tabs left rebuild the
-        /// group without the member; one left dissolves it, and both the
-        /// survivor and the detached member become standalone hosts. The
-        /// detached member keeps its own panel size, inherits the group's
-        /// open/pin/lock flags and cascades from the group's corner.
+        /// Detaches one tab from its group. Two or more tabs left keep the
+        /// same group window and move only the detached live view out; one
+        /// left dissolves the group into two standalone hosts, both around the
+        /// exact views the group carried. The detached member keeps its own
+        /// panel size, inherits the group's open/pin/lock flags and cascades
+        /// from the group's corner.
         /// </summary>
         public bool DetachWidget(string groupId, string widgetId)
         {
@@ -950,29 +1162,18 @@ namespace Kobold.Core
             if (detached == null) return false;
 
             bool wasOpen = groupWindow.IsPanelOpen;
+            bool groupWasActive = IsHostActive(groupWindow);
             string activeId = GroupHostPolicy.ActiveMemberId(group, _config.Widgets);
+            bool detachedWasActiveTab = string.Equals(activeId, widgetId, StringComparison.Ordinal);
             int index = _widgets.IndexOf(groupWindow);
 
-            // Capture the group's placement before its window goes.
+            // Capture the group's placement before its window may go.
             double? left = group.PanelX ?? Finite(groupWindow.Left);
             double? top = group.PanelY ?? Finite(groupWindow.Top);
             double currentDpi = DpiScaleOf(groupWindow);
             double? dpi = group.PanelX.HasValue || group.PanelY.HasValue
                 ? (group.PanelDpiScale ?? currentDpi)
                 : currentDpi;
-
-            // The member stands on its own: its panel size stays its own, the
-            // group-level flags follow it out.
-            detached.GroupId = null;
-            detached.GroupOrder = null;
-            detached.IsExpanded = wasOpen;
-            detached.IsPanelPinned = group.IsPanelPinned;
-            detached.IsLocked = group.IsLocked;
-            if (left.HasValue) detached.PanelX = left.Value + DETACH_CASCADE;
-            if (top.HasValue) detached.PanelY = top.Value + DETACH_CASCADE;
-            detached.PanelDpiScale = dpi;
-
-            RemoveHost(groupWindow); // flushes every member view before the rebuild
 
             var survivors = new List<WidgetData>();
             foreach (var member in members)
@@ -981,68 +1182,140 @@ namespace Kobold.Core
                 if (IsInConfig(member.Id)) survivors.Add(member);
             }
 
-            if (!GroupDragPolicy.ShouldDissolve(survivors.Count))
+            BeginHostTransition();
+            try
             {
-                for (int i = 0; i < survivors.Count; i++) survivors[i].GroupOrder = i;
-                if (string.IsNullOrEmpty(activeId) || string.Equals(activeId, widgetId, StringComparison.Ordinal))
+                if (!GroupDragPolicy.ShouldDissolve(survivors.Count))
                 {
-                    group.ActiveWidgetId = survivors[0].Id;
-                }
+                    // The group survives in place: same window, size and tabs.
+                    IWidgetContentView standaloneView = groupWindow.RemoveMember(widgetId);
 
-                WidgetGroupWindow rebuilt = null;
-                try
-                {
-                    rebuilt = CreateGroupInternal(group, survivors);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("[Kobold] detach rebuild fallback: " + ex.Message);
-                }
+                    for (int i = 0; i < survivors.Count; i++) survivors[i].GroupOrder = i;
+                    if (GroupHostPolicy.IndexOfMember(group, _config.Widgets, group.ActiveWidgetId) < 0)
+                        group.ActiveWidgetId = survivors[0].Id;
 
-                if (rebuilt != null)
-                {
-                    MoveHostTo(rebuilt, index);
-                    if (wasOpen)
+                    ApplyDetachedStandaloneState(detached, group, left, top, dpi, wasOpen);
+
+                    var standaloneHost = CreateStandaloneHost(detached, standaloneView);
+                    if (standaloneHost != null)
                     {
-                        OpenPanel(rebuilt, activate: false);
-                        if (group.ActiveWidgetId != null) rebuilt.SetActiveByWidgetId(group.ActiveWidgetId);
+                        MoveHostTo(standaloneHost, index + 1);
+                        // Never activate the detached host here: deactivating
+                        // an unpinned group would collapse it. Focus stays on
+                        // the surviving group.
+                        if (wasOpen) OpenPanel(standaloneHost, activate: false, animate: false);
                     }
-                }
-                else
-                {
-                    CreateStandaloneHosts(survivors, index, wasOpen);
+
+                    SaveConfig();
+                    RefreshIsland();
+                    FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                    return true;
                 }
 
-                var detachedHost = CreateWidgetInternal(detached);
+                // The last pair: take both live views out, stand both hosts up
+                // (shown first when the group was open), then close the group.
+                IWidgetContentView detachedView = groupWindow.RemoveMember(widgetId);
+                WidgetData survivor = survivors[0];
+                IWidgetContentView survivorView = groupWindow.RemoveMember(survivor.Id);
+
+                ApplyDissolvedStandaloneState(detached, group, left, top, dpi, wasOpen, 2);
+                ApplyDissolvedStandaloneState(survivor, group, left, top, dpi, wasOpen, 1);
+                RemoveGroupFromConfig(group);
+
+                var detachedHost = CreateStandaloneHost(detached, detachedView);
+                var survivorHost = CreateStandaloneHost(survivor, survivorView);
                 if (detachedHost != null)
                 {
-                    MoveHostTo(detachedHost, index + 1);
-                    if (wasOpen) OpenPanel(detachedHost, activate: false);
+                    MoveHostTo(detachedHost, index);
+                    if (wasOpen) OpenPanel(detachedHost, activate: false, animate: false);
                 }
+                if (survivorHost != null)
+                {
+                    MoveHostTo(survivorHost, index < 0 ? -1 : index + 1);
+                    if (wasOpen) OpenPanel(survivorHost, activate: false, animate: false);
+                }
+
+                CloseHost(groupWindow, flush: false);
+
+                if (groupWasActive)
+                {
+                    IWidgetWindow focusTarget = detachedWasActiveTab ? detachedHost : survivorHost;
+                    ActivateHost(focusTarget);
+                }
+
+                SaveConfig();
+                RefreshIsland();
+                FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+                return true;
             }
-            else
+            finally
             {
-                // The last pair: the group is gone and both widgets stand alone.
-                if (_config.Groups != null)
-                {
-                    _config.Groups.Remove(group);
-                    if (_config.Groups.Count == 0) _config.Groups = null;
-                }
-
-                foreach (var survivor in survivors)
-                {
-                    survivor.GroupId = null;
-                    survivor.GroupOrder = null;
-                }
-
-                var standalone = new List<WidgetData>(survivors);
-                standalone.Add(detached);
-                CreateStandaloneHosts(standalone, index, wasOpen);
+                EndHostTransition();
             }
+        }
+
+        /// <summary>
+        /// Reorders one member inside its group and persists the new
+        /// <see cref="WidgetData.GroupOrder"/>. The group window is mutated in
+        /// place (member/view/slot/tab move together, the dragged tab stays
+        /// active) and is never closed, rebuilt or resized. A locked group, a
+        /// missing group, an invalid index and a no-op are refused.
+        /// </summary>
+        public bool ReorderGroupMember(string groupId, int from, int to)
+        {
+            return ReorderGroupMember(groupId, from, to, null);
+        }
+
+        /// <summary>
+        /// The snapshot-guarded reorder: when
+        /// <paramref name="expectedMemberIds"/> is non-null it must match the
+        /// group window's current member ids exactly (count and order,
+        /// ordinal) before anything moves. A stale snapshot - a merge/detach
+        /// after the drag press - returns false and changes nothing. A null
+        /// snapshot keeps the unguarded three-argument behaviour.
+        /// </summary>
+        public bool ReorderGroupMember(string groupId, int from, int to,
+            IReadOnlyList<string> expectedMemberIds)
+        {
+            if (string.IsNullOrEmpty(groupId)) return false;
+
+            var groupWindow = FindGroupWindow(groupId);
+            if (groupWindow == null) return false;
+
+            if (expectedMemberIds != null &&
+                !MatchesMemberSnapshot(groupWindow.Members, expectedMemberIds))
+            {
+                return false;
+            }
+
+            WidgetGroup group = groupWindow.Group;
+            if (group == null || group.IsLocked) return false;
+
+            int count = groupWindow.Members.Count;
+            if (count < 2 || from < 0 || from >= count || to < 0 || to >= count) return false;
+            if (from == to) return false;
+
+            groupWindow.ReorderMember(from, to);
+            group.ActiveWidgetId = groupWindow.ActiveMemberId;
 
             SaveConfig();
             RefreshIsland();
-            FileSearchIndexService.Instance.SyncWithWidgets(_config.Widgets);
+            return true;
+        }
+
+        /// <summary>Exact count and ordinal id match against a drag snapshot.</summary>
+        private static bool MatchesMemberSnapshot(IReadOnlyList<WidgetData> members,
+            IReadOnlyList<string> expectedMemberIds)
+        {
+            if (members == null || expectedMemberIds == null) return false;
+            if (members.Count != expectedMemberIds.Count) return false;
+
+            for (int i = 0; i < members.Count; i++)
+            {
+                string currentId = members[i] == null ? null : members[i].Id;
+                if (!string.Equals(currentId, expectedMemberIds[i], StringComparison.Ordinal))
+                    return false;
+            }
             return true;
         }
 
@@ -1053,24 +1326,49 @@ namespace Kobold.Core
         /// </summary>
         private void RemoveHost(IWidgetWindow host)
         {
+            CloseHost(host, flush: true);
+        }
+
+        /// <summary>
+        /// Unregisters and closes one host. A host whose live view was already
+        /// released is closed without a second flush: that view belongs to its
+        /// adopting window now, and settling it here would touch the new host.
+        /// </summary>
+        private void CloseHost(IWidgetWindow host, bool flush = true)
+        {
             if (host == null) return;
 
-            FlushHost(host);
+            if (flush) FlushHost(host);
             _widgets.Remove(host);
             var window = host as Window;
             if (window != null) window.Close();
         }
 
         /// <summary>
+        /// Hands a standalone host's live view out (deactivate + flush, clear
+        /// the chrome slot). A group host owns its views through its tab list
+        /// and is never released this way.
+        /// </summary>
+        private static IWidgetContentView TakeStandaloneView(IWidgetWindow host)
+        {
+            var window = host as WidgetWindowBase;
+            if (window == null || window is WidgetGroupWindow) return null;
+            if (window.HasReleasedContentView) return null;
+            return window.ReleaseContentView();
+        }
+
+        /// <summary>
         /// Settles an inline editor that a standalone host owns. Group windows
         /// flush all member views in their Closing handler; note/search flush
-        /// on close too, while the todo editor needs this explicit call.
+        /// on close too, while the todo editor needs this explicit call. A
+        /// released view is skipped - it already belongs to another host.
         /// </summary>
         private static void FlushHost(IWidgetWindow host)
         {
             var todo = host as TodoWidget;
             if (todo != null)
             {
+                if (todo.HasReleasedContentView) return;
                 var view = todo.CalendarView as IWidgetContentView;
                 if (view != null) view.FlushPendingEdit();
                 return;
@@ -1079,9 +1377,60 @@ namespace Kobold.Core
             var note = host as NoteWidget;
             if (note != null)
             {
+                if (note.HasReleasedContentView) return;
                 var view = note.PanelView as IWidgetContentView;
                 if (view != null) view.FlushPendingEdit();
             }
+        }
+
+        /// <summary>The detached member's own panel size stays; the group's position/flags follow it out.</summary>
+        private static void ApplyDetachedStandaloneState(
+            WidgetData data, WidgetGroup group, double? groupLeft, double? groupTop, double? dpi, bool groupOpen)
+        {
+            if (data == null) return;
+
+            data.GroupId = null;
+            data.GroupOrder = null;
+            data.IsExpanded = groupOpen;
+            data.IsPanelPinned = group.IsPanelPinned;
+            data.IsLocked = group.IsLocked;
+            if (groupLeft.HasValue) data.PanelX = groupLeft.Value + DETACH_CASCADE;
+            if (groupTop.HasValue) data.PanelY = groupTop.Value + DETACH_CASCADE;
+            data.PanelDpiScale = dpi;
+        }
+
+        /// <summary>
+        /// A dissolved member inherits the group flags and cascades from its
+        /// corner; its own PanelWidth/PanelHeight are deliberately not touched.
+        /// </summary>
+        private static void ApplyDissolvedStandaloneState(
+            WidgetData data, WidgetGroup group, double? groupLeft, double? groupTop,
+            double? dpi, bool groupOpen, int cascadeSteps)
+        {
+            if (data == null) return;
+
+            data.GroupId = null;
+            data.GroupOrder = null;
+            data.IsExpanded = groupOpen;
+            data.IsPanelPinned = group.IsPanelPinned;
+            data.IsLocked = group.IsLocked;
+            if (groupLeft.HasValue) data.PanelX = groupLeft.Value + DETACH_CASCADE * Math.Max(1, cascadeSteps);
+            if (groupTop.HasValue) data.PanelY = groupTop.Value + DETACH_CASCADE * Math.Max(1, cascadeSteps);
+            data.PanelDpiScale = dpi;
+        }
+
+        /// <summary>True while a host's native window owns focus; false for a non-window host.</summary>
+        private static bool IsHostActive(IWidgetWindow host)
+        {
+            var window = host as Window;
+            return window != null && window.IsActive;
+        }
+
+        /// <summary>Brings a host's native window forward; a non-window host is a no-op.</summary>
+        private static void ActivateHost(IWidgetWindow host)
+        {
+            var window = host as Window;
+            if (window != null) window.Activate();
         }
 
         /// <summary>A window coordinate, or null when it is not a real number.</summary>

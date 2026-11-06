@@ -45,6 +45,10 @@ namespace Kobold.Controls
         private double _panelOpacity = MAX_PANEL_OPACITY;
         private string _panelColor;
 
+        // The element that owns the live whole-window drag capture: the Header
+        // or the TabHost. Both surfaces share one drag state machine.
+        private FrameworkElement _dragSurface;
+
         /// <summary>Lock button pressed; the host toggles its own lock state and sets <see cref="IsLocked"/>.</summary>
         public event Action LockClicked;
 
@@ -59,6 +63,13 @@ namespace Kobold.Controls
 
         /// <summary>Header mouse-up; cursor is in screen pixels.</summary>
         public event Action<Point> HeaderDragEnded;
+
+        /// <summary>
+        /// The whole-window drag lost its mouse capture before a release
+        /// (another window took it, a modal/panel teardown). Hosts drop the
+        /// live drag state instead of waiting for an end event that cannot come.
+        /// </summary>
+        public event Action HeaderDragCancelled;
 
         /// <summary>Header right-click; the host shows the widget menu.</summary>
         public event Action HeaderRightClicked;
@@ -79,8 +90,11 @@ namespace Kobold.Controls
         {
             InitializeComponent();
 
-            // Never leave the grabbing cursor stuck if capture is lost mid-drag.
-            Header.LostMouseCapture += (s, e) => Mouse.OverrideCursor = null;
+            // The header and the blank tab row are the same drag surface; both
+            // restore the hover cursor when a capture is lost mid-drag. A true
+            // cancellation (not our own release) also ends the host's gesture.
+            Header.LostMouseCapture += OnDragSurfaceLostMouseCapture;
+            TabHost.LostMouseCapture += OnDragSurfaceLostMouseCapture;
 
             // A lost capture ends a resize mid-flight: later moves must not be
             // forwarded to a host that still thinks the gesture is live.
@@ -171,13 +185,13 @@ namespace Kobold.Controls
         {
             if (height <= 0 || double.IsNaN(height))
             {
-                TabHost.Content = null;
+                TabContent.Content = null;
                 TabRowDefinition.Height = new GridLength(0);
                 Header.CornerRadius = new CornerRadius(12, 12, 0, 0);
                 return;
             }
 
-            TabHost.Content = content;
+            TabContent.Content = content;
             TabRowDefinition.Height = new GridLength(height);
             // The tab row now owns the shell's top corners.
             Header.CornerRadius = new CornerRadius(0);
@@ -289,8 +303,11 @@ namespace Kobold.Controls
                 LockButton.ToolTip = Localization.Get("UI_LockTooltip");
             }
 
-            // Locked panels cannot be dragged - show a forbidden cursor over the header.
-            Header.Cursor = _isLocked ? Cursors.No : CursorHelper.OpenHand;
+            // Locked panels cannot be dragged - show a forbidden cursor over the
+            // header and the blank tab row (both are whole-window drag surfaces).
+            Cursor dragCursor = _isLocked ? Cursors.No : CursorHelper.OpenHand;
+            Header.Cursor = dragCursor;
+            TabHost.Cursor = dragCursor;
 
             // Locked panels cannot be resized either: the bands and grip
             // disappear and the whole layer stops hit-testing (no cursors).
@@ -664,13 +681,19 @@ namespace Kobold.Controls
                 return;
             }
 
+            // A direct invocation (the pins) passes the chrome itself; the real
+            // surfaces always pass the element that must own the capture.
+            var surface = sender as FrameworkElement;
+            if (surface == null || ReferenceEquals(surface, this)) surface = Header;
+
             // Capture first: Mouse.Capture re-enters WPF input dispatch and can
             // synchronously pump a pending MouseMove into Header_MouseMove, so
             // nothing may forward a drag before the host holds its anchor.
             // _isDragActive flips to true only after HeaderDragStarted: a move
             // pumped during the capture sees false and is dropped.
-            Mouse.Capture(Header);
+            Mouse.Capture(surface);
             Mouse.OverrideCursor = CursorHelper.GrabHand;
+            _dragSurface = surface;
             HeaderDragStarted?.Invoke(ScreenCursor());
             _isDragActive = true;
             e.Handled = true;
@@ -679,7 +702,7 @@ namespace Kobold.Controls
         private void Header_MouseMove(object sender, MouseEventArgs e)
         {
             if (!_isDragActive || e.LeftButton != MouseButtonState.Pressed) return;
-            if (_isLocked || !ReferenceEquals(Mouse.Captured, Header)) return;
+            if (_isLocked || !ReferenceEquals(Mouse.Captured, _dragSurface)) return;
 
             HeaderDragMoved?.Invoke(ScreenCursor());
             e.Handled = true;
@@ -689,11 +712,29 @@ namespace Kobold.Controls
         {
             if (e.ChangedButton != MouseButton.Left || !_isDragActive) return;
 
+            // Clear the flag before releasing: our own capture release must read
+            // as the normal end, not as an external cancellation.
             _isDragActive = false;
+            _dragSurface = null;
             Mouse.Capture(null);
             Mouse.OverrideCursor = null;
             HeaderDragEnded?.Invoke(ScreenCursor());
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// The captured drag surface lost the mouse before its release. A
+        /// normal release already cleared the drag flag, so only a real
+        /// cancellation reaches the host; the hover cursor is always restored.
+        /// </summary>
+        private void OnDragSurfaceLostMouseCapture(object sender, MouseEventArgs e)
+        {
+            Mouse.OverrideCursor = null;
+            if (!_isDragActive) return;
+
+            _isDragActive = false;
+            _dragSurface = null;
+            HeaderDragCancelled?.Invoke();
         }
 
         private void Header_MouseRightButtonDown(object sender, MouseButtonEventArgs e)

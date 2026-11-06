@@ -18,8 +18,11 @@ namespace Kobold.Helpers
     {
         private const int GwlExStyle = -20;
         private const int GwlpHwndParent = -8;
-        private const int WsExAppWindow = 0x00040000;
+        private const int WsExTransparent = 0x00000020;
         private const int WsExToolWindow = 0x00000080;
+        private const int WsExLayered = 0x00080000;
+        private const int WsExAppWindow = 0x00040000;
+        private const int WsExNoActivate = 0x08000000;
         private const uint SwpNoSize = 0x0001;
         private const uint SwpNoMove = 0x0002;
         private const uint SwpNoZOrder = 0x0004;
@@ -83,6 +86,28 @@ namespace Kobold.Helpers
 
             IntPtr owner;
             return Owners.TryGetValue(handle, out owner) ? owner : IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Makes an overlay window click-through and non-activating: mouse
+        /// input falls through to whatever is underneath and a click can never
+        /// raise or activate the overlay (the drag ghost relies on this).
+        /// Safe to call more than once; the style is committed without moving,
+        /// resizing or touching the z-order.
+        /// </summary>
+        public static void MakeClickThrough(Window window)
+        {
+            IntPtr handle = HandleOf(window);
+            if (handle == IntPtr.Zero) return;
+
+            int exStyle = GetWindowLong(handle, GwlExStyle);
+            int wanted = exStyle | WsExTransparent | WsExNoActivate | WsExLayered | WsExToolWindow;
+            wanted &= ~WsExAppWindow;
+            if (wanted != exStyle) SetWindowLong(handle, GwlExStyle, wanted);
+
+            SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0,
+                SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate |
+                SwpFrameChanged | SwpNoOwnerZOrder);
         }
 
         private static IntPtr HandleOf(Window window)

@@ -1010,10 +1010,11 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Turns the finished drag into an action for the dragged items: the
-        /// shell's own effect decides (move = the files were relocated, copy =
-        /// they are still managed here, nothing = the panel's own restore).
-        /// See Core/DragOutPolicy for the rules.
+        /// Turns the finished drag into an action for each dragged item: the
+        /// shell's effect is reconciled with whether the source path still exists,
+        /// so a move/copy receipt can never delete a file that is still managed,
+        /// and a missing source is removed instead of ejected. A mixed selection
+        /// gets one decision per item. See Core/DragOutPolicy for the rules.
         /// </summary>
         private void HandleDragOutcome(List<DisplayItem> selectedItems, DragDropEffects performed)
         {
@@ -1021,25 +1022,41 @@ namespace Kobold.Controls
             if ((performed & DragDropEffects.Move) != 0) effect = ExternalDropEffect.Move;
             else if ((performed & DragDropEffects.Copy) != 0) effect = ExternalDropEffect.Copy;
 
-            switch (DragOutPolicy.Resolve(effect, _dropHandledInsideApp, _releasedOutsidePanel, _data.IsLocked))
+            var items = selectedItems ?? new List<DisplayItem>();
+            var paths = new List<string>();
+            foreach (var item in items) paths.Add(item == null ? null : item.Path);
+
+            var actions = DragOutPolicy.ResolveSelection(effect, _dropHandledInsideApp,
+                _releasedOutsidePanel, _data.IsLocked, paths, SourceStillExists);
+
+            var kept = new List<DisplayItem>();
+            var removed = new List<DisplayItem>();
+            var ejected = new List<DisplayItem>();
+            for (int i = 0; i < items.Count; i++)
             {
-                case DragOutAction.RemoveItems:
-                    // The shell relocated the files - the items have left the widget.
-                    _unhiddenForDrag.Clear();
-                    RemoveDraggedItems(selectedItems);
-                    break;
+                switch (actions[i])
+                {
+                    case DragOutAction.RemoveItems:
+                        removed.Add(items[i]);
+                        break;
 
-                case DragOutAction.EjectAndRemove:
-                    // Nothing took the files: keep the restore behaviour.
-                    _unhiddenForDrag.Clear();
-                    EjectDraggedItemsOnRelease(selectedItems);
-                    break;
+                    case DragOutAction.EjectAndRemove:
+                        ejected.Add(items[i]);
+                        break;
 
-                default:
-                    // The items stay managed here, so their files stay hidden.
-                    RestoreHiddenState();
-                    break;
+                    default:
+                        kept.Add(items[i]);
+                        break;
+                }
             }
+
+            // Only items that stay managed may be hidden again; removed or
+            // ejected paths stay visible because their file left (or was
+            // restored) already.
+            RestoreHiddenState(kept);
+
+            if (removed.Count > 0) RemoveDraggedItems(removed);
+            if (ejected.Count > 0) EjectDraggedItemsOnRelease(ejected);
         }
 
         /// <summary>Makes the dragged files visible for the moment they leave the panel.</summary>
@@ -1055,10 +1072,35 @@ namespace Kobold.Controls
             }
         }
 
-        /// <summary>Hides the files this drag un-hid again - the items stay managed.</summary>
-        private void RestoreHiddenState()
+        /// <summary>
+        /// The post-drag disk check: a file or folder still on disk stays
+        /// managed. IO/permission failures count as "not exists" so the item
+        /// leaves the widget without ever ejecting a missing path.
+        /// </summary>
+        private static bool SourceStillExists(string path)
         {
-            foreach (var path in _unhiddenForDrag)
+            if (string.IsNullOrEmpty(path)) return false;
+            try { return File.Exists(path) || Directory.Exists(path); }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>
+        /// Hides the files this drag un-hid again - only for the items that stay
+        /// managed. A removed or ejected item must not be hidden after its path
+        /// was un-hidden: the source left, or was restored somewhere else.
+        /// </summary>
+        private void RestoreHiddenState(List<DisplayItem> keptItems)
+        {
+            var keptPaths = new List<string>();
+            if (keptItems != null)
+            {
+                foreach (var item in keptItems)
+                {
+                    if (item != null && !string.IsNullOrEmpty(item.Path)) keptPaths.Add(item.Path);
+                }
+            }
+
+            foreach (var path in DragOutPolicy.PathsToRehide(_unhiddenForDrag, keptPaths))
             {
                 if (File.Exists(path) || Directory.Exists(path)) StorageOps.SetHidden(path, true);
             }

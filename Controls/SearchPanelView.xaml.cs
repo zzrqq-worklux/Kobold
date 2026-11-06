@@ -141,6 +141,19 @@ namespace Kobold.Controls
             _attached = true;
         }
 
+        /// <summary>
+        /// Moves the live search view to another host. The service
+        /// subscriptions, debounce and query state stay untouched, and the
+        /// view is never detached by a rebind: only the host reference changes
+        /// and the widget accent is re-applied for the new host's chrome and
+        /// theme path.
+        /// </summary>
+        void IWidgetContentView.RebindHost(IWidgetViewHost host)
+        {
+            _host = host;
+            ApplySearchAccent();
+        }
+
         #region IWidgetContentView
 
         WidgetData IWidgetContentView.Data => _data;
@@ -164,6 +177,41 @@ namespace Kobold.Controls
             RefreshStatus();
             RefreshAccent();
         }
+
+        /// <summary>
+        /// Ghost-preview-only entry: paints the empty-query state a real
+        /// standalone search panel shows - localized labels plus the 常用文件
+        /// (frequent-file) list - without reading the search service or
+        /// subscribing to anything. The offscreen clone renderer calls this;
+        /// a hosted live view never does.
+        /// </summary>
+        internal void PrepareForPreview()
+        {
+            if (_detached) return;
+
+            _hasQuery = false;
+            ApplyLocalization();
+
+            // The Ready/empty-query body: no onboarding, no "index not built"
+            // overlay, no empty-results text and no rebuild prompt. The service
+            // state is deliberately not read here.
+            HideOnboarding();
+            if (NoIndexState != null) NoIndexState.Visibility = Visibility.Collapsed;
+            if (EmptyState != null) EmptyState.Visibility = Visibility.Collapsed;
+            if (RebuildButton != null) RebuildButton.Visibility = Visibility.Collapsed;
+            if (ResultStatusText != null) ResultStatusText.Text = string.Empty;
+            if (StatusText != null) StatusText.Text = string.Empty;
+
+            ShowFrequentFiles();
+        }
+
+        /// <summary>
+        /// Test seam for the ghost preview: the rows <see cref="PrepareForPreview"/>
+        /// painted into the empty-query list (0 before it runs or when the
+        /// sandbox config has no existing frequent file).
+        /// </summary>
+        internal int FrequentRowCountForPreview =>
+            ResultsList == null ? 0 : ResultsList.Items.Count;
 
         /// <summary>
         /// The panel became visible: re-read the service snapshot and queue the

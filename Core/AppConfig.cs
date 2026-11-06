@@ -13,6 +13,15 @@ namespace Kobold.Core
     /// </summary>
     public class AppConfig
     {
+        /// <summary>
+        /// The schema this build writes. A config without the field is legacy
+        /// (version 0) and is upgraded on its next save; a config with a newer
+        /// version is read for display but never overwritten.
+        /// </summary>
+        public const int CurrentSchemaVersion = 1;
+
+        public int SchemaVersion { get; set; }
+
         public string Language { get; set; }
         public string Theme { get; set; }
         public bool StartWithWindows { get; set; }
@@ -91,6 +100,13 @@ namespace Kobold.Core
         // save must not overwrite it with a main file we could not trust.
         private bool _skipBackupRefreshOnce;
 
+        // The version found in the loaded file, and whether it was newer than
+        // this build understands. Saving a newer config would silently drop
+        // fields written by a newer build, so it is refused until a newer
+        // build loads the file.
+        private int _loadedSchemaVersion;
+        private bool _schemaSaveBlocked;
+
         // Set by BeginClosing: the session is ending, so writes must happen now
         // and no new debounced writes may be scheduled.
         private bool _closing;
@@ -165,6 +181,8 @@ namespace Kobold.Core
             loaded._backupPath = backupPath;
             loaded._skipBackupRefreshOnce =
                 mainUnreadable || loadedFromBackup || (defaulted && (mainExisted || backupExisted));
+            loaded._loadedSchemaVersion = loaded.SchemaVersion;
+            loaded._schemaSaveBlocked = loaded.SchemaVersion > CurrentSchemaVersion;
 
             if (defaulted) loaded.Save();
             return loaded;
@@ -507,16 +525,24 @@ namespace Kobold.Core
                     string configPath = _configPath ?? Utils.GetConfigPath();
                     string backupPath = _backupPath ?? configPath + ".backup";
 
-                    Utils.EnsureDirectoryExists(Path.GetDirectoryName(configPath));
-
-                    // Create backup of the existing config - except while the
-                    // current main file is not trusted (it failed to load, or the
-                    // backup is the recovery source we just came from).
-                    if (File.Exists(configPath) && !_skipBackupRefreshOnce)
+                    // A config written by a newer build may hold fields this
+                    // build does not understand. Loading it is safe (unknown
+                    // fields are ignored); writing it back would drop them, so
+                    // refuse before either file is touched.
+                    if (_schemaSaveBlocked)
                     {
-                        File.Copy(configPath, backupPath, true);
+                        string message = "Config schema " + _loadedSchemaVersion
+                            + " is newer than this build's " + CurrentSchemaVersion
+                            + "; refusing to overwrite " + configPath + ".";
+                        System.Diagnostics.Debug.WriteLine("[Kobold] " + message);
+                        StopSaveTimers(); // a pending debounce must not report this again
+                        SaveFailed?.Invoke(message);
+                        return;
                     }
 
+                    Utils.EnsureDirectoryExists(Path.GetDirectoryName(configPath));
+
+                    SchemaVersion = CurrentSchemaVersion;
                     string json = JsonConvert.SerializeObject(this, Formatting.Indented);
 
                     // Releases ≤1.3.0 read the legacy Folders list. An absent
@@ -534,8 +560,14 @@ namespace Kobold.Core
 
                     json = root.ToString(Formatting.Indented);
 
-                    AtomicFile.WriteAllText(configPath, json);
+                    // The replaced file becomes the backup in the same atomic
+                    // step. While the main file is untrusted, write without a
+                    // backup so the recovery source survives.
+                    AtomicFile.WriteAllText(configPath, json,
+                        _skipBackupRefreshOnce ? null : backupPath);
                     _skipBackupRefreshOnce = false;
+                    _schemaSaveBlocked = false;
+                    _loadedSchemaVersion = CurrentSchemaVersion;
                     StopSaveTimers();
                 }
                 catch (Exception ex)

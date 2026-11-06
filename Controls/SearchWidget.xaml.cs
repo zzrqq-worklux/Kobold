@@ -22,18 +22,49 @@ namespace Kobold.Controls
 
         private readonly SearchPanelView _view;
 
-        public SearchWidget(SearchData data) : base(data)
+        public SearchWidget(SearchData data) : this(data, null)
+        {
+        }
+
+        /// <summary>
+        /// Builds the window around an existing live view (the internal
+        /// hand-off from a released standalone window) or, with null, creates
+        /// and attaches a fresh one. An adopted view only changes host - it is
+        /// never re-attached; its service subscriptions stay alive.
+        /// </summary>
+        internal SearchWidget(SearchData data, IWidgetContentView contents) : base(data)
         {
             InitializeComponent();
             AttachChrome(SearchChrome);
 
-            _view = new SearchPanelView();
-            SearchChrome.ContentHost.Content = _view;
-            _view.Attach(data, this);
+            var view = contents as SearchPanelView;
+            if (contents != null && view == null)
+            {
+                throw new ArgumentException(
+                    "A search window can only adopt a SearchPanelView.", nameof(contents));
+            }
+
+            if (view != null)
+            {
+                _view = view;
+                IWidgetContentView face = view;
+                SearchChrome.ContentHost.Content = face.View;
+                face.RebindHost(this);
+            }
+            else
+            {
+                _view = new SearchPanelView();
+                SearchChrome.ContentHost.Content = _view;
+                _view.Attach(data, this);
+            }
 
             // A closed panel must not keep the view's service subscriptions,
-            // the debounce timer or an in-flight query alive.
-            Closing += (s, e) => _view.Detach();
+            // the debounce timer or an in-flight query alive. A view already
+            // released to another host is left alone.
+            Closing += (s, e) =>
+            {
+                if (!HasReleasedContentView) _view.Detach();
+            };
         }
 
         /// <summary>The search box + result list hosted in the chrome's content slot.</summary>
@@ -83,7 +114,9 @@ namespace Kobold.Controls
         protected override void OnPanelHidden()
         {
             base.OnPanelHidden();
-            _view?.Deactivate();
+            // A released view belongs to its adopting host now; this window's
+            // collapse must not stop the new chrome's glow.
+            if (!HasReleasedContentView) _view?.Deactivate();
         }
 
         /// <summary>The search box takes focus as soon as the panel is shown.</summary>

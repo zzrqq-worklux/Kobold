@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -37,14 +38,27 @@ namespace Kobold.Controls
         private const double DEFAULT_MIN_HEIGHT = 220;
 
         private readonly WidgetGroup _group;
-        private readonly IList<WidgetData> _members;
+        private readonly List<WidgetData> _members;
         private readonly ReadOnlyCollection<WidgetData> _membersView;
-        private readonly IWidgetContentView[] _views;
-        private readonly ContentControl[] _slots;
-        private readonly IInputElement[] _lastFocus;
+        private readonly List<IWidgetContentView> _views;
+        private readonly List<ContentControl> _slots;
+        private readonly List<IInputElement> _lastFocus;
+        private readonly Grid _contentHost;
 
         private WidgetGroupTabStrip _tabStrip;
         private int _activeIndex = -1;
+
+        // One epoch per group surface: a tab switch takes a token before it
+        // touches the views, deferred focus restoration runs only for the
+        // latest token, and a hide/close stales every pending request.
+        private readonly SurfaceSwitchGate _activationGate = new SurfaceSwitchGate();
+
+        // The Explorer-like ghost worn while a tab is dragged outside the
+        // group (detach intent). Only this window ever creates it; it is
+        // closed on every drag exit and on hide/close.
+        private DragGhostWindow _dragGhost;
+        private Point _lastTabDragScreen;
+        private bool _hasTabDragScreen;
 
         /// <summary>
         /// Raised when the user asks to detach a tab (menu entry or a tab
@@ -55,21 +69,34 @@ namespace Kobold.Controls
         public event Action<string> DetachRequested;
 
         public WidgetGroupWindow(WidgetGroup group, IList<WidgetData> members)
+            : this(group, members, null)
+        {
+        }
+
+        /// <summary>
+        /// Builds a group around live member views: a non-null
+        /// <paramref name="contents"/> entry must already be attached to the
+        /// same member, and is moved into its slot through
+        /// <see cref="IWidgetContentView.RebindHost"/> instead of being
+        /// re-attached. A null entry creates and attaches a fresh view. The
+        /// public constructor passes null, so every member is fresh.
+        /// </summary>
+        internal WidgetGroupWindow(WidgetGroup group, IList<WidgetData> members, IList<IWidgetContentView> contents)
             : base(FirstMember(members), CreateState(group))
         {
             _group = group;
-            _members = members;
-            _membersView = new ReadOnlyCollection<WidgetData>(members);
+            _members = new List<WidgetData>(members);
+            _membersView = new ReadOnlyCollection<WidgetData>(_members);
 
             InitializeComponent();
             AttachChrome(GroupChrome);
 
-            _views = new IWidgetContentView[_members.Count];
-            _slots = new ContentControl[_members.Count];
-            _lastFocus = new IInputElement[_members.Count];
+            _views = new List<IWidgetContentView>(_members.Count);
+            _slots = new List<ContentControl>(_members.Count);
+            _lastFocus = new List<IInputElement>(_members.Count);
 
-            var contentHost = new Grid();
-            GroupChrome.ContentHost.Content = contentHost;
+            _contentHost = new Grid();
+            GroupChrome.ContentHost.Content = _contentHost;
 
             for (int i = 0; i < _members.Count; i++)
             {
@@ -79,15 +106,25 @@ namespace Kobold.Controls
                     throw new ArgumentException("a group member cannot be null", "members");
                 }
 
-                IWidgetContentView view = WidgetViewFactory.Create(member);
-                if (view == null)
-                {
-                    throw new ArgumentException(
-                        "no content view for the group member kind '" + (member.Kind ?? member.GetType().Name) + "'",
-                        "members");
-                }
+                IWidgetContentView view = contents != null && i < contents.Count ? contents[i] : null;
+                bool adopted = view != null;
 
-                view.Attach(member, this);
+                if (adopted)
+                {
+                    RequireSameMember(view, member, "contents");
+                }
+                else
+                {
+                    view = WidgetViewFactory.Create(member);
+                    if (view == null)
+                    {
+                        throw new ArgumentException(
+                            "no content view for the group member kind '" + (member.Kind ?? member.GetType().Name) + "'",
+                            "members");
+                    }
+
+                    view.Attach(member, this);
+                }
 
                 var slot = new ContentControl
                 {
@@ -98,9 +135,15 @@ namespace Kobold.Controls
                     Visibility = Visibility.Collapsed
                 };
 
-                contentHost.Children.Add(slot);
-                _views[i] = view;
-                _slots[i] = slot;
+                _contentHost.Children.Add(slot);
+                _views.Add(view);
+                _slots.Add(slot);
+                _lastFocus.Add(null);
+
+                if (adopted)
+                {
+                    view.RebindHost(this);
+                }
             }
 
             _tabStrip = new WidgetGroupTabStrip(_members);
@@ -111,6 +154,9 @@ namespace Kobold.Controls
                 ShowWidgetMenu();
             };
             _tabStrip.TabDragCompleted += OnTabDragCompleted;
+            _tabStrip.TabReorderRequested += OnTabReorderRequested;
+            _tabStrip.TabDragOutsideChanged += OnTabDragOutsideChanged;
+            _tabStrip.TabDragMoved += OnTabDragMoved;
             GroupChrome.SetTabRow(_tabStrip, TAB_ROW_HEIGHT);
 
             GroupChrome.TitleMenuClicked += () =>
@@ -125,7 +171,11 @@ namespace Kobold.Controls
             // active view; the base's resize hook only covers the drag path.
             SizeChanged += (s, e) => ApplyActiveViewSize();
 
-            Closing += (s, e) => DeactivateAllViews();
+            Closing += (s, e) =>
+            {
+                HideDragGhost();
+                DeactivateAllViews();
+            };
 
             SetActive(InitialIndex());
         }
@@ -135,6 +185,12 @@ namespace Kobold.Controls
 
         /// <summary>True while the group refuses merges and detaches.</summary>
         public bool IsGroupLocked => _group != null && _group.IsLocked;
+
+        /// <summary>Test seam: true while the tab-detach drag ghost is on screen.</summary>
+        internal bool IsDragGhostVisible => _dragGhost != null && _dragGhost.IsVisible;
+
+        /// <summary>Test seam: the live ghost window for the outside tab drag.</summary>
+        internal DragGhostWindow DragGhost => _dragGhost;
 
         /// <summary>The member data in tab order.</summary>
         public IReadOnlyList<WidgetData> Members => _membersView;
@@ -152,6 +208,12 @@ namespace Kobold.Controls
                 return member == null ? null : member.Id;
             }
         }
+
+        /// <summary>Test seam: the token of the latest activation request; 0 before one.</summary>
+        internal int ActivationTokenForChecks => _activationGate.CurrentToken;
+
+        /// <summary>Test seam: true while <paramref name="token"/> is still the latest request.</summary>
+        internal bool IsActivationTokenCurrentForChecks(int token) => _activationGate.IsCurrent(token);
 
         /// <summary>The tab index of a member id; -1 when the id is not in this group.</summary>
         public int IndexOfMember(string widgetId)
@@ -189,6 +251,8 @@ namespace Kobold.Controls
         /// </summary>
         public bool RequestDetach(int index)
         {
+            HideDragGhost();
+
             if (!CanDetach || index < 0 || index >= _members.Count) return false;
 
             WidgetData member = _members[index];
@@ -203,11 +267,15 @@ namespace Kobold.Controls
 
         /// <summary>
         /// A tab drag finished. A locked group and an in-window release are
-        /// no-ops (v1 does not reorder tabs); an outside release detaches the
-        /// dragged tab.
+        /// no-ops for detach; only an outside release detaches the dragged
+        /// tab. An in-window release arrives here once as a completed drag and
+        /// is reordered separately through <see cref="TabReorderRequested"/>.
+        /// The detach ghost is gone before either outcome runs.
         /// </summary>
         private void OnTabDragCompleted(int index, bool releasedOutsideGroup)
         {
+            HideDragGhost();
+
             if (_group == null || _group.IsLocked) return;
             if (!releasedOutsideGroup) return;
 
@@ -215,10 +283,127 @@ namespace Kobold.Controls
             RequestDetach(index);
         }
 
+        /// <summary>
+        /// An in-strip reorder request: the group window itself is untouched
+        /// (no close/recreate, no visibility switch, no resize); the manager
+        /// moves the member/view/slot/tab entries and persists GroupOrder.
+        /// A locked group refuses the request. No ghost is ever worn for it.
+        /// </summary>
+        private void OnTabReorderRequested(int from, int to)
+        {
+            HideDragGhost();
+
+            if (_group == null || _group.IsLocked) return;
+            WidgetManager.Instance.ReorderGroupMember(
+                _group.Id, from, to, _tabStrip == null ? null : _tabStrip.DragMemberSnapshot);
+        }
+
+        /// <summary>
+        /// Every over-threshold tab move. The group converts the strip point to
+        /// a screen point through its own DPI context, remembers it for a ghost
+        /// that appears later, and moves a visible ghost with the cursor.
+        /// </summary>
+        private void OnTabDragMoved(int index, Point stripPoint)
+        {
+            if (_tabStrip == null) return;
+
+            try
+            {
+                _lastTabDragScreen = _tabStrip.PointToScreen(stripPoint);
+                _hasTabDragScreen = true;
+            }
+            catch (InvalidOperationException)
+            {
+                // The strip has no live presentation source (window closing).
+                _hasTabDragScreen = false;
+                return;
+            }
+
+            if (_dragGhost != null && _dragGhost.IsVisible)
+            {
+                _dragGhost.Follow(_lastTabDragScreen);
+            }
+        }
+
+        /// <summary>
+        /// The drag crossed the group boundary. Outside means detach intent:
+        /// the group wears the Explorer-like ghost of the dragged tab's live
+        /// view. Re-entering, a locked group and a non-detachable member close
+        /// it again; an in-window drag never shows it.
+        /// </summary>
+        private void OnTabDragOutsideChanged(int index, bool outside)
+        {
+            if (!outside)
+            {
+                HideDragGhost();
+                return;
+            }
+
+            if (_group == null || _group.IsLocked || !CanDetach)
+            {
+                HideDragGhost();
+                return;
+            }
+            if (_views == null || index < 0 || index >= _views.Count || index >= _members.Count)
+            {
+                HideDragGhost();
+                return;
+            }
+
+            IWidgetContentView view = _views[index];
+            if (view == null || view.View == null)
+            {
+                HideDragGhost();
+                return;
+            }
+
+            if (!_hasTabDragScreen)
+            {
+                HideDragGhost();
+                return;
+            }
+
+            // The pressed tab is switched active on press; this makes the
+            // live view arranged even for a programmatic drag, so the
+            // VisualBrush shows real content rather than an empty slot.
+            SetActive(index);
+            UpdateLayout();
+
+            // The ghost previews the component at its own pre-group standalone
+            // size (an offscreen clone render); a failed render falls back to
+            // the live tab view inside the same original-size shell.
+            ImageSource preview = WidgetGhostRenderer.Render(_members[index]);
+
+            if (_dragGhost == null)
+            {
+                _dragGhost = new DragGhostWindow();
+            }
+            _dragGhost.ShowFor(this, _lastTabDragScreen, view.View, _members[index], preview);
+        }
+
+        /// <summary>Closes and forgets the detach ghost; safe on every exit path.</summary>
+        private void HideDragGhost()
+        {
+            if (_dragGhost == null) return;
+
+            DragGhostWindow ghost = _dragGhost;
+            _dragGhost = null;
+            try
+            {
+                ghost.DetachPreview();
+                ghost.Close();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[Kobold] drag ghost close: " + ex.Message);
+            }
+        }
+
         /// <summary>Re-reads the localized tab labels/tooltips (language switch).</summary>
         public void RefreshLocalization()
         {
             _tabStrip?.RefreshLocalization();
+            PushReorderEnabled();
             UpdateUI();
         }
 
@@ -228,9 +413,14 @@ namespace Kobold.Controls
         /// <summary>The per-member content slots, in member order.</summary>
         public IReadOnlyList<ContentControl> ContentSlots => _slots;
 
+        /// <summary>The live member views, in tab order (one per slot).</summary>
+        internal IReadOnlyList<IWidgetContentView> Views => _views;
+
         /// <summary>The view currently shown in the content host.</summary>
         internal IWidgetContentView ActiveView =>
-            _activeIndex >= 0 && _views != null ? _views[_activeIndex] : null;
+            _activeIndex >= 0 && _views != null && _activeIndex < _views.Count
+                ? _views[_activeIndex]
+                : null;
 
         /// <summary>The active member datum, not the first member's.</summary>
         public override WidgetData Data
@@ -341,7 +531,7 @@ namespace Kobold.Controls
         /// </summary>
         public void SetActive(int index)
         {
-            if (_views == null || index < 0 || index >= _views.Length)
+            if (_views == null || index < 0 || index >= _views.Count)
             {
                 throw new ArgumentOutOfRangeException("index");
             }
@@ -353,6 +543,11 @@ namespace Kobold.Controls
                 return;
             }
 
+            // The token must be taken before the leaving view is deactivated:
+            // any deferred focus work from this switch is then guarded by the
+            // latest request, not by an older one still waiting on the queue.
+            int token = _activationGate.Begin();
+
             int old = _activeIndex;
             if (old >= 0)
             {
@@ -361,7 +556,7 @@ namespace Kobold.Controls
             }
 
             _activeIndex = index;
-            for (int i = 0; i < _slots.Length; i++)
+            for (int i = 0; i < _slots.Count; i++)
             {
                 _slots[i].Visibility = i == index ? Visibility.Visible : Visibility.Collapsed;
             }
@@ -374,7 +569,7 @@ namespace Kobold.Controls
             _views[index].Activate();
             ApplyActiveViewSize();
             UpdateUI();
-            RestoreFocus(index);
+            RestoreFocus(index, token);
         }
 
         private int InitialIndex()
@@ -398,17 +593,22 @@ namespace Kobold.Controls
             }
         }
 
-        private void RestoreFocus(int index)
+        private void RestoreFocus(int index, int token)
         {
             IInputElement target = _lastFocus[index];
             if (target == null) return;
 
-            var element = target as UIElement;
-            if (element == null || !element.IsVisible) return;
-
             // Deferred: the slot's layout must settle before Focus() sticks.
+            // The check runs inside the callback because a newer switch or a
+            // hide/close can land between queueing and dispatch.
             Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
+                if (!_activationGate.IsCurrent(token)) return;
+
+                var element = target as UIElement;
+                if (element == null || !element.IsVisible) return;
+                if (PresentationSource.FromVisual(element) == null) return;
+
                 try { Keyboard.Focus(target); } catch { }
             }));
         }
@@ -426,10 +626,257 @@ namespace Kobold.Controls
 
         #endregion
 
+        #region In-place membership
+
+        /// <summary>
+        /// Appends one member and its live view without rebuilding the
+        /// window. An adopted <paramref name="existingView"/> must already be
+        /// attached to the same member and only changes host; a fresh view is
+        /// attached normally. The active tab is kept (the first tab becomes
+        /// active only when there was none). With <paramref name="grow"/> the
+        /// group grows to fit a larger member but never shrinks; with
+        /// grow:false the tab/view/slot is added but the group keeps its exact
+        /// geometry (a merge into an existing group lets that group's size win).
+        /// No show/open animation runs.
+        /// </summary>
+        internal void AddMember(WidgetData member, IWidgetContentView existingView = null, bool grow = true)
+        {
+            if (member == null)
+            {
+                throw new ArgumentException("a group member cannot be null", "member");
+            }
+            if (string.IsNullOrEmpty(member.Id))
+            {
+                throw new ArgumentException("a group member needs an id", "member");
+            }
+            if (IndexOfMember(member.Id) >= 0)
+            {
+                throw new ArgumentException("the widget is already a group member", "member");
+            }
+
+            IWidgetContentView view;
+            if (existingView != null)
+            {
+                RequireSameMember(existingView, member, "existingView");
+                view = existingView;
+                view.RebindHost(this);
+            }
+            else
+            {
+                view = WidgetViewFactory.Create(member);
+                if (view == null)
+                {
+                    throw new ArgumentException(
+                        "no content view for the group member kind '" + (member.Kind ?? member.GetType().Name) + "'",
+                        "member");
+                }
+
+                view.Attach(member, this);
+            }
+
+            var slot = new ContentControl
+            {
+                Content = view.View,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
+                Focusable = false,
+                Visibility = Visibility.Collapsed
+            };
+
+            _contentHost.Children.Add(slot);
+            _members.Add(member);
+            _views.Add(view);
+            _slots.Add(slot);
+            _lastFocus.Add(null);
+
+            _tabStrip.AddTab(member);
+            if (grow) GrowForMember(member);
+
+            if (_activeIndex < 0)
+            {
+                SetActive(0);
+            }
+
+            UpdateUI();
+        }
+
+        /// <summary>
+        /// Removes one member and hands its exact live view back to the
+        /// caller (the manager moves it into a standalone window). The view is
+        /// deactivated and flushed first; its slot is emptied and detached
+        /// from the content grid. An active removal activates the nearest
+        /// survivor, an earlier removal shifts the active index down, and an
+        /// emptied group keeps its window open with no active member.
+        /// </summary>
+        internal IWidgetContentView RemoveMember(string widgetId)
+        {
+            int index = IndexOfMember(widgetId);
+            if (index < 0) return null;
+
+            IWidgetContentView view = _views[index];
+            ContentControl slot = _slots[index];
+            bool wasActive = index == _activeIndex;
+
+            if (view != null)
+            {
+                view.Deactivate();
+                view.FlushPendingEdit();
+            }
+            if (slot != null)
+            {
+                slot.Content = null;
+                _contentHost.Children.Remove(slot);
+            }
+
+            _members.RemoveAt(index);
+            _views.RemoveAt(index);
+            _slots.RemoveAt(index);
+            _lastFocus.RemoveAt(index);
+            _tabStrip.RemoveTab(index);
+
+            if (_members.Count == 0)
+            {
+                _activeIndex = -1;
+                _group.ActiveWidgetId = null;
+                _tabStrip.SetActive(-1);
+                UpdateUI();
+                return view;
+            }
+
+            if (wasActive)
+            {
+                _activeIndex = -1;
+                SetActive(Math.Min(index, _members.Count - 1));
+            }
+            else if (index < _activeIndex)
+            {
+                _activeIndex--;
+                UpdateUI();
+            }
+            else
+            {
+                UpdateUI();
+            }
+
+            return view;
+        }
+
+        /// <summary>
+        /// Moves one tab so <paramref name="to"/> is its final index. The
+        /// member/view/slot/focus bookkeeping and the tab visual move
+        /// together, the active member follows its own tab, and every member
+        /// gets its new <see cref="WidgetData.GroupOrder"/>. No view is
+        /// recreated or hidden and the window is never resized.
+        /// </summary>
+        internal void ReorderMember(int from, int to)
+        {
+            int count = _members.Count;
+            if (from < 0 || from >= count || to < 0 || to >= count || from == to) return;
+
+            MoveEntry(_members, from, to);
+            MoveEntry(_views, from, to);
+            MoveEntry(_slots, from, to);
+            MoveEntry(_lastFocus, from, to);
+
+            _tabStrip.MoveTab(from, to);
+            _activeIndex = MoveIndex(_activeIndex, from, to);
+
+            for (int i = 0; i < _members.Count; i++)
+            {
+                if (_members[i] != null) _members[i].GroupOrder = i;
+            }
+
+            _tabStrip.SetActive(_activeIndex);
+            RefreshChromeTitle();
+        }
+
+        /// <summary>
+        /// Grows the grouped panel for one new member: never below the live
+        /// group size, the member's own remembered panel size or the kind
+        /// minimum (plus the tab row on the height). A smaller member leaves
+        /// the size alone. The open fade is never started here.
+        /// </summary>
+        private void GrowForMember(WidgetData member)
+        {
+            var (minWidth, minHeight) = KindMin(member);
+            double targetWidth = Math.Max(CurrentPanelWidth(), minWidth);
+            double targetHeight = Math.Max(CurrentPanelHeight(), minHeight + TAB_ROW_HEIGHT);
+
+            if (member.PanelWidth.HasValue)
+            {
+                targetWidth = Math.Max(targetWidth, member.PanelWidth.Value);
+            }
+            if (member.PanelHeight.HasValue)
+            {
+                targetHeight = Math.Max(targetHeight, member.PanelHeight.Value + TAB_ROW_HEIGHT);
+            }
+
+            _group.PanelWidth = targetWidth;
+            _group.PanelHeight = targetHeight;
+
+            var (width, height) = GetPanelSize();
+            Width = width;
+            Height = height;
+
+            if (IsVisible) FitPanelToWorkArea();
+        }
+
+        private double CurrentPanelWidth()
+        {
+            double width = Width;
+            if (double.IsNaN(width) || width <= 0) width = _group.PanelWidth ?? 0;
+            return width;
+        }
+
+        private double CurrentPanelHeight()
+        {
+            double height = Height;
+            if (double.IsNaN(height) || height <= 0) height = _group.PanelHeight ?? 0;
+            return height;
+        }
+
+        /// <summary>A non-null live view must belong to the member it is added for.</summary>
+        private static void RequireSameMember(IWidgetContentView view, WidgetData member, string parameterName)
+        {
+            WidgetData data = view == null ? null : view.Data;
+            if (data == null)
+            {
+                throw new ArgumentException("the existing view is not attached", parameterName);
+            }
+            if (!ReferenceEquals(data, member) &&
+                !string.Equals(data.Id, member.Id, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("the existing view belongs to a different widget", parameterName);
+            }
+        }
+
+        /// <summary>Reorders one list entry; <paramref name="to"/> is the final index.</summary>
+        private static void MoveEntry<T>(List<T> list, int from, int to)
+        {
+            T entry = list[from];
+            list.RemoveAt(from);
+            list.Insert(to, entry);
+        }
+
+        /// <summary>Maps an index through the same move (unchanged for -1).</summary>
+        private static int MoveIndex(int index, int from, int to)
+        {
+            if (index < 0) return index;
+            if (index == from) return to;
+            if (from < index && to >= index) return index - 1;
+            if (from > index && to <= index) return index + 1;
+            return index;
+        }
+
+        #endregion
+
         #region Chrome state
 
         public override void UpdateUI()
         {
+            // A locked group never paints the insertion line or reorders.
+            PushReorderEnabled();
+
             // AttachChrome runs UpdateUI before the member views exist.
             if (GroupChrome == null || _views == null || ActiveView == null) return;
 
@@ -443,6 +890,15 @@ namespace Kobold.Controls
                 _tabStrip.RefreshLocalization();
                 _tabStrip.SetActive(_activeIndex);
             }
+        }
+
+        /// <summary>Projects the group lock onto the strip's reorder flag.</summary>
+        private void PushReorderEnabled()
+        {
+            if (_tabStrip != null) _tabStrip.IsReorderEnabled = _group == null || !_group.IsLocked;
+            // A lock toggled mid-drag must drop the detach ghost immediately:
+            // a locked group cannot detach, and no new outside event follows.
+            if (_group != null && _group.IsLocked) HideDragGhost();
         }
 
         /// <summary>
@@ -479,6 +935,14 @@ namespace Kobold.Controls
             base.OnPanelHidden();
         }
 
+        protected override void OnPanelHiding()
+        {
+            // HidePanel reaches here before its expanded/fade branch, so the
+            // ghost is dropped on every hide path.
+            HideDragGhost();
+            base.OnPanelHiding();
+        }
+
         protected override void OnPanelSizeChanged()
         {
             base.OnPanelSizeChanged();
@@ -494,8 +958,11 @@ namespace Kobold.Controls
 
         private void DeactivateAllViews()
         {
+            // Hide/close: a queued focus request from this surface must never
+            // fire after the group has left the screen.
+            _activationGate.Invalidate();
             if (_views == null) return;
-            for (int i = 0; i < _views.Length; i++)
+            for (int i = 0; i < _views.Count; i++)
             {
                 if (_views[i] == null) continue;
                 _views[i].Deactivate();
@@ -537,11 +1004,33 @@ namespace Kobold.Controls
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
+            if (CancelTabDragFromEscape(e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+
             IWidgetContentView active = ActiveView;
             if (active != null && active.HandlePreviewKeyDown(e))
             {
                 e.Handled = true;
             }
+        }
+
+        /// <summary>
+        /// Escape abandons an in-flight tab drag before the active view sees
+        /// the key: the gesture is dropped without a completion/detach and the
+        /// detach ghost is closed. Returns false for any other key or when no
+        /// drag is running, so normal key routing is untouched. Kept internal
+        /// so a check can verify the cancel without an OS key event.
+        /// </summary>
+        internal bool CancelTabDragFromEscape(Key key)
+        {
+            if (key != Key.Escape || _tabStrip == null || !_tabStrip.IsTabDragActive) return false;
+
+            _tabStrip.CancelTabDrag();
+            HideDragGhost();
+            return true;
         }
 
         private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

@@ -270,7 +270,111 @@ namespace Kobold.ConfigSafetyCheck
                 "note font scale: the saved scale reads back after a reload");
 
             RunWidgetColorMigrationChecks();
+            RunSchemaVersionChecks();
             RunGroupConfigChecks();
+        }
+
+        /// <summary>
+        /// Schema-version pins: a legacy config without the field loads as 0 and
+        /// upgrades on save; a config from a newer build loads for display but
+        /// refuses to save, leaving both files byte-identical; two saves rotate
+        /// main = newest, backup = previous.
+        /// </summary>
+        private static void RunSchemaVersionChecks()
+        {
+            // --- Old JSON without SchemaVersion loads as 0, then saves as current.
+            string dir = NewCase("schema-legacy");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+            File.WriteAllText(main, "{\"Language\":\"ja\"}");
+
+            var legacy = AppConfig.Load(main, backup);
+            Check(legacy.SchemaVersion == 0,
+                "schema: an old config without the field loads as version 0");
+
+            legacy.Save();
+            var legacyReload = AppConfig.Load(main, backup);
+            Check(legacyReload.SchemaVersion == AppConfig.CurrentSchemaVersion,
+                "schema: a saved legacy config reloads with the current version");
+            Check(File.ReadAllText(main).Contains("\"SchemaVersion\": " + AppConfig.CurrentSchemaVersion),
+                "schema: the saved main file records the current version");
+
+            // --- A config from a newer build loads for display, but Save must
+            //     refuse to touch either file.
+            string dir2 = NewCase("schema-newer");
+            string main2 = Path.Combine(dir2, "config.json");
+            string backup2 = main2 + ".backup";
+            int newerVersion = AppConfig.CurrentSchemaVersion + 1;
+            File.WriteAllText(main2,
+                "{\"SchemaVersion\":" + newerVersion + ",\"Language\":\"ja\"}");
+            File.WriteAllText(backup2, "{\"Language\":\"en\",\"SchemaVersion\":1}");
+            byte[] mainBytes = File.ReadAllBytes(main2);
+            byte[] backupBytes = File.ReadAllBytes(backup2);
+
+            var newer = AppConfig.Load(main2, backup2);
+            Check(newer.Language == "ja" && newer.SchemaVersion == newerVersion,
+                "schema: a newer config still loads its known fields for display");
+
+            string reported = null;
+            int failedCount = 0;
+            Action<string> handler = msg =>
+            {
+                reported = msg;
+                failedCount++;
+            };
+            AppConfig.SaveFailed += handler;
+            try
+            {
+                // A pending debounced save must be cancelled by the refusal:
+                // otherwise it fires later and reports the same refusal again.
+                newer.SaveDebounced(300);
+                newer.Language = "fr";
+                newer.Save();
+
+                Check(reported != null && reported.Contains("newer"),
+                    "schema: saving a newer config fires SaveFailed with a clear message");
+                Check(failedCount == 1,
+                    "schema: the refused save reports once and stops pending saves");
+                System.Threading.Thread.Sleep(900);
+                Check(failedCount == 1,
+                    "schema: a pending debounced save cannot fire after the refusal");
+            }
+            finally
+            {
+                AppConfig.SaveFailed -= handler;
+            }
+
+            Check(SameBytes(main2, mainBytes) && SameBytes(backup2, backupBytes),
+                "schema: a refused save leaves main and backup byte-identical");
+
+            // --- Two successful saves rotate the backup under a sandbox config.
+            string dir3 = NewCase("schema-rotation");
+            string main3 = Path.Combine(dir3, "config.json");
+            string backup3 = main3 + ".backup";
+            var rotation = AppConfig.Load(main3, backup3);
+            rotation.Language = "ja";
+            rotation.Save();
+            rotation.Language = "en";
+            rotation.Save();
+
+            Check(JsonConvert.DeserializeObject<AppConfig>(File.ReadAllText(main3)).Language == "en",
+                "schema rotation: the main file holds the newest save");
+            Check(JsonConvert.DeserializeObject<AppConfig>(File.ReadAllText(backup3)).Language == "ja",
+                "schema rotation: the backup holds the previous save");
+            Check(!File.Exists(main3 + ".tmp") && !File.Exists(backup3 + ".tmp"),
+                "schema rotation: no temp file is left behind");
+        }
+
+        private static bool SameBytes(string path, byte[] expected)
+        {
+            if (!File.Exists(path)) return false;
+            byte[] actual = File.ReadAllBytes(path);
+            if (actual.Length != expected.Length) return false;
+            for (int i = 0; i < actual.Length; i++)
+            {
+                if (actual[i] != expected[i]) return false;
+            }
+            return true;
         }
 
         /// <summary>

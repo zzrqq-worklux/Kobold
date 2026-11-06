@@ -31,7 +31,17 @@ namespace Kobold.Controls
         /// the chrome title falls back to its name before the view is bound.</summary>
         private readonly NoteData _noteData;
 
-        public NoteWidget(NoteData data) : base(data)
+        public NoteWidget(NoteData data) : this(data, null)
+        {
+        }
+
+        /// <summary>
+        /// Builds the window around an existing live view (the internal
+        /// hand-off from a released standalone window) or, with null, creates
+        /// and attaches a fresh one. An adopted view only changes host - it is
+        /// never re-attached or rebuilt.
+        /// </summary>
+        internal NoteWidget(NoteData data, IWidgetContentView contents) : base(data)
         {
             InitializeComponent();
             // Before AttachChrome: its UpdateUI runs RefreshChromeTitle, which
@@ -39,9 +49,26 @@ namespace Kobold.Controls
             _noteData = data;
             AttachChrome(NoteChrome);
 
-            _view = new NotePanelView();
-            NoteChrome.ContentHost.Content = _view;
-            _view.Attach(data, this);
+            var view = contents as NotePanelView;
+            if (contents != null && view == null)
+            {
+                throw new ArgumentException(
+                    "A note window can only adopt a NotePanelView.", nameof(contents));
+            }
+
+            if (view != null)
+            {
+                _view = view;
+                IWidgetContentView face = view;
+                NoteChrome.ContentHost.Content = face.View;
+                face.RebindHost(this);
+            }
+            else
+            {
+                _view = new NotePanelView();
+                NoteChrome.ContentHost.Content = _view;
+                _view.Attach(data, this);
+            }
 
             // The title chevron (§3.2): only the note kind enables it, and only
             // the chevron opens the dropdown - the title text stays the drag
@@ -56,9 +83,10 @@ namespace Kobold.Controls
             // session end the config is already closing and a debounced write
             // would be dropped, and on tray exit the process may go before the
             // timer fires. An open title dropdown never outlives the panel.
+            // A view already released to another host is left alone.
             Closing += (s, e) =>
             {
-                _view?.Deactivate();
+                if (!HasReleasedContentView) _view?.Deactivate();
                 WidgetManager.SaveConfigIfLoaded();
             };
         }
@@ -128,7 +156,9 @@ namespace Kobold.Controls
         /// </summary>
         protected override void OnPanelHidden()
         {
-            _view?.Deactivate();
+            // A released view belongs to its adopting host now; this window's
+            // collapse must not close its title menu or flush its edit.
+            if (!HasReleasedContentView) _view?.Deactivate();
             base.OnPanelHidden();
         }
 

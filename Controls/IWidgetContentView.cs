@@ -22,6 +22,16 @@ namespace Kobold.Controls
 
         void Attach(WidgetData data, IWidgetViewHost host);
 
+        /// <summary>
+        /// Moves an already-attached view to another host. Only the host
+        /// reference changes: the one-time subscriptions made by
+        /// <see cref="Attach"/> are kept and the view is never rebuilt, so a
+        /// merge/detach can carry the live view without losing its data or
+        /// duplicating handlers. A host-specific paint (e.g. the search
+        /// accent) is re-applied here.
+        /// </summary>
+        void RebindHost(IWidgetViewHost host);
+
         void Activate();
 
         void Deactivate();

@@ -17,7 +17,14 @@ namespace Kobold.Controls
         bool IsModalOpen { get; }
 
         (double width, double height) GetPanelSize();
-        void ShowPanel(double defaultLeft, double defaultTop, bool activate = true);
+
+        /// <summary>
+        /// Shows the expanded panel. <paramref name="animate"/> false skips
+        /// the open fade and lands the shell at full opacity immediately, for
+        /// a host swap that must show the replacement before the old host
+        /// closes.
+        /// </summary>
+        void ShowPanel(double defaultLeft, double defaultTop, bool activate = true, bool animate = true);
         void HidePanel();
         void ShowWidgetMenu(Action onClosed);
         void UpdateUI();

@@ -18,10 +18,36 @@ namespace Kobold.Controls
 
         private readonly TodoCalendarView _view;
 
-        public TodoWidget(TodoData data) : base(data)
+        public TodoWidget(TodoData data) : this(data, null)
+        {
+        }
+
+        /// <summary>
+        /// Builds the window around an existing live view (the internal
+        /// hand-off from a released standalone window) or, with null, creates
+        /// and attaches a fresh one. An adopted view only changes host - it is
+        /// never re-attached or rebuilt.
+        /// </summary>
+        internal TodoWidget(TodoData data, IWidgetContentView contents) : base(data)
         {
             InitializeComponent();
             AttachChrome(TodoChrome);
+
+            var view = contents as TodoCalendarView;
+            if (contents != null && view == null)
+            {
+                throw new ArgumentException(
+                    "A todo window can only adopt a TodoCalendarView.", nameof(contents));
+            }
+
+            if (view != null)
+            {
+                _view = view;
+                IWidgetContentView face = view;
+                TodoChrome.ContentHost.Content = face.View;
+                face.RebindHost(this);
+                return;
+            }
 
             _view = new TodoCalendarView();
             TodoChrome.ContentHost.Content = _view;

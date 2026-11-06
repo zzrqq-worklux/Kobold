@@ -903,6 +903,24 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("view factory: every kind maps to its content view",
                     WidgetViewFactoryMapsKindData);
 
+                // Task P0-A1 pins: a live view moves between hosts without a
+                // re-attach - the view owns the new host after RebindHost, a
+                // standalone window hands its view out through
+                // ReleaseContentView, and both the internal constructors and
+                // the factory adopt that same instance.
+                failures += TryCheck("view rebind: note targets the new host once",
+                    NoteViewRebindsToTheNewHost);
+                failures += TryCheck("view rebind: search moves the chrome ownership",
+                    SearchViewRebindMovesTheChromeOwnership);
+                failures += TryCheck("view release: todo hands its live view to a new window",
+                    TodoViewReleasesAndAdoptsIntoANewWindow);
+                failures += TryCheck("view release: note keeps its state across the hand-off",
+                    NoteViewReleasesAndAdoptsIntoANewWindow);
+                failures += TryCheck("view release: the old window's hide leaves the adopted view alone",
+                    ReleasedViewSurvivesTheOldWindowsHide);
+                failures += TryCheck("widget factory: adoption returns the same live view",
+                    WidgetFactoryAdoptsALiveView);
+
                 // Task T4 pins: the group window hosts the real member views
                 // behind 32px bare tabs over the shared 40px chrome header,
                 // switches by visibility only, keeps the context title / note
@@ -921,6 +939,23 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("group: the tab menu carries switch/detach/hide",
                     GroupMenuCarriesTheSwitchDetachAndHide);
 
+                // Task P0-A2 pins: membership and tab order mutate in place -
+                // the same window and the same view instances survive an add,
+                // a remove and a reorder, the active tab follows its member,
+                // and the tab handlers resolve moved indices at event time.
+                failures += TryCheck("group: adding a tab keeps the window and its views",
+                    GroupAddMemberKeepsTheWindowAndViews);
+                failures += TryCheck("group: removing an inactive tab hands back the live view",
+                    GroupRemoveInactiveMemberHandsBackTheLiveView);
+                failures += TryCheck("group: removing the active tab activates its nearest survivor",
+                    GroupRemoveActiveMemberActivatesTheNearestSurvivor);
+                failures += TryCheck("group: reordering tabs moves the views and follows the active tab",
+                    GroupReorderMemberMovesTheViewsAndFollowsTheActiveTab);
+                failures += TryCheck("group: removing the last tab leaves an empty open group",
+                    GroupRemoveAllMembersLeavesAnEmptyOpenGroup);
+                failures += TryCheck("group: a released view is adopted without a rebuild",
+                    GroupAdoptsReleasedViews);
+
                 // Task T6 pins: the detach entry is live for an unlocked pair
                 // and reaches the window's detach seam; a locked group refuses
                 // menu detach; the merge hint repaints/restores the shell
@@ -935,6 +970,32 @@ namespace Kobold.XamlLoadCheck
                     MergeHintFollowsTheHoveredTargetDuringTheDrag);
                 failures += TryCheck("group: a sub-threshold tab press/up never detaches",
                     TabStripDragGestureRespectsTheThreshold);
+
+                // Task P1 pins: an over-threshold in-strip release becomes a tab
+                // reorder behind a 2px member-coloured insertion line; both
+                // same-gap spellings and a sub-threshold click stay no-ops; a
+                // locked group pushes reorder off; the manager moves the live
+                // member/view/slot entries and persists GroupOrder.
+                failures += TryCheck("group: an in-strip tab drag shows the insertion line and reorders",
+                    TabStripReorderReportsTheEndGapAndShowsTheInsertionLine);
+                failures += TryCheck("group: a same-gap or sub-threshold tab release is a no-op",
+                    TabStripReorderSameGapAndClickAreNoOps);
+                failures += TryCheck("group: a locked group refuses the in-strip reorder",
+                    TabStripReorderIsRefusedWhenLocked);
+                failures += TryCheck("group: the manager reorders a group in place",
+                    ManagerReordersGroupMembersInPlace);
+
+                // R4 pins: the press-time member snapshot guards a stale
+                // reorder, the 8 DIP detach edge band is a no-op, and Esc
+                // cancels an outside drag without a detach or a ghost.
+                failures += TryCheck("group: a tab press snapshots the member order",
+                    TabDragSnapshotsTheMembershipAtPress);
+                failures += TryCheck("group: a stale tab-drag snapshot refuses the reorder",
+                    StaleTabDragSnapshotRefusesTheReorder);
+                failures += TryCheck("group: the detach edge band neither detaches nor reorders",
+                    TabDetachEdgeBandDoesNotDetachOrReorder);
+                failures += TryCheck("group: Escape cancels a tab drag and hides the ghost",
+                    EscapeCancelsTheTabDragAndHidesTheGhost);
                 failures += TryCheck("drag policy: a real group window is never a merge source",
                     GroupDragPolicyRejectsARealGroupSource);
                 failures += TryCheck("drag policy: the drop target is the first rect under the cursor",
@@ -962,6 +1023,56 @@ namespace Kobold.XamlLoadCheck
                     GroupMinimumIncludesTheTabRow);
                 failures += TryCheck("group: closing the window flushes a live note edit",
                     GroupCloseFlushesTheNoteEdit);
+
+                // Task P0-B pins: a group-internal membership change keeps the
+                // live window and its views (no close/recreate), the island
+                // repaints a group badge on the existing tiles, and the show
+                // seam can skip the open fade for a swap.
+                failures += TryCheck("p0-b: merging into an open group keeps its live host and views",
+                    P0BMergeIntoOpenGroupKeepsTheLiveHostAndViews);
+                failures += TryCheck("p0-b: detaching keeps the group instance and moves the live view",
+                    P0BDetachKeepsTheGroupAndMovesTheLiveView);
+                failures += TryCheck("p0-b: detaching the active tab leaves the group open",
+                    P0BDetachActiveTabKeepsTheGroupOpen);
+                failures += TryCheck("p0-b: the last-pair dissolve moves both live views",
+                    P0BLastPairDissolveMovesBothLiveViews);
+                failures += TryCheck("p0-b: the island updates group badges on the existing tiles",
+                    P0BIslandUpdatesBadgesInPlace);
+                failures += TryCheck("p0-b: a no-animation show lands at full opacity",
+                    P0BNoAnimationShowLandsAtFullOpacity);
+
+                // R1 pins: the blank area of the tab row is a whole-window drag
+                // surface, every group drag affordance wears the same open/grab
+                // hand, and a merge into an existing group keeps that group's
+                // own size.
+                failures += TryCheck("group: the tab-row blank area drags the whole group",
+                    GroupTabRowBlankAreaDragsTheWindow);
+                failures += TryCheck("group: header, tab row and tabs share the grab-hand cursors",
+                    GroupDragUsesTheSharedHandCursors);
+                failures += TryCheck("p0-b: merging a larger standalone keeps the group size",
+                    P0BMergeLargerStandaloneKeepsTheGroupSize);
+
+                // R2 pins: dragging a tab outside the group wears an
+                // Explorer-like ghost at the cursor's lower-right; an in-window
+                // reorder, a whole-window drag and a locked group never do.
+                failures += TryCheck("group: an outside tab drag shows the cursor ghost",
+                    TabDetachGhostFollowsTheCursor);
+
+                // R3 pins: the ghost previews the standalone component at its
+                // pre-group size (offscreen clone render), and falls back to
+                // the live tab view when that render is unavailable.
+                failures += TryCheck("ghost render: the original component size is rendered",
+                    WidgetGhostRendererRendersOriginalSizes);
+                failures += TryCheck("ghost render: a search preview shows the frequent files",
+                    SearchGhostPreviewShowsFrequentFiles);
+                failures += TryCheck("ghost: a failed render falls back to the live view",
+                    TabDetachGhostFallsBackToTheLiveView);
+
+                // R6 pin: several rapid tab switches leave the last requested
+                // tab active and stale the activation token captured before the
+                // final switch (the gate guarding deferred focus restoration).
+                failures += TryCheck("group: a rapid tab switch keeps the last request",
+                    RapidTabSwitchesKeepTheLastActivation);
 
                 Console.WriteLine();
                 if (failures == 0)
@@ -7767,6 +7878,13 @@ namespace Kobold.XamlLoadCheck
             var field = typeof(WidgetWindowBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             if (field == null) throw new InvalidOperationException(name + " field not found on WidgetWindowBase");
             field.SetValue(target, value);
+        }
+
+        private static T PrivateBaseField<T>(object target, string name)
+        {
+            var field = typeof(WidgetWindowBase).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException(name + " field not found on WidgetWindowBase");
+            return (T)field.GetValue(target);
         }
 
         #region Task 3.3 icon-style pins
@@ -17491,6 +17609,342 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
+        #region View rebind lifecycle (Task P0-A1)
+
+        /// <summary>
+        /// P0-A1: a bound note view changes hosts without re-attaching. The
+        /// rebind itself pushes no title (no AttachCore), the next explicit
+        /// title refresh reaches the new host only, and a second rebind is
+        /// still a single push - no duplicate subscriptions.
+        /// </summary>
+        private static void NoteViewRebindsToTheNewHost()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new NoteData { Name = "Rebind note" };
+            var hostA = new FakeViewHost(data);
+            var hostB = new FakeViewHost(data);
+            var view = new NotePanelView();
+            var face = (IWidgetContentView)view;
+
+            face.Attach(data, hostA);
+            if (hostA.Titles.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "attach pushed " + hostA.Titles.Count + " title(s), wanted 1");
+            }
+
+            face.RebindHost(hostB);
+            if (hostB.Titles.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "rebind re-attached the view: " + hostB.Titles.Count + " title push(es)");
+            }
+
+            face.RebindHost(hostB); // a second rebind must not duplicate anything
+            face.RefreshChromeTitle();
+            if (hostB.Titles.Count != 1 || hostB.Titles[0] != view.ChromeTitle)
+            {
+                throw new InvalidOperationException(
+                    "the new host received " + hostB.Titles.Count +
+                    " title(s), wanted one current title");
+            }
+            if (hostA.Titles.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "the old host kept receiving title pushes (" + hostA.Titles.Count + ")");
+            }
+        }
+
+        /// <summary>
+        /// P0-A1: the search view's chrome lookups follow RebindHost - its
+        /// Deactivate stops the new host's glow and leaves the old host's
+        /// glow untouched.
+        /// </summary>
+        private static void SearchViewRebindMovesTheChromeOwnership()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new SearchData { Name = "Rebind search" };
+            var chromeA = new WidgetChrome();
+            ArrangeChrome(chromeA, 422, 562);
+            var hostA = new FakeViewHost(data)
+            {
+                Chrome = chromeA,
+                IsPanelOpen = true,
+                ContentWidth = 420,
+                ContentHeight = 500,
+                PanelSize = (422, 562)
+            };
+
+            var chromeB = new WidgetChrome();
+            ArrangeChrome(chromeB, 422, 562);
+            var hostB = new FakeViewHost(data)
+            {
+                Chrome = chromeB,
+                IsPanelOpen = true,
+                ContentWidth = 420,
+                ContentHeight = 500,
+                PanelSize = (422, 562)
+            };
+
+            var view = new SearchPanelView();
+            var face = (IWidgetContentView)view;
+            face.Attach(data, hostA);
+
+            var setGlow = typeof(SearchPanelView).GetMethod("SetQueryGlow",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (setGlow == null)
+            {
+                throw new InvalidOperationException("SearchPanelView.SetQueryGlow was not found");
+            }
+
+            setGlow.Invoke(view, new object[] { true });
+            if (!chromeA.IsGlowActive)
+            {
+                throw new InvalidOperationException("the query did not light the original host's chrome");
+            }
+
+            face.RebindHost(hostB);
+            setGlow.Invoke(view, new object[] { true });
+            if (!chromeB.IsGlowActive)
+            {
+                throw new InvalidOperationException("the rebound host's chrome did not light");
+            }
+            if (!chromeA.IsGlowActive)
+            {
+                throw new InvalidOperationException("the old host's glow stopped before deactivate");
+            }
+
+            face.Deactivate();
+            if (chromeB.IsGlowActive)
+            {
+                throw new InvalidOperationException("deactivate left the new host's chrome glowing");
+            }
+            if (!chromeA.IsGlowActive)
+            {
+                throw new InvalidOperationException("deactivate stopped the old host's chrome");
+            }
+        }
+
+        /// <summary>
+        /// P0-A1: a todo window releases its live calendar into a null content
+        /// slot and a new window adopts the same instance without a re-attach.
+        /// </summary>
+        private static void TodoViewReleasesAndAdoptsIntoANewWindow()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new TodoData { Name = "Adopt todo", SelectedDate = DateTime.Today };
+            TodoListOps.AddItem(data, "Keep me", DateTime.Today);
+
+            var original = new TodoWidget(data);
+            var view = original.CalendarView;
+            if (view == null)
+            {
+                throw new InvalidOperationException("TodoWidget exposes no calendar view");
+            }
+            if (!ReferenceEquals(original.PanelChrome.ContentHost.Content, view))
+            {
+                throw new InvalidOperationException("the original window does not host its calendar view");
+            }
+
+            var released = original.ReleaseContentView();
+            if (!ReferenceEquals(released, view))
+            {
+                throw new InvalidOperationException("ReleaseContentView returned a different view");
+            }
+            if (original.PanelChrome.ContentHost.Content != null)
+            {
+                throw new InvalidOperationException("the released content slot is not empty");
+            }
+            if (!original.HasReleasedContentView)
+            {
+                throw new InvalidOperationException("the window does not report its released content");
+            }
+
+            var adopted = new TodoWidget(data, released);
+            if (!ReferenceEquals(adopted.CalendarView, view))
+            {
+                throw new InvalidOperationException("the adopted window built a different calendar view");
+            }
+            if (!ReferenceEquals(adopted.PanelChrome.ContentHost.Content, view))
+            {
+                throw new InvalidOperationException("the adopted window does not host the live view");
+            }
+        }
+
+        /// <summary>
+        /// P0-A1: the note hand-off keeps the live detail state - the adopted
+        /// window mounts the same view, not a rebuilt home.
+        /// </summary>
+        private static void NoteViewReleasesAndAdoptsIntoANewWindow()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new NoteData { Name = "Adopt note" };
+            data.Notes.Add(NewNote("adopt-1", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+
+            var original = new NoteWidget(data);
+            var view = original.PanelView;
+            view.OpenNote("adopt-1");
+            if (view.IsHome)
+            {
+                throw new InvalidOperationException("the note detail did not open");
+            }
+
+            var released = original.ReleaseContentView();
+            if (!ReferenceEquals(released, view))
+            {
+                throw new InvalidOperationException("ReleaseContentView returned a different view");
+            }
+            if (original.PanelChrome.ContentHost.Content != null)
+            {
+                throw new InvalidOperationException("the released content slot is not empty");
+            }
+
+            var adopted = new NoteWidget(data, released);
+            if (!ReferenceEquals(adopted.PanelView, view))
+            {
+                throw new InvalidOperationException("the adopted window built a different note view");
+            }
+            if (!ReferenceEquals(adopted.PanelChrome.ContentHost.Content, view))
+            {
+                throw new InvalidOperationException("the adopted window does not host the live view");
+            }
+            if (view.IsHome)
+            {
+                throw new InvalidOperationException("the adopted view lost its open note");
+            }
+        }
+
+        /// <summary>
+        /// P0-A1 review: releasing a view then hiding the old standalone
+        /// window must not deactivate the view now owned by the new host. The
+        /// note's open title menu and the search chrome's glow are the cheap
+        /// observables of Deactivate(): both survive the old window's
+        /// OnPanelHidden path only when that hook honours HasReleasedContentView.
+        /// </summary>
+        private static void ReleasedViewSurvivesTheOldWindowsHide()
+        {
+            ThemeManager.Initialize("dark");
+
+            // Note: Deactivate() closes the title menu.
+            var noteData = new NoteData { Name = "Hide note" };
+            noteData.Notes.Add(NewNote("hide-note", "First", new DateTime(2026, 3, 5, 9, 0, 0)));
+            var oldNote = new NoteWidget(noteData);
+            var noteView = oldNote.PanelView;
+            noteView.OpenNote("hide-note");
+
+            var releasedNote = oldNote.ReleaseContentView();
+            var newNote = new NoteWidget(noteData, releasedNote);
+            try
+            {
+                if (!ReferenceEquals(newNote.PanelView, noteView))
+                {
+                    throw new InvalidOperationException("the note window did not adopt the live view");
+                }
+                if (noteView.IsHome)
+                {
+                    throw new InvalidOperationException("the adoption lost the open note detail");
+                }
+
+                // An open menu in the new host is the observable Deactivate()
+                // would close; it is opened after the hand-off because the
+                // release itself correctly deactivates the view.
+                noteView.ToggleTitleMenu(NoteNamed(noteView, "Root"));
+                if (!noteView.IsTitleMenuOpen)
+                {
+                    throw new InvalidOperationException("the note title menu did not open");
+                }
+
+                // The old window's real collapse path: OnPanelHidden runs at
+                // the top of HidePanel, before its fade.
+                SetPrivateBaseField(oldNote, "_isExpanded", true);
+                oldNote.HidePanel();
+                if (!noteView.IsTitleMenuOpen)
+                {
+                    throw new InvalidOperationException(
+                        "the old note window's hide deactivated the adopted view");
+                }
+            }
+            finally
+            {
+                newNote.Close();
+            }
+
+            // Search: Deactivate() stops the chrome glow of the live host.
+            var searchData = new SearchData { Name = "Hide search" };
+            var oldSearch = new SearchWidget(searchData);
+            var searchView = oldSearch.PanelView;
+            var releasedSearch = oldSearch.ReleaseContentView();
+            var newSearch = new SearchWidget(searchData, releasedSearch);
+            try
+            {
+                if (!ReferenceEquals(newSearch.PanelView, searchView))
+                {
+                    throw new InvalidOperationException("the search window did not adopt the live view");
+                }
+
+                // The adopted search view paints on the new window's chrome;
+                // an open panel lets the glow state run.
+                SetPrivateBaseField(newSearch, "_isExpanded", true);
+                var setGlow = typeof(SearchPanelView).GetMethod("SetQueryGlow",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (setGlow == null)
+                {
+                    throw new InvalidOperationException("SearchPanelView.SetQueryGlow was not found");
+                }
+                setGlow.Invoke(searchView, new object[] { true });
+                if (!newSearch.PanelChrome.IsGlowActive)
+                {
+                    throw new InvalidOperationException("the adopted search view did not light the new chrome");
+                }
+
+                SetPrivateBaseField(oldSearch, "_isExpanded", true);
+                oldSearch.HidePanel();
+                if (!newSearch.PanelChrome.IsGlowActive)
+                {
+                    throw new InvalidOperationException(
+                        "the old search window's hide stopped the adopted view's glow");
+                }
+            }
+            finally
+            {
+                newSearch.Close();
+            }
+        }
+
+        /// <summary>
+        /// P0-A1: the kind factory adopts a released view through the widget
+        /// constructor overload and returns the same instance.
+        /// </summary>
+        private static void WidgetFactoryAdoptsALiveView()
+        {
+            ThemeManager.Initialize("dark");
+
+            var data = new TodoData { Name = "Factory adopt", SelectedDate = DateTime.Today };
+            var original = new TodoWidget(data);
+            var view = original.CalendarView;
+            var released = original.ReleaseContentView();
+
+            var created = WidgetWindowFactory.Create(data, released) as TodoWidget;
+            if (created == null)
+            {
+                throw new InvalidOperationException("the factory did not build a todo window");
+            }
+            if (!ReferenceEquals(created.CalendarView, view))
+            {
+                throw new InvalidOperationException("the factory built a different calendar view");
+            }
+            if (!ReferenceEquals(created.PanelChrome.ContentHost.Content, view))
+            {
+                throw new InvalidOperationException("the factory window does not host the live view");
+            }
+        }
+
+        #endregion
+
         #region Task T4 group window pins
 
         /// <summary>
@@ -17736,6 +18190,84 @@ namespace Kobold.XamlLoadCheck
             finally
             {
                 window.Close();
+            }
+        }
+
+        /// <summary>
+        /// R6: several rapid switches on a live group leave the last requested
+        /// tab active, the final slot visible and the window usable. A token
+        /// captured before the last switch is stale, a same-index SetActive
+        /// issues no new activation request, and closing stales the latest token.
+        /// </summary>
+        private static void RapidTabSwitchesKeepTheLastActivation()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            bool closed = false;
+            try
+            {
+                ShowGroupWindow(window);
+
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                int stale = window.ActivationTokenForChecks;
+                if (stale == 0 || !window.IsActivationTokenCurrentForChecks(stale))
+                {
+                    throw new InvalidOperationException("the current tab has no current activation token");
+                }
+
+                window.SetActive(0);
+                window.SetActive(1);
+                window.SetActive(0);
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                if (window.ActiveIndex != 1 || !string.Equals(window.ActiveMemberId, "note-1", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "the rapid switch ended on " + window.ActiveIndex + "/" +
+                        (window.ActiveMemberId ?? "<null>") + ", wanted 1/note-1");
+                }
+                if (window.IsActivationTokenCurrentForChecks(stale))
+                {
+                    throw new InvalidOperationException("a token from before the last switch is still current");
+                }
+                if (window.ActivationTokenForChecks == stale)
+                {
+                    throw new InvalidOperationException("the last switch did not issue a new token");
+                }
+                if (window.ContentSlots[1].Visibility != Visibility.Visible ||
+                    window.ContentSlots[0].Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException("the final tab's slot is not visible");
+                }
+
+                int latest = window.ActivationTokenForChecks;
+                window.SetActive(1);
+                window.UpdateLayout();
+                if (window.ActivationTokenForChecks != latest)
+                {
+                    throw new InvalidOperationException("a same-index SetActive issued a new activation token");
+                }
+                if (window.ActiveIndex != 1)
+                {
+                    throw new InvalidOperationException("the group window is not usable after the rapid switch");
+                }
+
+                int beforeClose = window.ActivationTokenForChecks;
+                window.Close();
+                closed = true;
+                if (window.IsActivationTokenCurrentForChecks(beforeClose))
+                {
+                    throw new InvalidOperationException("closing the group did not invalidate its pending token");
+                }
+            }
+            finally
+            {
+                if (!closed) window.Close();
             }
         }
 
@@ -18119,6 +18651,10 @@ namespace Kobold.XamlLoadCheck
                 strip.TabDragCompleted += (index, outside) =>
                     completions.Add(new KeyValuePair<int, bool>(index, outside));
 
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+
                 var detaches = new List<string>();
                 window.DetachRequested += id => detaches.Add(id);
 
@@ -18148,6 +18684,8 @@ namespace Kobold.XamlLoadCheck
                     throw new InvalidOperationException("an in-window release detached a tab");
 
                 // Above threshold, released outside the window: detach request.
+                // An outside release is never a reorder.
+                reorders.Clear();
                 strip.BeginTabDrag(0, new Point(10, 10));
                 strip.UpdateTabDrag(new Point(40, 10));
                 if (!strip.EndTabDrag(new Point(100000, 100000)))
@@ -18156,6 +18694,10 @@ namespace Kobold.XamlLoadCheck
                     throw new InvalidOperationException("the outside release was not reported as outside");
                 if (detaches.Count != 1 || detaches[0] != "todo-1")
                     throw new InvalidOperationException("the outside release did not request the tab's detach");
+                if (reorders.Count != 0)
+                    throw new InvalidOperationException("an outside release requested a tab reorder");
+                if (strip.IsInsertIndicatorVisible)
+                    throw new InvalidOperationException("the insertion line stayed visible after an outside release");
 
                 // Locked group: the gesture still completes but nothing detaches.
                 group.IsLocked = true;
@@ -18170,6 +18712,1766 @@ namespace Kobold.XamlLoadCheck
             {
                 window.Close();
             }
+        }
+
+        /// <summary>
+        /// R1: the blank area of the 32px tab row is the same whole-window drag
+        /// surface as the 40px header - a real press on the TabHost raises the
+        /// shared start, the private drag seam moves the group, and the release
+        /// ends it. A tab press keeps its own click/drag semantics and marks the
+        /// event handled, so it never starts a window drag. A locked group
+        /// refuses the blank press like the header (forbidden cursor, no move).
+        /// </summary>
+        private static void GroupTabRowBlankAreaDragsTheWindow()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            WidgetChrome chrome = ChromeOf(window);
+
+            try
+            {
+                ShowGroupWindow(window);
+                // Keep the check off the desktop; -10000 DIP stays inside the
+                // Win32 window-coordinate range on normal DPI scales.
+                window.Left = -10000;
+                window.Top = -10000;
+                double startLeft = window.Left;
+                double startTop = window.Top;
+
+                MethodInfo moved = PrivateBaseMethod("OnHeaderDragMoved");
+
+                // The real TabHost press: capture, start event, drag flag.
+                chrome.TabHost.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonDownEvent));
+                if (!PrivateField<bool>(chrome, "_isDragActive"))
+                {
+                    throw new InvalidOperationException(
+                        "a press on the blank tab row did not start a whole-window drag");
+                }
+                if (!ReferenceEquals(Mouse.OverrideCursor, CursorHelper.GrabHand))
+                {
+                    throw new InvalidOperationException(
+                        "the tab-row drag wears " + CursorName(Mouse.OverrideCursor) +
+                        ", wanted the shared grab hand");
+                }
+
+                Point anchor = PrivateBaseField<Point>(window, "_dragStartCursor");
+                double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+                moved.Invoke(window,
+                    new object[] { new Point(anchor.X + 40 * scale, anchor.Y + 30 * scale) });
+                if (Math.Abs(window.Left - (startLeft + 40)) > 0.5 ||
+                    Math.Abs(window.Top - (startTop + 30)) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the tab-row blank drag moved the group to " + window.Left + "," + window.Top +
+                        " (wanted " + (startLeft + 40) + "," + (startTop + 30) + ")");
+                }
+
+                chrome.TabHost.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonUpEvent));
+                if (PrivateField<bool>(chrome, "_isDragActive"))
+                {
+                    throw new InvalidOperationException("the tab-row release left the drag running");
+                }
+                if (Mouse.OverrideCursor != null)
+                {
+                    throw new InvalidOperationException(
+                        "the tab-row release left the override cursor stuck");
+                }
+
+                // A tab press still switches/arms its own gesture and never
+                // starts the whole-window drag.
+                double leftAfterBlankDrag = window.Left;
+                double topAfterBlankDrag = window.Top;
+                Grid tab = window.TabStrip.TabButtons[0];
+                tab.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonDownEvent));
+                try
+                {
+                    if (PrivateField<bool>(chrome, "_isDragActive"))
+                    {
+                        throw new InvalidOperationException("a tab press started a whole-window drag");
+                    }
+                    if (window.Left != leftAfterBlankDrag || window.Top != topAfterBlankDrag)
+                    {
+                        throw new InvalidOperationException("a tab press moved the group window");
+                    }
+                }
+                finally
+                {
+                    tab.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonUpEvent));
+                }
+
+                // Locked: the same press flashes the lock and moves nothing.
+                group.IsLocked = true;
+                window.UpdateUI();
+                if (chrome.TabHost.Cursor != Cursors.No || chrome.Header.Cursor != Cursors.No)
+                {
+                    throw new InvalidOperationException(
+                        "the locked group wears " + CursorName(chrome.TabHost.Cursor) + "/" +
+                        CursorName(chrome.Header.Cursor) + " on its tab row/header, wanted the forbidden cursor");
+                }
+                double lockedLeft = window.Left;
+                double lockedTop = window.Top;
+                chrome.TabHost.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonDownEvent));
+                if (PrivateField<bool>(chrome, "_isDragActive"))
+                {
+                    throw new InvalidOperationException("a locked tab-row press started a window drag");
+                }
+                if (window.Left != lockedLeft || window.Top != lockedTop)
+                {
+                    throw new InvalidOperationException("a locked tab-row press moved the window");
+                }
+            }
+            finally
+            {
+                Mouse.Capture(null);
+                Mouse.OverrideCursor = null;
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// R1: every group drag affordance wears the same grab-hand pair -
+        /// CursorHelper.OpenHand at rest (the very same instance the header
+        /// uses) and CursorHelper.GrabHand while a real tab drag runs, with
+        /// the open hand restored on release and on cancel. The locked header
+        /// and tab row wear the forbidden cursor.
+        /// </summary>
+        private static void GroupDragUsesTheSharedHandCursors()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            WidgetChrome chrome = ChromeOf(window);
+
+            try
+            {
+                ShowGroupWindow(window);
+                WidgetGroupTabStrip strip = window.TabStrip;
+
+                if (!ReferenceEquals(chrome.Header.Cursor, CursorHelper.OpenHand))
+                {
+                    throw new InvalidOperationException(
+                        "the header cursor is " + CursorName(chrome.Header.Cursor) +
+                        ", wanted the shared open hand");
+                }
+                if (!ReferenceEquals(chrome.TabHost.Cursor, CursorHelper.OpenHand))
+                {
+                    throw new InvalidOperationException(
+                        "the tab-row blank cursor is " + CursorName(chrome.TabHost.Cursor) +
+                        ", wanted the shared open hand");
+                }
+                for (int i = 0; i < strip.TabButtons.Count; i++)
+                {
+                    if (!ReferenceEquals(strip.TabButtons[i].Cursor, CursorHelper.OpenHand))
+                    {
+                        throw new InvalidOperationException(
+                            "tab " + i + " wears " + CursorName(strip.TabButtons[i].Cursor) +
+                            ", wanted the same open-hand instance as the header");
+                    }
+                }
+
+                // A real tab drag lifts to the grab hand and restores on release.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                if (!strip.UpdateTabDrag(new Point(40, 10)))
+                {
+                    throw new InvalidOperationException("the over-threshold tab move did not start a drag");
+                }
+                if (!ReferenceEquals(strip.TabButtons[0].Cursor, CursorHelper.GrabHand))
+                {
+                    throw new InvalidOperationException(
+                        "a tab drag wears " + CursorName(strip.TabButtons[0].Cursor) +
+                        ", wanted the shared grab hand");
+                }
+                strip.EndTabDrag(new Point(40, 10));
+                if (!ReferenceEquals(strip.TabButtons[0].Cursor, CursorHelper.OpenHand))
+                {
+                    throw new InvalidOperationException(
+                        "the tab cursor did not return to the open hand after the release");
+                }
+
+                // The cancel path restores it too.
+                strip.BeginTabDrag(1, new Point(10, 10));
+                strip.UpdateTabDrag(new Point(40, 10));
+                strip.CancelTabDrag();
+                if (!ReferenceEquals(strip.TabButtons[1].Cursor, CursorHelper.OpenHand))
+                {
+                    throw new InvalidOperationException(
+                        "a cancelled tab drag left the grab hand on the tab");
+                }
+
+                // The whole-window drag lifts Mouse.OverrideCursor and clears it.
+                try
+                {
+                    chrome.TabHost.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonDownEvent));
+                    if (!ReferenceEquals(Mouse.OverrideCursor, CursorHelper.GrabHand))
+                    {
+                        throw new InvalidOperationException(
+                            "a window drag wears " + CursorName(Mouse.OverrideCursor) +
+                            ", wanted the shared grab hand");
+                    }
+                    chrome.TabHost.RaiseEvent(NewMouseLeftButtonEvent(UIElement.MouseLeftButtonUpEvent));
+                    if (Mouse.OverrideCursor != null)
+                    {
+                        throw new InvalidOperationException(
+                            "the window drag release left the override cursor set");
+                    }
+                }
+                finally
+                {
+                    Mouse.Capture(null);
+                    Mouse.OverrideCursor = null;
+                }
+
+                // Locked: header and blank tab row share the forbidden cursor.
+                chrome.IsLocked = true;
+                if (chrome.Header.Cursor != Cursors.No || chrome.TabHost.Cursor != Cursors.No)
+                {
+                    throw new InvalidOperationException(
+                        "the locked affordances wear " + CursorName(chrome.Header.Cursor) + "/" +
+                        CursorName(chrome.TabHost.Cursor) + ", wanted the forbidden cursor");
+                }
+                chrome.IsLocked = false;
+                if (!ReferenceEquals(chrome.TabHost.Cursor, CursorHelper.OpenHand))
+                {
+                    throw new InvalidOperationException("unlocking did not restore the tab-row open hand");
+                }
+            }
+            finally
+            {
+                Mouse.Capture(null);
+                Mouse.OverrideCursor = null;
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// R2: dragging a tab outside the group wears an Explorer-folder-style
+        /// ghost at the cursor's lower-right - the dragged tab's live view in a
+        /// small chrome shell. It appears only for the outside detach gesture,
+        /// follows the synthetic outside drag (offset + clamp), and is gone on
+        /// re-entry, release, cancel, locked groups, HidePanel and after a
+        /// whole-window drag (which never shows it).
+        /// </summary>
+        private static void TabDetachGhostFollowsTheCursor()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+
+            try
+            {
+                ShowGroupWindow(window);
+                // The group stays off the desktop; the synthetic outside drag
+                // points still map to real screen coordinates for the clamp.
+                window.Left = -10000;
+                window.Top = -10000;
+
+                // An explicit pre-group standalone size, different from the
+                // 760x540 group: the ghost must preview this, not the tab's
+                // group-layout view.
+                todo.PanelWidth = 320;
+                todo.PanelHeight = 400;
+
+                window.SetActive(0);
+                window.UpdateLayout();
+
+                WidgetGroupTabStrip strip = window.TabStrip;
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the group wears a drag ghost before any drag");
+                }
+                if (window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("a ghost window exists before any drag");
+                }
+
+                // A click and an in-window drag never show the ghost.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(new Point(20, 12));
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a click-sized tab move showed the drag ghost");
+                }
+                strip.UpdateTabDrag(new Point(40, 12));
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("an in-window reorder showed the drag ghost");
+                }
+                strip.EndTabDrag(new Point(40, 12));
+                if (window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("an in-window reorder kept a ghost window");
+                }
+
+                // Whole-window (header/tab-row) drags never show it.
+                MethodInfo started = PrivateBaseMethod("OnHeaderDragStarted");
+                MethodInfo moved = PrivateBaseMethod("OnHeaderDragMoved");
+                MethodInfo ended = PrivateBaseMethod("OnHeaderDragEnded");
+                double scale = VisualTreeHelper.GetDpi(window).DpiScaleX;
+                started.Invoke(window, new object[] { new Point(100, 100) });
+                moved.Invoke(window,
+                    new object[] { new Point(100 + 30 * scale, 100 + 20 * scale) });
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a whole-window drag showed the tab ghost");
+                }
+                ended.Invoke(window,
+                    new object[] { new Point(100 + 30 * scale, 100 + 20 * scale) });
+
+                // Outside: the ghost appears with the dragged tab's live view.
+                Point outsideA = new Point(20000, 20000);
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(outsideA);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("an outside tab drag shows no ghost");
+                }
+
+                DragGhostWindow ghost = window.DragGhost;
+                if (ghost == null || !ghost.IsVisible)
+                {
+                    throw new InvalidOperationException("the visible drag ghost is not a live window");
+                }
+                if (ghost.ShowInTaskbar)
+                {
+                    throw new InvalidOperationException("the drag ghost takes a taskbar slot");
+                }
+                if (Math.Abs(ghost.Opacity - 0.7) > 0.05)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost opacity is " + ghost.Opacity + ", wanted about 0.7");
+                }
+                if (ghost.Width <= 0 || ghost.Height <= 0 ||
+                    ghost.Width > 320.5 || ghost.Height > 230.5)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost is " + ghost.Width + "x" + ghost.Height +
+                        ", wanted at most 320x230");
+                }
+
+                // The dragged todo carries a pre-group 320x400 standalone size,
+                // different from the 760x540 group: its content box is 318x358,
+                // letterboxed into the scaled 320x230 ghost.
+                BitmapSource rendered = GhostSeamOrNull<BitmapSource>(ghost, "PreviewBitmap");
+                if (rendered == null)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost has no rendered original-size preview");
+                }
+                if (!rendered.IsFrozen)
+                {
+                    throw new InvalidOperationException("the drag ghost preview bitmap is not frozen");
+                }
+                if (rendered.PixelWidth != 318 || rendered.PixelHeight != 358)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost preview is " + rendered.PixelWidth + "x" + rendered.PixelHeight +
+                        ", wanted the 320x400 content box 318x358");
+                }
+                if (ghost.PreviewSource != null || ghost.PreviewBrush != null)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost kept the live view next to its bitmap");
+                }
+                if (GhostSeamStretch(ghost, "BitmapStretch", Stretch.Fill) != Stretch.Uniform)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost body does not stretch the bitmap uniformly");
+                }
+
+                double standaloneAspect = 320.0 / 400.0;
+                if (Math.Abs(ghost.Width / ghost.Height - standaloneAspect) > 0.02)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost aspect is " + (ghost.Width / ghost.Height) +
+                        ", wanted the standalone " + standaloneAspect);
+                }
+                double ghostScale = Math.Min(1.0, Math.Min(320.0 / 320.0, 230.0 / 400.0));
+                double expectedHeader = Math.Max(18.0, 40.0 * ghostScale);
+                double ghostHeader = GhostSeamDouble(ghost, "HeaderHeight", -1);
+                if (Math.Abs(ghostHeader - expectedHeader) > 1.0)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost header is " + ghostHeader +
+                        ", wanted the scaled " + expectedHeader);
+                }
+
+                Point cursorA = ghost.LastCursorScreen;
+                Point expectedA = strip.PointToScreen(outsideA);
+                if (PointDistance(cursorA, expectedA) > 1.0)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost followed " + cursorA + " instead of the cursor " + expectedA);
+                }
+                AssertGhostPlacedAt(ghost, expectedA, "after the first outside move");
+                double leftA = ghost.Left;
+                double topA = ghost.Top;
+
+                // Still outside, now far the other way: follows the cursor and
+                // clamps to the opposite work-area corner.
+                Point outsideB = new Point(-20000, -20000);
+                strip.UpdateTabDrag(outsideB);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the drag ghost vanished while still outside");
+                }
+                if (!ReferenceEquals(window.DragGhost, ghost))
+                {
+                    throw new InvalidOperationException("the drag ghost was recreated mid-drag");
+                }
+                Point cursorB = ghost.LastCursorScreen;
+                Point expectedB = strip.PointToScreen(outsideB);
+                if (PointDistance(cursorB, expectedB) > 1.0)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost did not follow the second outside move: " + cursorB +
+                        " vs " + expectedB);
+                }
+                AssertGhostPlacedAt(ghost, expectedB, "after the followed outside move");
+                if (Math.Abs(ghost.Left - leftA) < 0.5 && Math.Abs(ghost.Top - topA) < 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the drag ghost stayed at one clamped corner across two outside moves");
+                }
+
+                // Re-enter: hidden and closed.
+                strip.UpdateTabDrag(new Point(40, 12));
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("the drag ghost survived re-entering the group");
+                }
+
+                // Outside again, then an outside release: cleaned up at detach.
+                strip.UpdateTabDrag(outsideA);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the second outside drag shows no ghost");
+                }
+                strip.EndTabDrag(outsideA);
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("the outside release left the drag ghost alive");
+                }
+
+                // Capture loss / cancel.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(outsideA);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the cancel scenario shows no ghost");
+                }
+                strip.CancelTabDrag();
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("cancelling the tab drag left the ghost alive");
+                }
+
+                // A locked group never shows it.
+                group.IsLocked = true;
+                window.UpdateUI();
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(outsideA);
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a locked group showed the detach ghost");
+                }
+                strip.CancelTabDrag();
+
+                // HidePanel is another exit path.
+                group.IsLocked = false;
+                window.UpdateUI();
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(outsideA);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the HidePanel scenario shows no ghost");
+                }
+                window.HidePanel();
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("HidePanel left the drag ghost alive");
+                }
+                strip.CancelTabDrag();
+            }
+            finally
+            {
+                Mouse.Capture(null);
+                Mouse.OverrideCursor = null;
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// The ghost origin is the cursor + 16 DIP, clamped into the cursor
+        /// monitor's work area; this repeats the placement contract with the
+        /// public monitor maths so multi-DPI stays honest.
+        /// </summary>
+        private static void AssertGhostPlacedAt(Window ghost, Point cursorDevice, string context)
+        {
+            MonitorInfo monitor = MonitorInterop.GetMonitorForDevicePoint(cursorDevice);
+            double scale = monitor != null && monitor.DpiScale > 0 ? monitor.DpiScale : 1.0;
+            Rect work = monitor != null ? monitor.WorkAreaDevice : new Rect(0, 0, 1920, 1080);
+
+            double width = ghost.Width * scale;
+            double height = ghost.Height * scale;
+            double x = cursorDevice.X + 16 * scale;
+            double y = cursorDevice.Y + 16 * scale;
+            if (width >= work.Width) x = work.X;
+            else x = Math.Max(work.X, Math.Min(x, work.Right - width));
+            if (height >= work.Height) y = work.Y;
+            else y = Math.Max(work.Y, Math.Min(y, work.Bottom - height));
+
+            Rect expected = PanelPlacement.ToDipRect(new Rect(x, y, width, height), monitor);
+            if (Math.Abs(ghost.Left - expected.X) > 1.0 || Math.Abs(ghost.Top - expected.Y) > 1.0)
+            {
+                throw new InvalidOperationException(
+                    "the drag ghost is at " + ghost.Left + "," + ghost.Top + " " + context +
+                    ", wanted " + expected.X + "," + expected.Y);
+            }
+        }
+
+        private static double PointDistance(Point a, Point b)
+        {
+            double dx = a.X - b.X;
+            double dy = a.Y - b.Y;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        /// <summary>
+        /// R3: the offscreen renderer produces a frozen bitmap of the component
+        /// at its pre-group content box (full size minus the 1px border per side
+        /// and the 40px chrome header), uses a fresh clone per call (no data or
+        /// handler duplication, no Loaded/live-tree service start) and falls
+        /// back to the 360x420 standalone default when a size is missing.
+        /// </summary>
+        private static void WidgetGhostRendererRendersOriginalSizes()
+        {
+            ThemeManager.Initialize("dark");
+
+            var todo = new TodoData
+            {
+                Id = "r3-render-todo",
+                Name = "R3 Todo",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today,
+                PanelWidth = 320,
+                PanelHeight = 400
+            };
+            TodoListOps.AddItem(todo, "One", DateTime.Today);
+            int todoItems = todo.Items.Count;
+
+            BitmapSource todoRender = RenderGhostPreview(todo);
+            if (todoRender == null)
+            {
+                throw new InvalidOperationException("the todo ghost render returned no bitmap");
+            }
+            if (todoRender.PixelWidth != 318 || todoRender.PixelHeight != 358)
+            {
+                throw new InvalidOperationException(
+                    "the todo ghost render is " + todoRender.PixelWidth + "x" + todoRender.PixelHeight +
+                    ", wanted the 320x400 content box 318x358");
+            }
+            if (!todoRender.IsFrozen)
+            {
+                throw new InvalidOperationException("the todo ghost render is not frozen");
+            }
+            if (!HasVisiblePixels(todoRender))
+            {
+                throw new InvalidOperationException("the todo ghost render is blank");
+            }
+            if (DistinctVisibleColors(todoRender) < 8)
+            {
+                throw new InvalidOperationException(
+                    "the todo ghost render has no component detail (too few colours)");
+            }
+            if (todo.Items.Count != todoItems)
+            {
+                throw new InvalidOperationException("the todo ghost render changed the widget's items");
+            }
+            if (GhostRendererFlag("LastCloneWasLoaded"))
+            {
+                throw new InvalidOperationException(
+                    "the todo ghost clone was loaded (a live tree could start services)");
+            }
+
+            // A second render is a fresh clone, not a shared/cached view.
+            BitmapSource todoAgain = RenderGhostPreview(todo);
+            if (todoAgain == null || ReferenceEquals(todoRender, todoAgain))
+            {
+                throw new InvalidOperationException(
+                    "the renderer reused its bitmap instead of rendering a fresh clone");
+            }
+            if (todo.Items.Count != todoItems)
+            {
+                throw new InvalidOperationException("the second todo ghost render changed the widget's items");
+            }
+
+            var note = new NoteData
+            {
+                Id = "r3-render-note",
+                Name = "R3 Note",
+                Color = "#788C5D",
+                PanelWidth = 320,
+                PanelHeight = 400
+            };
+            note.Notes.Add(NewNote("r3-render-note-1", "Hello", DateTime.Today));
+            int noteCount = note.Notes.Count;
+
+            BitmapSource noteRender = RenderGhostPreview(note);
+            if (noteRender == null || noteRender.PixelWidth != 318 || noteRender.PixelHeight != 358)
+            {
+                throw new InvalidOperationException(
+                    "the note ghost render is not the 320x400 content box 318x358");
+            }
+            if (!noteRender.IsFrozen || note.Notes.Count != noteCount)
+            {
+                throw new InvalidOperationException(
+                    "the note ghost render was not frozen or changed the widget's notes");
+            }
+            if (!HasVisiblePixels(noteRender))
+            {
+                throw new InvalidOperationException("the note ghost render is blank");
+            }
+            if (DistinctVisibleColors(noteRender) < 8)
+            {
+                throw new InvalidOperationException(
+                    "the note ghost render has no component detail (too few colours)");
+            }
+            if (GhostRendererFlag("LastCloneWasLoaded"))
+            {
+                throw new InvalidOperationException(
+                    "the note ghost clone was loaded (a live tree could start services)");
+            }
+
+            // No persisted size: the 360x420 standalone default is rendered.
+            var legacy = new NoteData { Id = "r3-render-legacy", Name = "Legacy" };
+            BitmapSource legacyRender = RenderGhostPreview(legacy);
+            if (legacyRender == null || legacyRender.PixelWidth != 358 || legacyRender.PixelHeight != 378)
+            {
+                throw new InvalidOperationException(
+                    "the missing-size ghost render did not use the 360x420 default");
+            }
+
+            var search = new SearchData
+            {
+                Id = "r3-render-search",
+                Name = "R3 Search",
+                Color = "#4A7BB5",
+                PanelWidth = 340,
+                PanelHeight = 420
+            };
+            BitmapSource searchRender = RenderGhostPreview(search);
+            if (searchRender == null || searchRender.PixelWidth != 338 || searchRender.PixelHeight != 378)
+            {
+                throw new InvalidOperationException(
+                    "the search ghost render is not the 340x420 content box 338x378");
+            }
+            if (GhostRendererFlag("LastCloneWasLoaded"))
+            {
+                throw new InvalidOperationException(
+                    "the search ghost clone was loaded (the search service could start)");
+            }
+        }
+
+        /// <summary>
+        /// R3 review: the search ghost preview paints the empty-query state of a
+        /// real standalone panel, including the 常用文件 list. The sandbox config
+        /// gets one existing file (this check assembly), the clone renders the
+        /// 422x562 search panel, and the list must carry rows without the view
+        /// ever being loaded (the service must not start). The config list is
+        /// restored afterwards.
+        /// </summary>
+        private static void SearchGhostPreviewShowsFrequentFiles()
+        {
+            ThemeManager.Initialize("dark");
+
+            WidgetManager manager = WidgetManager.Instance;
+            List<FrequentFile> before = manager.Config.FrequentFiles;
+            string existingFile = typeof(Program).Assembly.Location;
+            manager.Config.FrequentFiles = new List<FrequentFile>
+            {
+                new FrequentFile
+                {
+                    Path = existingFile,
+                    Count = 7,
+                    LastOpenedUtc = DateTime.UtcNow
+                }
+            };
+
+            try
+            {
+                var search = new SearchData
+                {
+                    Id = "r3-preview-search",
+                    Name = "Preview Search",
+                    Color = "#4A7BB5",
+                    PanelWidth = 422,
+                    PanelHeight = 562
+                };
+
+                BitmapSource preview = RenderGhostPreview(search);
+                if (preview == null)
+                {
+                    throw new InvalidOperationException("the search ghost preview returned no bitmap");
+                }
+                if (preview.PixelWidth != 420 || preview.PixelHeight != 520)
+                {
+                    throw new InvalidOperationException(
+                        "the 422x562 search preview is " + preview.PixelWidth + "x" +
+                        preview.PixelHeight + ", wanted the 420x520 content box");
+                }
+                if (!HasVisiblePixels(preview) || DistinctVisibleColors(preview) < 8)
+                {
+                    throw new InvalidOperationException("the search ghost preview is blank or flat");
+                }
+
+                int rows = GhostRendererInt("LastSearchFrequentRows");
+                if (rows <= 0)
+                {
+                    throw new InvalidOperationException(
+                        "the search ghost preview shows no frequent-file rows");
+                }
+                if (GhostRendererFlag("LastCloneWasLoaded"))
+                {
+                    throw new InvalidOperationException(
+                        "the search ghost clone was loaded (the search service could start)");
+                }
+            }
+            finally
+            {
+                manager.Config.FrequentFiles = before;
+            }
+        }
+
+        /// <summary>
+        /// R3: when the offscreen render is unavailable the ghost still binds
+        /// the dragged tab's live view through the existing VisualBrush, at the
+        /// same original-size outer aspect. `Prepare` never shows the window,
+        /// so the check cannot flash a ghost on the desktop.
+        /// </summary>
+        private static void TabDetachGhostFallsBackToTheLiveView()
+        {
+            ThemeManager.Initialize("dark");
+
+            var ghost = new DragGhostWindow();
+            var live = new Border { Width = 200, Height = 120, Background = Brushes.Transparent };
+            var member = new NoteData
+            {
+                Id = "r3-fallback",
+                Name = "Fallback",
+                Color = "#788C5D",
+                PanelWidth = 360,
+                PanelHeight = 420
+            };
+
+            try
+            {
+                MethodInfo prepare = typeof(DragGhostWindow).GetMethod("Prepare",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (prepare == null)
+                {
+                    throw new InvalidOperationException(
+                        "DragGhostWindow has no Prepare(live view, null bitmap) seam");
+                }
+                prepare.Invoke(ghost,
+                    new object[] { null, new Point(-10000, -10000), live, member, null });
+                // Show it so the check exercises the real overlay teardown,
+                // not a never-shown Window close.
+                ghost.Show();
+
+                if (!ReferenceEquals(ghost.PreviewSource, live))
+                {
+                    throw new InvalidOperationException(
+                        "the null-render fallback did not keep the live view");
+                }
+                if (ghost.PreviewBrush == null || !ReferenceEquals(ghost.PreviewBrush.Visual, live))
+                {
+                    throw new InvalidOperationException(
+                        "the null-render fallback did not paint the live VisualBrush");
+                }
+                if (GhostSeamOrNull<BitmapSource>(ghost, "PreviewBitmap") != null)
+                {
+                    throw new InvalidOperationException("the null-render fallback reused a bitmap");
+                }
+                if (Math.Abs(ghost.Width / ghost.Height - 360.0 / 420.0) > 0.02)
+                {
+                    throw new InvalidOperationException(
+                        "the null-render fallback does not use the standalone aspect");
+                }
+
+                // A standalone smaller than the 320x230 box is never upscaled.
+                var small = new NoteData
+                {
+                    Id = "r3-fallback-small",
+                    Name = "Small",
+                    Color = "#788C5D",
+                    PanelWidth = 300,
+                    PanelHeight = 200
+                };
+                prepare.Invoke(ghost,
+                    new object[] { null, new Point(-10000, -10000), live, small, null });
+                if (Math.Abs(ghost.Width - 300) > 0.5 || Math.Abs(ghost.Height - 200) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "a small standalone preview was upscaled to " + ghost.Width + "x" + ghost.Height);
+                }
+            }
+            finally
+            {
+                ghost.DetachPreview();
+                ghost.Close();
+            }
+        }
+
+        private static Type GhostRendererType()
+        {
+            var type = typeof(WidgetGroupWindow).Assembly.GetType(
+                "Kobold.Helpers.WidgetGhostRenderer", false);
+            if (type == null) throw new InvalidOperationException("WidgetGhostRenderer does not exist yet");
+            return type;
+        }
+
+        private static BitmapSource RenderGhostPreview(WidgetData member)
+        {
+            var method = GhostRendererType().GetMethod("Render",
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (method == null) throw new InvalidOperationException("WidgetGhostRenderer.Render not found");
+            return method.Invoke(null, new object[] { member }) as BitmapSource;
+        }
+
+        private static bool GhostRendererFlag(string name)
+        {
+            var property = GhostRendererType().GetProperty(name,
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (property == null) return false;
+            object value = property.GetValue(null);
+            return value is bool flag && flag;
+        }
+
+        private static int GhostRendererInt(string name)
+        {
+            var property = GhostRendererType().GetProperty(name,
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (property == null) return 0;
+            object value = property.GetValue(null);
+            return value is int number ? number : 0;
+        }
+
+        /// <summary>True when a rendered bitmap carries at least one visible pixel.</summary>
+        private static bool HasVisiblePixels(BitmapSource bitmap)
+        {
+            if (bitmap == null) return false;
+
+            int stride = bitmap.PixelWidth * 4;
+            var pixels = new byte[stride * bitmap.PixelHeight];
+            bitmap.CopyPixels(pixels, stride, 0);
+            for (int i = 3; i < pixels.Length; i += 4)
+            {
+                if (pixels[i] > 8) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Distinct visible ARGB values: a blank/flat render has one or two,
+        /// while a real calendar/note render carries text, borders and accents.
+        /// </summary>
+        private static int DistinctVisibleColors(BitmapSource bitmap)
+        {
+            if (bitmap == null) return 0;
+
+            int stride = bitmap.PixelWidth * 4;
+            var pixels = new byte[stride * bitmap.PixelHeight];
+            bitmap.CopyPixels(pixels, stride, 0);
+
+            var colors = new HashSet<int>();
+            for (int i = 0; i + 3 < pixels.Length; i += 4)
+            {
+                if (pixels[i + 3] <= 8) continue;
+                int color = pixels[i] | (pixels[i + 1] << 8) | (pixels[i + 2] << 16) | (pixels[i + 3] << 24);
+                colors.Add(color);
+            }
+            return colors.Count;
+        }
+
+        private static T GhostSeamOrNull<T>(object ghost, string name) where T : class
+        {
+            var property = ghost.GetType().GetProperty(name,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            return property == null ? null : property.GetValue(ghost) as T;
+        }
+
+        private static double GhostSeamDouble(object ghost, string name, double fallback)
+        {
+            var property = ghost.GetType().GetProperty(name,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (property == null) return fallback;
+            object value = property.GetValue(ghost);
+            return value is double number ? number : fallback;
+        }
+
+        private static Stretch GhostSeamStretch(object ghost, string name, Stretch fallback)
+        {
+            var property = ghost.GetType().GetProperty(name,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (property == null) return fallback;
+            object value = property.GetValue(ghost);
+            return value is Stretch stretch ? stretch : fallback;
+        }
+
+        private static MouseButtonEventArgs NewMouseLeftButtonEvent(RoutedEvent routedEvent)
+        {
+            return new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = routedEvent
+            };
+        }
+
+        /// <summary>
+        /// P1 strip pin: an over-threshold drag shows the 2px, member-coloured,
+        /// hit-test-transparent insertion line in the gap, then an end-gap
+        /// release raises TabReorderRequested(from, last) and the ordinary
+        /// in-window TabDragCompleted(from, false); the line hides again.
+        /// </summary>
+        private static void TabStripReorderReportsTheEndGapAndShowsTheInsertionLine()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var third = NewExtraNote("p1-note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+                window.SetActive(0);
+                window.UpdateLayout();
+
+                var strip = window.TabStrip;
+                if (strip.TabButtons.Count != 3)
+                    throw new InvalidOperationException("the strip does not carry three tabs");
+
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+                var completions = new List<KeyValuePair<int, bool>>();
+                strip.TabDragCompleted += (index, outside) =>
+                    completions.Add(new KeyValuePair<int, bool>(index, outside));
+
+                if (!strip.IsReorderEnabled)
+                    throw new InvalidOperationException("an unlocked strip starts with reorder disabled");
+                if (strip.InsertIndicator == null)
+                    throw new InvalidOperationException("the strip exposes no insertion indicator");
+                if (strip.InsertIndicator.IsHitTestVisible)
+                    throw new InvalidOperationException("the insertion indicator takes hit testing");
+                if (strip.IsInsertIndicatorVisible ||
+                    strip.InsertIndicator.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the insertion indicator is visible at rest");
+                if (Math.Abs(strip.InsertIndicator.Width - 2) > 0.01)
+                    throw new InvalidOperationException(
+                        "the insertion indicator is " + strip.InsertIndicator.Width + " wide, wanted 2");
+
+                // The gap between tab 0 and tab 1: the pointer sits before
+                // tab 1's centre, so the insertion gap is 1.
+                double gapX = (TabEdgeInStrip(strip, 0, true) + TabEdgeInStrip(strip, 1, false)) / 2;
+                var start = new Point(TabCenterInStrip(strip, 0), 10);
+                var drag = new Point(gapX, 10);
+                if (strip.GetInsertionIndex(drag) != 1)
+                    throw new InvalidOperationException(
+                        "the gap point resolves to " + strip.GetInsertionIndex(drag) + ", wanted 1");
+
+                if (!strip.BeginTabDrag(0, start))
+                    throw new InvalidOperationException("the strip refused the first tab press");
+                if (!strip.UpdateTabDrag(drag))
+                    throw new InvalidOperationException("an over-threshold gap move did not start a drag");
+                if (!strip.IsInsertIndicatorVisible ||
+                    strip.InsertIndicator.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("the insertion indicator did not appear");
+
+                var border = strip.InsertIndicator as Border;
+                var brush = border == null ? null : border.Background as SolidColorBrush;
+                if (brush == null || brush.Color != Utils.HexToColor("#6A9BCC"))
+                    throw new InvalidOperationException("the insertion line does not wear the dragged tab's colour");
+                double lineLeft = strip.InsertIndicator.Margin.Left;
+                if (lineLeft < TabEdgeInStrip(strip, 0, true) ||
+                    lineLeft > TabEdgeInStrip(strip, 1, false))
+                    throw new InvalidOperationException("the insertion line is not in the gap between the tabs");
+
+                // Release past the last tab's centre: the end gap (count).
+                var end = new Point(TabCenterInStrip(strip, 2) + 40, 10);
+                if (strip.GetInsertionIndex(end) != 3)
+                    throw new InvalidOperationException(
+                        "the end point resolves to " + strip.GetInsertionIndex(end) + ", wanted 3");
+                if (!strip.EndTabDrag(end))
+                    throw new InvalidOperationException("the end-gap release did not complete the drag");
+
+                if (completions.Count != 1 || completions[0].Key != 0 || completions[0].Value)
+                    throw new InvalidOperationException(
+                        "the in-window reorder release did not report (0, false)");
+                if (reorders.Count != 1 || reorders[0].Key != 0 || reorders[0].Value != 2)
+                    throw new InvalidOperationException(
+                        "the end-gap release did not request (0, 2): " + DescribePairs(reorders));
+                if (strip.IsInsertIndicatorVisible ||
+                    strip.InsertIndicator.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the insertion indicator stayed visible after the release");
+                if (strip.IsTabDragActive)
+                    throw new InvalidOperationException("the strip stayed in a drag after the release");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// P1 strip pin: a sub-threshold click raises no event and reorders
+        /// nothing, and both no-op spellings of the source's own gap
+        /// (insertion == from and insertion == from + 1) complete the drag but
+        /// raise no TabReorderRequested.
+        /// </summary>
+        private static void TabStripReorderSameGapAndClickAreNoOps()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var third = NewExtraNote("p1-note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+
+                var strip = window.TabStrip;
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+                var completions = new List<KeyValuePair<int, bool>>();
+                strip.TabDragCompleted += (index, outside) =>
+                    completions.Add(new KeyValuePair<int, bool>(index, outside));
+
+                // Below threshold: press + small move + release is a click.
+                var center = new Point(TabCenterInStrip(strip, 1), 10);
+                strip.BeginTabDrag(1, center);
+                if (strip.UpdateTabDrag(new Point(center.X + 5, center.Y + 3)))
+                    throw new InvalidOperationException("a sub-threshold move started a drag");
+                if (strip.IsInsertIndicatorVisible)
+                    throw new InvalidOperationException("a sub-threshold move showed the insertion line");
+                if (strip.EndTabDrag(new Point(center.X + 5, center.Y + 3)))
+                    throw new InvalidOperationException("a sub-threshold release completed a drag");
+                if (reorders.Count != 0 || completions.Count != 0)
+                    throw new InvalidOperationException("a click reordered or completed a drag");
+
+                // insertion == from: release just left of tab 1's centre.
+                strip.BeginTabDrag(1, center);
+                strip.UpdateTabDrag(new Point(center.X + 30, center.Y));
+                if (strip.GetInsertionIndex(new Point(center.X - 1, center.Y)) != 1)
+                    throw new InvalidOperationException("the left-of-centre point is not the source gap");
+                strip.EndTabDrag(new Point(center.X - 1, center.Y));
+                if (completions.Count != 1 || completions[0].Key != 1 || completions[0].Value)
+                    throw new InvalidOperationException("the same-gap release did not report (1, false)");
+                if (reorders.Count != 0)
+                    throw new InvalidOperationException("insertion == from requested a reorder");
+
+                // insertion == from + 1: release exactly on tab 1's centre.
+                strip.BeginTabDrag(1, center);
+                strip.UpdateTabDrag(new Point(center.X + 30, center.Y));
+                if (strip.GetInsertionIndex(center) != 2)
+                    throw new InvalidOperationException("the centre point is not the next gap");
+                strip.EndTabDrag(center);
+                if (completions.Count != 2 || completions[1].Key != 1 || completions[1].Value)
+                    throw new InvalidOperationException("the second same-gap release did not report (1, false)");
+                if (reorders.Count != 0)
+                    throw new InvalidOperationException("insertion == from + 1 requested a reorder");
+                if (strip.IsInsertIndicatorVisible)
+                    throw new InvalidOperationException("the insertion line stayed visible");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// P1 strip pin: a locked group's UpdateUI/RefreshLocalization pushes
+        /// IsReorderEnabled = false, so a directly driven in-strip drag shows no
+        /// insertion line and raises no reorder. The member order is unchanged.
+        /// </summary>
+        private static void TabStripReorderIsRefusedWhenLocked()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var third = NewExtraNote("p1-note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+
+                var strip = window.TabStrip;
+                var before = new List<string>();
+                foreach (var member in window.Members) before.Add(member == null ? null : member.Id);
+
+                group.IsLocked = true;
+                window.UpdateUI();
+                window.RefreshLocalization();
+                if (strip.IsReorderEnabled)
+                    throw new InvalidOperationException("a locked group left reorder enabled");
+
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+                var detaches = new List<string>();
+                window.DetachRequested += id => detaches.Add(id);
+
+                var start = new Point(TabCenterInStrip(strip, 0), 10);
+                var end = new Point(TabCenterInStrip(strip, 2) + 40, 10);
+                strip.BeginTabDrag(0, start);
+                strip.UpdateTabDrag(new Point(TabCenterInStrip(strip, 2), 10));
+                if (strip.IsInsertIndicatorVisible)
+                    throw new InvalidOperationException("a locked group showed the insertion line");
+                strip.EndTabDrag(end);
+
+                if (reorders.Count != 0)
+                    throw new InvalidOperationException("a locked group requested a reorder");
+                if (detaches.Count != 0)
+                    throw new InvalidOperationException("an in-window release detached from a locked group");
+                if (strip.IsInsertIndicatorVisible)
+                    throw new InvalidOperationException("the insertion line stayed visible after a locked release");
+
+                for (int i = 0; i < before.Count; i++)
+                {
+                    if (!string.Equals(before[i], window.Members[i].Id, StringComparison.Ordinal))
+                        throw new InvalidOperationException("a locked group reordered its members");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// P1 manager pin: ReorderGroupMember moves the live member/view/slot
+        /// entries of a real three-tab group in place, keeps the same window and
+        /// open state, keeps the dragged (first) tab active, renumbers
+        /// GroupOrder and writes it to the config. A no-op, an invalid index, a
+        /// missing group and a locked group are refused without touching the
+        /// order or the size.
+        /// </summary>
+        private static void ManagerReordersGroupMembersInPlace()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (secondHost == null || !manager.MergeWidgets(secondHost, groupHost))
+                    throw new InvalidOperationException("the third standalone did not merge into the group");
+
+                groupHost.SetActive(0);
+                groupHost.UpdateLayout();
+                if (groupHost.Members.Count != 3 ||
+                    groupHost.Views.Count != 3 ||
+                    groupHost.ContentSlots.Count != 3 ||
+                    groupHost.TabStrip.TabButtons.Count != 3)
+                    throw new InvalidOperationException("the visual does not carry three tabs");
+                if (groupHost.ActiveMemberId != todo.Id)
+                    throw new InvalidOperationException("the first tab is not active before the reorder");
+
+                string groupId = groupHost.WidgetId;
+                var viewsBefore = new List<IWidgetContentView>(groupHost.Views);
+                var slotsBefore = new List<ContentControl>(groupHost.ContentSlots);
+                var visibilityBefore = new List<Visibility>();
+                foreach (var slot in groupHost.ContentSlots) visibilityBefore.Add(slot.Visibility);                double widthBefore = groupHost.Width;
+                double heightBefore = groupHost.Height;
+                bool openBefore = groupHost.IsPanelOpen;
+                bool closed = false;
+                groupHost.Closed += (s, e) => closed = true;
+
+                if (!manager.ReorderGroupMember(groupId, 0, 2))
+                    throw new InvalidOperationException("the first-to-last reorder was refused");
+
+                var same = manager.FindHostForWidget(todo.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost) || closed || !same.IsVisible)
+                    throw new InvalidOperationException("the reorder closed or recreated the group window");
+                if (same.IsPanelOpen != openBefore)
+                    throw new InvalidOperationException("the reorder changed the open state");
+                if (same.Members.Count != 3 ||
+                    !ReferenceEquals(same.Members[0], firstNote) ||
+                    !ReferenceEquals(same.Members[1], secondNote) ||
+                    !ReferenceEquals(same.Members[2], todo))
+                    throw new InvalidOperationException("the member order is not note-1/note-2/todo");
+                for (int i = 0; i < same.Members.Count; i++)
+                {
+                    if (same.Members[i].GroupOrder != i)
+                        throw new InvalidOperationException(
+                            "GroupOrder at " + i + " is " + same.Members[i].GroupOrder);
+                }
+                if (same.ActiveMemberId != todo.Id || same.ActiveIndex != 2)
+                    throw new InvalidOperationException(
+                        "the dragged member did not stay active: " + same.ActiveMemberId +
+                        " at " + same.ActiveIndex);
+                if (same.Group.ActiveWidgetId != todo.Id)
+                    throw new InvalidOperationException("Group.ActiveWidgetId did not follow the dragged tab");
+
+                if (!ReferenceEquals(same.Views[2], viewsBefore[0]) ||
+                    !ReferenceEquals(same.Views[0], viewsBefore[1]) ||
+                    !ReferenceEquals(same.Views[1], viewsBefore[2]))
+                    throw new InvalidOperationException("the reorder recreated or misplaced a view");
+                if (!ReferenceEquals(same.ContentSlots[2].Content, slotsBefore[0].Content) ||
+                    !ReferenceEquals(same.ContentSlots[0].Content, slotsBefore[1].Content) ||
+                    !ReferenceEquals(same.ContentSlots[1].Content, slotsBefore[2].Content))
+                    throw new InvalidOperationException("the reorder recreated or misplaced a slot");
+                for (int i = 0; i < slotsBefore.Count; i++)
+                {
+                    if (slotsBefore[i].Visibility != visibilityBefore[i])
+                        throw new InvalidOperationException(
+                            "the reorder toggled the slot visibility at " + i);
+                }
+                int visibleSlots = 0;
+                foreach (var slot in same.ContentSlots)
+                {
+                    if (slot.Visibility == Visibility.Visible) visibleSlots++;
+                }
+                if (visibleSlots != 1 || same.ContentSlots[2].Visibility != Visibility.Visible)
+                    throw new InvalidOperationException(
+                        "the dragged tab's slot is not the single visible slot after the reorder");
+                if (Math.Abs(same.Width - widthBefore) > 0.01 || Math.Abs(same.Height - heightBefore) > 0.01)
+                    throw new InvalidOperationException("the reorder resized the group");
+
+                if (ConfigWidget(manager, todo.Id).GroupOrder != 2 ||
+                    ConfigWidget(manager, firstNote.Id).GroupOrder != 0 ||
+                    ConfigWidget(manager, secondNote.Id).GroupOrder != 1)
+                    throw new InvalidOperationException("the reorder did not persist the config GroupOrder");
+                if (manager.Config.Groups == null ||
+                    !manager.Config.Groups.Contains(same.Group))
+                    throw new InvalidOperationException("the reorder lost the group state");
+
+                if (manager.ReorderGroupMember(groupId, 2, 2))
+                    throw new InvalidOperationException("a no-op reorder was accepted");
+                if (manager.ReorderGroupMember(groupId, -1, 1) ||
+                    manager.ReorderGroupMember(groupId, 0, 3) ||
+                    manager.ReorderGroupMember(groupId, 0, -1))
+                    throw new InvalidOperationException("an invalid reorder index was accepted");
+                if (manager.ReorderGroupMember("p1-missing-group", 0, 1))
+                    throw new InvalidOperationException("a missing group accepted a reorder");
+
+                groupHost.Group.IsLocked = true;
+                if (manager.ReorderGroupMember(groupId, 2, 0))
+                    throw new InvalidOperationException("a locked group accepted a reorder");
+                groupHost.Group.IsLocked = false;
+                if (!ReferenceEquals(same.Members[0], firstNote) ||
+                    !ReferenceEquals(same.Members[2], todo))
+                    throw new InvalidOperationException("a refused reorder changed the member order");
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// R4: every tab press snapshots the ordered member ids as a deep copy.
+        /// Adding a member after the press changes the live strip but never the
+        /// snapshot; a fresh press snapshots the new membership. A click and a
+        /// cancel raise no reorder, and an outside detach drag keeps the
+        /// press-time snapshot.
+        /// </summary>
+        private static void TabDragSnapshotsTheMembershipAtPress()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var third = NewExtraNote("r4-note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+
+                if (Math.Abs(WidgetGroupTabStrip.DetachEdgeMargin - 8) > 0.001)
+                {
+                    throw new InvalidOperationException(
+                        "the detach edge margin is " + WidgetGroupTabStrip.DetachEdgeMargin + ", wanted 8");
+                }
+
+                var strip = window.TabStrip;
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+
+                strip.BeginTabDrag(0, new Point(10, 10));
+                var snapshot = new List<string>(strip.DragMemberSnapshot);
+                if (!SameIds(snapshot, new[] { todo.Id, note.Id, third.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the press snapshot is " + DescribeIds(snapshot) +
+                        ", wanted todo-1/note-1/r4-note-2");
+                }
+
+                // Membership changes after the press: the deep copy stays put.
+                var fourth = NewExtraNote("r4-note-3", "Fourth", "#4A7BB5");
+                window.AddMember(fourth);
+                window.UpdateLayout();
+                snapshot = new List<string>(strip.DragMemberSnapshot);
+                if (!SameIds(snapshot, new[] { todo.Id, note.Id, third.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the snapshot followed a membership change to " + DescribeIds(snapshot));
+                }
+
+                // A sub-threshold press/release stays a click.
+                strip.EndTabDrag(new Point(10, 10));
+                if (reorders.Count != 0)
+                {
+                    throw new InvalidOperationException("a click on a snapshotting strip reordered");
+                }
+
+                // A fresh press snapshots the live membership again.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                snapshot = new List<string>(strip.DragMemberSnapshot);
+                if (!SameIds(snapshot, new[] { todo.Id, note.Id, third.Id, fourth.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the second press snapshot is " + DescribeIds(snapshot));
+                }
+                strip.CancelTabDrag();
+                if (reorders.Count != 0)
+                {
+                    throw new InvalidOperationException("a cancelled drag reordered");
+                }
+
+                // An outside detach drag carries the same press-time snapshot.
+                strip.BeginTabDrag(0, new Point(10, 10));
+                strip.UpdateTabDrag(new Point(100000, 100000));
+                snapshot = new List<string>(strip.DragMemberSnapshot);
+                if (!SameIds(snapshot, new[] { todo.Id, note.Id, third.Id, fourth.Id }))
+                {
+                    throw new InvalidOperationException("an outside drag lost its press snapshot");
+                }
+                strip.EndTabDrag(new Point(100000, 100000));
+                if (reorders.Count != 0)
+                {
+                    throw new InvalidOperationException("an outside detach drag requested a reorder");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// R4 manager pin: the group window hands the press-time snapshot to
+        /// <see cref="WidgetManager.ReorderGroupMember(string,int,int,IReadOnlyList{string})"/>.
+        /// A current snapshot reorders normally; a same-count snapshot in the
+        /// wrong order and a snapshot whose membership changed mid-drag are
+        /// both no-ops that leave members, GroupOrder and config unchanged.
+        /// </summary>
+        private static void StaleTabDragSnapshotRefusesTheReorder()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (secondHost == null || !manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the third standalone did not merge into the group");
+                }
+                groupHost.SetActive(0);
+                groupHost.UpdateLayout();
+
+                WidgetGroupTabStrip strip = groupHost.TabStrip;
+                string groupId = groupHost.WidgetId;
+                if (!SameIds(MemberIds(groupHost), new[] { todo.Id, firstNote.Id, secondNote.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the group does not start todo/note-1/note-2: " + DescribeIds(MemberIds(groupHost)));
+                }
+
+                Point start = new Point(TabCenterInStrip(strip, 0), 10);
+                Point endGap = new Point(TabCenterInStrip(strip, strip.TabButtons.Count - 1) + 40, 10);
+
+                // A current snapshot still reorders normally.
+                strip.BeginTabDrag(0, start);
+                var current = new List<string>(strip.DragMemberSnapshot);
+                if (!SameIds(current, new[] { todo.Id, firstNote.Id, secondNote.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the current drag snapshot is " + DescribeIds(current));
+                }
+                strip.UpdateTabDrag(endGap);
+                strip.EndTabDrag(endGap);
+
+                if (!ReferenceEquals(groupHost.Members[0], firstNote) ||
+                    !ReferenceEquals(groupHost.Members[1], secondNote) ||
+                    !ReferenceEquals(groupHost.Members[2], todo))
+                {
+                    throw new InvalidOperationException(
+                        "a current snapshot did not reorder to note-1/note-2/todo");
+                }
+                if (firstNote.GroupOrder != 0 || secondNote.GroupOrder != 1 || todo.GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("the current-snapshot reorder did not renumber GroupOrder");
+                }
+                if (ConfigWidget(manager, todo.Id).GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("the current-snapshot reorder did not persist GroupOrder");
+                }
+
+                // Same count, wrong order: refused before any index/lock work.
+                var wrongOrder = new[] { secondNote.Id, firstNote.Id, todo.Id };
+                if (manager.ReorderGroupMember(groupId, 0, 1, wrongOrder))
+                {
+                    throw new InvalidOperationException("a wrong-order snapshot was accepted");
+                }
+                if (!SameIds(MemberIds(groupHost), new[] { firstNote.Id, secondNote.Id, todo.Id }) ||
+                    firstNote.GroupOrder != 0 || secondNote.GroupOrder != 1 || todo.GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("a wrong-order snapshot changed the member order");
+                }
+
+                // Membership changed after the press: the stale snapshot is a no-op.
+                start = new Point(TabCenterInStrip(strip, 0), 10);
+                strip.BeginTabDrag(0, start);
+                var stale = new List<string>(strip.DragMemberSnapshot);
+                var intruder = new NoteData
+                {
+                    Id = "r4-stale-note",
+                    Name = "Intruder",
+                    Color = "#4A7BB5"
+                };
+                groupHost.AddMember(intruder);
+                groupHost.UpdateLayout();
+                endGap = new Point(TabCenterInStrip(strip, strip.TabButtons.Count - 1) + 40, 10);
+                strip.UpdateTabDrag(endGap);
+                strip.EndTabDrag(endGap);
+
+                if (!SameIds(stale, new[] { firstNote.Id, secondNote.Id, todo.Id }))
+                {
+                    throw new InvalidOperationException(
+                        "the stale snapshot changed to " + DescribeIds(stale));
+                }
+                if (groupHost.Members.Count != 4 ||
+                    !ReferenceEquals(groupHost.Members[0], firstNote) ||
+                    !ReferenceEquals(groupHost.Members[1], secondNote) ||
+                    !ReferenceEquals(groupHost.Members[2], todo) ||
+                    !ReferenceEquals(groupHost.Members[3], intruder))
+                {
+                    throw new InvalidOperationException(
+                        "a stale snapshot reordered the members: " + DescribeIds(MemberIds(groupHost)));
+                }
+                if (firstNote.GroupOrder != 0 || secondNote.GroupOrder != 1 || todo.GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("a stale snapshot renumbered GroupOrder");
+                }
+                if (ConfigWidget(manager, firstNote.Id).GroupOrder != 0 ||
+                    ConfigWidget(manager, secondNote.Id).GroupOrder != 1 ||
+                    ConfigWidget(manager, todo.Id).GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("a stale snapshot changed the config GroupOrder");
+                }
+
+                if (manager.ReorderGroupMember(groupId, 0, 2, stale))
+                {
+                    throw new InvalidOperationException("the manager accepted a stale snapshot directly");
+                }
+                if (!SameIds(MemberIds(groupHost), new[] { firstNote.Id, secondNote.Id, todo.Id, intruder.Id }))
+                {
+                    throw new InvalidOperationException("the direct stale reorder changed the member order");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// R4: the 8 DIP detach edge band is not outside. A 4 DIP outside
+        /// release neither detaches nor reorders and shows no ghost, while a
+        /// 20 DIP outside release still detaches.
+        /// </summary>
+        private static void TabDetachEdgeBandDoesNotDetachOrReorder()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var third = NewExtraNote("r4-band-note", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+                window.SetActive(0);
+                window.UpdateLayout();
+
+                WidgetGroupTabStrip strip = window.TabStrip;
+                Point originInWindow = strip.TranslatePoint(new Point(0, 0), window);
+                Point bandPoint = window.TranslatePoint(
+                    new Point(originInWindow.X - 4, originInWindow.Y + 10), strip);
+                Point beyondPoint = window.TranslatePoint(
+                    new Point(originInWindow.X - 20, originInWindow.Y + 10), strip);
+
+                if (!strip.IsOutsideHost(bandPoint))
+                {
+                    throw new InvalidOperationException("the 4 DIP point is not physically outside the window");
+                }
+                if (strip.IsOutsideHost(bandPoint, WidgetGroupTabStrip.DetachEdgeMargin))
+                {
+                    throw new InvalidOperationException("a 4 DIP outside point counts as outside the detach margin");
+                }
+                if (!strip.IsOutsideHost(beyondPoint, WidgetGroupTabStrip.DetachEdgeMargin))
+                {
+                    throw new InvalidOperationException("a 20 DIP outside point is not outside the detach margin");
+                }
+
+                var completions = new List<KeyValuePair<int, bool>>();
+                strip.TabDragCompleted += (index, outside) =>
+                    completions.Add(new KeyValuePair<int, bool>(index, outside));
+                var reorders = new List<KeyValuePair<int, int>>();
+                strip.TabReorderRequested += (from, to) =>
+                    reorders.Add(new KeyValuePair<int, int>(from, to));
+                var detaches = new List<string>();
+                window.DetachRequested += id => detaches.Add(id);
+
+                var before = MemberIds(window);
+                strip.BeginTabDrag(0, new Point(TabCenterInStrip(strip, 0), 10));
+                strip.UpdateTabDrag(bandPoint);
+                if (window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a 4 DIP outside move showed the detach ghost");
+                }
+                strip.EndTabDrag(bandPoint);
+
+                if (detaches.Count != 0)
+                {
+                    throw new InvalidOperationException("a 4 DIP outside release detached a tab");
+                }
+                if (reorders.Count != 0)
+                {
+                    throw new InvalidOperationException("a 4 DIP outside release requested a reorder");
+                }
+                if (completions.Count != 1 || completions[0].Key != 0 || completions[0].Value)
+                {
+                    throw new InvalidOperationException(
+                        "a 4 DIP outside release was not reported as an in-group drag");
+                }
+                if (!SameIds(MemberIds(window), before))
+                {
+                    throw new InvalidOperationException("a 4 DIP outside release reordered the members");
+                }
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("a 4 DIP outside release left the ghost alive");
+                }
+
+                // Beyond the band: the ordinary detach still runs.
+                detaches.Clear();
+                completions.Clear();
+                strip.BeginTabDrag(0, new Point(TabCenterInStrip(strip, 0), 10));
+                strip.UpdateTabDrag(beyondPoint);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a 20 DIP outside drag showed no detach ghost");
+                }
+                strip.EndTabDrag(beyondPoint);
+                if (detaches.Count != 1 || detaches[0] != todo.Id)
+                {
+                    throw new InvalidOperationException("a 20 DIP outside release did not detach the tab");
+                }
+                if (completions.Count != 1 || completions[0].Key != 0 || !completions[0].Value)
+                {
+                    throw new InvalidOperationException("a 20 DIP outside release was not reported as outside");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// R4: Escape during an outside tab drag cancels the gesture through
+        /// the window's key route, marks the key handled, closes the ghost and
+        /// never detaches; a later release is inert. A capture-loss cancel is
+        /// equally detach-free.
+        /// </summary>
+        private static void EscapeCancelsTheTabDragAndHidesTheGhost()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                window.Left = -10000;
+                window.Top = -10000;
+                window.UpdateLayout();
+
+                WidgetGroupTabStrip strip = window.TabStrip;
+                var completions = new List<KeyValuePair<int, bool>>();
+                strip.TabDragCompleted += (index, outside) =>
+                    completions.Add(new KeyValuePair<int, bool>(index, outside));
+                var detaches = new List<string>();
+                window.DetachRequested += id => detaches.Add(id);
+
+                var far = new Point(100000, 100000);
+                strip.BeginTabDrag(0, new Point(TabCenterInStrip(strip, 0), 10));
+                strip.UpdateTabDrag(far);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the Esc scenario shows no detach ghost");
+                }
+                if (window.CancelTabDragFromEscape(Key.A))
+                {
+                    throw new InvalidOperationException("a non-Escape key cancelled the tab drag");
+                }
+                if (!strip.IsTabDragActive || !window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("a non-Escape key disturbed the tab drag");
+                }
+
+                // The seam is what Window_PreviewKeyDown calls before routing
+                // to the active view; it cancels without an OS key event.
+                if (!window.CancelTabDragFromEscape(Key.Escape))
+                {
+                    throw new InvalidOperationException("the Escape seam did not cancel the tab drag");
+                }
+                if (strip.IsTabDragActive)
+                {
+                    throw new InvalidOperationException("Esc left the tab drag active");
+                }
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("Esc left the detach ghost alive");
+                }
+                if (detaches.Count != 0)
+                {
+                    throw new InvalidOperationException("Esc detached a tab");
+                }
+                if (completions.Count != 0)
+                {
+                    throw new InvalidOperationException("Esc completed a drag");
+                }
+                if (strip.EndTabDrag(far))
+                {
+                    throw new InvalidOperationException("a release after Esc completed the cancelled drag");
+                }
+                if (detaches.Count != 0)
+                {
+                    throw new InvalidOperationException("a release after Esc detached a tab");
+                }
+
+                // Capture loss / cancel: the drag dies without a detach.
+                strip.BeginTabDrag(1, new Point(TabCenterInStrip(strip, 1), 10));
+                strip.UpdateTabDrag(far);
+                if (!window.IsDragGhostVisible)
+                {
+                    throw new InvalidOperationException("the capture-loss scenario shows no ghost");
+                }
+                strip.CancelTabDrag();
+                if (window.IsDragGhostVisible || window.DragGhost != null)
+                {
+                    throw new InvalidOperationException("the capture-loss cancel left the ghost alive");
+                }
+                if (strip.EndTabDrag(far) || detaches.Count != 0 || completions.Count != 0)
+                {
+                    throw new InvalidOperationException("a capture-loss cancel still detached or completed");
+                }
+            }
+            finally
+            {
+                Mouse.Capture(null);
+                Mouse.OverrideCursor = null;
+                window.Close();
+            }
+        }
+
+        /// <summary>The centre of one tab in strip coordinates (the tab must be laid out).</summary>
+        private static double TabCenterInStrip(WidgetGroupTabStrip strip, int index)
+        {
+            Grid tab = strip.TabButtons[index];
+            return tab.TranslatePoint(new Point(Math.Max(0, tab.ActualWidth) / 2, 0), strip).X;
+        }
+
+        /// <summary>The left or right edge of one tab in strip coordinates.</summary>
+        private static double TabEdgeInStrip(WidgetGroupTabStrip strip, int index, bool right)
+        {
+            Grid tab = strip.TabButtons[index];
+            double x = right ? Math.Max(0, tab.ActualWidth) : 0;
+            return tab.TranslatePoint(new Point(x, 0), strip).X;
+        }
+
+        private static string DescribePairs(List<KeyValuePair<int, int>> pairs)
+        {
+            var text = new StringBuilder();
+            foreach (var pair in pairs)
+            {
+                if (text.Length > 0) text.Append(", ");
+                text.Append("(").Append(pair.Key).Append(", ").Append(pair.Value).Append(")");
+            }
+            return text.ToString();
+        }
+
+        /// <summary>The member ids of a group window, in tab order.</summary>
+        private static List<string> MemberIds(WidgetGroupWindow window)
+        {
+            var ids = new List<string>();
+            foreach (var member in window.Members) ids.Add(member == null ? null : member.Id);
+            return ids;
+        }
+
+        private static bool SameIds(IReadOnlyList<string> actual, IReadOnlyList<string> expected)
+        {
+            if (actual == null || expected == null || actual.Count != expected.Count) return false;
+            for (int i = 0; i < actual.Count; i++)
+            {
+                if (!string.Equals(actual[i], expected[i], StringComparison.Ordinal)) return false;
+            }
+            return true;
+        }
+
+        private static string DescribeIds(IReadOnlyList<string> ids)
+        {
+            if (ids == null) return "<null>";
+            var text = new StringBuilder();
+            foreach (var id in ids)
+            {
+                if (text.Length > 0) text.Append("/");
+                text.Append(id ?? "<null>");
+            }
+            return text.ToString();
+        }
+
+        private static WidgetData ConfigWidget(WidgetManager manager, string id)
+        {
+            foreach (var widget in manager.Config.Widgets)
+            {
+                if (widget != null && string.Equals(widget.Id, id, StringComparison.Ordinal)) return widget;
+            }
+            throw new InvalidOperationException("the config lost the widget " + id);
         }
 
         /// <summary>
@@ -18407,6 +20709,1323 @@ namespace Kobold.XamlLoadCheck
                     return item;
             }
             return null;
+        }
+
+        #endregion
+
+        #region Group membership and tab order mutation (Task P0-A2)
+
+        /// <summary>
+        /// Shows the group offscreen and marks its panel open. The private
+        /// expanded flag is the same seam the standalone pins use; showing the
+        /// window gives the slots and tab row a real layout without running
+        /// the open fade.
+        /// </summary>
+        private static void ShowOpenGroupWindow(WidgetGroupWindow window)
+        {
+            ShowGroupWindow(window);
+            SetPrivateBaseField(window, "_isExpanded", true);
+            if (window.Group != null) window.Group.IsExpanded = true;
+        }
+
+        private static NoteData NewExtraNote(string id, string name, string color,
+            double? panelWidth = null, double? panelHeight = null)
+        {
+            return new NoteData
+            {
+                Id = id,
+                Name = name,
+                Color = color,
+                PanelWidth = panelWidth,
+                PanelHeight = panelHeight
+            };
+        }
+
+        private static void AssertSameViewPrefix(WidgetGroupWindow window,
+            IReadOnlyList<IWidgetContentView> views, IReadOnlyList<ContentControl> slots,
+            string context)
+        {
+            for (int i = 0; i < views.Count; i++)
+            {
+                if (!ReferenceEquals(window.Views[i], views[i]))
+                {
+                    throw new InvalidOperationException(context + " recreated the view at " + i);
+                }
+                if (!ReferenceEquals(window.ContentSlots[i].Content, slots[i].Content))
+                {
+                    throw new InvalidOperationException(context + " recreated the slot content at " + i);
+                }
+            }
+        }
+
+        private static void AssertSingleActiveUnderline(WidgetGroupWindow window, int index, string context)
+        {
+            int visible = 0;
+            int visibleIndex = -1;
+            var underlines = window.TabStrip.Underlines;
+            for (int i = 0; i < underlines.Count; i++)
+            {
+                if (underlines[i].Visibility != Visibility.Visible) continue;
+                visible++;
+                visibleIndex = i;
+            }
+
+            if (visible != 1 || visibleIndex != index)
+            {
+                throw new InvalidOperationException(
+                    context + " shows " + visible + " underline(s) at " + visibleIndex +
+                    ", wanted exactly one at " + index);
+            }
+        }
+
+        /// <summary>
+        /// Adding a member appends one tab and one live view to the same
+        /// window. Every existing view and slot stays the exact reference, the
+        /// active tab does not change, and a member whose own panel is larger
+        /// grows the group without a close/reopen or an open animation.
+        /// </summary>
+        private static void GroupAddMemberKeepsTheWindowAndViews()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowOpenGroupWindow(window);
+
+                var viewsBefore = new List<IWidgetContentView>(window.Views);
+                var slotsBefore = new List<ContentControl>(window.ContentSlots);
+                double widthBefore = window.Width;
+                double heightBefore = window.Height;
+                string activeBefore = window.ActiveMemberId;
+
+                var bigger = NewExtraNote("note-2", "Bigger note", "#B5654A", 900, 620);
+                window.AddMember(bigger);
+                window.UpdateLayout();
+
+                if (!window.IsLoaded || !window.IsVisible)
+                {
+                    throw new InvalidOperationException("the group window was hidden or recreated by AddMember");
+                }
+                if (!window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("AddMember closed the panel");
+                }
+                if (window.WidgetId != "g1" || !ReferenceEquals(window.Group, group))
+                {
+                    throw new InvalidOperationException("AddMember did not keep the same group window");
+                }
+                if (window.Members.Count != 3 || !ReferenceEquals(window.Members[2], bigger))
+                {
+                    throw new InvalidOperationException(
+                        "the new member is not the last of " + window.Members.Count + " members");
+                }
+                if (window.Views.Count != 3 || window.ContentSlots.Count != 3)
+                {
+                    throw new InvalidOperationException(
+                        "the group has " + window.Views.Count + " views / " +
+                        window.ContentSlots.Count + " slots after AddMember");
+                }
+
+                AssertSameViewPrefix(window, viewsBefore, slotsBefore, "AddMember");
+                if (!ReferenceEquals(window.Views[2].Data, bigger))
+                {
+                    throw new InvalidOperationException("the new view does not carry the added member");
+                }
+                if (!ReferenceEquals(window.ContentSlots[2].Content, window.Views[2].View))
+                {
+                    throw new InvalidOperationException("the new slot does not host the new view");
+                }
+                if (window.TabStrip.TabButtons.Count != 3 ||
+                    !ReferenceEquals(window.TabStrip.TabButtons[2].Tag, bigger))
+                {
+                    throw new InvalidOperationException("the new tab is not appended to the strip");
+                }
+
+                if (window.ActiveMemberId != activeBefore || window.ActiveIndex != 0)
+                {
+                    throw new InvalidOperationException(
+                        "AddMember changed the active tab to " + window.ActiveMemberId);
+                }
+                AssertSingleActiveUnderline(window, 0, "the group after AddMember");
+
+                if (window.Width <= widthBefore || window.Height <= heightBefore)
+                {
+                    throw new InvalidOperationException(
+                        "a larger member did not grow the group: " + widthBefore + "x" + heightBefore +
+                        " -> " + window.Width + "x" + window.Height);
+                }
+                if (Math.Abs(window.Width - 900) > 0.01 || Math.Abs(window.Height - 652) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the grown group is " + window.Width + "x" + window.Height + ", wanted 900x652");
+                }
+                if (group.PanelWidth != window.Width || group.PanelHeight != window.Height)
+                {
+                    throw new InvalidOperationException("the group state does not remember the grown size");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Removing an inactive member returns its exact live view, drops one
+        /// tab and one slot, keeps every survivor reference-equal, leaves the
+        /// active member alone and never shrinks the group.
+        /// </summary>
+        private static void GroupRemoveInactiveMemberHandsBackTheLiveView()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowOpenGroupWindow(window);
+
+                var bigger = NewExtraNote("note-2", "Bigger note", "#B5654A", 900, 620);
+                window.AddMember(bigger);
+                window.UpdateLayout();
+
+                var viewsBefore = new List<IWidgetContentView>(window.Views);
+                var slotsBefore = new List<ContentControl>(window.ContentSlots);
+                double widthBefore = window.Width;
+                double heightBefore = window.Height;
+                string activeBefore = window.ActiveMemberId;
+                string groupActiveBefore = group.ActiveWidgetId;
+                IWidgetContentView removedView = window.Views[2];
+
+                IWidgetContentView detached = window.RemoveMember("note-2");
+                window.UpdateLayout();
+
+                if (!ReferenceEquals(detached, removedView))
+                {
+                    throw new InvalidOperationException("RemoveMember did not return the live view");
+                }
+                if (!window.IsLoaded || !window.IsVisible || !window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("RemoveMember closed or hid the group window");
+                }
+                if (window.Members.Count != 2 || window.Views.Count != 2 || window.ContentSlots.Count != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the group still has " + window.Members.Count + " members / " +
+                        window.Views.Count + " views / " + window.ContentSlots.Count + " slots");
+                }
+
+                AssertSameViewPrefix(window,
+                    viewsBefore.GetRange(0, 2), slotsBefore.GetRange(0, 2), "RemoveMember");
+                if (window.ActiveMemberId != activeBefore || window.ActiveIndex != 0)
+                {
+                    throw new InvalidOperationException(
+                        "removing an inactive member changed the active tab to " + window.ActiveMemberId);
+                }
+                if (group.ActiveWidgetId != groupActiveBefore)
+                {
+                    throw new InvalidOperationException("removing an inactive member changed Group.ActiveWidgetId");
+                }
+                if (window.TabStrip.TabButtons.Count != 2)
+                {
+                    throw new InvalidOperationException("the tab was not removed from the strip");
+                }
+                AssertSingleActiveUnderline(window, 0, "the group after an inactive removal");
+
+                if (window.Width != widthBefore || window.Height != heightBefore)
+                {
+                    throw new InvalidOperationException(
+                        "an inactive removal resized the group: " + widthBefore + "x" + heightBefore +
+                        " -> " + window.Width + "x" + window.Height);
+                }
+                for (int i = 0; i < window.ContentSlots.Count; i++)
+                {
+                    if (ReferenceEquals(window.ContentSlots[i].Content, detached.View))
+                    {
+                        throw new InvalidOperationException("the returned view is still hosted in the group");
+                    }
+                }
+                if (window.RemoveMember("note-2") != null)
+                {
+                    throw new InvalidOperationException("removing a non-member returned a view");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Removing the active middle tab activates the member that takes its
+        /// index and writes that id to <see cref="WidgetGroup.ActiveWidgetId"/>;
+        /// the surviving views stay put.
+        /// </summary>
+        private static void GroupRemoveActiveMemberActivatesTheNearestSurvivor()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowOpenGroupWindow(window);
+
+                var third = NewExtraNote("note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.SetActive(1);
+                window.UpdateLayout();
+
+                var viewsBefore = new List<IWidgetContentView>(window.Views);
+                var slotsBefore = new List<ContentControl>(window.ContentSlots);
+                IWidgetContentView removedView = window.Views[1];
+
+                IWidgetContentView detached = window.RemoveMember("note-1");
+                window.UpdateLayout();
+
+                if (!ReferenceEquals(detached, removedView))
+                {
+                    throw new InvalidOperationException("RemoveMember did not return the active live view");
+                }
+                if (window.Members.Count != 2 || window.Views.Count != 2)
+                {
+                    throw new InvalidOperationException("the active removal left the wrong member count");
+                }
+                if (window.ActiveMemberId != "note-2" || window.ActiveIndex != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the nearest survivor is not active: " + window.ActiveMemberId +
+                        " at " + window.ActiveIndex);
+                }
+                if (group.ActiveWidgetId != "note-2")
+                {
+                    throw new InvalidOperationException(
+                        "Group.ActiveWidgetId is " + group.ActiveWidgetId + ", wanted note-2");
+                }
+                var active = window.Data as NoteData;
+                if (active == null || active.Id != "note-2")
+                {
+                    throw new InvalidOperationException("Data is not the surviving note");
+                }
+
+                if (!ReferenceEquals(window.Views[0], viewsBefore[0]) ||
+                    !ReferenceEquals(window.Views[1], viewsBefore[2]))
+                {
+                    throw new InvalidOperationException("the active removal recreated a surviving view");
+                }
+                if (!ReferenceEquals(window.ContentSlots[0].Content, slotsBefore[0].Content) ||
+                    !ReferenceEquals(window.ContentSlots[1].Content, slotsBefore[2].Content))
+                {
+                    throw new InvalidOperationException("the active removal recreated surviving slot content");
+                }
+                if (window.ContentSlots[1].Visibility != Visibility.Visible ||
+                    window.ContentSlots[0].Visibility != Visibility.Collapsed)
+                {
+                    throw new InvalidOperationException("the survivor's slot is not the visible one");
+                }
+                if (window.TabStrip.TabButtons.Count != 2)
+                {
+                    throw new InvalidOperationException("the active tab was not removed from the strip");
+                }
+                AssertSingleActiveUnderline(window, 1, "the group after an active removal");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Reordering moves the member/view/slot/focus bookkeeping and the tab
+        /// visual, renumbers GroupOrder, keeps the dragged member active, and
+        /// adjusts another active member's index. A moved tab still switches
+        /// its own member because the handler resolves the current index.
+        /// </summary>
+        private static void GroupReorderMemberMovesTheViewsAndFollowsTheActiveTab()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowOpenGroupWindow(window);
+
+                var third = NewExtraNote("note-2", "Third", "#B5654A");
+                window.AddMember(third);
+                window.UpdateLayout();
+
+                var viewsBefore = new List<IWidgetContentView>(window.Views);
+                var slotsBefore = new List<ContentControl>(window.ContentSlots);
+                var tabsBefore = new List<Grid>(window.TabStrip.TabButtons);
+                double widthBefore = window.Width;
+                double heightBefore = window.Height;
+
+                window.SetActive(0);
+                window.ReorderMember(0, 2);
+                window.UpdateLayout();
+
+                if (window.ActiveMemberId != "todo-1" || window.ActiveIndex != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the dragged member did not stay active at its new index: " +
+                        window.ActiveMemberId + " at " + window.ActiveIndex);
+                }
+                if (group.ActiveWidgetId != "todo-1")
+                {
+                    throw new InvalidOperationException("Group.ActiveWidgetId did not follow the dragged tab");
+                }
+                if (window.Members.Count != 3 ||
+                    window.Members[0].Id != "note-1" ||
+                    window.Members[1].Id != "note-2" ||
+                    window.Members[2].Id != "todo-1")
+                {
+                    throw new InvalidOperationException("the member order is not note/note-2/todo");
+                }
+                for (int i = 0; i < window.Members.Count; i++)
+                {
+                    if (window.Members[i].GroupOrder != i)
+                    {
+                        throw new InvalidOperationException(
+                            "GroupOrder at " + i + " is " + window.Members[i].GroupOrder);
+                    }
+                }
+
+                if (!ReferenceEquals(window.Views[2], viewsBefore[0]) ||
+                    !ReferenceEquals(window.Views[0], viewsBefore[1]) ||
+                    !ReferenceEquals(window.Views[1], viewsBefore[2]))
+                {
+                    throw new InvalidOperationException("the reorder rebuilt or misplaced a view");
+                }
+                if (!ReferenceEquals(window.ContentSlots[2].Content, slotsBefore[0].Content) ||
+                    !ReferenceEquals(window.ContentSlots[0].Content, slotsBefore[1].Content) ||
+                    !ReferenceEquals(window.ContentSlots[1].Content, slotsBefore[2].Content))
+                {
+                    throw new InvalidOperationException("the reorder rebuilt or misplaced a slot");
+                }
+                if (!ReferenceEquals(window.TabStrip.TabButtons[0], tabsBefore[1]) ||
+                    !ReferenceEquals(window.TabStrip.TabButtons[1], tabsBefore[2]) ||
+                    !ReferenceEquals(window.TabStrip.TabButtons[2], tabsBefore[0]))
+                {
+                    throw new InvalidOperationException("the tab visuals did not move with their members");
+                }
+                for (int i = 0; i < window.TabStrip.TabButtons.Count; i++)
+                {
+                    if (!ReferenceEquals(window.TabStrip.TabButtons[i].Tag, window.Members[i]))
+                    {
+                        throw new InvalidOperationException("the tab at " + i + " is not tagged with its member");
+                    }
+                }
+                AssertSingleActiveUnderline(window, 2, "the group after the first reorder");
+
+                int visibleSlots = 0;
+                for (int i = 0; i < window.ContentSlots.Count; i++)
+                {
+                    if (window.ContentSlots[i].Visibility == Visibility.Visible) visibleSlots++;
+                }
+                if (visibleSlots != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the reorder left " + visibleSlots + " visible content slots");
+                }
+                if (window.Width != widthBefore || window.Height != heightBefore)
+                {
+                    throw new InvalidOperationException("the reorder resized the group");
+                }
+                if (!window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the reorder closed the panel");
+                }
+
+                // A moved tab must switch its own member: the handler resolves
+                // the member index at event time, not the construction index.
+                window.SetActive(0);
+                Grid movedTab = window.TabStrip.TabButtons[2];
+                try
+                {
+                    movedTab.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.MouseLeftButtonDownEvent
+                    });
+                }
+                finally
+                {
+                    window.TabStrip.CancelTabDrag();
+                    if (movedTab.IsMouseCaptured) movedTab.ReleaseMouseCapture();
+                }
+                if (window.ActiveMemberId != "todo-1" || window.ActiveIndex != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the moved tab switched to the stale index instead of its member: " +
+                        window.ActiveMemberId + " at " + window.ActiveIndex);
+                }
+
+                // Another tab stays active: moving the first tab to the end
+                // shifts its own index down instead of changing the member.
+                window.SetActive(0);
+                if (window.ActiveMemberId != "note-1")
+                {
+                    throw new InvalidOperationException("the note tab did not become active");
+                }
+                window.ReorderMember(2, 0);
+                window.UpdateLayout();
+
+                if (window.Members[0].Id != "todo-1" ||
+                    window.Members[1].Id != "note-1" ||
+                    window.Members[2].Id != "note-2")
+                {
+                    throw new InvalidOperationException("the second reorder did not restore todo/note/note-2");
+                }
+                for (int i = 0; i < window.Members.Count; i++)
+                {
+                    if (window.Members[i].GroupOrder != i)
+                    {
+                        throw new InvalidOperationException(
+                            "GroupOrder after the second reorder at " + i + " is " + window.Members[i].GroupOrder);
+                    }
+                }
+                if (window.ActiveMemberId != "note-1" || window.ActiveIndex != 1)
+                {
+                    throw new InvalidOperationException(
+                        "another active tab did not follow the move: " + window.ActiveMemberId +
+                        " at " + window.ActiveIndex);
+                }
+                if (group.ActiveWidgetId != "note-1")
+                {
+                    throw new InvalidOperationException("Group.ActiveWidgetId changed while another tab stayed active");
+                }
+                if (!ReferenceEquals(window.Views[0], viewsBefore[0]) ||
+                    !ReferenceEquals(window.Views[1], viewsBefore[1]) ||
+                    !ReferenceEquals(window.Views[2], viewsBefore[2]))
+                {
+                    throw new InvalidOperationException("the second reorder rebuilt a view");
+                }
+                if (window.Width != widthBefore || window.Height != heightBefore)
+                {
+                    throw new InvalidOperationException("the second reorder resized the group");
+                }
+                AssertSingleActiveUnderline(window, 1, "the group after the second reorder");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Removing every member leaves an empty but still open, un-hidden
+        /// group: no throw, no views/slots/tabs, no active member. The manager
+        /// is the one that closes the shell afterwards.
+        /// </summary>
+        private static void GroupRemoveAllMembersLeavesAnEmptyOpenGroup()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowOpenGroupWindow(window);
+
+                var viewsBefore = new List<IWidgetContentView>(window.Views);
+                IWidgetContentView first = window.RemoveMember("todo-1");
+                if (!ReferenceEquals(first, viewsBefore[0]))
+                {
+                    throw new InvalidOperationException("the first removal did not return the todo view");
+                }
+                if (window.ActiveMemberId != "note-1" || group.ActiveWidgetId != "note-1")
+                {
+                    throw new InvalidOperationException("the surviving note did not become active");
+                }
+
+                IWidgetContentView second = window.RemoveMember("note-1");
+                if (!ReferenceEquals(second, viewsBefore[1]))
+                {
+                    throw new InvalidOperationException("the second removal did not return the note view");
+                }
+                window.UpdateLayout();
+
+                if (window.Members.Count != 0 || window.Views.Count != 0 || window.ContentSlots.Count != 0)
+                {
+                    throw new InvalidOperationException(
+                        "the empty group still has " + window.Members.Count + " members / " +
+                        window.Views.Count + " views / " + window.ContentSlots.Count + " slots");
+                }
+                if (window.ActiveMemberId != null || window.ActiveIndex != -1)
+                {
+                    throw new InvalidOperationException(
+                        "the empty group still has the active member " + window.ActiveMemberId);
+                }
+                if (group.ActiveWidgetId != null)
+                {
+                    throw new InvalidOperationException("Group.ActiveWidgetId is still " + group.ActiveWidgetId);
+                }
+                if (window.TabStrip.TabButtons.Count != 0 || window.TabStrip.Underlines.Count != 0)
+                {
+                    throw new InvalidOperationException("the empty group still shows tabs");
+                }
+                if (!window.IsPanelOpen || !window.IsVisible)
+                {
+                    throw new InvalidOperationException("removing the last member closed or hid the group");
+                }
+
+                // The strip's SetActive tolerates an out-of-range index by
+                // clearing the underline instead of throwing.
+                window.TabStrip.SetActive(0);
+                window.TabStrip.SetActive(-1);
+                for (int i = 0; i < window.TabStrip.Underlines.Count; i++)
+                {
+                    if (window.TabStrip.Underlines[i].Visibility == Visibility.Visible)
+                        throw new InvalidOperationException("an empty strip kept an active underline");
+                }
+
+                if (window.RemoveMember(null) != null || window.RemoveMember("missing") != null)
+                {
+                    throw new InvalidOperationException("removing a non-member returned a view");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// The group constructor and the factory overload adopt already
+        /// attached live views: the same instance is put in the slot, no
+        /// Attach/rebuild runs, and AddMember adopts a released view the same
+        /// way.
+        /// </summary>
+        private static void GroupAdoptsReleasedViews()
+        {
+            ThemeManager.Initialize("dark");
+
+            var todoData = new TodoData
+            {
+                Id = "adopt-todo",
+                Name = "Adopted todo",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today
+            };
+            TodoListOps.AddItem(todoData, "Keep me", DateTime.Today);
+            var noteData = new NoteData { Id = "adopt-note", Name = "Adopted note", Color = "#788C5D" };
+
+            var source = new TodoWidget(todoData);
+            var live = source.CalendarView;
+            var released = source.ReleaseContentView();
+
+            var group = new WidgetGroup
+            {
+                Id = "adopt-group",
+                ActiveWidgetId = todoData.Id,
+                PanelWidth = 760,
+                PanelHeight = 540
+            };
+            var window = new WidgetGroupWindow(group,
+                new List<WidgetData> { todoData, noteData },
+                new List<IWidgetContentView> { released, null });
+
+            var factoryTodo = new TodoData
+            {
+                Id = "factory-todo",
+                Name = "Factory todo",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today
+            };
+            var factoryNote = new NoteData { Id = "factory-note", Name = "Factory note", Color = "#788C5D" };
+            var factorySource = new TodoWidget(factoryTodo);
+            var factoryLive = factorySource.CalendarView;
+            var factoryReleased = factorySource.ReleaseContentView();
+            var factoryGroup = new WidgetGroup
+            {
+                Id = "factory-group",
+                ActiveWidgetId = factoryTodo.Id,
+                PanelWidth = 760,
+                PanelHeight = 540
+            };
+            var factoryWindow = WidgetWindowFactory.CreateGroup(factoryGroup,
+                new List<WidgetData> { factoryTodo, factoryNote },
+                new List<IWidgetContentView> { factoryReleased, null }) as WidgetGroupWindow;
+
+            var adoptedNoteData = new NoteData { Id = "adopt-note-2", Name = "Added note", Color = "#B5654A" };
+            var noteSource = new NoteWidget(adoptedNoteData);
+            var noteLive = noteSource.PanelView;
+            var noteReleased = noteSource.ReleaseContentView();
+
+            try
+            {
+                if (!ReferenceEquals(window.Views[0], released))
+                {
+                    throw new InvalidOperationException("the group constructor did not adopt the live todo view");
+                }
+                if (!ReferenceEquals(window.ContentSlots[0].Content, live))
+                {
+                    throw new InvalidOperationException("the adopted todo view is not in the first slot");
+                }
+                if (window.Views[1] == null || window.Views[1] is TodoCalendarView)
+                {
+                    throw new InvalidOperationException("the null content entry did not create a fresh note view");
+                }
+                if (window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("a never-shown group reports an open panel");
+                }
+
+                if (factoryWindow == null)
+                {
+                    throw new InvalidOperationException("the factory overload did not create a group window");
+                }
+                if (!ReferenceEquals(factoryWindow.Views[0], factoryReleased) ||
+                    !ReferenceEquals(factoryWindow.ContentSlots[0].Content, factoryLive))
+                {
+                    throw new InvalidOperationException("the factory overload did not adopt the live view");
+                }
+
+                int before = window.Members.Count;
+                window.AddMember(adoptedNoteData, noteReleased);
+                if (!ReferenceEquals(window.Views[before], noteReleased) ||
+                    !ReferenceEquals(window.ContentSlots[before].Content, noteLive))
+                {
+                    throw new InvalidOperationException("AddMember rebuilt a released view instead of adopting it");
+                }
+                if (!ReferenceEquals(window.Members[before], adoptedNoteData))
+                {
+                    throw new InvalidOperationException("the adopted member is not the appended member");
+                }
+                if (window.Members.Count != before + 1)
+                {
+                    throw new InvalidOperationException("AddMember did not append the adopted member");
+                }
+            }
+            finally
+            {
+                window.Close();
+                if (factoryWindow != null) factoryWindow.Close();
+                source.Close();
+                factorySource.Close();
+                noteSource.Close();
+            }
+        }
+
+        #endregion
+
+        #region Widget host transitions (Task P0-B)
+
+        /// <summary>
+        /// Stands three note/todo widgets up through the real manager in the
+        /// throwaway check sandbox. The data carries explicit panel geometry
+        /// (far offscreen) so every host has a real arranged size and no test
+        /// panel lands on the desktop.
+        /// </summary>
+        private static void SetUpP0BStandaloneWidgets(
+            out WidgetManager manager, out TodoData todo, out NoteData firstNote, out NoteData secondNote)
+        {
+            ThemeManager.Initialize("dark");
+            manager = WidgetManager.Instance;
+
+            // Drop every host/config entry the preceding manager pins left.
+            foreach (var host in manager.Widgets.ToList())
+            {
+                if (host.WidgetId != null) manager.RemoveWidget(host.WidgetId);
+            }
+            manager.Config.Widgets.Clear();
+            manager.Config.Groups = null;
+
+            todo = new TodoData
+            {
+                Id = "p0b-todo",
+                Name = "P0B Todo",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today,
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 380,
+                PanelHeight = 480
+            };
+            firstNote = new NoteData
+            {
+                Id = "p0b-note-1",
+                Name = "P0B Note 1",
+                Color = "#788C5D",
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 320,
+                PanelHeight = 400
+            };
+            secondNote = new NoteData
+            {
+                Id = "p0b-note-2",
+                Name = "P0B Note 2",
+                Color = "#B5654A",
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 340,
+                PanelHeight = 420
+            };
+
+            manager.Config.Widgets.Add(todo);
+            manager.Config.Widgets.Add(firstNote);
+            manager.Config.Widgets.Add(secondNote);
+            manager.Initialize();
+        }
+
+        /// <summary>Removes every host and config entry a P0-B manager pin made.</summary>
+        private static void CleanUpP0B(WidgetManager manager)
+        {
+            if (manager == null) return;
+
+            foreach (var host in manager.Widgets.ToList())
+            {
+                if (!string.IsNullOrEmpty(host.WidgetId)) manager.RemoveWidget(host.WidgetId);
+            }
+
+            // A failed transition may have left a config-only entry behind;
+            // the sandbox config is throwaway, so clearing it is safe.
+            manager.Config.Widgets.Clear();
+            manager.Config.Groups = null;
+        }
+
+        /// <summary>
+        /// Builds the open two-member group every manager pin starts from:
+        /// note 1 merges into the todo target, and the group is shown offscreen
+        /// with the no-fade seam.
+        /// </summary>
+        private static WidgetGroupWindow OpenP0BGroup(WidgetManager manager, TodoData todo, NoteData firstNote)
+        {
+            IWidgetWindow todoHost = manager.FindHostForWidget(todo.Id);
+            IWidgetWindow noteHost = manager.FindHostForWidget(firstNote.Id);
+            if (todoHost == null || noteHost == null)
+            {
+                throw new InvalidOperationException("a standalone host was not created");
+            }
+            if (!manager.MergeWidgets(noteHost, todoHost))
+            {
+                throw new InvalidOperationException("the two standalones did not merge");
+            }
+
+            var groupHost = manager.FindHostForWidget(todo.Id) as WidgetGroupWindow;
+            if (groupHost == null)
+            {
+                throw new InvalidOperationException("the merge produced no group host");
+            }
+
+            groupHost.ShowPanel(-32000, -32000, activate: false, animate: false);
+            groupHost.UpdateLayout();
+            return groupHost;
+        }
+
+        /// <summary>
+        /// MERGING a standalone into an already-open group mutates that group
+        /// in place: the same window instance stays open, every existing view
+        /// is the same reference, the new tab is appended and the active tab
+        /// does not move.
+        /// </summary>
+        private static void P0BMergeIntoOpenGroupKeepsTheLiveHostAndViews()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                var viewsBefore = new List<IWidgetContentView>(groupHost.Views);
+                string activeBefore = groupHost.ActiveMemberId;
+                double widthBefore = groupHost.Width;
+                double heightBefore = groupHost.Height;
+                bool groupClosed = false;
+                groupHost.Closed += (s, e) => groupClosed = true;
+
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (secondHost == null)
+                {
+                    throw new InvalidOperationException("the third standalone host was not created");
+                }
+
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the third standalone did not merge into the open group");
+                }
+
+                var same = manager.FindHostForWidget(todo.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost))
+                {
+                    throw new InvalidOperationException("the open group was closed and recreated");
+                }
+                if (groupClosed || !same.IsVisible || !same.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the open group stopped being open/visible during the merge");
+                }
+                if (same.Members.Count != 3 || !ReferenceEquals(same.Members[2], secondNote))
+                {
+                    throw new InvalidOperationException("the merged widget is not the appended tab");
+                }
+                if (!ReferenceEquals(same.Views[0], viewsBefore[0]) ||
+                    !ReferenceEquals(same.Views[1], viewsBefore[1]))
+                {
+                    throw new InvalidOperationException("the merge recreated an existing member view");
+                }
+                if (same.ActiveMemberId != activeBefore || same.ActiveIndex != 0)
+                {
+                    throw new InvalidOperationException("the merge changed the active tab to " + same.ActiveMemberId);
+                }
+                if (secondNote.GroupId != same.WidgetId || secondNote.GroupOrder != 2)
+                {
+                    throw new InvalidOperationException("the appended member did not get the last group slot");
+                }
+                if (!ReferenceEquals(manager.FindHostForWidget(secondNote.Id), same))
+                {
+                    throw new InvalidOperationException("the merged source kept a host of its own");
+                }
+                if (Math.Abs(same.Width - widthBefore) > 0.01 || Math.Abs(same.Height - heightBefore) > 0.01)
+                {
+                    throw new InvalidOperationException("a smaller member resized the open group");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// R1: merging a standalone whose panel is larger than the open group
+        /// appends its tab/view but never touches the group's own geometry -
+        /// Width/Height and WidgetGroup.PanelWidth/PanelHeight stay exactly as
+        /// they were, and the source keeps its remembered size.
+        /// </summary>
+        private static void P0BMergeLargerStandaloneKeepsTheGroupSize()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+
+                // A standalone clearly larger than the two-member group.
+                double sourceWidth = groupHost.Width + 260;
+                double sourceHeight = groupHost.Height + 200;
+                secondNote.PanelWidth = sourceWidth;
+                secondNote.PanelHeight = sourceHeight;
+
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (secondHost == null)
+                {
+                    throw new InvalidOperationException("the larger standalone host was not created");
+                }
+
+                double widthBefore = groupHost.Width;
+                double heightBefore = groupHost.Height;
+                double? panelWidthBefore = groupHost.Group.PanelWidth;
+                double? panelHeightBefore = groupHost.Group.PanelHeight;
+                int tabsBefore = groupHost.TabStrip.TabButtons.Count;
+
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the larger standalone did not merge into the group");
+                }
+
+                var same = manager.FindHostForWidget(todo.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost))
+                {
+                    throw new InvalidOperationException("the merge replaced the open group");
+                }
+                if (same.Members.Count != tabsBefore + 1 ||
+                    same.Views.Count != tabsBefore + 1 ||
+                    same.TabStrip.TabButtons.Count != tabsBefore + 1 ||
+                    !ReferenceEquals(same.Members[same.Members.Count - 1], secondNote) ||
+                    !ReferenceEquals(same.Views[same.Views.Count - 1].Data, secondNote))
+                {
+                    throw new InvalidOperationException(
+                        "the larger standalone was not appended as the last tab/view");
+                }
+                if (same.Width != widthBefore || same.Height != heightBefore)
+                {
+                    throw new InvalidOperationException(
+                        "merging a larger standalone resized the group from " + widthBefore + "x" +
+                        heightBefore + " to " + same.Width + "x" + same.Height);
+                }
+                if (same.Group.PanelWidth != panelWidthBefore ||
+                    same.Group.PanelHeight != panelHeightBefore)
+                {
+                    throw new InvalidOperationException(
+                        "merging a larger standalone rewrote the group panel size (" +
+                        same.Group.PanelWidth + "x" + same.Group.PanelHeight + ", wanted " +
+                        panelWidthBefore + "x" + panelHeightBefore + ")");
+                }
+                if (secondNote.PanelWidth != sourceWidth || secondNote.PanelHeight != sourceHeight)
+                {
+                    throw new InvalidOperationException(
+                        "the merged widget's remembered size was rewritten (" +
+                        secondNote.PanelWidth + "x" + secondNote.PanelHeight + ")");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// DETACHING from a three-member group keeps the group window and its
+        /// surviving views; the detached standalone hosts the exact view the
+        /// group tab owned, at the group's cascade.
+        /// </summary>
+        private static void P0BDetachKeepsTheGroupAndMovesTheLiveView()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the third standalone did not merge into the group");
+                }
+
+                string groupId = groupHost.WidgetId;
+                var viewsBefore = new List<IWidgetContentView>(groupHost.Views);
+                double widthBefore = groupHost.Width;
+                double heightBefore = groupHost.Height;
+                string activeBefore = groupHost.ActiveMemberId;
+                bool groupClosed = false;
+                groupHost.Closed += (s, e) => groupClosed = true;
+
+                if (!manager.DetachWidget(groupId, secondNote.Id))
+                {
+                    throw new InvalidOperationException("detaching the third tab was refused");
+                }
+
+                var same = manager.FindHostForWidget(todo.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost))
+                {
+                    throw new InvalidOperationException("detaching closed/recreated the surviving group");
+                }
+                if (groupClosed || !same.IsVisible || !same.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the surviving group stopped being open/visible");
+                }
+                if (same.Members.Count != 2 || same.ContainsWidget(secondNote.Id))
+                {
+                    throw new InvalidOperationException("the surviving group carries the wrong tabs");
+                }
+                if (!ReferenceEquals(same.Views[0], viewsBefore[0]) ||
+                    !ReferenceEquals(same.Views[1], viewsBefore[1]))
+                {
+                    throw new InvalidOperationException("detaching recreated a surviving member view");
+                }
+                if (same.ActiveMemberId != activeBefore)
+                {
+                    throw new InvalidOperationException("detaching an inactive tab changed the active tab");
+                }
+                if (Math.Abs(same.Width - widthBefore) > 0.01 || Math.Abs(same.Height - heightBefore) > 0.01)
+                {
+                    throw new InvalidOperationException("detaching resized the surviving group");
+                }
+                if (secondNote.GroupId != null || secondNote.GroupOrder != null)
+                {
+                    throw new InvalidOperationException("the detached member kept its membership");
+                }
+
+                var detached = manager.FindHostForWidget(secondNote.Id) as WidgetWindowBase;
+                if (detached == null || detached is WidgetGroupWindow)
+                {
+                    throw new InvalidOperationException("the detached member got no standalone host");
+                }
+                if (!ReferenceEquals(detached.PanelChrome.ContentHost.Content, viewsBefore[2].View))
+                {
+                    throw new InvalidOperationException("the detached standalone hosts a recreated view");
+                }
+                if (!detached.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the detached standalone was not shown before the swap");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// Detaching the ACTIVE tab must leave the surviving group open. The
+        /// detached host is shown without activation: activating it would
+        /// deactivate an unpinned group and its existing Window_Deactivated
+        /// rule would collapse the group.
+        /// </summary>
+        private static void P0BDetachActiveTabKeepsTheGroupOpen()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                IWidgetWindow secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the third standalone did not merge into the group");
+                }
+
+                string groupId = groupHost.WidgetId;
+                if (groupHost.ActiveMemberId != todo.Id)
+                {
+                    throw new InvalidOperationException("the fixture's active tab is not the one being detached");
+                }
+
+                // Make the group the active window so the removed
+                // activate-detached branch would actually deactivate it.
+                groupHost.Activate();
+
+                bool groupClosed = false;
+                groupHost.Closed += (s, e) => groupClosed = true;
+
+                if (!manager.DetachWidget(groupId, todo.Id))
+                {
+                    throw new InvalidOperationException("detaching the active tab was refused");
+                }
+
+                var same = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost))
+                {
+                    throw new InvalidOperationException("detaching the active tab closed/recreated the group");
+                }
+                if (groupClosed || !same.IsVisible || !same.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("detaching the active tab collapsed the surviving group");
+                }
+                if (same.ActiveMemberId != firstNote.Id)
+                {
+                    throw new InvalidOperationException(
+                        "the active tab after detaching is " + same.ActiveMemberId + ", wanted the survivor");
+                }
+                if (same.Members.Count != 2 || same.ContainsWidget(todo.Id))
+                {
+                    throw new InvalidOperationException("the surviving group carries the wrong tabs");
+                }
+                if (todo.GroupId != null || todo.GroupOrder != null)
+                {
+                    throw new InvalidOperationException("the detached active tab kept its membership");
+                }
+
+                var detached = manager.FindHostForWidget(todo.Id) as WidgetWindowBase;
+                if (detached == null || detached is WidgetGroupWindow)
+                {
+                    throw new InvalidOperationException("the detached active tab got no standalone host");
+                }
+                if (!detached.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the detached active tab was not shown");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// The LAST-PAIR DISSOLVE takes both live views out of the group, shows
+        /// both standalone hosts and then closes the group. Each standalone
+        /// hosts the exact view instance the group had.
+        /// </summary>
+        private static void P0BLastPairDissolveMovesBothLiveViews()
+        {
+            WidgetManager manager = null;
+            TodoData todo;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpP0BStandaloneWidgets(out manager, out todo, out firstNote, out secondNote);
+
+            try
+            {
+                WidgetGroupWindow groupHost = OpenP0BGroup(manager, todo, firstNote);
+                string groupId = groupHost.WidgetId;
+                var viewsBefore = new List<IWidgetContentView>(groupHost.Views);
+                bool groupClosed = false;
+                groupHost.Closed += (s, e) => groupClosed = true;
+
+                if (!manager.DetachWidget(groupId, firstNote.Id))
+                {
+                    throw new InvalidOperationException("the last-pair detach was refused");
+                }
+
+                if (!groupClosed)
+                {
+                    throw new InvalidOperationException("the dissolved group window was not closed");
+                }
+                if (manager.FindHostForWidget(groupId) != null)
+                {
+                    throw new InvalidOperationException("the dissolved group still resolves to a host");
+                }
+                if (manager.Config.Groups != null && manager.Config.Groups.Count != 0)
+                {
+                    throw new InvalidOperationException("the dissolved group kept its config entry");
+                }
+
+                var todoHost = manager.FindHostForWidget(todo.Id) as WidgetWindowBase;
+                var noteHost = manager.FindHostForWidget(firstNote.Id) as WidgetWindowBase;
+                if (todoHost == null || todoHost is WidgetGroupWindow)
+                {
+                    throw new InvalidOperationException("the survivor did not become a standalone host");
+                }
+                if (noteHost == null || noteHost is WidgetGroupWindow)
+                {
+                    throw new InvalidOperationException("the detached member did not become a standalone host");
+                }
+                if (!ReferenceEquals(todoHost.PanelChrome.ContentHost.Content, viewsBefore[0].View))
+                {
+                    throw new InvalidOperationException("the survivor hosts a recreated view");
+                }
+                if (!ReferenceEquals(noteHost.PanelChrome.ContentHost.Content, viewsBefore[1].View))
+                {
+                    throw new InvalidOperationException("the detached member hosts a recreated view");
+                }
+                if (!todoHost.IsPanelOpen || !noteHost.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("an open group's dissolve left a standalone closed");
+                }
+                if (todo.GroupId != null || firstNote.GroupId != null)
+                {
+                    throw new InvalidOperationException("a dissolved member kept its group membership");
+                }
+                if (todo.IsPanelPinned != groupHost.Group.IsPanelPinned ||
+                    firstNote.IsPanelPinned != groupHost.Group.IsPanelPinned)
+                {
+                    throw new InvalidOperationException("the dissolved members did not inherit the group pin");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// Adding/removing a group badge is a membership-only refresh: the
+        /// island keeps the existing Border tiles and adds/removes the badge
+        /// and tooltip in place.
+        /// </summary>
+        private static void P0BIslandUpdatesBadgesInPlace()
+        {
+            ThemeManager.Initialize("dark");
+            var first = new FolderData { Name = "P0B badge todo", Color = "#B5654A" };
+            var second = new FolderData { Name = "P0B badge note", Color = "#4A7BB5" };
+            var island = new IslandWindow();
+            try
+            {
+                var widgets = new WidgetData[] { first, second };
+                island.SetWidgets(widgets);
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var before = TilePanelOf(island).Children.Cast<Border>().ToList();
+                if (before.Count != 2)
+                {
+                    throw new InvalidOperationException("the island built " + before.Count + " tiles, wanted 2");
+                }
+
+                var info = new WidgetGroupTileInfo { MemberCount = 2, MemberNames = "P0B badge todo / P0B badge note" };
+                var groupInfo = new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal)
+                {
+                    { first.Id, info },
+                    { second.Id, info }
+                };
+
+                island.SetWidgets(widgets, groupInfo);
+                island.UpdateLayout();
+
+                var after = TilePanelOf(island).Children.Cast<Border>().ToList();
+                if (!ReferenceEquals(after[0], before[0]) || !ReferenceEquals(after[1], before[1]))
+                {
+                    throw new InvalidOperationException("the membership refresh replaced the tile visuals");
+                }
+                foreach (var tile in after)
+                {
+                    var badge = FindGroupBadge(tile);
+                    if (badge == null || badge.Width != 14 || badge.Height != 14)
+                    {
+                        throw new InvalidOperationException("the in-place refresh did not add the 14x14 badge");
+                    }
+                }
+                if (!(after[0].ToolTip as string ?? string.Empty).Contains("P0B badge note"))
+                {
+                    throw new InvalidOperationException("the in-place refresh did not add the member names to the tooltip");
+                }
+
+                island.SetWidgets(widgets);
+                island.UpdateLayout();
+
+                var ungrouped = TilePanelOf(island).Children.Cast<Border>().ToList();
+                if (!ReferenceEquals(ungrouped[0], before[0]) || !ReferenceEquals(ungrouped[1], before[1]))
+                {
+                    throw new InvalidOperationException("removing the group info replaced the tile visuals");
+                }
+                if (FindGroupBadge(ungrouped[0]) != null || FindGroupBadge(ungrouped[1]) != null)
+                {
+                    throw new InvalidOperationException("the in-place refresh kept a stale group badge");
+                }
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        /// <summary>
+        /// The show seam with <c>animate:false</c> clears a running open fade
+        /// and lands the shell at opacity 1 before returning, so a host swap
+        /// never flashes from transparent.
+        /// </summary>
+        private static void P0BNoAnimationShowLandsAtFullOpacity()
+        {
+            ThemeManager.Initialize("dark");
+            var widget = new TodoWidget(new TodoData
+            {
+                Id = "p0b-show-todo",
+                Name = "P0B show",
+                Color = "#6A9BCC",
+                SelectedDate = DateTime.Today
+            });
+            try
+            {
+                widget.ShowPanel(-32000, -32000, activate: false, animate: true);
+                widget.ShowPanel(-32000, -32000, activate: false, animate: false);
+
+                if (widget.PanelChrome == null)
+                {
+                    throw new InvalidOperationException("the todo window has no chrome shell");
+                }
+                if (widget.PanelChrome.Shell.Opacity != 1)
+                {
+                    throw new InvalidOperationException(
+                        "the no-animation show left the shell at opacity " + widget.PanelChrome.Shell.Opacity);
+                }
+                if (!widget.IsVisible || !widget.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the no-animation show did not open the panel");
+                }
+            }
+            finally
+            {
+                widget.Close();
+            }
         }
 
         #endregion

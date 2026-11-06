@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Kobold.Core
 {
     /// <summary>What the shell actually did with a drop that left the panel.</summary>
@@ -23,17 +26,19 @@ namespace Kobold.Core
 
     /// <summary>
     /// Turns the result of a drag that started in a panel into an action for the
-    /// dragged items. Pure so tests/DragOutCheck can cover the combinations.
+    /// dragged items. The shell's receipt alone is not trusted: the source path's
+    /// actual existence after the drag decides whether the file really left.
+    /// Pure so tests/DragOutCheck can cover the combinations.
     /// </summary>
     public static class DragOutPolicy
     {
         /// <summary>
-        /// The shell's effect decides: a move relocated the files, a copy left the
-        /// originals alone, and an ignored drop falls back to the panel's own
-        /// restore behaviour when the release happened outside the panel.
+        /// The shell's effect and the source check decide: a source that is still
+        /// on disk never gets deleted or ejected on a move/copy receipt, and a
+        /// source that is gone is removed instead of ejected.
         /// </summary>
         public static DragOutAction Resolve(ExternalDropEffect effect, bool handledInsideApp,
-            bool releasedOutsidePanel, bool locked)
+            bool releasedOutsidePanel, bool locked, bool sourceStillExists)
         {
             // A locked widget never gives its items up.
             if (locked) return DragOutAction.KeepItems;
@@ -41,15 +46,71 @@ namespace Kobold.Core
             // Reordering and cross-widget merges are ours to handle.
             if (handledInsideApp) return DragOutAction.KeepItems;
 
+            // The file already left the widget (or never existed): drop the item,
+            // but never "restore" a path that is not there.
+            if (!sourceStillExists) return DragOutAction.RemoveItems;
+
             switch (effect)
             {
                 case ExternalDropEffect.Move:
-                    return DragOutAction.RemoveItems; // the files are already at the target
+                    // The shell claimed a move but the source is still here. Trust
+                    // the disk, not the receipt: a wrong or partial Move would lose
+                    // the file, while keeping it can at worst leave a duplicate the
+                    // user can clean up.
+                    return DragOutAction.KeepItems;
                 case ExternalDropEffect.Copy:
                     return DragOutAction.KeepItems;   // the originals are still managed here
                 default:
                     return releasedOutsidePanel ? DragOutAction.EjectAndRemove : DragOutAction.KeepItems;
             }
+        }
+
+        /// <summary>
+        /// Evaluates every dragged path on its own so a mixed selection can
+        /// remove, eject or keep each item independently. The caller supplies the
+        /// disk check, keeping this policy pure.
+        /// </summary>
+        public static List<DragOutAction> ResolveSelection(ExternalDropEffect effect, bool handledInsideApp,
+            bool releasedOutsidePanel, bool locked, IEnumerable<string> paths,
+            Func<string, bool> sourceExists)
+        {
+            var actions = new List<DragOutAction>();
+            if (paths == null) return actions;
+            if (sourceExists == null) throw new ArgumentNullException(nameof(sourceExists));
+
+            foreach (string path in paths)
+            {
+                actions.Add(Resolve(effect, handledInsideApp, releasedOutsidePanel, locked,
+                    sourceExists(path)));
+            }
+            return actions;
+        }
+
+        /// <summary>
+        /// The un-hidden paths that may be hidden again after the drag: only the
+        /// ones whose item stayed managed. Removed or ejected files must stay
+        /// visible - their path is gone or was restored elsewhere.
+        /// </summary>
+        public static List<string> PathsToRehide(IEnumerable<string> unhiddenPaths,
+            IEnumerable<string> keptPaths)
+        {
+            var kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (keptPaths != null)
+            {
+                foreach (string path in keptPaths)
+                {
+                    if (!string.IsNullOrEmpty(path)) kept.Add(path);
+                }
+            }
+
+            var rehide = new List<string>();
+            if (unhiddenPaths == null) return rehide;
+
+            foreach (string path in unhiddenPaths)
+            {
+                if (!string.IsNullOrEmpty(path) && kept.Contains(path)) rehide.Add(path);
+            }
+            return rehide;
         }
     }
 }

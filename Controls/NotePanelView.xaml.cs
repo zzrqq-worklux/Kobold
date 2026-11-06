@@ -135,6 +135,17 @@ namespace Kobold.Controls
             AttachCore(data as NoteData, host);
         }
 
+        /// <summary>
+        /// Moves the live note view to another host. The home/detail state and
+        /// the surface stay exactly as they are - the one-time subscriptions
+        /// from the constructor and <see cref="AttachCore"/> are never re-run,
+        /// and nothing is rebuilt.
+        /// </summary>
+        void IWidgetContentView.RebindHost(IWidgetViewHost host)
+        {
+            _host = host;
+        }
+
         private void AttachCore(NoteData data, IWidgetViewHost host)
         {
             _data = data ?? new NoteData();

@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:icons="clr-namespace:Kobold.Controls"
+             xmlns:helpers="clr-namespace:Kobold.Helpers"
              TextOptions.TextFormattingMode="Display">
 
     <!-- Content-agnostic widget shell: rounded border + shadow, a 40px header
@@ -28,12 +29,23 @@
                 </Grid.RowDefinitions>
 
                 <!-- Optional bare tab row (group windows only). The host keeps
-                     it empty and collapsed for every existing widget. -->
-                <ContentPresenter x:Name="TabHost" x:FieldModifier="public" Grid.Row="0"/>
+                     it empty and collapsed for every existing widget. Its blank
+                     area is a second whole-window drag surface: the same
+                     handlers the header uses, so the drag state machine stays
+                     in one place. The transparent Border makes the empty
+                     stretch beside the tabs hit-testable. -->
+                <Border x:Name="TabHost" x:FieldModifier="public" Grid.Row="0"
+                        Background="Transparent"
+                        Cursor="{x:Static helpers:CursorHelper.OpenHand}"
+                        MouseLeftButtonDown="Header_MouseLeftButtonDown"
+                        MouseMove="Header_MouseMove"
+                        MouseLeftButtonUp="Header_MouseLeftButtonUp">
+                    <ContentPresenter x:Name="TabContent"/>
+                </Border>
 
                 <!-- Header - drag handle for moving the panel; right-click opens the widget menu -->
                 <Border x:Name="Header" x:FieldModifier="public" Grid.Row="1" CornerRadius="12,12,0,0" Padding="12,0"
-                        Cursor="Hand"
+                        Cursor="{x:Static helpers:CursorHelper.OpenHand}"
                         MouseLeftButtonDown="Header_MouseLeftButtonDown"
                         MouseMove="Header_MouseMove"
                         MouseLeftButtonUp="Header_MouseLeftButtonUp"

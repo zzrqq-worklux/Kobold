@@ -77,6 +77,8 @@ namespace Kobold.WidgetGroupsCheck
             GroupHostPolicyPins();
             GroupedMembersAreNotStandalonePanels();
             GroupDragPolicyPins();
+            GroupReorderPolicyPins();
+            SurfaceSwitchGatePins();
         }
 
         /// <summary>
@@ -660,6 +662,75 @@ namespace Kobold.WidgetGroupsCheck
         }
 
         /// <summary>
+        /// P1 in-strip reorder rule: a pointer gap (0..count) becomes the final
+        /// index after the move. Moving right lands before the gap, moving left
+        /// lands at the gap, both same-gap spellings are no-ops, and invalid
+        /// input returns the source index instead of throwing.
+        /// </summary>
+        private static void GroupReorderPolicyPins()
+        {
+            Check(GroupDragPolicy.ReorderIndex(0, 1, 3) == 0,
+                "reorder: the gap just after the source is a no-op");
+            Check(GroupDragPolicy.ReorderIndex(0, 2, 3) == 1,
+                "reorder: moving right one slot takes the gap and removes it");
+            Check(GroupDragPolicy.ReorderIndex(0, 3, 3) == 2,
+                "reorder: the end gap lands on the last index");
+            Check(GroupDragPolicy.ReorderIndex(2, 1, 3) == 1,
+                "reorder: moving left one slot takes the gap");
+            Check(GroupDragPolicy.ReorderIndex(2, 0, 3) == 0,
+                "reorder: moving left to the first gap lands first");
+            Check(GroupDragPolicy.ReorderIndex(1, 1, 3) == 1
+                  && GroupDragPolicy.ReorderIndex(1, 2, 3) == 1,
+                "reorder: both spellings of the source's own gap are no-ops");
+            Check(GroupDragPolicy.ReorderIndex(1, 3, 2) == 1,
+                "reorder: a two-member end-gap drop leaves the last tab in place");
+            Check(GroupDragPolicy.ReorderIndex(0, 0, 1) == 0
+                  && GroupDragPolicy.ReorderIndex(0, 1, 1) == 0,
+                "reorder: a single-member strip always returns the source index");
+
+            Check(GroupDragPolicy.ReorderIndex(-1, 1, 3) == -1,
+                "reorder: a negative source returns the source");
+            Check(GroupDragPolicy.ReorderIndex(3, 1, 3) == 3,
+                "reorder: a source past the last tab returns the source");
+            Check(GroupDragPolicy.ReorderIndex(1, -1, 3) == 1,
+                "reorder: a negative insertion gap returns the source");
+            Check(GroupDragPolicy.ReorderIndex(1, 4, 3) == 1,
+                "reorder: an insertion gap past count returns the source");
+            Check(GroupDragPolicy.ReorderIndex(0, 0, 0) == 0,
+                "reorder: an empty strip returns the source");
+        }
+
+        /// <summary>
+        /// R6 activation gate: Begin issues increasing tokens, only the latest
+        /// is current, a new Begin stales the older token, and Invalidate stales
+        /// the current token. Repeated Invalidate calls stay safe.
+        /// </summary>
+        private static void SurfaceSwitchGatePins()
+        {
+            var gate = new SurfaceSwitchGate();
+            Check(!gate.IsCurrent(0), "gate: a fresh gate has no current token");
+
+            int first = gate.Begin();
+            int second = gate.Begin();
+            Check(second > first, "gate: Begin returns increasing tokens");
+            Check(!gate.IsCurrent(first), "gate: an older token is stale after a new Begin");
+            Check(gate.IsCurrent(second), "gate: only the latest token is current");
+
+            gate.Invalidate();
+            Check(!gate.IsCurrent(second), "gate: Invalidate stales the current token");
+
+            gate.Invalidate();
+            gate.Invalidate();
+            Check(!gate.IsCurrent(second), "gate: repeated Invalidate is safe");
+
+            int after = gate.Begin();
+            Check(gate.IsCurrent(after) && !gate.IsCurrent(second),
+                "gate: the next Begin is current after Invalidate");
+            Check(!gate.IsCurrent(unchecked(after + 1000)),
+                "gate: an unrelated token is never current");
+        }
+
+        /// <summary>
         /// A minimal IWidgetWindow for the pure policy pins. It never opens a
         /// panel, so it needs no WPF tree.
         /// </summary>
@@ -676,7 +747,7 @@ namespace Kobold.WidgetGroupsCheck
             public bool IsModalOpen => false;
 
             public (double width, double height) GetPanelSize() => (300, 200);
-            public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true) { }
+            public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true, bool animate = true) { }
             public void HidePanel() { }
             public void ShowWidgetMenu(Action onClosed) { }
             public void UpdateUI() { }

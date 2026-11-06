@@ -17,6 +17,20 @@ namespace Kobold.Core
 
         public static void WriteAllText(string path, string contents)
         {
+            WriteAllText(path, contents, null);
+        }
+
+        /// <summary>
+        /// Atomic write with an optional rotating backup. When the target
+        /// exists, <see cref="File.Replace(string, string, string)"/> swaps the
+        /// new contents in and moves the old target to
+        /// <paramref name="backupPath"/> in one step, so after two writes the
+        /// main file is the newest and the backup the previous generation. A
+        /// missing target is created with a plain move, which deliberately
+        /// leaves an existing recovery backup alone.
+        /// </summary>
+        public static void WriteAllText(string path, string contents, string backupPath)
+        {
             Utils.EnsureDirectoryExists(Path.GetDirectoryName(path));
 
             string temp = path + ".tmp";
@@ -30,7 +44,7 @@ namespace Kobold.Core
                     stream.Flush(true); // push to disk before the old file is replaced
                 }
 
-                ReplaceWithRetry(temp, path);
+                ReplaceWithRetry(temp, path, backupPath);
             }
             catch
             {
@@ -43,13 +57,13 @@ namespace Kobold.Core
         /// Swaps the temp file into place, retrying only the transient
         /// "another process is holding it" failures - the last attempt throws.
         /// </summary>
-        private static void ReplaceWithRetry(string temp, string target)
+        private static void ReplaceWithRetry(string temp, string target, string backupPath)
         {
             for (int attempt = 1; ; attempt++)
             {
                 try
                 {
-                    if (File.Exists(target)) File.Replace(temp, target, null);
+                    if (File.Exists(target)) File.Replace(temp, target, backupPath);
                     else File.Move(temp, target);
                     return;
                 }

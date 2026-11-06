@@ -129,6 +129,17 @@ namespace Kobold.Controls
             AttachCore(data as TodoData, host);
         }
 
+        /// <summary>
+        /// Moves the live calendar to another host. The one-time root menu
+        /// subscription made by <see cref="AttachCore"/> is kept and the
+        /// calendar is not rebuilt; only the host calls (content height,
+        /// selection persistence) follow the new window.
+        /// </summary>
+        void IWidgetContentView.RebindHost(IWidgetViewHost host)
+        {
+            _host = host;
+        }
+
         private void AttachCore(TodoData data, IWidgetViewHost host)
         {
             _data = data ?? new TodoData();

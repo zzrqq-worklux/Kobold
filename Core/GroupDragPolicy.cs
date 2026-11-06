@@ -43,6 +43,23 @@ namespace Kobold.Core
         public static bool ShouldDissolve(int memberCount) => memberCount < 2;
 
         /// <summary>
+        /// The final index of a tab dragged from <paramref name="from"/> to the
+        /// gap <paramref name="insertionIndex"/> (<c>0..count</c>): a gap right
+        /// of the source shifts down once to account for the removed source.
+        /// A same-gap drop and any invalid input return the source index.
+        /// </summary>
+        public static int ReorderIndex(int from, int insertionIndex, int count)
+        {
+            if (count <= 0 || from < 0 || from >= count) return from;
+            if (insertionIndex < 0 || insertionIndex > count) return from;
+
+            int final = insertionIndex > from ? insertionIndex - 1 : insertionIndex;
+            if (final < 0) return 0;
+            if (final > count - 1) return count - 1;
+            return final;
+        }
+
+        /// <summary>
         /// The tab index a merged source takes: after the last target tab.
         /// A negative/empty target clamps to the first slot.
         /// </summary>

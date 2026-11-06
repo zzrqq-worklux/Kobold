@@ -95,6 +95,11 @@ namespace Kobold.Controls
         // collapse the panel underneath it.
         private int _modalDepth;
 
+        // True once ReleaseContentView handed this window's live view to
+        // another host: the subclass close hooks must then leave that view
+        // alone (it belongs to the new window now).
+        private bool _contentReleased;
+
         /// <summary>Raised when the widget was deleted by the user.</summary>
         public event Action<IWidgetWindow> OnDeleted;
 
@@ -167,6 +172,7 @@ namespace Kobold.Controls
             chrome.HeaderDragStarted += OnHeaderDragStarted;
             chrome.HeaderDragMoved += OnHeaderDragMoved;
             chrome.HeaderDragEnded += OnHeaderDragEnded;
+            chrome.HeaderDragCancelled += OnHeaderDragCancelled;
             chrome.ResizeStarted += OnResizeStarted;
             chrome.ResizeMoved += OnResizeMoved;
             chrome.ResizeEnded += OnResizeEnded;
@@ -179,6 +185,34 @@ namespace Kobold.Controls
                 Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(ClearMergeHint));
             chrome.ApplyOpacity(GetPanelOpacity());
             UpdateUI();
+        }
+
+        /// <summary>
+        /// True once <see cref="ReleaseContentView"/> handed this window's
+        /// live view to another host. A subclass Closing handler skips its
+        /// own view teardown while this is set - the view now belongs to the
+        /// adopting window.
+        /// </summary>
+        internal bool HasReleasedContentView => _contentReleased;
+
+        /// <summary>
+        /// Detaches the live content view from this window's chrome so a new
+        /// host can adopt it: deactivates and flushes it first (no pending
+        /// edit is lost), empties the content slot and remembers the release.
+        /// Returns null when there is no view to release. The view itself is
+        /// not rebuilt or re-attached.
+        /// </summary>
+        internal IWidgetContentView ReleaseContentView()
+        {
+            var host = Chrome == null ? null : Chrome.ContentHost;
+            var view = host == null ? null : host.Content as IWidgetContentView;
+            if (view == null) return null;
+
+            view.Deactivate();
+            view.FlushPendingEdit();
+            host.Content = null;
+            _contentReleased = true;
+            return view;
         }
 
         #region IWidgetWindow
@@ -223,8 +257,11 @@ namespace Kobold.Controls
         /// Shows the expanded panel, using this widget's remembered position
         /// when it has one, otherwise the supplied default (below the island).
         /// Used by the island and by the widget menu's show/hide entry.
+        /// <paramref name="animate"/> false is the host-swap seam: any running
+        /// open fade is cleared and the shell is opaque before the first
+        /// frame, so a replacement host never flashes from transparent.
         /// </summary>
-        public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true)
+        public void ShowPanel(double defaultLeft, double defaultTop, bool activate = true, bool animate = true)
         {
             UpdateUI();
             Chrome.ApplyOpacity(GetPanelOpacity()); // pick up a settings change while closed
@@ -244,6 +281,15 @@ namespace Kobold.Controls
             OnPanelShown();
             PersistPanelState(true);
             if (!wasOpen) PanelVisibilityChanged?.Invoke(true);
+
+            // Clear a previous fade before the window is shown: setting the
+            // property while a clock still owns it would not paint.
+            if (!animate)
+            {
+                Chrome.Shell.BeginAnimation(UIElement.OpacityProperty, null);
+                Chrome.Shell.Opacity = 1;
+            }
+
             if (!IsVisible)
             {
                 // Opening several panels together ("Show All") must not activate
@@ -254,12 +300,16 @@ namespace Kobold.Controls
                 ShowActivated = true;
             }
             if (activate) Activate();
-            AnimationHelper.PanelOpen(Chrome.Shell);
+            if (animate) AnimationHelper.PanelOpen(Chrome.Shell);
         }
 
         /// <summary>Fades the panel out and hides its window.</summary>
         public void HidePanel()
         {
+            // A subclass drops its transient drag overlays before the fade: a
+            // ghost must never outlive the panel it belongs to.
+            OnPanelHiding();
+
             if (!_isExpanded)
             {
                 if (IsVisible) Hide();
@@ -275,6 +325,13 @@ namespace Kobold.Controls
 
         /// <summary>Empty hook: a subclass may follow the panel's visibility (e.g. watchers).</summary>
         protected virtual void OnPanelShown() { }
+
+        /// <summary>
+        /// Empty hook: runs at the start of <see cref="HidePanel"/>, before the
+        /// expanded/fade branch, so a subclass can drop transient overlays on
+        /// every hide path.
+        /// </summary>
+        protected virtual void OnPanelHiding() { }
 
         /// <summary>Empty hook: the counterpart of <see cref="OnPanelShown"/>.</summary>
         protected virtual void OnPanelHidden() { }
@@ -658,6 +715,18 @@ namespace Kobold.Controls
                 // the remembered instance is always safe.
                 ClearMergeHint();
             }
+        }
+
+        /// <summary>
+        /// The chrome lost the drag capture before a release: drop the live
+        /// gesture and its shadow without pretending the cursor was released
+        /// (no merge, no position persist).
+        /// </summary>
+        private void OnHeaderDragCancelled()
+        {
+            _dragStarted = false;
+            _isDraggingWindow = false;
+            ClearMergeHint();
         }
 
         /// <summary>

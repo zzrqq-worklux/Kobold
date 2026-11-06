@@ -60,9 +60,9 @@ docs/superpowers/plans/2026-11-03-widget-groups.md 的对应任务。
 1. **标签位置**：顶部标签，位于 title 之上，全部左对齐。
 2. **标签视觉**：无底框、无胶囊、无常驻背景；active 只用 **2px 细下划线** + 当前组件色图标 + 文字加粗；hover 只提亮文字；键盘 focus 才显示 1px 焦点环/下划线。
 3. **title**：标签显示组件身份，title 显示当前上下文（Todo 选中日、Note 标题、Folder 路径/选择、Search 状态），避免和标签重复。
-4. **island**：保留每个组件一个 tile；同组成员右上角显示数量角标（如 `2`）；只有 active 成员显示 open 环；点击规则见下。
+4. **island**（2026-11-04 P2 设计已确认，取代原“每成员一个 tile”）：同组成员折叠成一个 44×44 组文件夹 tile；内部 2×2 成员图标网格，≤4 全显示，5+ 显示前 3 个 + `+N`；点击向右展开 4 列成员面板；只有展开面板里的 active 成员显示 open 环；折叠 tile 用中性细轮廓表示组打开。实现见 P2 设计节，本轮先不实现。
 5. **尺寸**：组窗口一套尺寸；切换标签不跳窗；成员自己的 `PanelWidth/Height` 只在合并计算和分离恢复时使用；组内不做 per-tab resize。
-6. **组状态**：组级 `IsExpanded/IsLocked/IsPanelPinned/PanelX/Y/DpiScale/Width/Height/ActiveWidgetId`；成员内容状态仍由各自数据和 View 管理。
+6. **组状态**（2026-11-04 P2 设计已确认，取代原“组级 pin”）：组级 `IsExpanded/IsLocked/PanelX/Y/DpiScale/Width/Height/ActiveWidgetId`；pin 改为成员级 `WidgetData.IsPanelPinned`；组内任一成员 pinned → 组窗口失焦不收起，全部未 pinned → 收起；组窗口 header 的 pin 只操作 active 成员；组级 `IsPanelPinned` 变为派生/兼容字段。成员内容状态仍由各自数据和 View 管理。
 7. **首版范围**：不做嵌套组、不做组内单独 resize、不做 group→group 合并、不做标签拖进另一个组。
 8. **Folder**：v1 目标包含 Folder，但按 T3a（行为保持抽取）→ T3b（组内接入）分阶段；若 T3a 回归过大，v1 先发 Todo/Note/Search，Folder 延后，并在计划/CHANGELOG 说明。
 
@@ -554,3 +554,36 @@ Spike GO。用 subagent 模式按计划 T1 → T2 → T3a/T3b → T4 → T5 → 
 每个任务派一个 subagent，先写失败检查；主 agent 不直接写实现，只审核并跑 build + 相关 Check。
 不要提交 git，除非我明确要求。
 ```
+
+---
+
+## P2 · island 组文件夹 + 单成员 pin（2026-11-04 设计确认，实现未开始）
+
+**状态：** 设计已确认；本轮不实现，不改 island 数据结构。视觉稿：
+`docs/mockups/2026-11-04-island-group-folder.html` / `.png`；决策说明：
+`.superpowers/sdd/2026-11-03-widget-groups/P2-design-options.md`。
+
+确认的 7 项：
+
+1. **折叠组 tile**：44×44；内部 2×2 成员图标网格；≤4 全显示，5+ 显示前 3 个 +
+   `+N`（N=count-3）；不使用单个 Folder 图标；不显示数量角标。
+2. **展开面板**：island 胶囊本身向右延伸，不是独立 bubble/popup；左侧 tiles 不动，
+   右侧同一背景/边框/阴影内放 4 列成员网格（1px 内缝，无内圆角、无 pointer notch）；
+   总宽 312 DIP（300–340 范围）；4×66 单元 + 8 间距 + 24 内边距；6 成员 2 行；
+   9–12 成员 3 行；更多内部滚动。
+3. **右侧空间不足**：整条展开后的 island 左移/clamp 并保持 16 DIP 工作区边距，
+   左侧 tiles 和成员区一起移动；v1 不翻到左侧，也不拆成独立 bubble。
+4. **单成员 pin**：每个成员独立 `WidgetData.IsPanelPinned`；组内任一 pinned →
+   组窗口失焦不收起；全部未 pinned → 收起；组窗口 header pin 只操作 active 成员；
+   组级 `WidgetGroup.IsPanelPinned` 变派生/兼容字段。
+5. **open 环**：只在展开面板里标记 active 成员；组窗口继续使用 2px tab 下划线；
+   折叠 tile 不显示成员色环。
+6. **pin 图标**：展开面板里 pinned 成员常显金色直立 pin；未 pinned 默认无图标，
+   hover 显示灰色 45° pin；折叠 tile 不显示 pin。
+7. **组打开提示**：折叠 tile 外加 1.5px 中性色细轮廓；不指向任何成员。
+
+实现顺序（P3，待用户另行派发）：先扩展 `WidgetGroupTileInfo` 为成员投影
+（kind/color/order/pin + overflow），再让 `IslandWindow` 现有 capsule 向右扩展并
+内嵌 4 列成员网格（不要新建独立的 `GroupMemberPanel` Window/Popup），最后把 pin
+规则从组级改为成员级；merge/detach/dissolve 复用 P0-B 的 in-place 刷新。实现前必须
+重新确认 `WidgetGroup.IsPanelPinned` 的兼容迁移与 island 数据投影。
