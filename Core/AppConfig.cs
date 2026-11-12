@@ -411,10 +411,57 @@ namespace Kobold.Core
                     }
                 }
                 if (!activeIsMember) group.ActiveWidgetId = members[0].Id;
+
+                // Legacy groups could carry a group-level pin with no member
+                // pin. Keep that behavior by pinning the active tab; the group
+                // field is always re-derived from the members.
+                int pinned = GroupHostPolicy.PinnedCount(members);
+                if (group.IsPanelPinned && pinned == 0)
+                {
+                    foreach (var member in members)
+                    {
+                        if (string.Equals(member.Id, group.ActiveWidgetId, StringComparison.Ordinal))
+                        {
+                            member.IsPanelPinned = true;
+                            break;
+                        }
+                    }
+                }
+                group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(members);
             }
 
             if (surviving.Count == 0) Groups = null;
             else Groups = surviving;
+        }
+
+        /// <summary>
+        /// Runs the same repair/normalization as Load, without touching disk.
+        /// Used by the control plane to validate a proposed document.
+        /// </summary>
+        internal void RepairForControl()
+        {
+            RepairGroups();
+            if (FileSearch != null) FileSearch.Normalize();
+        }
+
+        /// <summary>
+        /// The load-time legacy migration for a document the control plane is
+        /// about to write: an old non-empty <c>Folders</c> list moves into an
+        /// empty <c>Widgets</c> list, and the retired block is cleared in every
+        /// case, so a legacy document can never be written back with
+        /// <c>Widgets=[]</c> and the folder data dropped.
+        /// </summary>
+        internal void MigrateLegacyForControl()
+        {
+            if (Folders != null && Folders.Count > 0
+                && (Widgets == null || Widgets.Count == 0))
+            {
+                if (Widgets == null) Widgets = new List<WidgetData>();
+                Widgets.AddRange(Folders.Cast<WidgetData>());
+            }
+
+            Folders = null;
+            RepairGroups();
         }
 
         /// <summary>

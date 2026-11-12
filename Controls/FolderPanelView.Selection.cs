@@ -9,9 +9,9 @@ using System.Windows.Media;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Selection related methods (lasso selection, multi-select, clear)
+    /// FolderPanelView - Selection related methods (lasso selection, multi-select, clear)
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         #region Selection State
         

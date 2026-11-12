@@ -18,6 +18,7 @@ $toolsDir = Split-Path $PSScriptRoot -Parent
 
 $runtimeFiles = $KoboldRuntimeFiles
 $uninstallerFiles = $KoboldUninstallerFiles
+$toolFiles = $KoboldToolFiles
 
 $script:Passed = 0
 $script:Failed = 0
@@ -133,13 +134,13 @@ try {
         Check ($version -notmatch '\+') 'SourceLink build metadata is dropped'
     }
 
-    Section 'Install-KoboldFiles copies the runtime files and the uninstaller' {
+    Section 'Install-KoboldFiles copies the runtime files, the uninstaller and the tools' {
         Install-KoboldFiles -Source $source -InstallDir $installDir -ScriptsDir $toolsDir
-        foreach ($file in ($runtimeFiles + $uninstallerFiles)) {
+        foreach ($file in ($runtimeFiles + $uninstallerFiles + $toolFiles)) {
             Check (Test-Path -LiteralPath (Join-Path $installDir $file)) "installed $file"
         }
         Check (@(Get-ChildItem -LiteralPath $installDir -Recurse -File).Count -eq
-            ($runtimeFiles.Count + $uninstallerFiles.Count)) 'the install folder holds exactly the expected files'
+            ($runtimeFiles.Count + $uninstallerFiles.Count + $toolFiles.Count)) 'the install folder holds exactly the expected files'
     }
 
     Section 'Install-KoboldFiles upgrades in place' {
@@ -147,7 +148,7 @@ try {
         Install-KoboldFiles -Source $source -InstallDir $installDir -ScriptsDir $toolsDir
         Check ((Get-Content -LiteralPath (Join-Path $installDir 'Kobold.exe') -Raw) -match 'stub v2') 'the runtime files are refreshed'
         Check (@(Get-ChildItem -LiteralPath $installDir -Recurse -File).Count -eq
-            ($runtimeFiles.Count + $uninstallerFiles.Count)) 'no files pile up'
+            ($runtimeFiles.Count + $uninstallerFiles.Count + $toolFiles.Count)) 'no files pile up'
     }
 
     Section 'Install-KoboldFiles refuses an incomplete source' {

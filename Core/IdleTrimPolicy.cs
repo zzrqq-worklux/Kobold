@@ -17,6 +17,9 @@ namespace Kobold.Core
 
         private bool _trimmedThisIdlePeriod;
 
+        /// <summary>True while the current idle period has already been trimmed.</summary>
+        public bool TrimmedThisIdlePeriod => _trimmedThisIdlePeriod;
+
         /// <summary>Any user interaction restarts the idle period.</summary>
         public void NotifyInteraction()
         {

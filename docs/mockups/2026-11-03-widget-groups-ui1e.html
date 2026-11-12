@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kobold — UI1e · Bare Tabs</title>
+<style>
+:root {
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Fraunces', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, Georgia, serif;
+  --page-ink: #1b1813;
+  --page-muted: #655c4f;
+  --dark-bg: #191714;
+  --dark-surface: #211e1a;
+  --dark-surface2: #2a261f;
+  --dark-border: #3d372e;
+  --dark-text: #faf6ee;
+  --dark-secondary: #cbc3b5;
+  --dark-muted: #91887a;
+  --dark-faint: #6f675b;
+  --dark-accent: #d97757;
+  --todo: #6a9bcc;
+  --note: #788c5d;
+  --gold: #d4a017;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0; padding: 42px 48px 44px;
+  font-family: var(--font-ui); color: var(--page-ink);
+  background:
+    radial-gradient(1000px 560px at 8% -6%, #f4ecdd 0%, rgba(244,236,221,0) 62%),
+    radial-gradient(820px 560px at 96% 12%, #cfc0a7 0%, rgba(207,192,167,0) 58%),
+    linear-gradient(135deg, #e3d7c2 0%, #d6ccba 48%, #c9bba4 100%);
+}
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+svg.icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.icon.sm { width: 13px; height: 13px; }
+svg.icon.xs { width: 11px; height: 11px; }
+.page { max-width: 1540px; margin: 0 auto; }
+
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 26px; }
+.eyebrow { font-size: 10px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase; color: #7a7164; margin-bottom: 10px; }
+.page-head h1 { font-family: var(--font-display); font-weight: 400; font-size: 46px; line-height: 1.02; letter-spacing: -.035em; margin: 0 0 9px; }
+.page-head p { margin: 0; max-width: 780px; font-size: 13px; line-height: 1.7; color: var(--page-muted); }
+.head-side { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; padding-bottom: 4px; }
+.version-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #bfb19b; border-radius: 999px; padding: 6px 11px; font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #5d5548; background: rgba(249,244,234,.62); }
+.version-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--dark-accent); }
+.head-note { font-size: 10px; line-height: 1.65; text-align: right; color: #7a7164; letter-spacing: .02em; white-space: nowrap; }
+
+.section { border: 1px solid rgba(126,111,89,.22); border-radius: 20px; background: rgba(249,244,234,.42); padding: 22px 24px 24px; box-shadow: 0 18px 44px rgba(83,69,48,.08); margin-bottom: 24px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.section-head h2 { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: -.02em; }
+.section-head p { margin: 0; font-size: 11px; line-height: 1.6; color: #7a7164; max-width: 720px; }
+
+.layout { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.demo-card { border: 1px solid rgba(126,111,89,.20); border-radius: 14px; background: rgba(255,253,248,.56); padding: 14px 14px 15px; }
+.demo-title { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 10px; }
+.demo-title b { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: #5d5548; }
+.demo-title span { font-size: 10px; color: #8b8172; }
+.demo-note { margin: 9px 3px 0; font-size: 10.5px; line-height: 1.55; color: #71685a; }
+
+/* bare window */
+.bare { border-radius: 10px; overflow: hidden; border: 1px solid var(--dark-border); background: var(--dark-bg); color: var(--dark-text); box-shadow: 0 12px 28px rgba(0,0,0,.18); }
+.bare-title { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--dark-border); }
+.bare-title .name { font-family: var(--font-display); font-size: 16px; font-weight: 500; }
+.bare-title .meta { font-size: 9.5px; color: var(--dark-muted); }
+.bare-title .acts { margin-left: auto; display: flex; gap: 3px; color: var(--dark-muted); }
+.bare-body { padding: 13px 15px 16px; }
+.bare-sub { font-size: 10px; color: var(--dark-muted); margin-bottom: 8px; }
+.bare-row { height: 28px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--dark-secondary); }
+.bare-row.done { color: var(--dark-faint); text-decoration: line-through; }
+.bare-check { width: 13px; height: 13px; border-radius: 3px; border: 1.2px solid var(--dark-muted); flex: none; }
+.bare-check.on { background: var(--todo); border-color: var(--todo); }
+.bare-line { height: 7px; border-radius: 4px; background: rgba(250,246,238,.07); margin: 8px 0; }
+.bare-line.w80 { width: 80%; }
+.bare-line.w60 { width: 60%; }
+
+/* top bare tabs */
+.top-tabs { display: flex; align-items: flex-end; gap: 24px; padding: 11px 16px 0; }
+.top-tab { position: relative; padding: 0 2px 11px; display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dark-muted); cursor: pointer; }
+.top-tab .ticon { color: var(--dark-muted); display: flex; }
+.top-tab:hover { color: var(--dark-text); }
+.top-tab.active { color: var(--dark-text); font-weight: 600; }
+.top-tab.active .ticon { color: var(--accent, var(--todo)); }
+.top-tab.active::after { content: ''; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--accent, var(--todo)); }
+.top-tab .count { font-size: 9px; color: var(--dark-muted); font-weight: 400; margin-left: 1px; }
+
+/* left bare tabs */
+.left-bare { display: flex; min-height: 220px; }
+.left-tabs { width: 122px; flex: none; border-right: 1px solid var(--dark-border); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.left-tab { position: relative; height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 10px 0 7px; font-size: 11.5px; color: var(--dark-muted); cursor: pointer; }
+.left-tab .ticon { color: var(--dark-muted); display: flex; }
+.left-tab:hover { color: var(--dark-text); }
+.left-tab.active { color: var(--dark-text); font-weight: 600; }
+.left-tab.active .ticon { color: var(--accent, var(--note)); }
+.left-tab.active::after { content: ''; position: absolute; right: 0; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 6px solid var(--accent, var(--note)); }
+.left-pane { flex: 1; min-width: 0; }
+
+/* indicators */
+.indicator-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.indicator-card { border: 1px solid rgba(126,111,89,.20); border-radius: 12px; background: rgba(255,253,248,.58); padding: 13px 14px 14px; }
+.indicator-title { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: #5d5548; font-weight: 600; margin-bottom: 10px; }
+.indicator-demo { height: 46px; border-radius: 8px; background: var(--dark-bg); border: 1px solid var(--dark-border); display: flex; align-items: center; gap: 22px; padding: 0 16px; }
+.ind-tab { position: relative; font-size: 11px; color: var(--dark-muted); padding-bottom: 5px; }
+.ind-tab.active { color: var(--dark-text); font-weight: 600; }
+.ind-tab.active.tri::after { content: ''; position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid var(--todo); }
+.ind-tab.active.underline::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--todo); border-radius: 1px; }
+.ind-tab.active.arrow::after { content: ''; position: absolute; right: -11px; top: 50%; transform: translateY(-50%); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 5px solid var(--todo); }
+.indicator-note { margin-top: 9px; font-size: 10.5px; line-height: 1.55; color: #71685a; }
+
+.principles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
+.principle { border: 1px solid rgba(126,111,89,.20); border-radius: 12px; background: rgba(255,253,248,.58); padding: 12px 14px; }
+.principle b { display: block; font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: #5d5548; margin-bottom: 5px; }
+.principle p { margin: 0; font-size: 10.5px; line-height: 1.6; color: #71685a; }
+
+.footer { display: flex; justify-content: space-between; gap: 24px; font-size: 10px; line-height: 1.6; color: #7a7164; }
+
+@media (max-width: 1180px) {
+  body { padding: 28px 22px 32px; }
+  .layout, .indicator-grid, .principles { grid-template-columns: 1fr; }
+  .page-head { align-items: flex-start; }
+  .head-note { white-space: normal; }
+}
+</style>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"></rect><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"></path></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3.5h8.5L19 8v12.5H6z"></path><path d="M14.5 3.5V8H19M9 12h6M9 15h6M9 18h4"></path></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"></circle></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7.5a4 4 0 0 1 8 0V10M12 14v2"></path></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6"></path></symbol>
+</svg>
+
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Kobold · Widget Groups · UI1e</div>
+      <h1>只留标签本身</h1>
+      <p>不要常驻底框。标签的点击热区靠透明 padding；active 只靠文字/图标颜色 + 一个小三角或下划线。2–3 个组件时，这样最干净，也不会把 header 切成一格一格。</p>
+    </div>
+    <div class="head-side">
+      <div class="version-chip"><i></i>UI1e · 无底框标签</div>
+      <div class="head-note">bare tabs · no persistent pill<br>Todo / Note / Search · 2026-11-03</div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>两种无底框布局</h2>
+      <p>上面是“标签在 title 之上”，下面是“左侧竖排”。两者都没有标签底框；active 分别用向下的小三角、向右的小三角指向当前内容。</p>
+    </div>
+
+    <div class="layout">
+      <div class="demo-card">
+        <div class="demo-title"><b>A · 顶部裸标签</b><span>标签在 title 之上</span></div>
+        <div class="bare" style="--accent:var(--todo);">
+          <div class="top-tabs">
+            <div class="top-tab active"><span class="ticon"><svg class="icon xs"><use href="#i-calendar"></use></svg></span>待办</div>
+            <div class="top-tab"><span class="ticon"><svg class="icon xs"><use href="#i-note"></use></svg></span>笔记</div>
+            <div class="top-tab"><span class="ticon"><svg class="icon xs"><use href="#i-search"></use></svg></span>搜索</div>
+          </div>
+          <div class="bare-title">
+            <span class="name">待办</span><span class="meta">2 个组件</span>
+            <span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span>
+          </div>
+          <div class="bare-body">
+            <div class="bare-sub">11 月 3 日 · 周二</div>
+            <div class="bare-row"><span class="bare-check on"></span>整理标签组的尺寸规则</div>
+            <div class="bare-row"><span class="bare-check"></span>确认 island 点击行为</div>
+            <div class="bare-row done"><span class="bare-check on"></span>阅读 WidgetManager</div>
+            <div class="bare-line w80"></div>
+            <div class="bare-line w60"></div>
+          </div>
+        </div>
+        <div class="demo-note">没有 tab 底框、没有胶囊；只有文字、图标和小三角。点击热区用透明的上下左右 padding 撑开，视觉上仍然只是标签。</div>
+      </div>
+
+      <div class="demo-card">
+        <div class="demo-title"><b>B · 左侧裸标签</b><span>B rail 的无底框版</span></div>
+        <div class="bare" style="--accent:var(--note);">
+          <div class="left-bare">
+            <div class="left-tabs">
+              <div class="left-tab active"><span class="ticon"><svg class="icon xs"><use href="#i-calendar"></use></svg></span>待办</div>
+              <div class="left-tab"><span class="ticon"><svg class="icon xs"><use href="#i-note"></use></svg></span>笔记</div>
+              <div class="left-tab"><span class="ticon"><svg class="icon xs"><use href="#i-search"></use></svg></span>搜索</div>
+            </div>
+            <div class="left-pane">
+              <div class="bare-title"><span class="name">待办</span><span class="meta">2 个组件</span><span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span></div>
+              <div class="bare-body">
+                <div class="bare-sub">左侧只有文字和向右的三角</div>
+                <div class="bare-row"><span class="bare-check on"></span>active 指向右侧内容</div>
+                <div class="bare-row"><span class="bare-check"></span>rail 不再画整块底色</div>
+                <div class="bare-line w80"></div><div class="bare-line w60"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="demo-note">保留左侧竖排，但 rail 也可以是透明面；如果内容需要边界，只留一条 1px 分隔线，不画每个标签的底框。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>active 指示可以很小</h2>
+      <p>不靠底框也能看清当前标签。下面是三种最轻的 active 指示，选一种即可，不建议同时叠太多。</p>
+    </div>
+    <div class="indicator-grid">
+      <div class="indicator-card">
+        <div class="indicator-title">01 · 小三角</div>
+        <div class="indicator-demo">
+          <span class="ind-tab active tri">待办</span>
+          <span class="ind-tab">笔记</span>
+          <span class="ind-tab">搜索</span>
+        </div>
+        <div class="indicator-note">最适合“标签在 title 之上”：三角向下，指到下面的 title/内容。</div>
+      </div>
+      <div class="indicator-card">
+        <div class="indicator-title">02 · 细下划线</div>
+        <div class="indicator-demo">
+          <span class="ind-tab active underline">待办</span>
+          <span class="ind-tab">笔记</span>
+          <span class="ind-tab">搜索</span>
+        </div>
+        <div class="indicator-note">最稳、最像文字导航；没有方向感，但不会和组件色抢。</div>
+      </div>
+      <div class="indicator-card">
+        <div class="indicator-title">03 · 向右小三角</div>
+        <div class="indicator-demo">
+          <span class="ind-tab active arrow">待办</span>
+          <span class="ind-tab">笔记</span>
+          <span class="ind-tab">搜索</span>
+        </div>
+        <div class="indicator-note">适合左侧 rail：三角指进右侧内容，视觉上就是“往这里切”。</div>
+      </div>
+    </div>
+
+    <div class="principles">
+      <div class="principle"><b>点击热区</b><p>透明 padding 撑到 28–34px 高，视觉上仍然只有文字；不画底框也能点。</p></div>
+      <div class="principle"><b>hover / focus</b><p>hover 只提亮文字；键盘 focus 给 1px 焦点环或下划线，不用常驻填充。</p></div>
+      <div class="principle"><b>什么时候才加底框</b><p>标签超过 5 个、或对比度太低时，才加 hover 时的轻填充；常驻底框仍然不需要。</p></div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div><strong>UI1e</strong> · bare tabs, transparent hit area, tiny active indicator · Todo / Note / Search</div>
+    <div>静态视觉稿 · 不改生产代码 · 2026-11-03</div>
+  </footer>
+</div>
+
+</body>
+</html>
+

@@ -35,6 +35,21 @@ namespace Kobold.Core
         /// </summary>
         public const double MaxScreenFraction = 0.25;
 
+        /// <summary>
+        /// Clamps the capsule's left edge so the whole row stays inside the
+        /// work area; an oversized row anchors to the left margin.
+        /// </summary>
+        public static double ClampAnchoredLeft(double left, double width,
+            double workLeft, double workWidth, double margin)
+        {
+            double min = workLeft + margin;
+            double max = workLeft + workWidth - margin - width;
+            if (max < min) return min;
+            if (left < min) return min;
+            if (left > max) return max;
+            return left;
+        }
+
         /// <summary>Width of the widget tiles - one tile plus its gap each.</summary>
         public static double MiddleContentWidth(int widgetCount)
         {

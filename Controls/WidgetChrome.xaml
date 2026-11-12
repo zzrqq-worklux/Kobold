@@ -70,6 +70,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <!-- 6px widget-colour marker: the title stays serif ink,
                                  the dot carries the panel's identity. -->
@@ -84,7 +85,7 @@
                                  the hit target is a comfortable square, not just
                                  the glyph run. The glyph's ink comes from
                                  ApplyTheme (one source of truth). -->
-                            <Border x:Name="TitleChevron" x:FieldModifier="public" Grid.Column="2"
+                            <Border x:Name="TitleChevron" x:FieldModifier="public" Grid.Column="3"
                                     Width="24" Height="24" Background="Transparent" Cursor="Hand"
                                     VerticalAlignment="Center" HorizontalAlignment="Center"
                                     Margin="6,0,0,0" Visibility="Collapsed"
@@ -131,6 +132,31 @@
 
                 <ContentPresenter x:Name="ContentHost" x:FieldModifier="public" Grid.Row="2"/>
                 <ContentPresenter x:Name="FooterHost" x:FieldModifier="public" Grid.Row="3"/>
+
+                <!-- Merge preview: a pre-rendered bitmap of the dragged
+                     standalone component painted over the target's content
+                     area, plus a translucent accent wash and an inside accent
+                     border. Spans every row but never hit-tests, so the
+                     target's header drag and content keep working; collapsed
+                     until a merge target has an image to show. -->
+                <Grid x:Name="MergePreviewLayer" Grid.RowSpan="4"
+                      Visibility="Collapsed" IsHitTestVisible="False">
+                    <Border Background="{DynamicResource Kobold.Brush.AccentSoft}"
+                            CornerRadius="12" Opacity="0.22"/>
+                    <Border BorderBrush="{DynamicResource Kobold.Brush.Accent}"
+                            BorderThickness="2" CornerRadius="12" Opacity="0.9"/>
+                    <Image x:Name="MergePreviewImage" Stretch="Uniform"
+                           Margin="16,80,16,16" Opacity="0.85"/>
+                    <Border x:Name="MergePreviewPill"
+                            HorizontalAlignment="Center" VerticalAlignment="Top"
+                            Background="{DynamicResource Kobold.Brush.Surface2}"
+                            BorderBrush="{DynamicResource Kobold.Brush.Accent}"
+                            BorderThickness="1" CornerRadius="10" Padding="10,3"
+                            Margin="0,48,0,0">
+                        <TextBlock x:Name="MergePreviewLabel" FontSize="10.5"
+                                   Foreground="{DynamicResource Kobold.Brush.TextMuted}"/>
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
 

@@ -63,12 +63,22 @@ namespace Kobold.LangCheck
                         Errors.Add(lang + "." + key + " resolved to raw key");
                 }
 
-                // Format() must work for all placeholder keys
-                foreach (var kv in en.Where(kv => kv.Value.Contains("{0}")))
+                // Format() must work for all placeholder keys. Detect the
+                // highest {n} in the value and pass enough arguments so
+                // string.Format never throws IndexOutOfRange.
+                foreach (var kv in en)
                 {
+                    int highest = Math.Max(
+                        HighestPlaceholderIndex(kv.Value),
+                        HighestPlaceholderIndex(dict[kv.Key]));
+                    if (highest < 0) continue; // no placeholders
+
+                    int argCount = Math.Max(4, highest + 1);
+                    var args = new object[argCount];
+                    for (int i = 0; i < args.Length; i++) args[i] = "test";
                     try
                     {
-                        Localization.Format(kv.Key, "test");
+                        Localization.Format(kv.Key, args);
                     }
                     catch (Exception ex)
                     {
@@ -87,6 +97,32 @@ namespace Kobold.LangCheck
             Console.WriteLine("FAILURES (" + Errors.Count + "):");
             foreach (var e in Errors) Console.WriteLine("  - " + e);
             return 1;
+        }
+
+        /// <summary>
+        /// The highest numeric {n} placeholder index in a format string, or -1
+        /// when it has none. Escaped {{ and non-numeric braces are ignored.
+        /// </summary>
+        private static int HighestPlaceholderIndex(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return -1;
+
+            int highest = -1;
+            for (int i = 0; i < value.Length - 2; i++)
+            {
+                if (value[i] != '{' || !char.IsDigit(value[i + 1])) continue;
+
+                int index = 0;
+                int j = i + 1;
+                while (j < value.Length && char.IsDigit(value[j]))
+                {
+                    index = index * 10 + (value[j] - '0');
+                    j++;
+                }
+                if (j < value.Length && value[j] == '}' && index > highest)
+                    highest = index;
+            }
+            return highest;
         }
     }
 }

@@ -43,6 +43,12 @@ namespace Kobold.Controls
         private const double ICON_SIZE = 11;
         private const double INSERT_LINE_WIDTH = 2;
 
+        /// <summary>
+        /// The widest a tab label may grow before it ellipsizes. Member names
+        /// are free text, so one long name must not push the whole tab row.
+        /// </summary>
+        private const double LABEL_MAX_WIDTH = 160;
+
         private readonly List<WidgetData> _members;
         private readonly List<Grid> _tabs = new List<Grid>();
         private readonly List<Border> _underlines = new List<Border>();
@@ -148,6 +154,20 @@ namespace Kobold.Controls
 
         /// <summary>The 2px bottom underlines, one per member, in member order.</summary>
         public IReadOnlyList<Border> Underlines => _underlines;
+
+        /// <summary>
+        /// The current tab label strings in tab order; a check seam pinning
+        /// that a tab shows its member's name rather than the kind label.
+        /// </summary>
+        internal IReadOnlyList<string> LabelTextsForChecks
+        {
+            get
+            {
+                var texts = new List<string>(_labels.Count);
+                for (int i = 0; i < _labels.Count; i++) texts.Add(_labels[i].Text);
+                return texts;
+            }
+        }
 
         /// <summary>The 2px insertion line; read-only test seam.</summary>
         public FrameworkElement InsertIndicator => _insertIndicator;
@@ -437,9 +457,9 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Re-reads each tab's localized kind label and tooltip. Language
-        /// switches call this through the group window's UpdateUI; nothing else
-        /// about the strip changes.
+        /// Re-reads each tab's member name and tooltip. Language switches call
+        /// this through the group window's UpdateUI; nothing else about the
+        /// strip changes.
         /// </summary>
         public void RefreshLocalization()
         {
@@ -447,11 +467,9 @@ namespace Kobold.Controls
             for (int i = 0; i < count; i++)
             {
                 WidgetData member = _members[i];
-                string label = KindLabel(member);
+                string label = MemberLabel(member);
                 _labels[i].Text = label;
-                _tabs[i].ToolTip = member == null || string.IsNullOrWhiteSpace(member.Name)
-                    ? label
-                    : member.Name;
+                _tabs[i].ToolTip = TabToolTip(member, label);
             }
         }
 
@@ -488,13 +506,19 @@ namespace Kobold.Controls
 
             var label = new TextBlock
             {
-                Text = KindLabel(member),
+                Text = MemberLabel(member),
                 FontSize = UiTokens.FontBody,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                // A long member name stays one line and ellipsizes; the tab
+                // tooltip still carries the full name.
+                MaxWidth = LABEL_MAX_WIDTH,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
 
             content.Children.Add(icon);
             content.Children.Add(label);
+
+            tab.ToolTip = TabToolTip(member, label.Text);
 
             var underline = new Border
             {
@@ -664,7 +688,29 @@ namespace Kobold.Controls
             }
         }
 
-        /// <summary>The localized kind name a tab shows.</summary>
+        /// <summary>
+        /// The text a tab shows: the member's own component name (trimmed)
+        /// when it has one, otherwise the localized kind label. A group of
+        /// folders therefore reads 季度资料 / 项目资料 instead of 文件夹.
+        /// </summary>
+        internal static string MemberLabel(WidgetData member)
+        {
+            if (member != null && !string.IsNullOrWhiteSpace(member.Name))
+                return member.Name.Trim();
+            return KindLabel(member);
+        }
+
+        /// <summary>
+        /// The full name behind an ellipsized label; a member without a name
+        /// falls back to the label itself so the tooltip is never empty.
+        /// </summary>
+        private static string TabToolTip(WidgetData member, string label)
+        {
+            if (member == null || string.IsNullOrWhiteSpace(member.Name)) return label;
+            return member.Name.Trim();
+        }
+
+        /// <summary>The localized kind name; only a fallback for a nameless member.</summary>
         internal static string KindLabel(WidgetData member)
         {
             if (member is TodoData) return Localization.Get("UI_WidgetKindTodo");

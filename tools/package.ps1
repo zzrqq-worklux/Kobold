@@ -38,7 +38,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $stage -Fo
 # tools\install.cmd, and install.ps1 carries the uninstaller from there.
 $tools = Join-Path $stage 'tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
-foreach ($file in @('install.cmd', 'install.ps1') + $KoboldUninstallerFiles) {
+foreach ($file in @('install.cmd', 'install.ps1') + $KoboldUninstallerFiles + $KoboldToolFiles) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $tools -Force
 }
 

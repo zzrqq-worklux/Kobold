@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using Kobold.Core;
+using Kobold.Core.Control;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Kobold.ConfigSafetyCheck
 {
@@ -272,6 +276,7 @@ namespace Kobold.ConfigSafetyCheck
             RunWidgetColorMigrationChecks();
             RunSchemaVersionChecks();
             RunGroupConfigChecks();
+            RunRestoreFileSafetyChecks();
         }
 
         /// <summary>
@@ -584,6 +589,247 @@ namespace Kobold.ConfigSafetyCheck
                   && roundTripReload.Groups[0].PanelHeight == 360
                   && roundTripReload.Groups[0].IsLocked,
                 "groups: the saved array reads back through the converter");
+        }
+
+        /// <summary>
+        /// The control plane's structural replacement and restore path: a
+        /// structural document without restart must leave the config file
+        /// byte-identical, restart:true must write the whole parsed document
+        /// and ask for a restart, and a restore may only read files under the
+        /// backups directory and must snapshot the current config first. The
+        /// apply/launch/guard seams are fakes, so no helper process starts.
+        /// </summary>
+        private static void RunRestoreFileSafetyChecks()
+        {
+            // --- Structural replace without restart: no write at all.
+            string dir = NewCase("control-replace-no-restart");
+            string configPath = Path.Combine(dir, "config.json");
+            string backupDirectory = Path.Combine(dir, "backups");
+            string original = @"{""Language"":""en"",""Widgets"":[{""Kind"":""note"",""Id"":""w1"",""Name"":""One"",""Notes"":[]}]}";
+            File.WriteAllText(configPath, original);
+            byte[] originalBytes = File.ReadAllBytes(configPath);
+
+            AppConfig live = AppConfig.Load(configPath, configPath + ".backup");
+            int documentApplies = 0;
+            int restarts = 0;
+            int guards = 0;
+            AppConfig applied = null;
+            var service = CreateControlService(
+                () => live,
+                next =>
+                {
+                    live = next;
+                    return new JObject();
+                },
+                configPath,
+                backupDirectory,
+                next =>
+                {
+                    documentApplies++;
+                    applied = next;
+                    live = next;
+                    File.WriteAllText(configPath, JsonConvert.SerializeObject(next));
+                    return new JObject();
+                },
+                (pid, exe) =>
+                {
+                    restarts++;
+                    return true;
+                },
+                () => guards++);
+
+            string structural = @"{""Language"":""en"",""Widgets"":[{""Kind"":""note"",""Id"":""w2"",""Name"":""Two"",""Notes"":[]}]}";
+            JObject preview = service.Replace(new JObject
+            {
+                ["document"] = structural
+            }, service.CurrentRevision);
+
+            Check((bool)preview["wouldChange"] && (bool)preview["restartRequired"]
+                  && !(bool)preview["wrote"] && !(bool)preview["restarting"],
+                "control replace: a structural document without restart reports restartRequired");
+            Check(SameBytes(configPath, originalBytes),
+                "control replace: a structural document without restart leaves the config file untouched");
+            Check(documentApplies == 0 && restarts == 0 && guards == 0
+                  && (!Directory.Exists(backupDirectory)
+                      || Directory.GetFiles(backupDirectory, "config-*.json").Length == 0),
+                "control replace: a structural no-restart request applies, restarts and backs up nothing");
+
+            // --- Structural replace with restart: the fake document writer
+            //     lands the new document, the launcher is asked to restart.
+            JObject restarting = service.Replace(new JObject
+            {
+                ["document"] = structural,
+                ["restart"] = true
+            }, service.CurrentRevision);
+
+            Check((bool)restarting["wrote"] && (bool)restarting["restarting"]
+                  && restarting["restartFailed"] == null,
+                "control replace: restart:true writes the document and reports restarting");
+            Check(documentApplies == 1 && restarts == 1 && guards == 1
+                  && applied != null && applied.Widgets.Count == 1
+                  && applied.Widgets[0].Id == "w2",
+                "control replace: restart:true applies the whole document before the launcher");
+            Check(File.ReadAllText(configPath).Contains("\"w2\""),
+                "control replace: the restarted document reaches the config file");
+            Check(Directory.GetFiles(backupDirectory, "config-*.json").Length == 1
+                  && Directory.GetFiles(backupDirectory, "config-*.json")
+                      .Any(path => Path.GetFileName(path).Contains("-before-replace")),
+                "control replace: restart:true backs up the current config first");
+            bool outsideForbidden = false;
+            try
+            {
+                service.Restore(new JObject { ["backup"] = configPath }, service.CurrentRevision);
+            }
+            catch (ControlException ex)
+            {
+                outsideForbidden = ex.Code == ControlErrorCodes.Forbidden;
+            }
+            Check(outsideForbidden,
+                "control restore: a path outside the backup directory is forbidden");
+
+            // --- A legacy Folders document cannot be written back as an empty
+            //     Widgets list with the legacy data dropped.
+            string legacyDir = NewCase("control-replace-legacy");
+            string legacyConfigPath = Path.Combine(legacyDir, "config.json");
+            string legacyBackupDirectory = Path.Combine(legacyDir, "backups");
+            File.WriteAllText(legacyConfigPath, @"{""Language"":""en"",""Widgets"":[]}");
+            AppConfig legacyLive = AppConfig.Load(
+                legacyConfigPath, legacyConfigPath + ".backup");
+            AppConfig legacyApplied = null;
+            var legacyService = CreateControlService(
+                () => legacyLive,
+                next =>
+                {
+                    legacyLive = next;
+                    return new JObject();
+                },
+                legacyConfigPath,
+                legacyBackupDirectory,
+                next =>
+                {
+                    legacyApplied = next;
+                    legacyLive = next;
+                    return new JObject();
+                },
+                (pid, exe) => true,
+                () => { });
+
+            legacyService.Replace(new JObject
+            {
+                ["document"] = @"{""Folders"":[{""Name"":""LegacyFolder"",""Items"":[]}]}",
+                ["restart"] = true
+            }, legacyService.CurrentRevision);
+
+            Check(legacyApplied != null && legacyApplied.Folders == null
+                  && legacyApplied.Widgets.Count == 1
+                  && legacyApplied.Widgets[0] is FolderData
+                  && legacyApplied.Widgets[0].Name == "LegacyFolder",
+                "control replace: a legacy Folders document migrates into Widgets instead of writing Folders data");
+
+            // --- Restore from the backups directory: read the snapshot, apply
+            //     it, snapshot the current config first, keep the source intact.
+            string restoreDir = NewCase("control-restore");
+            string restoreConfigPath = Path.Combine(restoreDir, "config.json");
+            string restoreBackupDirectory = Path.Combine(restoreDir, "backups");
+            File.WriteAllText(restoreConfigPath,
+                @"{""Language"":""en"",""Widgets"":[{""Kind"":""note"",""Id"":""current"",""Name"":""Current"",""Notes"":[]}]}");
+            AppConfig restoreLive = AppConfig.Load(
+                restoreConfigPath, restoreConfigPath + ".backup");
+            Directory.CreateDirectory(restoreBackupDirectory);
+
+            string snapshotPath = Path.Combine(
+                restoreBackupDirectory, "config-20260101-000000-snapshot.json");
+            string snapshot = @"{""Language"":""en"",""Widgets"":[{""Kind"":""note"",""Id"":""restored"",""Name"":""Restored"",""Notes"":[]}]}";
+            File.WriteAllText(snapshotPath, snapshot);
+            byte[] snapshotBytes = File.ReadAllBytes(snapshotPath);
+
+            int restoreApplies = 0;
+            int restoreLaunches = 0;
+            AppConfig restoreApplied = null;
+            var restoreService = CreateControlService(
+                () => restoreLive,
+                next =>
+                {
+                    restoreLive = next;
+                    return new JObject();
+                },
+                restoreConfigPath,
+                restoreBackupDirectory,
+                next =>
+                {
+                    restoreApplies++;
+                    restoreApplied = next;
+                    restoreLive = next;
+                    return new JObject();
+                },
+                (pid, exe) =>
+                {
+                    restoreLaunches++;
+                    return true;
+                },
+                () => { });
+
+            JObject restored = restoreService.Restore(new JObject
+            {
+                ["backup"] = snapshotPath,
+                ["restart"] = true
+            }, restoreService.CurrentRevision);
+
+            Check((bool)restored["wrote"] && (bool)restored["restarting"]
+                  && restoreApplies == 1 && restoreLaunches == 1
+                  && restoreApplied != null && restoreApplied.Widgets.Count == 1
+                  && restoreApplied.Widgets[0].Id == "restored",
+                "control restore: a backup under the backups directory applies through the replace path");
+            Check(SameBytes(snapshotPath, snapshotBytes),
+                "control restore: the source backup file is left intact");
+            Check(Directory.GetFiles(restoreBackupDirectory, "config-*.json").Length == 2
+                  && Directory.GetFiles(restoreBackupDirectory, "config-*.json")
+                      .Any(path => Path.GetFileName(path).Contains("-before-replace")),
+                "control restore: the current config is backed up before the restore");
+        }
+
+        /// <summary>
+        /// Builds the production-free control service through its internal test
+        /// seam: the fakes keep every check off the real config, desktop and
+        /// restart helper. ConfigSafetyCheck is not a friend assembly, so the
+        /// seam is resolved by reflection.
+        /// </summary>
+        private static ConfigControlService CreateControlService(
+            Func<AppConfig> getConfig,
+            Func<AppConfig, JObject> applyConfig,
+            string configPath,
+            string backupDirectory,
+            Func<AppConfig, JObject> applyDocument,
+            Func<int, string, bool> restartLauncher,
+            Action beforeRestart)
+        {
+            ConstructorInfo constructor = typeof(ConfigControlService).GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                null,
+                new[]
+                {
+                    typeof(Func<AppConfig>),
+                    typeof(Func<AppConfig, JObject>),
+                    typeof(string),
+                    typeof(string),
+                    typeof(Func<AppConfig, JObject>),
+                    typeof(Func<int, string, bool>),
+                    typeof(Action)
+                },
+                null);
+            if (constructor == null)
+                throw new InvalidOperationException("ConfigControlService test seam is missing.");
+
+            return (ConfigControlService)constructor.Invoke(new object[]
+            {
+                getConfig,
+                applyConfig,
+                configPath,
+                backupDirectory,
+                applyDocument,
+                restartLauncher,
+                beforeRestart
+            });
         }
 
         private static WidgetData FindWidget(AppConfig cfg, string id)

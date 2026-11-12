@@ -12,9 +12,9 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Shell icon loading
+    /// FolderPanelView - Shell icon loading
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         #region Shell Icon
 

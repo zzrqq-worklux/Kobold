@@ -22,6 +22,10 @@ $KoboldRuntimeFiles = @(
 # into the install folder, so the uninstall entry can point at it.
 $KoboldUninstallerFiles = @('uninstall.cmd', 'uninstall.ps1', 'installer-common.ps1')
 
+# The local control CLI ships beside the app so an agent can drive an installed
+# copy without the source tree or an SDK.
+$KoboldToolFiles = @('koboldctl.ps1')
+
 function Write-Step {
     param([string]$Message)
     Write-Host $Message
@@ -185,9 +189,9 @@ function Get-KoboldUninstallEntry {
 }
 
 <#
-Copies the runtime files and the uninstaller into place. Validation happens
-first, so a bad source cannot leave a half-installed folder behind. Running it
-again over an existing install is the upgrade path.
+Copies the runtime files, the uninstaller and the control tool into place.
+Validation happens first, so a bad source cannot leave a half-installed folder
+behind. Running it again over an existing install is the upgrade path.
 #>
 function Install-KoboldFiles {
     param(
@@ -201,6 +205,9 @@ function Install-KoboldFiles {
         if (-not (Test-Path -LiteralPath (Join-Path $Source $file) -PathType Leaf)) { $missing += "source\$file" }
     }
     foreach ($file in $KoboldUninstallerFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $ScriptsDir $file) -PathType Leaf)) { $missing += "tools\$file" }
+    }
+    foreach ($file in $KoboldToolFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $ScriptsDir $file) -PathType Leaf)) { $missing += "tools\$file" }
     }
     if ($missing.Count -gt 0) {
@@ -217,6 +224,9 @@ function Install-KoboldFiles {
         Copy-KoboldFile -Source (Join-Path $Source $file) -Destination $dest
     }
     foreach ($file in $KoboldUninstallerFiles) {
+        Copy-KoboldFile -Source (Join-Path $ScriptsDir $file) -Destination $InstallDir
+    }
+    foreach ($file in $KoboldToolFiles) {
         Copy-KoboldFile -Source (Join-Path $ScriptsDir $file) -Destination $InstallDir
     }
 }

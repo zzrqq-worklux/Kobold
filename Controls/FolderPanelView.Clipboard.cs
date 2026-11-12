@@ -11,18 +11,18 @@ using Kobold.Services;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - the file clipboard wiring. The payload itself
+    /// FolderPanelView - the file clipboard wiring. The payload itself
     /// (FileDrop + Preferred DropEffect) lives in Helpers/FileClipboard;
     /// this file owns the keyboard/menu actions: Ctrl+C/X/V copy or cut the
     /// browse selection and paste Explorer-style into the folder on screen,
     /// while the root mode only ever adds references. Locked widgets refuse
     /// every clipboard action.
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         private void CopySelection(List<DisplayItem> selected, bool cut)
         {
-            if (selected == null || selected.Count == 0 || _data.IsLocked) return;
+            if (selected == null || selected.Count == 0 || IsLocked) return;
             var paths = selected.Where(i => i != null && !string.IsNullOrEmpty(i.Path)).Select(i => i.Path);
             try { Clipboard.SetDataObject(FileClipboard.CreatePayload(paths, cut), true); }
             catch (Exception ex) { Debug.WriteLine("[Kobold] Clipboard failed: " + ex.Message); }
@@ -37,11 +37,11 @@ namespace Kobold.Controls
         /// <summary>Browse mode: paste into the folder on screen (a cut payload moves).</summary>
         private void PasteHere()
         {
-            if (_data.IsLocked || !IsBrowsing) return;
+            if (IsLocked || !IsBrowsing) return;
             var data = TryGetClipboardData();
             var paths = FileClipboard.PathsFrom(data);
             if (paths.Count == 0) return;
-            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            IntPtr handle = PanelHwnd;
             if (FileClipboard.IsMoveEffect(data))
             {
                 var movable = BrowseMove.MovableInto(paths, CurrentBrowsePath,
@@ -60,7 +60,7 @@ namespace Kobold.Controls
         /// <summary>Root mode: pasted files become references, never stored.</summary>
         private void PasteIntoWidget()
         {
-            if (_data.IsLocked || IsBrowsing) return;
+            if (IsLocked || IsBrowsing) return;
             var paths = FileClipboard.PathsFrom(TryGetClipboardData());
             if (paths.Count == 0) return;
             AddExternalPaths(paths.ToArray());

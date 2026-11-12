@@ -14,7 +14,7 @@ namespace Kobold.Controls
         private static readonly Dictionary<string, Func<WidgetData, IWidgetContentView, IWidgetWindow>> Factories =
             new Dictionary<string, Func<WidgetData, IWidgetContentView, IWidgetWindow>>(StringComparer.Ordinal)
         {
-            { "folder", (data, contents) => { RejectContents(contents, "folder"); return new FolderWidget((FolderData)data); } },
+            { "folder", (data, contents) => new FolderWidget((FolderData)data, contents) },
             { "todo", (data, contents) => new TodoWidget((TodoData)data, contents) },
             { "note", (data, contents) => new NoteWidget((NoteData)data, contents) },
             { "search", (data, contents) => new SearchWidget((SearchData)data, contents) },
@@ -27,9 +27,9 @@ namespace Kobold.Controls
 
         /// <summary>
         /// Builds the kind's window around an existing live view, or a fresh
-        /// view when <paramref name="contents"/> is null. The todo/note/search
-        /// kinds adopt through their constructor overload; a kind that cannot
-        /// host a released view (folder, currently) rejects it.
+        /// view when <paramref name="contents"/> is null. Every registered kind
+        /// adopts through its constructor overload; a kind that cannot host a
+        /// released view rejects it.
         /// </summary>
         internal static IWidgetWindow Create(WidgetData data, IWidgetContentView contents)
         {

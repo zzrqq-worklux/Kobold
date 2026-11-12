@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kobold — UI1d · Island + Tab Styles</title>
+<style>
+:root {
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Fraunces', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, Georgia, serif;
+  --page-ink: #1b1813;
+  --page-muted: #655c4f;
+
+  --dark-bg: #191714;
+  --dark-surface: #211e1a;
+  --dark-surface2: #2a261f;
+  --dark-border: #3d372e;
+  --dark-text: #faf6ee;
+  --dark-secondary: #cbc3b5;
+  --dark-muted: #91887a;
+  --dark-faint: #6f675b;
+  --dark-accent: #d97757;
+
+  --todo: #6a9bcc;
+  --note: #788c5d;
+  --gold: #d4a017;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0; padding: 42px 48px 44px;
+  font-family: var(--font-ui); color: var(--page-ink);
+  background:
+    radial-gradient(1000px 560px at 8% -6%, #f4ecdd 0%, rgba(244,236,221,0) 62%),
+    radial-gradient(820px 560px at 96% 12%, #cfc0a7 0%, rgba(207,192,167,0) 58%),
+    linear-gradient(135deg, #e3d7c2 0%, #d6ccba 48%, #c9bba4 100%);
+}
+.sprite { position:absolute; width:0; height:0; overflow:hidden; }
+svg.icon { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+svg.icon.sm { width:13px; height:13px; }
+svg.icon.xs { width:11px; height:11px; }
+.page { max-width: 1540px; margin:0 auto; }
+
+.page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:32px; margin-bottom:24px; }
+.eyebrow { font-size:10px; font-weight:600; letter-spacing:.17em; text-transform:uppercase; color:#7a7164; margin-bottom:10px; }
+.page-head h1 { font-family:var(--font-display); font-weight:400; font-size:46px; line-height:1.02; letter-spacing:-.035em; margin:0 0 9px; }
+.page-head p { margin:0; max-width:780px; font-size:13px; line-height:1.7; color:var(--page-muted); }
+.head-side { display:flex; flex-direction:column; align-items:flex-end; gap:10px; flex:none; padding-bottom:4px; }
+.version-chip { display:inline-flex; align-items:center; gap:7px; border:1px solid #bfb19b; border-radius:999px; padding:6px 11px; font-size:10px; font-weight:600; letter-spacing:.04em; color:#5d5548; background:rgba(249,244,234,.62); }
+.version-chip i { width:6px; height:6px; border-radius:50%; background:var(--dark-accent); }
+.head-note { font-size:10px; line-height:1.65; text-align:right; color:#7a7164; letter-spacing:.02em; white-space:nowrap; }
+
+.section { border:1px solid rgba(126,111,89,.22); border-radius:20px; background:rgba(249,244,234,.42); padding:22px 24px 24px; box-shadow:0 18px 44px rgba(83,69,48,.08); margin-bottom:24px; }
+.section-head { display:flex; align-items:baseline; justify-content:space-between; gap:24px; margin-bottom:16px; }
+.section-head h2 { margin:0; font-family:var(--font-display); font-size:26px; font-weight:400; letter-spacing:-.02em; }
+.section-head p { margin:0; font-size:11px; line-height:1.6; color:#7a7164; max-width:720px; }
+
+/* ---------- island ---------- */
+.island-board { border-radius:14px; background:linear-gradient(180deg,#12100e,#1c1916); border:1px solid #3d372e; padding:24px 22px 20px; }
+.island-row { display:flex; align-items:center; gap:20px; margin-bottom:16px; }
+.island-row:last-child { margin-bottom:0; }
+.island-label { width:72px; flex:none; font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:#7f7668; }
+.island-pill { display:flex; align-items:center; gap:4px; padding:5px 7px; border-radius:16px; background:#221f1a; border:1px solid #3d372e; box-shadow:0 8px 22px rgba(0,0,0,.35); }
+.island-divider { width:1px; height:26px; background:#3d372e; margin:0 6px; }
+.tile { width:44px; height:44px; border-radius:10px; display:flex; align-items:center; justify-content:center; position:relative; color:#cbc3b5; background:transparent; }
+.tile:hover { background:rgba(250,246,238,.07); }
+.tile.sys { color:#91887a; }
+.tile.active { background:#2a261f; color:#faf6ee; }
+.tile .open-dot { position:absolute; right:5px; bottom:4px; width:5px; height:5px; border-radius:50%; background:var(--todo); box-shadow:0 0 0 2px #2a261f; }
+.tile .group-badge { position:absolute; right:3px; top:3px; min-width:14px; height:14px; border-radius:7px; background:#3d372e; color:#cbc3b5; font-size:8px; display:flex; align-items:center; justify-content:center; padding:0 3px; border:1px solid #191714; }
+.tile.active .group-badge { background:#4a4135; color:#faf6ee; }
+.island-callout { margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-size:10px; color:#8f8576; }
+.island-callout b { color:#cbc3b5; font-weight:600; }
+
+.island-notes { display:grid; grid-template-columns:1fr 1fr; gap:10px 24px; margin-top:16px; }
+.island-note { display:flex; gap:9px; font-size:10.5px; line-height:1.55; color:#71685a; }
+.island-note b { color:#4c4439; font-weight:600; white-space:nowrap; }
+.island-note .idx { width:17px; height:17px; flex:none; border-radius:50%; background:#2a261f; color:#d97757; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:700; margin-top:1px; }
+
+/* ---------- style grid ---------- */
+.style-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.style-card { border:1px solid rgba(126,111,89,.20); border-radius:14px; background:rgba(255,253,248,.56); padding:14px 14px 15px; }
+.style-title { display:flex; align-items:center; justify-content:space-between; margin:0 2px 10px; }
+.style-title b { font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:#5d5548; }
+.style-title span { font-size:10px; color:#8b8172; }
+.style-note { margin:9px 3px 0; font-size:10.5px; line-height:1.55; color:#71685a; }
+.crop { border-radius:10px; overflow:hidden; border:1px solid #3d372e; background:var(--dark-bg); color:var(--dark-text); box-shadow:0 10px 24px rgba(0,0,0,.16); }
+.crop-title { height:38px; display:flex; align-items:center; gap:9px; padding:0 12px; background:var(--dark-surface2); border-bottom:1px solid var(--dark-border); }
+.crop-title .name { font-family:var(--font-display); font-size:15px; font-weight:500; }
+.crop-title .meta { font-size:9px; color:var(--dark-muted); }
+.crop-title .acts { margin-left:auto; display:flex; gap:2px; color:var(--dark-muted); }
+.crop-body { padding:12px 14px 14px; }
+.crop-sub { font-size:10px; color:var(--dark-muted); margin-bottom:8px; }
+.crop-row { height:25px; display:flex; align-items:center; gap:8px; font-size:11px; color:var(--dark-secondary); }
+.crop-check { width:12px; height:12px; border-radius:3px; border:1.2px solid var(--dark-muted); flex:none; }
+.crop-check.on { background:var(--todo); border-color:var(--todo); }
+.crop-row.done { color:var(--dark-faint); text-decoration:line-through; }
+.crop-line { height:7px; border-radius:4px; background:rgba(250,246,238,.07); margin:7px 0; }
+.crop-line.w80 { width:80%; }
+.crop-line.w60 { width:60%; }
+.crop-line.w90 { width:90%; }
+
+/* arrow tabs above title */
+.tabs-above { background:var(--dark-surface2); border-bottom:1px solid var(--dark-border); padding:8px 10px 0; display:flex; gap:5px; }
+.arrow-tab { position:relative; height:32px; padding:0 20px 0 11px; display:flex; align-items:center; gap:6px; color:var(--dark-secondary); font-size:11.5px; background:rgba(250,246,238,.06); clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%); }
+.arrow-tab .ticon { color:var(--dark-muted); display:flex; }
+.arrow-tab.active { background:var(--dark-bg); color:var(--dark-text); font-weight:600; }
+.arrow-tab.active .ticon { color:var(--accent); }
+.arrow-tab:not(.active):hover { background:rgba(250,246,238,.10); color:var(--dark-text); }
+
+/* left arrow rail */
+.rail-arrow { display:flex; min-height:170px; }
+.rail-arrow .rail { width:116px; flex:none; background:var(--dark-surface2); border-right:1px solid var(--dark-border); padding:8px 7px; display:flex; flex-direction:column; gap:3px; }
+.rail-arrow .rail-tab { position:relative; height:34px; display:flex; align-items:center; gap:7px; padding:0 18px 0 9px; color:var(--dark-secondary); font-size:11px; background:transparent; clip-path:polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%); }
+.rail-arrow .rail-tab .ticon { color:var(--dark-muted); display:flex; }
+.rail-arrow .rail-tab.active { background:var(--dark-bg); color:var(--dark-text); font-weight:600; }
+.rail-arrow .rail-tab.active .ticon { color:var(--accent); }
+.rail-arrow .pane { flex:1; min-width:0; }
+
+/* folder tabs */
+.folder-tabs { display:flex; gap:4px; padding:8px 10px 0; background:var(--dark-surface2); border-bottom:1px solid var(--dark-border); }
+.folder-tab { height:30px; padding:0 14px; display:flex; align-items:center; gap:6px; color:var(--dark-secondary); font-size:11px; background:rgba(250,246,238,.055); border-radius:8px 8px 0 0; }
+.folder-tab .ticon { color:var(--dark-muted); display:flex; }
+.folder-tab.active { background:var(--dark-bg); color:var(--dark-text); font-weight:600; position:relative; top:1px; }
+.folder-tab.active .ticon { color:var(--accent); }
+
+/* text + caret */
+.text-tabs { display:flex; align-items:flex-end; gap:20px; padding:10px 14px 0; background:var(--dark-surface2); border-bottom:1px solid var(--dark-border); }
+.text-tab { position:relative; padding:0 0 10px; font-size:11.5px; color:var(--dark-muted); }
+.text-tab.active { color:var(--dark-text); font-weight:600; }
+.text-tab.active::after { content:''; position:absolute; left:50%; bottom:1px; transform:translateX(-50%); border-left:5px solid transparent; border-right:5px solid transparent; border-top:5px solid var(--accent); }
+.text-tab.active::before { content:''; position:absolute; left:0; right:0; bottom:0; height:1px; background:var(--dark-border); }
+
+/* chosen recommendation */
+.reco { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
+.reco-card { border:1px solid rgba(126,111,89,.20); border-radius:12px; background:rgba(255,253,248,.58); padding:12px 14px; }
+.reco-card b { display:block; font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:#5d5548; margin-bottom:5px; }
+.reco-card p { margin:0; font-size:10.5px; line-height:1.6; color:#71685a; }
+.footer { display:flex; justify-content:space-between; gap:24px; font-size:10px; line-height:1.6; color:#7a7164; }
+
+@media (max-width:1180px) {
+  body { padding:28px 22px 32px; }
+  .style-grid, .island-notes, .reco { grid-template-columns:1fr; }
+  .page-head { align-items:flex-start; }
+  .head-note { white-space:normal; }
+  .island-callout { display:none; }
+}
+</style>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"></rect><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"></path></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3.5h8.5L19 8v12.5H6z"></path><path d="M14.5 3.5V8H19M9 12h6M9 15h6M9 18h4"></path></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></symbol>
+  <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="12" rx="1.8"></rect><path d="M8 20h8M12 16.5V20"></path></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"></path></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7.5a4 4 0 0 1 8 0V10M12 14v2"></path></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6"></path></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"></circle></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"></path></symbol>
+</svg>
+
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Kobold · Widget Groups · UI1d</div>
+      <h1>island 与标签样式</h1>
+      <p>先明确 island：组内组件仍各占一个 tile，角标表示同组；点谁就打开组并切到谁。下面再给四种标签样式参考，重点看“标签在 title 之上、箭头尖端、点击切换”这几种。</p>
+    </div>
+    <div class="head-side">
+      <div class="version-chip"><i></i>UI1d · 方案参考</div>
+      <div class="head-note">island + tab styles<br>Todo + Note + Search 示意 · 2026-11-03</div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>island：保留每个组件一个 tile</h2>
+      <p>不把组折叠成一个 tile。组的成员仍各自出现在 island 上；右上角小角标表示“同组”，只有当前标签显示 open 环。</p>
+    </div>
+
+    <div class="island-board">
+      <div class="island-row">
+        <div class="island-label">组关闭</div>
+        <div class="island-pill">
+          <div class="tile sys"><svg class="icon sm"><use href="#i-desktop"></use></svg></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-folder"></use></svg></div>
+          <div class="island-divider"></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-calendar"></use></svg><span class="group-badge">2</span></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-note"></use></svg><span class="group-badge">2</span></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-search"></use></svg></div>
+          <div class="island-divider"></div>
+          <div class="tile sys"><svg class="icon sm"><use href="#i-plus"></use></svg></div>
+          <div class="tile sys"><svg class="icon sm"><use href="#i-settings"></use></svg></div>
+        </div>
+        <div class="island-callout"><b>2</b> = 组内 2 个组件<br>组关闭时两个 tile 都没有 open 环</div>
+      </div>
+
+      <div class="island-row">
+        <div class="island-label">组打开 · 待办</div>
+        <div class="island-pill">
+          <div class="tile sys"><svg class="icon sm"><use href="#i-desktop"></use></svg></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-folder"></use></svg></div>
+          <div class="island-divider"></div>
+          <div class="tile active"><svg class="icon sm"><use href="#i-calendar"></use></svg><span class="group-badge">2</span><span class="open-dot"></span></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-note"></use></svg><span class="group-badge">2</span></div>
+          <div class="tile"><svg class="icon sm"><use href="#i-search"></use></svg></div>
+          <div class="island-divider"></div>
+          <div class="tile sys"><svg class="icon sm"><use href="#i-plus"></use></svg></div>
+          <div class="tile sys"><svg class="icon sm"><use href="#i-settings"></use></svg></div>
+        </div>
+        <div class="island-callout">只有 active 的“待办”亮 open 环<br>“笔记”只显示同组角标</div>
+      </div>
+    </div>
+
+    <div class="island-notes">
+      <div class="island-note"><span class="idx">1</span><span><b>组关闭</b>：点组内任意 tile → 打开组并切到该标签。</span></div>
+      <div class="island-note"><span class="idx">2</span><span><b>组已打开</b>：点另一个组内 tile → 只切标签，不关组、不重复开窗。</span></div>
+      <div class="island-note"><span class="idx">3</span><span><b>点 active tile</b>：像现在一样收起组窗口。</span></div>
+      <div class="island-note"><span class="idx">4</span><span><b>右键 tile</b>：成员菜单 + “切换到该标签 / 分离此组件 / 隐藏整组”。</span></div>
+      <div class="island-note"><span class="idx">5</span><span><b>角标 2</b>：表示同组；悬停 tooltip 列出组内组件名，不额外占 island 宽度。</span></div>
+      <div class="island-note"><span class="idx">6</span><span><b>删除/分离</b>：组内剩 1 个时自动解散；island 立即回到普通 tile，不再显示角标。</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>标签样式参考</h2>
+      <p>四种都能“点标签切当前组件”。A/B 的尖端是三角形箭头；C 是文件夹页签；D 是极简文字 + 三角指示。</p>
+    </div>
+
+    <div class="style-grid">
+      <div class="style-card">
+        <div class="style-title"><b>A · 顶部箭头标签</b><span>标签在 title 之上</span></div>
+        <div class="crop" style="--accent:var(--todo);">
+          <div class="tabs-above">
+            <div class="arrow-tab active"><span class="ticon"><svg class="icon xs"><use href="#i-calendar"></use></svg></span>待办</div>
+            <div class="arrow-tab"><span class="ticon"><svg class="icon xs"><use href="#i-note"></use></svg></span>笔记</div>
+            <div class="arrow-tab"><span class="ticon"><svg class="icon xs"><use href="#i-search"></use></svg></span>搜索</div>
+          </div>
+          <div class="crop-title">
+            <span class="name">待办</span><span class="meta">2 个组件</span>
+            <span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span>
+          </div>
+          <div class="crop-body">
+            <div class="crop-sub">11 月 3 日 · 周二</div>
+            <div class="crop-row"><span class="crop-check on"></span>整理标签组的尺寸规则</div>
+            <div class="crop-row"><span class="crop-check"></span>确认 island 点击行为</div>
+            <div class="crop-row done"><span class="crop-check on"></span>阅读 WidgetManager</div>
+          </div>
+        </div>
+        <div class="style-note">箭头向右伸出，active 用组件色图标；title 在标签下方，标签和 title 分成两层。适合“标签比标题更重要”的场景。</div>
+      </div>
+
+      <div class="style-card">
+        <div class="style-title"><b>B · 左侧箭头标签</b><span>B rail 的箭头版</span></div>
+        <div class="crop" style="--accent:var(--note);">
+          <div class="rail-arrow">
+            <div class="rail">
+              <div class="rail-tab active"><span class="ticon"><svg class="icon xs"><use href="#i-calendar"></use></svg></span>待办</div>
+              <div class="rail-tab"><span class="ticon"><svg class="icon xs"><use href="#i-note"></use></svg></span>笔记</div>
+              <div class="rail-tab"><span class="ticon"><svg class="icon xs"><use href="#i-search"></use></svg></span>搜索</div>
+            </div>
+            <div class="pane">
+              <div class="crop-title"><span class="name">待办</span><span class="meta">2 个组件</span><span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span></div>
+              <div class="crop-body">
+                <div class="crop-sub">左侧 rail 箭头指向内容</div>
+                <div class="crop-row"><span class="crop-check on"></span>点左侧切换当前组件</div>
+                <div class="crop-row"><span class="crop-check"></span>右侧 header 跟着换</div>
+                <div class="crop-line w80"></div><div class="crop-line w60"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="style-note">保留左侧 rail 的稳定布局，但每个标签用向右的三角尖端指进内容面；active 底色与右侧一致。</div>
+      </div>
+
+      <div class="style-card">
+        <div class="style-title"><b>C · 文件夹页签</b><span>顶部页签，非箭头</span></div>
+        <div class="crop" style="--accent:var(--todo);">
+          <div class="folder-tabs">
+            <div class="folder-tab active"><span class="ticon"><svg class="icon xs"><use href="#i-calendar"></use></svg></span>待办</div>
+            <div class="folder-tab"><span class="ticon"><svg class="icon xs"><use href="#i-note"></use></svg></span>笔记</div>
+            <div class="folder-tab"><span class="ticon"><svg class="icon xs"><use href="#i-search"></use></svg></span>搜索</div>
+          </div>
+          <div class="crop-title"><span class="name">待办</span><span class="meta">2 个组件</span><span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span></div>
+          <div class="crop-body"><div class="crop-sub">活动页签与内容面连在一起</div><div class="crop-row"><span class="crop-check on"></span>更像文件夹/浏览器标签</div><div class="crop-row"><span class="crop-check"></span>圆角页签，没有箭头尖端</div><div class="crop-line w90"></div><div class="crop-line w60"></div></div>
+        </div>
+        <div class="style-note">active 页签与 content 面连成一体，像文件夹标签；比箭头更稳，但没有“方向感”。</div>
+      </div>
+
+      <div class="style-card">
+        <div class="style-title"><b>D · 文字 + 三角指示</b><span>最轻的样式</span></div>
+        <div class="crop" style="--accent:var(--note);">
+          <div class="text-tabs">
+            <div class="text-tab active">待办</div>
+            <div class="text-tab">笔记</div>
+            <div class="text-tab">搜索</div>
+          </div>
+          <div class="crop-title"><span class="name">待办</span><span class="meta">2 个组件</span><span class="acts"><svg class="icon xs"><use href="#i-more"></use></svg><svg class="icon xs"><use href="#i-lock"></use></svg><svg class="icon xs"><use href="#i-pin"></use></svg></span></div>
+          <div class="crop-body"><div class="crop-sub">没有方块，只有文字和小三角</div><div class="crop-row"><span class="crop-check on"></span>标签占用最小</div><div class="crop-row"><span class="crop-check"></span>active 用三角和字重</div><div class="crop-line w80"></div><div class="crop-line w60"></div></div>
+        </div>
+        <div class="style-note">最不抢内容；但标签多了会弱，适合 2–3 个组件的轻量组。</div>
+      </div>
+    </div>
+
+    <div class="reco">
+      <div class="reco-card"><b>如果标签放在 title 之上</b><p>推荐 A。箭头尖端有方向感，active 用组件色，title 仍在下面，不会和标签挤在同一行。</p></div>
+      <div class="reco-card"><b>如果保留左侧 rail</b><p>推荐 B。仍然是左侧竖排，只是把方形底改成指向内容的箭头尖端；rail 宽度和点击手感不变。</p></div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div><strong>UI1d</strong> · island member tiles + four tab styles · Todo / Note / Search only</div>
+    <div>静态视觉稿 · 不改生产代码 · 2026-11-03</div>
+  </footer>
+</div>
+
+</body>
+</html>
+

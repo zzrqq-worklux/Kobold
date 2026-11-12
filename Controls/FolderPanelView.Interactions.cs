@@ -13,24 +13,12 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - keyboard, item hover/click and the panel's context menus.
+    /// FolderPanelView - keyboard, item hover/click and the panel's context menus.
     /// The panel show/hide cycle, placement, locking and the header drag are
     /// shared with every widget and live in <see cref="WidgetWindowBase"/>.
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
-        #region Panel deactivation
-
-        private void Window_Deactivated(object sender, EventArgs e)
-        {
-            // Always clear the selection when the window loses focus - the
-            // base's own Deactivated handler takes care of the modal guard and
-            // hiding an unpinned panel (it runs on the same event).
-            ClearAllSelections();
-        }
-
-        #endregion
-
         #region Keyboard
 
         /// <summary>
@@ -38,24 +26,26 @@ namespace Kobold.Controls
         /// tunnelling event because the ScrollViewer inside the panel also claims
         /// Space (page down) once it has focus.
         /// </summary>
-        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        public bool HandlePreviewKeyDown(KeyEventArgs e)
         {
-            if (TryMoveSelectionWithKey(e)) return;
+            if (e == null) return false;
+            if (TryMoveSelectionWithKey(e)) return true;
 
-            if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return;
+            if (e.Key != Key.Space || e.KeyboardDevice.Modifiers != ModifierKeys.None) return false;
 
             // Holding Space repeats this event; QuickLook toggles on a repeated
             // request, so without this the preview would strobe.
-            if (e.IsRepeat) return;
+            if (e.IsRepeat) return false;
 
             var item = GetSelectedItems().FirstOrDefault();
-            if (item == null) return;
+            if (item == null) return false;
 
             // Folders and missing entries have nothing to preview - leave Space to
             // the scroller instead.
-            if (item.IsDirectory || !System.IO.File.Exists(item.Path)) return;
+            if (item.IsDirectory || !System.IO.File.Exists(item.Path)) return false;
 
             if (QuickLookPreview.Request(item.Path)) e.Handled = true;
+            return e.Handled;
         }
 
         /// <summary>Arrow keys walk the item grid; a focused text box (the rename
@@ -112,11 +102,11 @@ namespace Kobold.Controls
             return true;
         }
 
-        private void Window_KeyDown(object sender, KeyEventArgs e)
+        internal void HandleKeyDown(KeyEventArgs e)
         {
             var mods = Keyboard.Modifiers;
             var action = FileClipboard.Resolve((mods & ModifierKeys.Control) != 0,
-                (mods & ModifierKeys.Shift) != 0, (mods & ModifierKeys.Alt) != 0, IsBrowsing, _data.IsLocked, e.Key);
+                (mods & ModifierKeys.Shift) != 0, (mods & ModifierKeys.Alt) != 0, IsBrowsing, IsLocked, e.Key);
             if (action == ClipboardAction.Copy) { CopySelection(GetSelectedItems(), cut: false); e.Handled = true; return; }
             if (action == ClipboardAction.Cut) { CopySelection(GetSelectedItems(), cut: true); e.Handled = true; return; }
             if (action == ClipboardAction.Paste) { if (IsBrowsing) PasteHere(); else PasteIntoWidget(); e.Handled = true; return; }
@@ -136,7 +126,7 @@ namespace Kobold.Controls
 
             if (e.Key == Key.Escape && IsPanelOpen)
             {
-                if (_data.IsPanelPinned)
+                if (IsPanelPinned)
                 {
                     // Panel pinned - just clear selection
                     ClearAllSelections();
@@ -189,18 +179,6 @@ namespace Kobold.Controls
         #endregion
 
         #region Context Menu
-
-        /// <summary>
-        /// Shows the shared widget menu (show/hide / rename / colour / lock /
-        /// pin / grid / size / rows / delete) at the cursor. Shared by the
-        /// panel header and the island tiles; onClosed fires once the menu is
-        /// gone.
-        /// </summary>
-        public override void ShowWidgetMenu(Action onClosed = null)
-        {
-            var menu = WidgetMenuBuilder.Build(this, onClosed);
-            menu.IsOpen = true;
-        }
 
         /// <summary>
         /// Physically moves a referenced file/directory into Kobold storage and

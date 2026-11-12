@@ -8,12 +8,12 @@ using Kobold.Core;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - live refresh of the browsed folder. While the panel is open
+    /// FolderPanelView - live refresh of the browsed folder. While the panel is open
     /// on a folder a FolderWatcher follows it; changes are debounced, then the
     /// listing is re-read and re-rendered only when it really differs, so scroll
     /// position and surviving selections are kept.
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         private readonly FolderWatcher _browseWatcher =
             new FolderWatcher(WidgetConstants.BROWSE_WATCH_DEBOUNCE_MS);
@@ -26,24 +26,13 @@ namespace Kobold.Controls
         /// </summary>
         private void UpdateBrowseWatch()
         {
-            string path = IsPanelOpen && IsBrowsing ? CurrentBrowsePath : null;
+            // Only the active tab follows a folder; an inactive member of an
+            // open group must not watch (or be refreshed by a watcher).
+            string path = _isActive && IsPanelOpen && IsBrowsing ? CurrentBrowsePath : null;
             if (path != null && !Directory.Exists(path)) path = null;
 
             if (path == null) _browseWatcher.Stop();
             else _browseWatcher.Start(path);
-        }
-
-        /// <summary>The panel opened: follow the folder that is on screen now.</summary>
-        protected override void OnPanelShown()
-        {
-            UpdateBrowseWatch();
-        }
-
-        /// <summary>The panel closed: drop the selection and stop following the folder.</summary>
-        protected override void OnPanelHidden()
-        {
-            ClearAllSelections();
-            UpdateBrowseWatch();
         }
 
         /// <summary>The watcher reports on a pool thread; the panel lives on the UI thread.</summary>
@@ -54,7 +43,11 @@ namespace Kobold.Controls
 
         private void RefreshBrowseIfChanged()
         {
-            if (!IsPanelOpen || !IsBrowsing) return;
+            // A watcher/retry dispatch may already be queued when the user
+            // switches tabs; an inactive folder must drop it.
+            if (!_isActive || !IsPanelOpen || !IsBrowsing) return;
+
+            RefreshChromeTitle();
 
             // Never re-render under an active gesture or dialog: retry shortly.
             if (_isDraggingItem || _isLassoSelecting || IsModalOpen)

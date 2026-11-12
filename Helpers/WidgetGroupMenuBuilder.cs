@@ -46,7 +46,7 @@ namespace Kobold.Helpers
                 WidgetData member = members[i];
                 var item = new MenuItem
                 {
-                    Header = "切换到该标签 · " + WidgetGroupTabStrip.KindLabel(member),
+                    Header = "切换到该标签 · " + WidgetGroupTabStrip.MemberLabel(member),
                     IsCheckable = true,
                     IsChecked = i == activeIndex,
                     ToolTip = member == null ? null : member.Name

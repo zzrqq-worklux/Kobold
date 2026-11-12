@@ -8,6 +8,7 @@
         Width="760" Height="540"
         PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
         PreviewKeyDown="Window_PreviewKeyDown"
+        KeyDown="Window_KeyDown"
         TextOptions.TextFormattingMode="Display">
 
     <!-- The shared shell. The 32px bare tab row is installed above its 40px

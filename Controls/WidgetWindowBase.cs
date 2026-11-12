@@ -87,6 +87,18 @@ namespace Kobold.Controls
         // True while this window wears the merge-target border hint.
         private bool _mergeHint;
 
+        // The bitmap this window currently paints in its merge preview layer
+        // (null = border hint only). Distinct from the per-drag render cache.
+        private ImageSource _mergeHintPreview;
+
+        // One pre-rendered bitmap per header drag: the dragged component is
+        // rendered lazily when the first target appears and reused while the
+        // drag moves between targets. The attempt flag caches a failed render
+        // (null) too, so a broken render is not retried on every move.
+        private ImageSource _mergePreviewImage;
+        private WidgetData _mergePreviewSource;
+        private bool _mergePreviewRendered;
+
         // The window the live header-drag hint is currently painted on; the
         // drag keeps it while the cursor stays over the same candidate.
         private IWidgetWindow _mergeHintTarget;
@@ -161,6 +173,14 @@ namespace Kobold.Controls
         internal WidgetChrome PanelChrome => Chrome;
 
         /// <summary>
+        /// The panel seam this window drives, for a subclass that must feed a
+        /// richer state adapter (the group hands its live member list to the
+        /// state so the derived pin follows membership). Internal: the seam is
+        /// internal and only the group window (and the pins) needs it.
+        /// </summary>
+        internal IPanelState PanelState => _state;
+
+        /// <summary>
         /// Wires the chrome to this window's shared behaviour. Subclasses call
         /// this right after InitializeComponent, once the chrome exists.
         /// </summary>
@@ -176,7 +196,7 @@ namespace Kobold.Controls
             chrome.ResizeStarted += OnResizeStarted;
             chrome.ResizeMoved += OnResizeMoved;
             chrome.ResizeEnded += OnResizeEnded;
-            chrome.HeaderRightClicked += () => ShowWidgetMenu();
+            chrome.HeaderRightClicked += () => ShowHeaderMenu();
             // Losing the header capture mid-drag (another window takes it, a
             // modal/panel teardown) drops the hover hint once the input turn
             // ends; on a normal release HeaderDragEnded has already cleared it,
@@ -338,6 +358,13 @@ namespace Kobold.Controls
 
         public abstract void ShowWidgetMenu(Action onClosed = null);
 
+        /// <summary>
+        /// The title row's right-click menu. A standalone widget keeps the
+        /// normal widget menu; the group overrides this to open the active
+        /// member's menu instead of its own switch/detach/hide menu.
+        /// </summary>
+        protected virtual void ShowHeaderMenu() => ShowWidgetMenu();
+
         /// <summary>Pushes the widget's persisted state (title / colour / lock / pin) onto the chrome.</summary>
         public virtual void UpdateUI()
         {
@@ -349,26 +376,62 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Highlights the shell border while this window is a merge target:
-        /// the accent theme token on the existing border (no extra strip) and
-        /// the chrome's normal border when cleared. Safe to call repeatedly.
+        /// Highlights the shell while this window is a merge target: the
+        /// accent theme token on the existing border (no extra strip) and,
+        /// when a pre-rendered component bitmap is supplied, the chrome's
+        /// merge preview layer over the content area. A null preview keeps
+        /// the border hint only (render failures fall back to this path).
+        /// Safe to call repeatedly; the guard compares the preview too, so a
+        /// bitmap that arrives after the border still paints.
         /// </summary>
-        public void SetMergeHint(bool on)
+        public void SetMergeHint(bool on, ImageSource preview = null)
         {
-            if (_mergeHint == on) return;
+            if (_mergeHint == on && ReferenceEquals(_mergeHintPreview, preview)) return;
             _mergeHint = on;
+            _mergeHintPreview = preview;
             if (Chrome == null) return;
 
             if (on)
             {
                 Chrome.Shell.BorderBrush = ThemeManager.AccentBrush;
+                if (preview != null)
+                    Chrome.ShowMergePreview(preview, Localization.Get("UI_MergeDropHint"));
+                else
+                    Chrome.HideMergePreview();
                 return;
             }
+
+            Chrome.HideMergePreview();
 
             // UpdatePanelBorder owns the resting shell border (the panel
             // colour tint or the neutral token), so a full theme repaint
             // restores exactly what the chrome would paint anyway.
             Chrome.ApplyTheme();
+        }
+
+        /// <summary>
+        /// The dragged component's pre-rendered merge preview for the current
+        /// header drag, rendered once and cached. A failed render is cached as
+        /// null so the drag falls back to the border hint without retrying.
+        /// </summary>
+        internal ImageSource MergePreviewFor(WidgetData source)
+        {
+            if (source == null) return null;
+            if (_mergePreviewRendered && ReferenceEquals(_mergePreviewSource, source))
+                return _mergePreviewImage;
+
+            _mergePreviewSource = source;
+            _mergePreviewImage = WidgetGhostRenderer.Render(source);
+            _mergePreviewRendered = true;
+            return _mergePreviewImage;
+        }
+
+        /// <summary>Drops the per-drag preview bitmap at the start/end of a gesture.</summary>
+        private void ResetMergePreviewCache()
+        {
+            _mergePreviewImage = null;
+            _mergePreviewSource = null;
+            _mergePreviewRendered = false;
         }
 
         /// <summary>Re-applies the theme and the configured panel opacity.</summary>
@@ -399,8 +462,11 @@ namespace Kobold.Controls
             OnPanelStateChanged();
         }
 
-        /// <summary>Toggles "keep open" and remembers it.</summary>
-        public void TogglePin()
+        /// <summary>
+        /// Toggles "keep open" and remembers it. A group overrides this to
+        /// toggle only its active member; a standalone writes its own datum.
+        /// </summary>
+        public virtual void TogglePin()
         {
             _state.IsPanelPinned = !_state.IsPanelPinned;
             UpdateUI();
@@ -646,8 +712,10 @@ namespace Kobold.Controls
 
         private void OnHeaderDragStarted(Point cursor)
         {
-            // A fresh gesture never inherits a hint from a lost/cancelled drag.
+            // A fresh gesture never inherits a hint from a lost/cancelled drag,
+            // and the per-drag preview bitmap is rendered lazily again.
             ClearMergeHint();
+            ResetMergePreviewCache();
 
             // Snapshot the anchor; a click without movement is not a drag.
             _dragStarted = true;
@@ -691,6 +759,7 @@ namespace Kobold.Controls
             if (!_isDraggingWindow)
             {
                 ClearMergeHint();
+                ResetMergePreviewCache();
                 return; // a click, not a drag
             }
 
@@ -712,8 +781,10 @@ namespace Kobold.Controls
             finally
             {
                 // The merge may have closed/replaced the target host; clearing
-                // the remembered instance is always safe.
+                // the remembered instance is always safe. The per-drag preview
+                // bitmap dies with the gesture.
                 ClearMergeHint();
+                ResetMergePreviewCache();
             }
         }
 
@@ -727,14 +798,14 @@ namespace Kobold.Controls
             _dragStarted = false;
             _isDraggingWindow = false;
             ClearMergeHint();
+            ResetMergePreviewCache();
         }
 
         /// <summary>
         /// The header-drag drop half of merge: find the first visible widget
         /// window under the release point, keep its hint lit and hand the
         /// merge to the manager. A group is never a source and the policy
-        /// rejects locked/locked-group/Folder pairs; no target keeps the
-        /// plain move.
+        /// rejects locked/locked-group pairs; no target keeps the plain move.
         /// </summary>
         private void TryMergeFromHeaderDrag(Point cursor)
         {
@@ -778,8 +849,8 @@ namespace Kobold.Controls
         /// <summary>
         /// The eligible merge target under a screen point: the first visible
         /// candidate (the source is skipped by the policy) that passes
-        /// <see cref="GroupDragPolicy.CanMerge"/>; locked/locked-group/Folder
-        /// hosts never qualify, so they never hint.
+        /// <see cref="GroupDragPolicy.CanMerge"/>; locked/locked-group hosts
+        /// never qualify, so they never hint.
         /// </summary>
         private IWidgetWindow FindMergeTarget(Point cursor)
         {
@@ -798,7 +869,7 @@ namespace Kobold.Controls
             if (previous != null) previous.SetMergeHint(false);
 
             var next = target as WidgetWindowBase;
-            if (next != null) next.SetMergeHint(true);
+            if (next != null) next.SetMergeHint(true, MergePreviewFor(Data));
         }
 
         private void ClearMergeHint() => SetMergeHintTarget(null);

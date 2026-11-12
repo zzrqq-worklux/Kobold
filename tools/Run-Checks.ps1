@@ -28,6 +28,8 @@ function Get-FilePinHash([string]$Path) {
 $checks = @(
     @{ Name = 'AtomicFileCheck';       Ci = $true  }
     @{ Name = 'ConfigSafetyCheck';     Ci = $true  }
+    @{ Name = 'ControlCheck';          Ci = $true  }
+    @{ Name = 'ControlScriptCheck';    Ci = $false }   # spawns PowerShell + a fake pipe
     @{ Name = 'LangCheck';             Ci = $true  }
     @{ Name = 'WidgetItemsCheck';      Ci = $true  }
     @{ Name = 'ScreenGeometryCheck';   Ci = $true  }

@@ -109,15 +109,35 @@ development base.
   — a completed parent goes with its whole subtree, completed sub-todos under
   an open parent go one by one — and is greyed out when the day has none;
   Ctrl+Z brings the batch back.
-- **Widget groups** — merge a todo, note or search widget into one group
-  window by dragging one panel's header onto another. The members sit behind
-  bare top tabs: no pill or divider, just a 2px underline in the active
-  widget's colour, while the title shows the active tab's context. Lock, pin
-  and the panel geometry belong to the group; on the island every member
-  carries a count badge and only the active one shows the open ring. Drag a
-  tab out (or right-click **Detach this widget**) to split it off again, and a
-  group that drops to one member dissolves by itself. Folder widgets stay
-  standalone in this release.
+- **Widget groups** — merge a folder, todo, note or search widget into one
+  group window by dragging one panel's header onto another. The members sit
+  behind bare top tabs: no pill or divider, just a 2px underline in the active
+  widget's colour, and each tab shows the member's own name (the kind label is
+  only a fallback). The title shows the active tab's context and carries no
+  member or pin count. Lock and the panel geometry belong to the group; pinning
+  is per member — any pinned member keeps the group window open when it loses
+  focus, and the header pin toggles only the active member. Right-clicking the
+  title row opens the active member's own menu (rename, colour, kind-specific
+  options, lock, pin, delete), while right-clicking a tab still opens the group
+  menu (switch tab / detach / hide group); the island group tile keeps that
+  same group menu. On the island a group folds into one 44×44 tile: a 2×2 grid
+  of member icons (the first three plus `+N` for five or more), a neutral
+  outline while the group is open, and no count badge or folder glyph. Clicking
+  the tile expands it inline: 44×44 member icon tiles are inserted immediately
+  to the right of the group tile, pushing the rest of the row right — not a
+  popup, a second window or a separate panel; clicking it again folds them
+  away. Each icon names its member in a tooltip only, the active member wears a
+  soft wash and a small dot, and a small gold pin marks pinned members. Clicking
+  a member icon opens the group and switches to its tab. The expansion is
+  stored per group (`WidgetGroup.IslandExpanded`): it survives island
+  collapse/expand and restart, and several groups may be expanded at once.
+  While you drag one component over another, the merge target shows a
+  pre-rendered preview of the dragged component before you release. Drag a tab
+  out (or right-click **Detach this widget**) to split it off again, and a
+  group that drops to one member dissolves by itself. Deleting a folder member
+  from a group ejects its stored files first, and a folder tab keeps browsing,
+  its native file menu, drag/drop and the live folder watcher while it is the
+  active tab.
 - **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
   View while still behaving like normal, activatable windows.
 - **Steps aside for fullscreen** — while a fullscreen app or video is in
@@ -372,6 +392,24 @@ moves them for real, and a drop nothing accepts restores the item
 (references become visible again, stored files return to where they came
 from).
 
+## Local agent control / kobold-config skill
+
+`koboldctl.ps1` ships in the Kobold install directory (by default
+`%LocalAppData%\Programs\Kobold`) and is also available as
+`tools\koboldctl.ps1` in the repository. It talks to a running Kobold over a
+named pipe restricted to the current Windows user and session - there is no
+HTTP endpoint and no remote access. The command surface covers `status`,
+`config get/describe/validate/patch/replace/backup/restore`,
+`widget add/update/delete`, `group merge/detach/reorder/dissolve`,
+`search status/query/rebuild/cancel/pause/resume/reconcile`, and
+`diag snapshot/logs/folders`. Config writes are revision-guarded, and
+destructive commands require `--yes`.
+
+`skill\kobold-config` is a portable skill folder. Copy the whole
+`kobold-config` directory into your agent's skills directory, then use
+`scripts/find-koboldctl.ps1` to locate the CLI. It works with the installed
+copy or with the repository checkout.
+
 ## Build & test
 
 Requires the .NET SDK (8.x) on Windows.
@@ -519,6 +557,23 @@ Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发
   连续回退 20 步（编辑器聚焦时仍是文本框自带的文字撤回；没有重做）。在清单或日历空白处
   右键 →「清理已完成」：清掉当前选中日的已完成条目（已完成的父项整条含子树；未完成父项
   下的已完成子项逐条删除），当天没有已完成项时置灰；整批可 Ctrl+Z 找回。
+- **组件组** — 把一个文件夹 / 待办 / 笔记 / 搜索组件的 header 拖到另一个组件上，
+  即可合并为一个组窗口。成员收在顶部的**裸标签**下：没有胶囊底或分隔线，只有一条
+  2px 的组件色下划线，标签显示成员自己的名称（只有名称为空时才回落为类型名）。
+  标题显示当前标签的上下文，不再显示成员数或置顶数。锁定与面板几何属于整个组；
+  置顶是成员级的——任一成员置顶时组窗口失焦不收起，标题栏的图钉只切换当前成员。
+  右键标题栏打开**当前成员**自己的菜单（改名、换色、类型选项、锁定、置顶、删除），
+  右键标签仍是组菜单（切换标签 / 分离此组件 / 隐藏组），岛上的组 tile 右键也保持
+  组菜单。在岛上同组折叠为一个 44×44 tile：内部 2×2 成员图标（5 个以上显示前 3 个
+  加 `+N`），组打开时只用中性细轮廓，没有数量角标或文件夹图标。点击该 tile 会就地
+  展开：44×44 的成员图标**插到组 tile 右侧**，把整行其余内容向右推——不是弹窗、第二个
+  窗口或独立面板，再次点击收起；图标只以 Tooltip 显示成员名，当前成员带淡色底与小
+  圆点，已置顶的成员带一枚小金钉。点击成员图标打开组窗口并切到该标签。展开状态按组
+  保存在 `WidgetGroup.IslandExpanded`，收起 / 展开岛与重启后都保持，且可同时展开多个组。
+  拖动一个组件到另一个组件上时，合并目标会先显示被拖动组件的**预渲染预览**；标签可
+  拖出（或右键「分离此组件」）拆回独立组件，剩 1 个成员时自动解散。从组里删除文件夹
+  成员时，会先把它收纳的文件移回原位置；文件夹标签在激活时照常浏览，保留原生文件
+  菜单、拖放与实时文件夹监听。
 - **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
 - **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
 - **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：

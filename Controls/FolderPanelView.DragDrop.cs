@@ -13,9 +13,9 @@ using Kobold.Services;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Drag-Drop operations (file drop, item reordering, desktop restore)
+    /// FolderPanelView - Drag-Drop operations (file drop, item reordering, desktop restore)
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         // Stored drag items for multi-selection support
         private List<DisplayItem> _currentDragItems;
@@ -119,7 +119,7 @@ namespace Kobold.Controls
         /// </summary>
         private void CopyExternalFileDrop(DragEventArgs e, string targetDir)
         {
-            if (_data.IsLocked || string.IsNullOrEmpty(targetDir))
+            if (IsLocked || string.IsNullOrEmpty(targetDir))
             {
                 e.Effects = DragDropEffects.None;
                 return;
@@ -235,7 +235,7 @@ namespace Kobold.Controls
                 
                 // For external drop (file list). A locked widget never hands its
                 // files to another program, so it publishes no file list at all.
-                if (!_data.IsLocked)
+                if (!IsLocked)
                 {
                     var fileList = new System.Collections.Specialized.StringCollection();
                     foreach (var sel in selectedItems)
@@ -252,9 +252,7 @@ namespace Kobold.Controls
                 {
                     if (dragWindow != null && dragWindow.IsVisible)
                     {
-                        var cursor = GetCursorInWindow();
-                        dragWindow.Left = Left + cursor.X + 10;
-                        dragWindow.Top = Top + cursor.Y + 10;
+                        PlaceDragVisual(dragWindow, GetCursorInWindow());
                     }
 
                     // Replace the OLE default drag cursor (arrow with a dashed
@@ -272,7 +270,7 @@ namespace Kobold.Controls
                 _dropHandledInsideApp = false;
                 _releasedOutsidePanel = false;
                 _unhiddenForDrag.Clear();
-                var session = DragDropSession.Begin(_data.Id, _data.IsLocked);
+                var session = DragDropSession.Begin(_data.Id, IsLocked);
 
                 // The shell reports what it actually did with the files (move,
                 // copy or nothing) - that result decides what happens to the
@@ -361,9 +359,7 @@ namespace Kobold.Controls
                 {
                     if (dragWindow != null && dragWindow.IsVisible)
                     {
-                        var cursor = GetCursorInWindow();
-                        dragWindow.Left = Left + cursor.X + 10;
-                        dragWindow.Top = Top + cursor.Y + 10;
+                        PlaceDragVisual(dragWindow, GetCursorInWindow());
                     }
 
                     args.UseDefaultCursors = false;
@@ -406,6 +402,7 @@ namespace Kobold.Controls
         /// <summary>Highlights the panel while another browse panel hovers it.</summary>
         private void SetBrowseDropHighlight(bool on)
         {
+            if (Chrome == null) return;
             if (on) Chrome.Shell.BorderBrush = ThemeManager.AccentBlueBrush;
             else Chrome.Shell.ClearValue(Border.BorderBrushProperty);
         }
@@ -503,26 +500,33 @@ namespace Kobold.Controls
             window.Content = panel;
             
             // Position at cursor
-            var cursor = GetCursorInWindow();
-            window.Left = Left + cursor.X + 10;
-            window.Top = Top + cursor.Y + 10;
-            
+            PlaceDragVisual(window, GetCursorInWindow());
+
             window.Show();
             return window;
         }
 
         /// <summary>
-        /// Cursor position in this window's DIP coordinates. Cursor.Position is
-        /// in physical pixels, so it must be mapped through the window transform
-        /// to stay correct on scaled displays (e.g. 200%).
+        /// Cursor position in the host window's DIP coordinates. Cursor.Position
+        /// is in physical pixels, so it must be mapped through the window
+        /// transform to stay correct on scaled displays (e.g. 200%).
         /// </summary>
         private Point GetCursorInWindow()
         {
             var physical = System.Windows.Forms.Cursor.Position;
-            return PointFromScreen(new Point(physical.X, physical.Y));
+            Visual source = HostWindow ?? (Visual)this;
+            return source.PointFromScreen(new Point(physical.X, physical.Y));
+        }
+
+        /// <summary>Places the drag ghost at the cursor, just below-right of it.</summary>
+        private void PlaceDragVisual(Window visual, Point cursor)
+        {
+            var host = HostWindow;
+            visual.Left = (host == null ? 0 : host.Left) + cursor.X + 10;
+            visual.Top = (host == null ? 0 : host.Top) + cursor.Y + 10;
         }
         
-        // Selection methods moved to FolderWidget.Selection.cs
+        // Selection methods live in FolderPanelView.Selection.cs
         
         #endregion
 
@@ -536,7 +540,7 @@ namespace Kobold.Controls
                 // screen - the shell keeps collisions and progress Explorer-like.
                 if (IsExternalFileDrop(e.Data))
                 {
-                    bool externalAccepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
+                    bool externalAccepted = ExternalDropPolicy.Accepts(true, IsLocked, true, false);
                     e.Effects = externalAccepted ? DragDropEffects.Copy : DragDropEffects.None;
                     SetBrowseDropHighlight(externalAccepted);
                     DropIndicator.Visibility = Visibility.Collapsed;
@@ -701,7 +705,7 @@ namespace Kobold.Controls
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
             {
                 // Prevent drops if widget is locked
-                if (_data.IsLocked)
+                if (IsLocked)
                 {
                     e.Handled = true;
                     return;
@@ -747,7 +751,7 @@ namespace Kobold.Controls
             }
 
             bool moved = ShellFileOperations.Move(
-                movable, CurrentBrowsePath, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                movable, CurrentBrowsePath, PanelHwnd);
             e.Effects = moved ? DragDropEffects.Move : DragDropEffects.None;
 
             // Deferred so the re-list does not run inside the OLE drag loop; the
@@ -776,7 +780,7 @@ namespace Kobold.Controls
             if (IsExternalFileDrop(e.Data))
             {
                 bool externalAccepted = ExternalDropPolicy.Accepts(
-                    true, _data.IsLocked, true, !(target != null && target.IsDirectory));
+                    true, IsLocked, true, !(target != null && target.IsDirectory));
                 e.Effects = externalAccepted ? DragDropEffects.Copy : DragDropEffects.None;
                 if (externalAccepted) SetItemDropHighlight(border);
                 else
@@ -787,7 +791,7 @@ namespace Kobold.Controls
                 return;
             }
 
-            bool accepted = !_data.IsLocked &&
+            bool accepted = !IsLocked &&
                             target != null &&
                             target.IsDirectory &&
                             IsBrowseDrag(e.Data, out _) &&
@@ -825,7 +829,7 @@ namespace Kobold.Controls
             if (IsExternalFileDrop(e.Data))
             {
                 bool externalAccepted = ExternalDropPolicy.Accepts(
-                    true, _data.IsLocked, true, !(target != null && target.IsDirectory));
+                    true, IsLocked, true, !(target != null && target.IsDirectory));
                 if (!externalAccepted)
                 {
                     e.Effects = DragDropEffects.None;
@@ -836,7 +840,7 @@ namespace Kobold.Controls
                 return;
             }
 
-            bool accepted = !_data.IsLocked &&
+            bool accepted = !IsLocked &&
                             target != null &&
                             target.IsDirectory &&
                             IsBrowseDrag(e.Data, out _) &&
@@ -858,7 +862,7 @@ namespace Kobold.Controls
             }
 
             bool copy = (e.KeyStates & DragDropKeyStates.ControlKey) != 0;
-            IntPtr handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            IntPtr handle = PanelHwnd;
             bool ok = copy
                 ? ShellFileOperations.Copy(movable, target.Path, handle)
                 : ShellFileOperations.Move(movable, target.Path, handle);
@@ -884,7 +888,7 @@ namespace Kobold.Controls
         private bool IsBackDropAccepted(DragEventArgs e, out string parent)
         {
             parent = BrowseParentFolder();
-            return IsBrowsing && !_data.IsLocked && !string.IsNullOrEmpty(parent) &&
+            return IsBrowsing && !IsLocked && !string.IsNullOrEmpty(parent) &&
                    IsBrowseDrag(e.Data, out _) &&
                    BrowseMove.CanDropInto(BrowseDragPaths(e.Data), parent, Directory.Exists);
         }
@@ -914,7 +918,7 @@ namespace Kobold.Controls
             var movable = BrowseMove.MovableInto(BrowseDragPaths(e.Data), parent,
                 p => File.Exists(p) || Directory.Exists(p));
             if (movable.Count == 0) return;
-            ShellFileOperations.Move(movable, parent, new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            ShellFileOperations.Move(movable, parent, PanelHwnd);
             Dispatcher.BeginInvoke(new Action(UpdateUI));
         }
 
@@ -923,7 +927,7 @@ namespace Kobold.Controls
         {
             if (e.Handled || !IsBrowsing || !IsExternalFileDrop(e.Data)) return;
 
-            bool accepted = ExternalDropPolicy.Accepts(true, _data.IsLocked, true, false);
+            bool accepted = ExternalDropPolicy.Accepts(true, IsLocked, true, false);
             e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
             SetBrowseDropHighlight(accepted);
             if (!accepted) DragDropSession.Current?.MarkTargetRefused();
@@ -941,7 +945,7 @@ namespace Kobold.Controls
         {
             if (e.Handled || !IsBrowsing || !IsExternalFileDrop(e.Data)) return;
 
-            if (_data.IsLocked) e.Effects = DragDropEffects.None;
+            if (IsLocked) e.Effects = DragDropEffects.None;
             else CopyExternalFileDrop(e, CurrentBrowsePath);
             e.Handled = true;
         }
@@ -1027,7 +1031,7 @@ namespace Kobold.Controls
             foreach (var item in items) paths.Add(item == null ? null : item.Path);
 
             var actions = DragOutPolicy.ResolveSelection(effect, _dropHandledInsideApp,
-                _releasedOutsidePanel, _data.IsLocked, paths, SourceStillExists);
+                _releasedOutsidePanel, IsLocked, paths, SourceStillExists);
 
             var kept = new List<DisplayItem>();
             var removed = new List<DisplayItem>();
@@ -1112,7 +1116,10 @@ namespace Kobold.Controls
         {
             var cursor = System.Windows.Forms.Cursor.Position;
             var dpi = VisualTreeHelper.GetDpi(this);
-            var bounds = new Rect(Left, Top, ActualWidth, ActualHeight);
+            var host = HostWindow;
+            var bounds = host == null
+                ? new Rect(0, 0, ActualWidth, ActualHeight)
+                : new Rect(host.Left, host.Top, host.ActualWidth, host.ActualHeight);
             return !ScreenGeometry.ContainsPhysicalPoint(
                 bounds, dpi.DpiScaleX, dpi.DpiScaleY, cursor.X, cursor.Y);
         }
@@ -1127,7 +1134,7 @@ namespace Kobold.Controls
         /// <summary>Cross-widget drops need both widgets unlocked and a matching session.</summary>
         private bool CanAcceptCrossWidgetDrag(DragDropSession session, string sourceId)
         {
-            return !_data.IsLocked &&
+            return !IsLocked &&
                    session != null &&
                    !session.SourceIsLocked &&
                    session.SourceFolderId == sourceId;
@@ -1193,7 +1200,7 @@ namespace Kobold.Controls
             if (selectedItems == null || selectedItems.Count == 0) return;
 
             // Locked widgets forbid moving content out
-            if (_data.IsLocked) return;
+            if (IsLocked) return;
 
             if (!IsCursorOutsidePanel()) return;
 

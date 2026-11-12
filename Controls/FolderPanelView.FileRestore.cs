@@ -4,11 +4,11 @@ using Kobold.Core;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Eject operations. Ejecting an item means "stop managing
+    /// FolderPanelView - Eject operations. Ejecting an item means "stop managing
     /// this file": references are un-hidden (the file never moved), stored items
     /// are moved back to their original path (desktop as legacy fallback).
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         #region Eject
 
@@ -94,7 +94,7 @@ namespace Kobold.Controls
         /// Deleting the widget must keep returning stored files: the base runs
         /// this after the confirmation, before the widget is removed.
         /// </summary>
-        protected override void OnDeleting()
+        internal void OnDeleting()
         {
             EjectAllItems();
         }

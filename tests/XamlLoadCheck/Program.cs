@@ -12,6 +12,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -19,11 +20,14 @@ using System.Windows.Shapes;
 using Kobold.Controls;
 using Kobold.Controls.IconRenderers;
 using Kobold.Core;
+using Kobold.Core.Control;
 using Kobold.Core.FileSearch;
 using Kobold.Core.Icons;
 using Kobold.Helpers;
+using Kobold.Services.Control;
 using Kobold.Windows;
 using Localization = Kobold.Core.Localization;
+using Newtonsoft.Json.Linq;
 
 namespace Kobold.XamlLoadCheck
 {
@@ -78,7 +82,8 @@ namespace Kobold.XamlLoadCheck
             try
             {
                 Console.WriteLine("step: start");
-                var app = new App();
+                App.SuppressStartupForChecks = true;
+                var app = new App { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 Console.WriteLine("step: app created");
                 app.InitializeComponent(); // Application resources: App.xaml + Themes/Controls.xaml
                 Console.WriteLine("step: app resources loaded");
@@ -332,6 +337,9 @@ namespace Kobold.XamlLoadCheck
                 // drops the disc for the hand-drawn ring + its corner check.
                 failures += TryCheck("todo: selected day uses the hand-drawn circle", TodoSelectedDayUsesTheHandDrawnCircle);
                 failures += TryCheck("todo: today wears the hand-drawn ring and its check", TodoTodayMarkerIsTheHandDrawnRingWithACheck);
+                failures += TryCheck("folder panel: the view loads the folder content surface", FolderPanelViewLoadsTheContentSurface);
+                failures += TryCheck("folder panel: FolderWidget delegates its content to the live view", FolderWidgetDelegatesToTheLiveView);
+                failures += TryCheck("folder panel: the header buttons move into the chrome slots", FolderPanelInstallsChromeSlots);
                 failures += TryCheck("folder: item selection uses the widget accent", FolderSelectionUsesWidgetAccent);
                 failures += TryCheck("folder: the panel size fallback matches the engine", FolderPanelSizeFallbackMatchesTheEngine);
                 failures += TryCheck("folder: the panel adapts columns and scale to its size", FolderAdaptsColumnsAndScaleToItsSize);
@@ -476,10 +484,41 @@ namespace Kobold.XamlLoadCheck
                     WidgetPanelVisibilityRaisesEvent);
                 failures += TryCheck("island: open state updates the tile in place",
                     IslandOpenStateUpdatesInPlace);
-                failures += TryCheck("island: group members carry a count badge",
-                    IslandGroupBadgeMarksMembers);
-                failures += TryCheck("island: only the active group member carries the open ring",
-                    IslandOpenStateFollowsTheActiveMember);
+                failures += TryCheck("island: a group folds to one 44x44 tile with member thumbnails",
+                    IslandGroupTileFoldsTheGroup);
+                failures += TryCheck("island: the group tile sits at the first member's slot in GroupOrder",
+                    IslandGroupTileSitsAtTheFirstMemberSlot);
+                failures += TryCheck("island: 5+ members show three thumbnails and +N",
+                    IslandGroupTileShowsOverflowCells);
+                failures += TryCheck("island: the open group tile wears a neutral outline",
+                    IslandGroupTileOpenOutline);
+
+                // P2 Task C pins: a group tile click inserts the group's
+                // members as 44x44 icon tiles immediately after the group tile
+                // (no 312 DIP panel, no second window). Expansion is per group,
+                // persisted, survives an island collapse, activates a member
+                // without collapsing, and keeps the capsule's left edge when
+                // the row fits.
+                failures += TryCheck("island: a group click inserts member tiles after the group tile",
+                    IslandGroupTileClickInsertsMembersInOrder);
+                failures += TryCheck("island: a second group click collapses the member tiles",
+                    IslandGroupTileClickAgainCollapses);
+                failures += TryCheck("island: group expansion survives an island collapse",
+                    IslandGroupExpansionSurvivesIslandCollapse);
+                failures += TryCheck("island: group expansion is per group",
+                    IslandGroupExpansionIsPerGroup);
+                failures += TryCheck("island: a member click activates and keeps the expansion",
+                    IslandMemberClickActivatesAndKeepsExpansion);
+                failures += TryCheck("island: member tiles show the active wash and the pinned pin",
+                    IslandMemberTilesShowActiveWashAndPinnedPin);
+                failures += TryCheck("island: expansion keeps the capsule's centre when it fits",
+                    IslandExpansionKeepsCentreWhenItFits);
+                failures += TryCheck("island: the pill collapses around its centre",
+                    IslandCollapsesAroundItsCentre);
+                failures += TryCheck("island: the group tile click raises the toggle event",
+                    IslandGroupTileClickRaisesTheToggleEvent);
+                failures += TryCheck("island: expanded member icons follow merge, detach and dissolve",
+                    IslandExpandedMembersFollowMergeDetachAndDissolve);
 
 
                 // Task 2 pin: the island's + tile opens the launcher card with
@@ -968,6 +1007,12 @@ namespace Kobold.XamlLoadCheck
                     SetMergeHintHighlightsAndRestoresTheShellBorder);
                 failures += TryCheck("group: the hovered merge target wears the hint during the drag",
                     MergeHintFollowsTheHoveredTargetDuringTheDrag);
+                failures += TryCheck("group: a merge target shows the pre-rendered component preview",
+                    MergePreviewShowsTheDraggedComponent);
+                failures += TryCheck("group: a merge target with no preview keeps only the border hint",
+                    MergePreviewWithoutImageKeepsTheBorderOnly);
+                failures += TryCheck("group: a late preview repaints and a group target shows it",
+                    MergePreviewWorksOnAGroupTarget);
                 failures += TryCheck("group: a sub-threshold tab press/up never detaches",
                     TabStripDragGestureRespectsTheThreshold);
 
@@ -1036,10 +1081,59 @@ namespace Kobold.XamlLoadCheck
                     P0BDetachActiveTabKeepsTheGroupOpen);
                 failures += TryCheck("p0-b: the last-pair dissolve moves both live views",
                     P0BLastPairDissolveMovesBothLiveViews);
-                failures += TryCheck("p0-b: the island updates group badges on the existing tiles",
-                    P0BIslandUpdatesBadgesInPlace);
+                failures += TryCheck("p0-b: the island keeps the folded group tile on refresh",
+                    P0BIslandRefreshesGroupTileInPlace);
                 failures += TryCheck("p0-b: a no-animation show lands at full opacity",
                     P0BNoAnimationShowLandsAtFullOpacity);
+
+                // Task T3b pins: FolderPanelView joins the real group window.
+                // The active tab owns the chrome slots, only it watches and
+                // refreshes, the native menu hook follows the group HWND, the
+                // group owns lock/pin, and the manager moves the exact view
+                // through merge, switch, detach, dissolve and persistence.
+                failures += TryCheck("folder group: a folder member attaches and the tab switches keep the view",
+                    FolderGroupAttachesAndTabSwitchesKeepTheView);
+                failures += TryCheck("folder group: only the active tab watches and refreshes",
+                    FolderGroupOnlyTheActiveTabWatchesAndRefreshes);
+                failures += TryCheck("folder group: an inactive tab ignores a queued browse refresh",
+                    FolderGroupInactiveTabIgnoresQueuedBrowseRefresh);
+                failures += TryCheck("folder group: the native menu hook uses the group HWND",
+                    FolderGroupNativeMenuHookUsesTheGroupHwnd);
+                failures += TryCheck("folder group: lock and pin read through the group",
+                    FolderGroupLockAndPinReadThroughTheGroup);
+                failures += TryCheck("folder group: the manager merges, switches and detaches the live view",
+                    FolderGroupManagerMergesSwitchesAndDetachesTheLiveView);
+                failures += TryCheck("folder group: the last-pair dissolve moves the folder view",
+                    FolderGroupLastPairDissolveMovesTheFolderView);
+                failures += TryCheck("folder group: a saved folder group restores once",
+                    FolderGroupSavedGroupRestoresOnce);
+                failures += TryCheck("group: tabs show the member names",
+                    GroupTabsShowMemberNames);
+                failures += TryCheck("group: the header pin toggles only the active member",
+                    GroupPinTogglesTheActiveMemberOnly);
+                failures += TryCheck("group: the header has no member/pin count meta",
+                    GroupChromeHasNoMemberCountMeta);
+
+                // Task B pins: the title row opens the active member's normal
+                // widget menu (not the group menu), the tab strip keeps the
+                // group menu, and deleting a member ejects its folder files.
+                failures += TryCheck("group: the title row opens the active member menu",
+                    GroupTitleMenuShowsTheActiveMemberMenu);
+                failures += TryCheck("group: the tab strip still opens the group menu",
+                    GroupTabRightClickStillShowsTheGroupMenu);
+                failures += TryCheck("group: deleting a member ejects its folder files",
+                    GroupMemberDeleteEjectsFolderFiles);
+
+                failures += TryCheck("group: detach and dissolve preserve each member's own pin",
+                    GroupDetachPreservesEachMembersOwnPin);
+                failures += TryCheck("ghost render: a folder preview renders",
+                    FolderGhostPreviewRenders);
+                failures += TryCheck("folder group: resizing re-adapts the active folder",
+                    FolderGroupResizeReadaptsTheActiveFolder);
+                failures += TryCheck("folder: hiding a panel keeps the chrome accessories for the fade",
+                    FolderHideKeepsTheChromeAccessories);
+                failures += TryCheck("folder group: hiding the group keeps the active folder chrome for the fade",
+                    FolderGroupHideKeepsTheActiveFolderChrome);
 
                 // R1 pins: the blank area of the tab row is a whole-window drag
                 // surface, every group drag affordance wears the same open/grab
@@ -1074,15 +1168,85 @@ namespace Kobold.XamlLoadCheck
                 failures += TryCheck("group: a rapid tab switch keeps the last request",
                     RapidTabSwitchesKeepTheLastActivation);
 
+                // Task 5 pins: the control plane's config.patch applies the hot
+                // fields to the live app (theme, language, island, icon style,
+                // item scale, file search, desktop icons) and reports a failed
+                // service applier as a warning. The appliers are fakes, so no
+                // registry, Explorer or real desktop is touched.
+                failures += TryCheck("config apply: hot fields reach the live app",
+                    ConfigApplyHotFieldsReachTheLiveApp);
+                failures += TryCheck("config apply: failed appliers become warnings",
+                    ConfigApplyReportsFailedAppliers);
+                failures += TryCheck("desktop guard: startup/exit use the injected state",
+                    DesktopGuardUsesTheInjectedState);
+
+                // Task 6 pins: the widget/group control service drives the same
+                // real manager state the UI uses - add stays closed/unpinned and
+                // repaints the island after the caller's name lands, update
+                // reports exactly the changed fields and derives the group pin,
+                // delete keeps the folder-eject/group-dissolve path, and the
+                // group commands preserve live views. Every pin cleans up its
+                // own widgets so the sandbox is left as it was found.
+                failures += TryCheck("control: widget.add creates a closed, unpinned widget",
+                    ControlWidgetAddCreatesClosedUnpinnedWidget);
+                failures += TryCheck("control: widget.update changes a grouped member and derives the group pin",
+                    ControlWidgetUpdateChangesGroupedMember);
+                failures += TryCheck("control: widget.delete ejects a folder member and dissolves its group",
+                    ControlWidgetDeleteEjectsAndDissolves);
+                failures += TryCheck("control: group.merge keeps the live views",
+                    ControlGroupMergeKeepsLiveViews);
+                failures += TryCheck("control: group.detach keeps the group then dissolves the last pair",
+                    ControlGroupDetachKeepsGroupThenDissolves);
+                failures += TryCheck("control: group.reorder moves the tabs and the active follows",
+                    ControlGroupReorderMovesTabsAndActive);
+                failures += TryCheck("control: group.dissolve returns every original member",
+                    ControlGroupDissolveReturnsEveryMember);
+                failures += TryCheck("control: widget.update rejects unknown and mismatched fields",
+                    ControlWidgetUpdateRejectsUnknownAndMismatchedFields);
+                failures += TryCheck("control: widget.delete rejects a group id but deletes a member",
+                    ControlWidgetDeleteRejectsGroupId);
+                failures += TryCheck("control: widget.update validates before mutating",
+                    ControlWidgetUpdateValidatesBeforeMutating);
+
+                // Task 7 pins: diagnostics carries every spec section, lists
+                // standalone and grouped folder views with live watcher state,
+                // mirrors the search service, tails only the fixed app/search
+                // logs, requires confirm for a rebuild, and can show the island.
+                // Every pin works on the config sandbox and cleans up its own
+                // widgets/files.
+                failures += TryCheck("diagnostics: the snapshot carries every section",
+                    DiagnosticsSnapshotCarriesEverySection);
+                failures += TryCheck("diagnostics: search status and query mirror the service",
+                    DiagnosticsSearchStatusAndQueryMatchService);
+                failures += TryCheck("diagnostics: the app log tail reads, rotates and misses safely",
+                    DiagnosticsLogTailReadsAppLog);
+                failures += TryCheck("diagnostics: search commands queue without waiting",
+                    DiagnosticsSearchCommandsQueueWithoutWaiting);
+                failures += TryCheck("diagnostics: app.showIsland expands the island",
+                    DiagnosticsShowIslandReturnsOk);
+                // The folder pin builds and detaches a real view, so it runs
+                // last: any queued render callback is discarded by ExitNow
+                // instead of racing the process teardown.
+                failures += TryCheck("diagnostics: folder views report active and watcher state",
+                    DiagnosticsFoldersListFolderViews);
+
                 Console.WriteLine();
+                int exitCode;
                 if (failures == 0)
                 {
                     Console.WriteLine("ALL XAML LOAD CHECKS PASSED");
-                    return 0;
+                    exitCode = 0;
+                }
+                else
+                {
+                    Console.WriteLine("FAILURES: " + failures);
+                    exitCode = 1;
                 }
 
-                Console.WriteLine("FAILURES: " + failures);
-                return 1;
+                // All checks have run and the result line is out; pin the exit
+                // code without entering the CLR/WPF teardown (see ExitNow).
+                ExitNow(exitCode);
+                return exitCode;
             }
             catch (Exception ex)
             {
@@ -1094,9 +1258,45 @@ namespace Kobold.XamlLoadCheck
                 {
                     Console.WriteLine("TOP FAIL " + ex.GetType().FullName + " (message unavailable)");
                 }
+
+                // Same teardown flake: a top failure must still report 1.
+                ExitNow(1);
                 return 1;
             }
         }
+
+        /// <summary>
+        /// Ends the process with the requested exit code and skips the CLR/WPF
+        /// shutdown path. The checks leave windows, timers and ghost clones
+        /// behind; letting the runtime tear them down after the result line can
+        /// raise STATUS_FATAL_USER_CALLBACK_EXCEPTION (0xC000041D) in
+        /// WindowsBase (an access violation in a stale callback), which turns a
+        /// green run into a failed check. Closing the windows / shutting the
+        /// manager down makes it worse (the fatal callback fires inside
+        /// WidgetManager.Shutdown), and Environment.Exit still runs the
+        /// ProcessExit/teardown path. TerminateProcess is the only exit that
+        /// pins the code: it stops every thread without running callbacks.
+        /// </summary>
+        private static void ExitNow(int exitCode)
+        {
+            Console.Out.Flush();
+
+            try
+            {
+                TerminateProcess(GetCurrentProcess(), unchecked((uint)exitCode));
+            }
+            catch (Exception) { }
+
+            // Unreachable unless the native call failed; still a deterministic
+            // fallback if the process handle is ever unavailable.
+            Environment.Exit(exitCode);
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateProcess(IntPtr processHandle, uint exitCode);
 
         /// <summary>
         /// Exercises the shared chrome the way a host window does: theme first,
@@ -3735,10 +3935,10 @@ namespace Kobold.XamlLoadCheck
 
         private static MethodInfo FolderPrivateMethod(string name)
         {
-            var method = typeof(FolderWidget).GetMethod(name,
+            var method = typeof(FolderPanelView).GetMethod(name,
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (method == null)
-                throw new InvalidOperationException(name + " not found on FolderWidget");
+                throw new InvalidOperationException(name + " not found on FolderPanelView");
             return method;
         }
 
@@ -6514,6 +6714,52 @@ namespace Kobold.XamlLoadCheck
             AssertNoFill("a non-editing row shell", RowShell(plainView, 0));
         }
 
+        private static void FolderPanelViewLoadsTheContentSurface()
+        {
+            var view = new FolderPanelView();
+            if (!ReferenceEquals(((IWidgetContentView)view).View, view))
+                throw new InvalidOperationException("the content view did not expose itself");
+
+            foreach (string name in new[]
+            {
+                "ContentPanel", "ItemsContainer", "ItemsScroller", "BackButton",
+                "PathButton", "HelpButton", "MoreItemsText", "EmptyState",
+                "DropIndicator", "SelectionRect"
+            })
+            {
+                if (view.FindName(name) == null)
+                    throw new InvalidOperationException(name + " was not loaded on FolderPanelView");
+            }
+        }
+
+        private static void FolderWidgetDelegatesToTheLiveView()
+        {
+            var widget = new FolderWidget(new FolderData());
+            if (widget.PanelView == null)
+                throw new InvalidOperationException("FolderWidget has no live FolderPanelView");
+            if (!ReferenceEquals(ChromeOf(widget).ContentHost.Content, widget.PanelView))
+                throw new InvalidOperationException("the chrome does not host FolderWidget.PanelView");
+            if (widget.FindName("ContentPanel") != null)
+                throw new InvalidOperationException("the window still declares the folder content surface");
+        }
+
+        private static void FolderPanelInstallsChromeSlots()
+        {
+            var widget = new FolderWidget(new FolderData());
+            var view = widget.PanelView;
+            var chrome = ChromeOf(widget);
+            if (!ReferenceEquals(chrome.HeaderLeading.Content, view.FindName("BackButton")))
+                throw new InvalidOperationException("BackButton is not in the chrome's leading slot");
+
+            var trailing = chrome.HeaderTrailing.Content as StackPanel;
+            if (trailing == null ||
+                !trailing.Children.Contains((UIElement)view.FindName("PathButton")) ||
+                !trailing.Children.Contains((UIElement)view.FindName("HelpButton")))
+                throw new InvalidOperationException("PathButton and HelpButton are not in the trailing slot");
+            if (!ReferenceEquals(chrome.FooterHost.Content, view.FindName("MoreItemsText")))
+                throw new InvalidOperationException("MoreItemsText is not in the chrome's footer slot");
+        }
+
         /// <summary>
         /// Fix round 15 (R3): the folder widget's item-selection visual follows
         /// the widget's own colour. The panel shell (task 3.1: the chrome's
@@ -6577,7 +6823,7 @@ namespace Kobold.XamlLoadCheck
             var widget = new FolderWidget(data);
             widget.UpdateUI();
 
-            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var container = PrivateField<ItemsControl>(widget.PanelView, "ItemsContainer");
             items = container.ItemsSource as List<DisplayItem>;
             if (items == null || items.Count != 2)
             {
@@ -6597,7 +6843,7 @@ namespace Kobold.XamlLoadCheck
             var chrome = ChromeOf(widget);
 
             items[0].IsSelected = true;
-            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget.PanelView, null);
 
             string wanted = System.IO.Path.GetFileName(items[0].Path);
             if (chrome.Title != wanted)
@@ -6625,7 +6871,7 @@ namespace Kobold.XamlLoadCheck
 
             items[0].IsSelected = true;
             items[1].IsSelected = true;
-            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget.PanelView, null);
 
             string wanted = Localization.Format("UI_SelectedCountFormat", 2);
             if (chrome.Title != wanted)
@@ -6653,14 +6899,14 @@ namespace Kobold.XamlLoadCheck
             var chrome = ChromeOf(widget);
 
             items[0].IsSelected = true;
-            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget.PanelView, null);
             if (chrome.Title == widget.Data.Name)
             {
                 throw new InvalidOperationException("the selection title did not take over before the clear");
             }
 
             foreach (var item in items) item.IsSelected = false;
-            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget, null);
+            FolderPrivateMethod("RefreshChromeTitle").Invoke(widget.PanelView, null);
 
             if (chrome.Title != widget.Data.Name)
             {
@@ -6703,7 +6949,7 @@ namespace Kobold.XamlLoadCheck
             root.Arrange(new Rect(0, 0, 433, 285));
             root.UpdateLayout();
 
-            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var container = PrivateField<ItemsControl>(widget.PanelView, "ItemsContainer");
             var items = container.ItemsSource as List<DisplayItem>;
             if (items == null || items.Count != 4)
             {
@@ -6713,7 +6959,7 @@ namespace Kobold.XamlLoadCheck
             var chrome = ChromeOf(widget);
             items[0].IsSelected = true;
 
-            var moved = RaiseFolderKey(widget, Key.Right);
+            var moved = RaiseFolderKey(widget.PanelView, Key.Right);
             if (!items[1].IsSelected || items[0].IsSelected)
             {
                 throw new InvalidOperationException(
@@ -6734,7 +6980,7 @@ namespace Kobold.XamlLoadCheck
             // key to the scroller (no Handled).
             foreach (var item in items) item.IsSelected = false;
             items[3].IsSelected = true;
-            var boundary = RaiseFolderKey(widget, Key.Right);
+            var boundary = RaiseFolderKey(widget.PanelView, Key.Right);
             if (!items[3].IsSelected || items[0].IsSelected || items[1].IsSelected || items[2].IsSelected)
             {
                 throw new InvalidOperationException("Right at the last entry moved the selection");
@@ -6833,7 +7079,7 @@ namespace Kobold.XamlLoadCheck
                     label + ": " + grid.Columns + " column(s), wanted " + wantColumns);
             }
 
-            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var container = PrivateField<ItemsControl>(widget.PanelView, "ItemsContainer");
             var transform = container.LayoutTransform as ScaleTransform;
             if (transform == null)
             {
@@ -6960,35 +7206,35 @@ namespace Kobold.XamlLoadCheck
             var selected = new List<DisplayItem> { item };
 
             var buildItemMenu = FolderPrivateMethod("BuildBrowseItemMenu");
-            var itemMenu = (ContextMenu)buildItemMenu.Invoke(widget, new object[] { item, selected });
+            var itemMenu = (ContextMenu)buildItemMenu.Invoke(widget.PanelView, new object[] { item, selected });
             AssertMenuItem(itemMenu, Localization.Get("Menu_Copy"), true, "the browse item menu");
             AssertMenuItem(itemMenu, Localization.Get("Menu_Cut"), true, "the browse item menu");
 
             data.IsLocked = true;
-            var lockedMenu = (ContextMenu)buildItemMenu.Invoke(widget, new object[] { item, selected });
+            var lockedMenu = (ContextMenu)buildItemMenu.Invoke(widget.PanelView, new object[] { item, selected });
             AssertMenuItem(lockedMenu, Localization.Get("Menu_Copy"), false, "the locked browse item menu");
             AssertMenuItem(lockedMenu, Localization.Get("Menu_Cut"), false, "the locked browse item menu");
             data.IsLocked = false;
 
             var buildBackgroundMenu = FolderPrivateMethod("BuildBrowseBackgroundMenu");
-            var pasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, true });
+            var pasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget.PanelView, new object[] { dir, true });
             AssertMenuItem(pasteMenu, Localization.Get("Menu_Paste"), true, "the browse background menu");
-            var noPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, false });
+            var noPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget.PanelView, new object[] { dir, false });
             AssertMenuItemAbsent(noPasteMenu, Localization.Get("Menu_Paste"), "the paste-less background menu");
 
             data.IsLocked = true;
-            var lockedPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget, new object[] { dir, true });
+            var lockedPasteMenu = (ContextMenu)buildBackgroundMenu.Invoke(widget.PanelView, new object[] { dir, true });
             AssertMenuItem(lockedPasteMenu, Localization.Get("Menu_Paste"), false, "the locked browse background menu");
             data.IsLocked = false;
 
             var buildPanelMenu = FolderPrivateMethod("BuildPanelContextMenu");
-            var panelMenu = (ContextMenu)buildPanelMenu.Invoke(widget, new object[] { true });
+            var panelMenu = (ContextMenu)buildPanelMenu.Invoke(widget.PanelView, new object[] { true });
             AssertMenuItem(panelMenu, Localization.Get("Menu_Paste"), true, "the panel menu");
-            var panelNoPaste = (ContextMenu)buildPanelMenu.Invoke(widget, new object[] { false });
+            var panelNoPaste = (ContextMenu)buildPanelMenu.Invoke(widget.PanelView, new object[] { false });
             AssertMenuItemAbsent(panelNoPaste, Localization.Get("Menu_Paste"), "the paste-less panel menu");
 
             var rootMenu = (ContextMenu)FolderPrivateMethod("BuildRootItemMenu")
-                .Invoke(widget, new object[] { item });
+                .Invoke(widget.PanelView, new object[] { item });
             AssertMenuItem(rootMenu, Localization.Get("Menu_Copy"), true, "the root item menu");
         }
 
@@ -7003,7 +7249,7 @@ namespace Kobold.XamlLoadCheck
 
             var widget = new FolderWidget(new FolderData());
             var menu = (ContextMenu)FolderPrivateMethod("BuildBrowseBackgroundMenu")
-                .Invoke(widget, new object[] { IO.Path.GetTempPath(), true });
+                .Invoke(widget.PanelView, new object[] { IO.Path.GetTempPath(), true });
 
             var newFolder = menu.Items[0] as MenuItem;
             var newFile = menu.Items[1] as MenuItem;
@@ -7034,7 +7280,7 @@ namespace Kobold.XamlLoadCheck
         private static void BrowseBackButtonAcceptsDrops()
         {
             var widget = new FolderWidget(new FolderData());
-            var button = widget.FindName("BackButton") as Border;
+            var button = widget.PanelView.FindName("BackButton") as Border;
             if (button == null) throw new InvalidOperationException("BackButton not found");
             if (!button.AllowDrop) throw new InvalidOperationException("the browse back button does not accept drops");
         }
@@ -7056,7 +7302,7 @@ namespace Kobold.XamlLoadCheck
             };
             var widget = new FolderWidget(data);
 
-            var menu = (ContextMenu)FolderPrivateMethod("BuildPathMenu").Invoke(widget, null);
+            var menu = (ContextMenu)FolderPrivateMethod("BuildPathMenu").Invoke(widget.PanelView, null);
             if (menu == null)
                 throw new InvalidOperationException("BuildPathMenu returned null while browsing");
             if (menu.Items.Count != 2)
@@ -7075,16 +7321,16 @@ namespace Kobold.XamlLoadCheck
         private static void FolderContentPanelAcceptsDrops()
         {
             var widget = new FolderWidget(new FolderData());
-            var content = widget.FindName("ContentPanel") as Grid;
-            var scroller = widget.FindName("ItemsScroller") as ScrollViewer;
-            var empty = widget.FindName("EmptyState") as FrameworkElement;
+            var content = widget.PanelView.FindName("ContentPanel") as Grid;
+            var scroller = widget.PanelView.FindName("ItemsScroller") as ScrollViewer;
+            var empty = widget.PanelView.FindName("EmptyState") as FrameworkElement;
             if (content == null || !content.AllowDrop)
                 throw new InvalidOperationException("ContentPanel does not accept drops");
             if (scroller == null || !scroller.AllowDrop)
                 throw new InvalidOperationException("ItemsScroller does not accept drops");
             if (empty == null || empty.IsHitTestVisible)
                 throw new InvalidOperationException("EmptyState still blocks drops");
-            var items = widget.FindName("ItemsContainer") as ItemsControl;
+            var items = widget.PanelView.FindName("ItemsContainer") as ItemsControl;
             if (items == null || !items.AllowDrop)
                 throw new InvalidOperationException("ItemsContainer does not accept drops");
         }
@@ -7120,7 +7366,7 @@ namespace Kobold.XamlLoadCheck
                         ", wanted 246x190 at scale 1.5");
                 }
 
-                var container = PrivateField<ItemsControl>(open, "ItemsContainer");
+                var container = PrivateField<ItemsControl>(open.PanelView, "ItemsContainer");
                 var transform = container.LayoutTransform as ScaleTransform;
                 if (transform == null || Math.Abs(transform.ScaleX - 1.5) > 1e-6)
                 {
@@ -7228,7 +7474,7 @@ namespace Kobold.XamlLoadCheck
                     "the " + panelWidth + "-wide panel holds " + grid.Columns + " columns, wanted 4");
             }
 
-            var container = PrivateField<ItemsControl>(widget, "ItemsContainer");
+            var container = PrivateField<ItemsControl>(widget.PanelView, "ItemsContainer");
             var transform = container.LayoutTransform as ScaleTransform;
             if (transform == null || Math.Abs(transform.ScaleX - 1.1) > 1e-6)
             {
@@ -7575,13 +7821,15 @@ namespace Kobold.XamlLoadCheck
         /// PreviewKeyDown the folder's keyboard handler listens for. Returns
         /// the args so the pin can read their Handled state.
         /// </summary>
-        private static KeyEventArgs RaiseFolderKey(Window window, Key key)
+        private static KeyEventArgs RaiseFolderKey(FrameworkElement element, Key key)
         {
             // The folder keeps the arrows for a focused text box (the rename
             // editor); the earlier key pins can leave one focused, so the
             // real card's premise - focus outside any editor - is set here.
             Keyboard.ClearFocus();
 
+            var window = Window.GetWindow(element);
+            if (window == null) throw new InvalidOperationException("the folder view has no containing window");
             EnsureRealDpi(window);
             IntPtr handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
             PresentationSource source = System.Windows.Interop.HwndSource.FromHwnd(handle);
@@ -7591,7 +7839,7 @@ namespace Kobold.XamlLoadCheck
             {
                 RoutedEvent = Keyboard.PreviewKeyDownEvent
             };
-            window.RaiseEvent(args);
+            element.RaiseEvent(args);
             return args;
         }
 
@@ -7858,6 +8106,14 @@ namespace Kobold.XamlLoadCheck
             var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             if (field == null) throw new InvalidOperationException(name + " field not found");
             field.SetValue(target, value);
+        }
+
+        private static bool PrivateBoolProperty(object target, string name)
+        {
+            var property = target.GetType().GetProperty(name,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (property == null) throw new InvalidOperationException(name + " property not found");
+            return (bool)property.GetValue(target);
         }
 
         /// <summary>
@@ -8219,10 +8475,10 @@ namespace Kobold.XamlLoadCheck
             var folder = new FolderWidget(new FolderData());
             try
             {
-                RequireIcon(folder, "BackIcon", IconId.Chevron);
-                RequireIcon(folder, "PathIcon", IconId.Chevron);
-                RequireIcon(folder, "HelpIcon", IconId.Help);
-                RequireIcon(folder, "EmptyFolderIcon", IconId.Folder);
+                RequireIcon(folder.PanelView, "BackIcon", IconId.Chevron);
+                RequireIcon(folder.PanelView, "PathIcon", IconId.Chevron);
+                RequireIcon(folder.PanelView, "HelpIcon", IconId.Help);
+                RequireIcon(folder.PanelView, "EmptyFolderIcon", IconId.Folder);
             }
             finally
             {
@@ -8362,6 +8618,9 @@ namespace Kobold.XamlLoadCheck
                 if (relative.StartsWith("tests\\", StringComparison.OrdinalIgnoreCase) ||
                     relative.StartsWith("docs\\", StringComparison.OrdinalIgnoreCase) ||
                     relative.StartsWith("assets\\", StringComparison.OrdinalIgnoreCase) ||
+                    // Task snapshots archive whole-repo copies (tests included)
+                    // under .superpowers; they are evidence, not production.
+                    relative.StartsWith(".superpowers\\", StringComparison.OrdinalIgnoreCase) ||
                     relative.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     relative.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -8478,58 +8737,85 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T5 pin: a grouped member's island tile keeps its 44x44 size and
-        /// gains exactly one small, click-through count badge; the group adds
-        /// no tile of its own.
+        /// P2 pin: a grouped set folds into ONE 44x44 island tile at the first
+        /// member's slot. The tile is a 34x34 plate with a 2x2 grid of the
+        /// members' own 11px icons in GroupOrder; the other members leave the
+        /// row. There is no count badge, no Folder glyph and no member-colour
+        /// ring. Clicking raises the internal group event and right-click asks
+        /// for the group menu.
         /// </summary>
-        private static void IslandGroupBadgeMarksMembers()
+        private static void IslandGroupTileFoldsTheGroup()
         {
             ThemeManager.Initialize("dark");
-            var first = new FolderData { Name = "待办", Color = "#B5654A" };
-            var second = new FolderData { Name = "笔记", Color = "#4A7BB5" };
+            var first = new FolderData { Id = "island-tile-f", Name = "资料", Color = "#B5654A" };
+            var second = new NoteData { Id = "island-tile-n", Name = "笔记", Color = "#4A7BB5" };
+            var group = new WidgetGroup { Id = "island-tile-g", ActiveWidgetId = second.Id };
+            first.GroupId = group.Id; first.GroupOrder = 0;
+            second.GroupId = group.Id; second.GroupOrder = 1;
+            var widgets = new WidgetData[] { first, second };
             var island = new IslandWindow();
             try
             {
-                var info = new WidgetGroupTileInfo { MemberCount = 2, MemberNames = "待办 / 笔记" };
-                var groupInfo = new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal)
-                {
-                    { first.Id, info },
-                    { second.Id, info }
-                };
-                island.SetWidgets(new WidgetData[] { first, second }, groupInfo);
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
                 island.ShowIsland();
                 island.UpdateLayout();
 
-                if (TilePanelOf(island).Children.Count != 2)
-                    throw new InvalidOperationException("the group added an extra tile");
+                var panel = TilePanelOf(island);
+                if (panel.Children.Count != 1)
+                    throw new InvalidOperationException("the island shows " + panel.Children.Count +
+                        " tiles for one group, wanted 1");
+                var tile = panel.Children[0] as Border;
+                if (tile == null || !string.Equals(tile.Tag as string, "group:" + group.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the group tile is not tagged with the group id");
+                if (tile.Width != 44 || tile.Height != 44)
+                    throw new InvalidOperationException("the group tile is not 44x44");
+                if (tile.CornerRadius.TopLeft != 10)
+                    throw new InvalidOperationException("the group tile is not radius 10");
+                string tooltip = tile.ToolTip as string ?? string.Empty;
+                if (!tooltip.Contains(first.Name) || !tooltip.Contains(second.Name))
+                    throw new InvalidOperationException(
+                        "the group tile tooltip does not name its members: " + tooltip);
 
-                foreach (var widget in new[] { first, second })
-                {
-                    var tile = FindIslandTile(island, widget.Id);
-                    if (tile == null)
-                        throw new InvalidOperationException("a group member tile was not built");
-                    if (tile.Width != WidgetConstants.ISLAND_TILE_SIZE
-                        || tile.Height != WidgetConstants.ISLAND_TILE_SIZE)
-                        throw new InvalidOperationException("the group badge changed the tile size");
+                var plate = FindByTag(tile, "GroupPlate") as Border;
+                if (plate == null || plate.Width != 34 || plate.Height != 34)
+                    throw new InvalidOperationException("the group tile has no 34x34 plate");
+                if (FindByTag(tile, "GroupIconGrid") as Panel == null)
+                    throw new InvalidOperationException("the group tile has no 2x2 icon grid");
 
-                    var badge = FindGroupBadge(tile);
-                    if (badge == null)
-                        throw new InvalidOperationException("a grouped tile has no GroupBadge");
-                    if (badge.IsHitTestVisible)
-                        throw new InvalidOperationException("the group badge intercepts clicks");
-                    if (badge.Width != 14 || badge.Height != 14)
-                        throw new InvalidOperationException("the group badge is not 14x14");
+                var icons = GroupMemberIcons(tile);
+                if (icons.Count != 2)
+                    throw new InvalidOperationException(
+                        "the 2-member group draws " + icons.Count + " thumbnails");
+                if (!string.Equals(icons[0].Tag as string, "GroupMemberIcon:" + first.Id, StringComparison.Ordinal)
+                    || !string.Equals(icons[1].Tag as string, "GroupMemberIcon:" + second.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the thumbnails are not in GroupOrder");
+                string firstIcon = IconFingerprint(icons[0].Child);
+                string secondIcon = IconFingerprint(icons[1].Child);
+                if (!firstIcon.Contains(Describe(Utils.HexToColor(first.Color)))
+                    || !secondIcon.Contains(Describe(Utils.HexToColor(second.Color))))
+                    throw new InvalidOperationException("a thumbnail does not use its member's colour");
+                if (firstIcon == secondIcon)
+                    throw new InvalidOperationException("the two thumbnails are the same glyph");
+                if (FindGroupBadge(tile) != null)
+                    throw new InvalidOperationException("the folded group tile still carries a count badge");
+                if (FindByTag(tile, "TileDot") != null)
+                    throw new InvalidOperationException("the folded group tile carries a member ring/dot");
 
-                    var text = badge.Child as TextBlock;
-                    if (text == null || text.Text != "2")
-                        throw new InvalidOperationException("the group badge does not show the member count");
-                }
-
-                // An ungrouped tile in the same build carries no badge at all.
-                island.SetWidgets(new WidgetData[] { first });
-                island.UpdateLayout();
-                if (FindGroupBadge(FindIslandTile(island, first.Id)) != null)
-                    throw new InvalidOperationException("an ungrouped tile still carries a GroupBadge");
+                string activated = null;
+                string menu = null;
+                island.GroupTileClicked += id => activated = id;
+                island.WidgetMenuRequested += id => menu = id;
+                tile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                tile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+                { RoutedEvent = UIElement.MouseRightButtonUpEvent });
+                if (activated != group.Id)
+                    throw new InvalidOperationException("the group tile click did not raise GroupTileClicked");
+                if (menu != group.Id)
+                    throw new InvalidOperationException("the group tile right-click did not request the group menu");
+                if (FindIslandTile(island, first.Id) != null || FindIslandTile(island, second.Id) != null)
+                    throw new InvalidOperationException("a folded group member still has its own tile");
             }
             finally
             {
@@ -8538,38 +8824,978 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// T5 pin: the manager passes only the active member's id, so the other
-        /// member's dot/ring stays collapsed even though the group is open.
+        /// P2 pin: the folded tile sits at the first member's config slot, not
+        /// at the active/first-by-GroupOrder slot, and its thumbnails stay in
+        /// GroupOrder (switching the active tab never reshuffles them).
         /// </summary>
-        private static void IslandOpenStateFollowsTheActiveMember()
+        private static void IslandGroupTileSitsAtTheFirstMemberSlot()
         {
             ThemeManager.Initialize("dark");
-            var active = new FolderData { Name = "active", Color = "#B5654A" };
-            var hidden = new FolderData { Name = "inactive", Color = "#4A7BB5" };
+            var solo = new FolderData { Id = "slot-solo", Name = "solo", Color = "#788C5D" };
+            var late = new TodoData
+            {
+                Id = "slot-late", Name = "late", Color = "#4A7BB5", GroupOrder = 1
+            };
+            var early = new NoteData
+            {
+                Id = "slot-early", Name = "early", Color = "#B5654A", GroupOrder = 0
+            };
+            late.GroupId = "slot-g"; early.GroupId = "slot-g";
+            var group = new WidgetGroup { Id = "slot-g", ActiveWidgetId = late.Id };
+            var widgets = new WidgetData[] { solo, late, early };
             var island = new IslandWindow();
             try
             {
-                island.SetWidgets(new WidgetData[] { active, hidden });
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => false));
                 island.ShowIsland();
                 island.UpdateLayout();
 
-                island.SetOpenStates(new[] { active.Id });
+                var children = TilePanelOf(island).Children.Cast<Border>().ToList();
+                if (children.Count != 2
+                    || !string.Equals(children[0].Tag as string, solo.Id, StringComparison.Ordinal)
+                    || !string.Equals(children[1].Tag as string, "group:" + group.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the group tile is not at the first member's config slot");
 
-                var activeTile = FindIslandTile(island, active.Id);
-                var hiddenTile = FindIslandTile(island, hidden.Id);
-                if (activeTile == null || hiddenTile == null)
-                    throw new InvalidOperationException("the member tiles were not built");
-                if (TileDotOf(activeTile).Visibility != Visibility.Visible)
-                    throw new InvalidOperationException("the active member tile lost its open ring");
-                if (TileDotOf(hiddenTile).Visibility != Visibility.Collapsed)
-                    throw new InvalidOperationException("an inactive group member tile shows an open ring");
-                if (hiddenTile.Background != Brushes.Transparent)
-                    throw new InvalidOperationException("an inactive group member tile carries the open wash");
+                var icons = GroupMemberIcons(children[1]);
+                if (icons.Count != 2
+                    || !string.Equals(icons[0].Tag as string, "GroupMemberIcon:" + early.Id, StringComparison.Ordinal)
+                    || !string.Equals(icons[1].Tag as string, "GroupMemberIcon:" + late.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the thumbnails do not follow GroupOrder");
             }
             finally
             {
                 island.Close();
             }
+        }
+
+        /// <summary>
+        /// P2 pin: the folded tile draws at most four cells - all members for
+        /// four, the first three by GroupOrder plus "+N" for five or more.
+        /// </summary>
+        private static void IslandGroupTileShowsOverflowCells()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var six = BuildGroupMembers("overflow", 6);
+                var sixGroup = new WidgetGroup { Id = "overflow-g", ActiveWidgetId = six[0].Id };
+                foreach (var member in six) member.GroupId = sixGroup.Id;
+                island.SetWidgets(six, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { sixGroup }, six, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var groupTile = TilePanelOf(island).Children[0] as Border;
+                var grid = FindByTag(groupTile, "GroupIconGrid") as Panel;
+                var icons = GroupMemberIcons(groupTile);
+                var overflow = FindByTag(groupTile, "GroupOverflow") as TextBlock;
+                if (grid == null || grid.Children.Count != 4)
+                    throw new InvalidOperationException("the 6-member tile does not draw exactly four cells");
+                if (icons.Count != 3
+                    || icons[0].Tag as string != "GroupMemberIcon:" + six[0].Id
+                    || icons[1].Tag as string != "GroupMemberIcon:" + six[1].Id
+                    || icons[2].Tag as string != "GroupMemberIcon:" + six[2].Id)
+                    throw new InvalidOperationException("the 6-member tile does not draw the first three thumbnails");
+                if (overflow == null || overflow.Text != "+3")
+                    throw new InvalidOperationException("the 6-member tile does not show +3");
+                if (FindGroupBadge(groupTile) != null)
+                    throw new InvalidOperationException("the overflow tile carries a count badge");
+
+                var four = BuildGroupMembers("four", 4);
+                var fourGroup = new WidgetGroup { Id = "four-g", ActiveWidgetId = four[0].Id };
+                foreach (var member in four) member.GroupId = fourGroup.Id;
+                island.SetWidgets(four, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { fourGroup }, four, id => false));
+                island.UpdateLayout();
+
+                var fourTile = TilePanelOf(island).Children[0] as Border;
+                if (GroupMemberIcons(fourTile).Count != 4 || FindByTag(fourTile, "GroupOverflow") != null)
+                    throw new InvalidOperationException("the 4-member tile does not draw four thumbnails without +N");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 pin: the folded group tile's open state is a neutral 1.5px
+        /// outline plus a lifted background keyed by the group id; it never
+        /// wears a member colour and a member id never lights it.
+        /// </summary>
+        private static void IslandGroupTileOpenOutline()
+        {
+            ThemeManager.Initialize("dark");
+            var first = new FolderData { Id = "outline-f", Name = "first", Color = "#B5654A" };
+            var second = new TodoData { Id = "outline-t", Name = "second", Color = "#4A7BB5" };
+            var group = new WidgetGroup { Id = "outline-g", ActiveWidgetId = first.Id };
+            first.GroupId = group.Id; second.GroupId = group.Id;
+            first.GroupOrder = 0; second.GroupOrder = 1;
+            var widgets = new WidgetData[] { first, second };
+            var island = new IslandWindow();
+            try
+            {
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var tile = TilePanelOf(island).Children[0] as Border;
+                if (tile == null || tile.BorderThickness.Left != 0)
+                    throw new InvalidOperationException("the closed group tile wears an outline");
+
+                island.SetOpenStates(new[] { group.Id });
+                if (!ReferenceEquals(tile, TilePanelOf(island).Children[0]))
+                    throw new InvalidOperationException("the open state rebuilt the group tile");
+                if (tile.BorderThickness.Left != 1.5)
+                    throw new InvalidOperationException("the open group tile does not wear the 1.5px outline");
+                var outline = tile.BorderBrush as SolidColorBrush;
+                if (outline == null || outline.Color != ThemeManager.IslandForegroundBrush.Color)
+                    throw new InvalidOperationException("the open group outline is not neutral");
+                if (outline.Color == Utils.HexToColor(first.Color)
+                    || outline.Color == Utils.HexToColor(second.Color))
+                    throw new InvalidOperationException("the open group outline uses a member colour");
+                var background = tile.Background as SolidColorBrush;
+                if (background == null || background.Color != ThemeManager.IslandHoverBrush.Color)
+                    throw new InvalidOperationException("the open group tile is not lifted");
+                if (FindByTag(tile, "TileDot") != null)
+                    throw new InvalidOperationException("the open group tile carries a member dot");
+
+                island.SetOpenStates(new[] { first.Id });
+                if (tile.BorderThickness.Left != 0)
+                    throw new InvalidOperationException("a member id lit the folded group tile");
+
+                island.SetOpenStates(new[] { group.Id });
+                island.SetOpenStates(new string[0]);
+                if (tile.BorderThickness.Left != 0 || tile.Background != Brushes.Transparent)
+                    throw new InvalidOperationException("closing the group left the open outline/wash behind");
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        private static WidgetData[] BuildGroupMembers(string prefix, int count)
+        {
+            var members = new WidgetData[count];
+            for (int i = 0; i < count; i++)
+            {
+                members[i] = new NoteData
+                {
+                    Id = prefix + "-" + i,
+                    Name = prefix + " " + i,
+                    Color = i % 2 == 0 ? "#B5654A" : "#4A7BB5",
+                    GroupOrder = i
+                };
+            }
+            return members;
+        }
+
+        /// <summary>
+        /// P2 Task C pin: a group tile click expands the group inside the
+        /// existing row - its members become 44x44 icon tiles immediately after
+        /// the group tile and before the next projected tile. No 312 DIP panel,
+        /// no popup and no second window; the member name is only a tooltip.
+        /// </summary>
+        private static void IslandGroupTileClickInsertsMembersInOrder()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var before = new FolderData { Id = "ins-before", Name = "before", Color = "#788C5D" };
+                var setup = BuildIslandGroup("ins", 3, 0);
+                var after = new NoteData { Id = "ins-after", Name = "after", Color = "#4A7BB5" };
+                var widgets = new WidgetData[]
+                {
+                    before, setup.Members[0], setup.Members[1], setup.Members[2], after
+                };
+                setup.Widgets = widgets;
+
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, widgets, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                int windows = Application.Current.Windows.Count;
+                SetIslandGroupExpanded(island, setup, true);
+
+                var expected = new List<string>
+                {
+                    before.Id,
+                    "group:" + setup.Group.Id,
+                    "island-member:" + setup.Members[0].Id,
+                    "island-member:" + setup.Members[1].Id,
+                    "island-member:" + setup.Members[2].Id,
+                    after.Id
+                };
+                var tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(expected))
+                {
+                    throw new InvalidOperationException("the island row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", expected) + "]");
+                }
+
+                if (island.FindName("MemberSection") != null)
+                    throw new InvalidOperationException("the old 312 DIP MemberSection still exists");
+
+                for (int i = 0; i < setup.Members.Length; i++)
+                {
+                    var member = setup.Members[i];
+                    var tile = FindIslandMemberTile(island, member.Id);
+                    if (tile == null)
+                        throw new InvalidOperationException("member " + member.Id + " has no island tile");
+                    if (tile.Width != 44 || tile.Height != 44)
+                        throw new InvalidOperationException("member " + member.Id + " is not a 44x44 tile");
+                    if (tile.CornerRadius.TopLeft != 8)
+                        throw new InvalidOperationException("member " + member.Id + " is not radius 8");
+                    if (!string.Equals(tile.ToolTip as string, member.Name, StringComparison.Ordinal))
+                        throw new InvalidOperationException("member " + member.Id + " does not tooltip its name");
+                    var icon = FindMemberIcon(tile);
+                    if (icon == null || icon.Width != 32 || icon.Height != 32)
+                        throw new InvalidOperationException("member " + member.Id + " has no 32px icon");
+                    if (CountNonEmptyText(tile) != 0)
+                        throw new InvalidOperationException("member " + member.Id +
+                            " writes a name/count as text");
+                }
+
+                if (Application.Current.Windows.Count != windows)
+                    throw new InvalidOperationException("expanding a group opened an extra window");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: a second REAL group-tile click collapses its member
+        /// icons; only the group tile remains and the next standalone tile
+        /// returns to its old index. The manager-style subscription toggles the
+        /// persisted flag and repaints the row, so the second click lands on the
+        /// rebuilt group tile.
+        /// </summary>
+        private static void IslandGroupTileClickAgainCollapses()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var before = new FolderData { Id = "collapse-before", Name = "before", Color = "#788C5D" };
+                var setup = BuildIslandGroup("collapse", 3, 0);
+                var after = new NoteData { Id = "collapse-after", Name = "after", Color = "#4A7BB5" };
+                var widgets = new WidgetData[]
+                {
+                    before, setup.Members[0], setup.Members[1], setup.Members[2], after
+                };
+                setup.Widgets = widgets;
+
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, widgets, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                // The manager owns the flag toggle and the repaint; the island
+                // only raises the click.
+                island.GroupTileClicked += id =>
+                {
+                    if (!string.Equals(id, setup.Group.Id, StringComparison.Ordinal)) return;
+                    setup.Group.IslandExpanded = !setup.Group.IslandExpanded;
+                    island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                        new[] { setup.Group }, widgets, hostId => hostId == setup.Group.Id));
+                    island.UpdateLayout();
+                };
+
+                var groupTile = FindIslandGroupTile(island, setup.Group.Id);
+                if (groupTile == null)
+                    throw new InvalidOperationException("the group tile is missing before the first click");
+                groupTile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                island.UpdateLayout();
+
+                if (!setup.Group.IslandExpanded)
+                    throw new InvalidOperationException("the first group tile click did not expand the group");
+                var expandedExpected = new List<string>
+                {
+                    before.Id,
+                    "group:" + setup.Group.Id,
+                    "island-member:" + setup.Members[0].Id,
+                    "island-member:" + setup.Members[1].Id,
+                    "island-member:" + setup.Members[2].Id,
+                    after.Id
+                };
+                var expandedTags = IslandRowTags(island);
+                if (!expandedTags.SequenceEqual(expandedExpected))
+                {
+                    throw new InvalidOperationException("the expanded island row is [" +
+                        string.Join(",", expandedTags) + "], wanted [" +
+                        string.Join(",", expandedExpected) + "]");
+                }
+
+                // The expansion rebuilt the row: the old tile is detached, so
+                // the second click must land on the new group tile instance.
+                var rebuiltTile = FindIslandGroupTile(island, setup.Group.Id);
+                if (rebuiltTile == null)
+                    throw new InvalidOperationException("the rebuilt group tile is missing");
+                rebuiltTile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                island.UpdateLayout();
+
+                if (setup.Group.IslandExpanded)
+                    throw new InvalidOperationException("the second group tile click did not collapse the group");
+                var expected = new List<string>
+                {
+                    before.Id, "group:" + setup.Group.Id, after.Id
+                };
+                var tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(expected))
+                {
+                    throw new InvalidOperationException("the collapsed island row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", expected) + "]");
+                }
+
+                foreach (var member in setup.Members)
+                {
+                    if (FindIslandMemberTile(island, member.Id) != null)
+                        throw new InvalidOperationException("a member tile survived the collapse");
+                }
+                var next = TilePanelOf(island).Children[2] as FrameworkElement;
+                if (next == null || !string.Equals(next.Tag as string, after.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the next standalone tile did not return to its old index");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: folding the island (hover out) and expanding it again
+        /// keeps the group's member tiles in the row - the expansion state is
+        /// the persisted group flag, not island-local state.
+        /// </summary>
+        private static void IslandGroupExpansionSurvivesIslandCollapse()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var setup = BuildIslandGroup("survive", 3, 0);
+                island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, setup.Members, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+                SetIslandGroupExpanded(island, setup, true);
+
+                island.CollapseForChecks();
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                if (!setup.Group.IslandExpanded)
+                    throw new InvalidOperationException("the island collapse reset the group's expansion flag");
+
+                var tags = IslandRowTags(island);
+                var wanted = setup.Members.Select(m => "island-member:" + m.Id).ToList();
+                int groupIndex = tags.IndexOf("group:" + setup.Group.Id);
+                if (groupIndex < 0 || groupIndex + 1 + wanted.Count > tags.Count)
+                    throw new InvalidOperationException("the expanded group row is missing after the collapse");
+                var afterGroup = tags.Skip(groupIndex + 1).Take(wanted.Count).ToList();
+                if (!afterGroup.SequenceEqual(wanted))
+                    throw new InvalidOperationException("the member tiles are not in order after the collapse: [" +
+                        string.Join(",", afterGroup) + "]");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: two groups keep independent island expansion flags -
+        /// both rows appear after their own group tile, in member order.
+        /// </summary>
+        private static void IslandGroupExpansionIsPerGroup()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var first = BuildIslandGroup("per-a", 2, 0);
+                var second = BuildIslandGroup("per-b", 2, 0);
+                first.Group.IslandExpanded = true;
+                second.Group.IslandExpanded = true;
+                var widgets = first.Members.Concat(second.Members).ToArray();
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { first.Group, second.Group }, widgets, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var expected = new List<string>
+                {
+                    "group:" + first.Group.Id,
+                    "island-member:" + first.Members[0].Id,
+                    "island-member:" + first.Members[1].Id,
+                    "group:" + second.Group.Id,
+                    "island-member:" + second.Members[0].Id,
+                    "island-member:" + second.Members[1].Id
+                };
+                var tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(expected))
+                {
+                    throw new InvalidOperationException("the two expanded groups are [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", expected) + "]");
+                }
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: while a group is expanded, its inline member icons
+        /// follow merge, detach and dissolve - the row keeps the expansion flag
+        /// through membership changes and never leaves a stale member tile or
+        /// the old MemberSection behind.
+        /// </summary>
+        private static void IslandExpandedMembersFollowMergeDetachAndDissolve()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var before = new FolderData { Id = "follow-before", Name = "before", Color = "#788C5D" };
+                var after = new NoteData { Id = "follow-after", Name = "after", Color = "#4A7BB5" };
+                var setup = BuildIslandGroup("follow", 2, 0);
+                var first = setup.Members[0];
+                var second = setup.Members[1];
+                var widgets = new List<WidgetData> { before, first, second, after };
+                setup.Widgets = widgets.ToArray();
+
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, widgets, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+                SetIslandGroupExpanded(island, setup, true);
+
+                var expanded = new List<string>
+                {
+                    before.Id,
+                    "group:" + setup.Group.Id,
+                    "island-member:" + first.Id,
+                    "island-member:" + second.Id,
+                    after.Id
+                };
+                var tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(expanded))
+                {
+                    throw new InvalidOperationException("the initial expanded row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", expanded) + "]");
+                }
+
+                // Merge: a third member joins the same group after the last tab.
+                var third = new NoteData
+                {
+                    Id = "follow-2",
+                    Name = "follow 2",
+                    Color = "#B5654A",
+                    GroupId = setup.Group.Id,
+                    GroupOrder = 2
+                };
+                widgets.Insert(3, third);
+                setup.Widgets = widgets.ToArray();
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, widgets, id => false));
+                island.UpdateLayout();
+
+                if (!setup.Group.IslandExpanded)
+                    throw new InvalidOperationException("the merge cleared the group's island flag");
+                var merged = new List<string>
+                {
+                    before.Id,
+                    "group:" + setup.Group.Id,
+                    "island-member:" + first.Id,
+                    "island-member:" + second.Id,
+                    "island-member:" + third.Id,
+                    after.Id
+                };
+                tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(merged))
+                {
+                    throw new InvalidOperationException("the merged expanded row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", merged) + "]");
+                }
+
+                // Detach: the second member leaves and the survivors renumber.
+                widgets.Remove(second);
+                first.GroupOrder = 0;
+                third.GroupOrder = 1;
+                setup.Widgets = widgets.ToArray();
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, widgets, id => false));
+                island.UpdateLayout();
+
+                if (!setup.Group.IslandExpanded)
+                    throw new InvalidOperationException("the detach cleared the group's island flag");
+                var detached = new List<string>
+                {
+                    before.Id,
+                    "group:" + setup.Group.Id,
+                    "island-member:" + first.Id,
+                    "island-member:" + third.Id,
+                    after.Id
+                };
+                tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(detached))
+                {
+                    throw new InvalidOperationException("the detached expanded row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", detached) + "]");
+                }
+                if (FindIslandMemberTile(island, second.Id) != null)
+                    throw new InvalidOperationException("the detached member left a stale island tile");
+
+                // Dissolve: the survivors become standalone tiles in config order.
+                first.GroupId = null;
+                first.GroupOrder = null;
+                third.GroupId = null;
+                third.GroupOrder = null;
+                setup.Widgets = widgets.ToArray();
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new WidgetGroup[0], widgets, id => false));
+                island.UpdateLayout();
+
+                var dissolved = new List<string> { before.Id, first.Id, third.Id, after.Id };
+                tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(dissolved))
+                {
+                    throw new InvalidOperationException("the dissolved row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", dissolved) + "]");
+                }
+                if (tags.Any(tag => tag.StartsWith("group:", StringComparison.Ordinal)
+                        || tag.StartsWith("island-member:", StringComparison.Ordinal)))
+                    throw new InvalidOperationException("the dissolved row still carries group/member tiles");
+                if (island.FindName("MemberSection") != null)
+                    throw new InvalidOperationException("the old 312 DIP MemberSection still exists");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: clicking a member tile raises WidgetActivated with
+        /// the member id and leaves the expansion (all member tiles) in place.
+        /// </summary>
+        private static void IslandMemberClickActivatesAndKeepsExpansion()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var setup = BuildIslandGroup("member-click", 3, 0);
+                island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, setup.Members, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+                SetIslandGroupExpanded(island, setup, true);
+
+                string activated = null;
+                island.WidgetActivated += id => activated = id;
+
+                var tile = FindIslandMemberTile(island, setup.Members[2].Id);
+                if (tile == null)
+                    throw new InvalidOperationException("the third member tile is missing");
+                tile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+
+                if (!string.Equals(activated, setup.Members[2].Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the member click did not raise WidgetActivated with its id");
+
+                foreach (var member in setup.Members)
+                {
+                    if (FindIslandMemberTile(island, member.Id) == null)
+                        throw new InvalidOperationException("the member click collapsed the expansion");
+                }
+                if (TilePanelOf(island).Children.Count != 1 + setup.Members.Length)
+                    throw new InvalidOperationException("the member click changed the row's tile count");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: the active member wears the same open wash and dot as
+        /// a standalone open tile; an inactive member is transparent with a
+        /// collapsed dot. Pinned members show a gold upright pin (status only);
+        /// the group tile keeps its 2x2 thumbnails and gains no dot/badge.
+        /// </summary>
+        private static void IslandMemberTilesShowActiveWashAndPinnedPin()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var setup = BuildIslandGroup("member-visual", 4, 1);
+                setup.Members[2].IsPanelPinned = true;
+                island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, setup.Members, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+                SetIslandGroupExpanded(island, setup, true);
+
+                for (int i = 0; i < setup.Members.Length; i++)
+                {
+                    var member = setup.Members[i];
+                    var tile = FindIslandMemberTile(island, member.Id);
+                    if (tile == null)
+                        throw new InvalidOperationException("member " + member.Id + " has no island tile");
+
+                    var dot = FindByTag(tile, "TileDot") as Ellipse;
+                    if (dot == null)
+                        throw new InvalidOperationException("member " + member.Id + " has no dot");
+                    if (i == 1)
+                    {
+                        if (dot.Visibility != Visibility.Visible)
+                            throw new InvalidOperationException("the active member's dot is hidden");
+                        Color wanted = Utils.MixColor(
+                            ThemeManager.IslandBackgroundBrush.Color,
+                            Utils.HexToColor(member.Color), 0.14);
+                        var wash = tile.Background as SolidColorBrush;
+                        if (wash == null || wash.Color != wanted)
+                            throw new InvalidOperationException("the active member has no open wash");
+                    }
+                    else
+                    {
+                        if (dot.Visibility != Visibility.Collapsed)
+                            throw new InvalidOperationException("an inactive member shows its dot");
+                        if (tile.Background != Brushes.Transparent)
+                            throw new InvalidOperationException("an inactive member is not transparent");
+                    }
+
+                    var pin = FindByTag(tile, "IslandMemberPin:" + member.Id) as IconPresenter;
+                    if (pin == null)
+                        throw new InvalidOperationException("member " + member.Id + " has no pin element");
+                    if (i == 2)
+                    {
+                        if (pin.Visibility != Visibility.Visible || pin.Rotation != 0)
+                            throw new InvalidOperationException("the pinned member does not show an upright pin");
+                        var brush = pin.Brush as SolidColorBrush;
+                        if (brush == null || brush.Color != ThemeManager.PinGoldBrush.Color)
+                            throw new InvalidOperationException("the pinned member's pin is not gold");
+                        if (pin.IsHitTestVisible)
+                            throw new InvalidOperationException("the member pin is hit-testable");
+                    }
+                    else if (pin.Visibility != Visibility.Collapsed)
+                    {
+                        throw new InvalidOperationException("an unpinned member shows a pin");
+                    }
+                }
+
+                var groupTile = FindIslandGroupTile(island, setup.Group.Id);
+                if (groupTile == null)
+                    throw new InvalidOperationException("the group tile is missing");
+                if (FindByTag(groupTile, "GroupIconGrid") as Panel == null)
+                    throw new InvalidOperationException("the group tile lost its 2x2 thumbnail grid");
+                if (FindGroupBadge(groupTile) != null)
+                    throw new InvalidOperationException("the group tile carries a count badge");
+                if (FindByTag(groupTile, "TileDot") != null)
+                    throw new InvalidOperationException("the group tile carries a member dot");
+                var plate = FindByTag(groupTile, "GroupPlate") as Border;
+                if (plate == null || !(plate.Child is UniformGrid))
+                    throw new InvalidOperationException("the group tile lost its neutral plate");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 Task C pin: expanding a group inside a row that still fits keeps
+        /// the capsule's centre fixed, grows the pill with the capsule, and
+        /// leaves the window wide enough for the active capsule plus shadow.
+        /// The window itself is resized to the active row, so its island-local
+        /// origin moves with the resize; the pin therefore asserts that the
+        /// capsule is centred in the window (island coordinates) and that its
+        /// screen centre stays put.
+        /// </summary>
+        private static void IslandExpansionKeepsCentreWhenItFits()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var setup = BuildIslandGroup("centre-when-fits", 3, 0);
+                island.Show();
+                island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, setup.Members, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var body = island.FindName("IslandBody") as FrameworkElement;
+                var pill = island.FindName("PillShape") as Shape;
+                if (body == null || pill == null)
+                    throw new InvalidOperationException("the island XAML lost the capsule/pill");
+
+                // Hover-expand is still at the start of its Width animation in
+                // this synchronous harness. Clear it so the collapsed widths
+                // (body 300, pill 300) are the values the group expansion
+                // starts from instead of the pre-expand pill width.
+                body.BeginAnimation(FrameworkElement.WidthProperty, null);
+                pill.BeginAnimation(FrameworkElement.WidthProperty, null);
+
+                double centreBefore = ScreenCentreOf(body, island);
+                AssertCapsuleCentredInWindow(body, island);
+
+                SetIslandGroupExpanded(island, setup, true);
+                island.UpdateLayout();
+
+                double centreAfter = ScreenCentreOf(body, island);
+                if (Math.Abs(centreAfter - centreBefore) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the capsule centre moved " + (centreAfter - centreBefore) +
+                        " DIP when the group expanded");
+                }
+                AssertCapsuleCentredInWindow(body, island);
+                if (Math.Abs(pill.Width - body.Width) > 0.01)
+                {
+                    throw new InvalidOperationException(
+                        "the pill did not grow with the capsule (pill " + pill.Width + "/" +
+                        pill.ActualWidth + ", body " + body.Width + "/" + body.ActualWidth + ")");
+                }
+                // ShadowPadding is 16 DIP on each side of the window.
+                if (island.Width + 0.01 < body.Width + 2 * 16)
+                    throw new InvalidOperationException("the window is narrower than the active capsule plus shadow padding");
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        /// <summary>Capsule centre in the window's island-local coordinates.</summary>
+        private static double IslandCentreOf(FrameworkElement element, Window window)
+        {
+            return element.TranslatePoint(new Point(0, 0), window).X + element.ActualWidth / 2;
+        }
+
+        /// <summary>Capsule centre in screen DIPs (the window origin plus the local centre).</summary>
+        private static double ScreenCentreOf(FrameworkElement element, Window window)
+        {
+            return window.Left + IslandCentreOf(element, window);
+        }
+
+        /// <summary>The capsule is centred in the window's content area.</summary>
+        private static void AssertCapsuleCentredInWindow(FrameworkElement body, Window window)
+        {
+            var content = window.Content as FrameworkElement;
+            if (content == null) return;
+            double localCentre = IslandCentreOf(body, window);
+            if (Math.Abs(localCentre - content.ActualWidth / 2) > 0.01)
+            {
+                throw new InvalidOperationException(
+                    "the capsule centre " + localCentre + " is not the window centre " +
+                    content.ActualWidth / 2);
+            }
+        }
+
+        /// <summary>
+        /// Regression pin for the left-anchored collapse: the island content is
+        /// centred in the (fixed-size-for-the-active-row) window, so shrinking
+        /// the pill must keep its centre in place. The old left-aligned layout
+        /// held the left edge and moved the centre left by half the width
+        /// difference. CentreX is the same window centre the panels and the
+        /// drag/drop clamp use.
+        /// </summary>
+        private static void IslandCollapsesAroundItsCentre()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var widget = new FolderData
+                {
+                    Id = "centre-probe",
+                    Name = "centre",
+                    Color = "#B5654A"
+                };
+                island.SetWidgets(new WidgetData[] { widget });
+                island.Show();
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                var body = island.FindName("IslandBody") as FrameworkElement;
+                var pill = island.FindName("PillShape") as FrameworkElement;
+                if (body == null || pill == null)
+                    throw new InvalidOperationException("the island XAML lost the capsule/pill");
+
+                // The expand animation owns Width; clear it so the widths below
+                // are the layout values instead of an in-flight animation.
+                body.BeginAnimation(FrameworkElement.WidthProperty, null);
+                pill.BeginAnimation(FrameworkElement.WidthProperty, null);
+
+                body.Width = WidgetConstants.ISLAND_HOVER_WIDTH;
+                pill.Width = WidgetConstants.ISLAND_PILL_WIDTH;
+                island.UpdateLayout();
+                double narrowCentre = CentreOfElement(pill, island);
+
+                body.Width = 600;
+                pill.Width = 600;
+                island.UpdateLayout();
+                double wideCentre = CentreOfElement(pill, island);
+
+                if (Math.Abs(narrowCentre - wideCentre) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "the pill centre moved " + (wideCentre - narrowCentre) +
+                        " DIP between the collapsed and expanded widths");
+                }
+
+                double wideScreenCentre = island.Left + wideCentre;
+                if (Math.Abs(island.CenterX - wideScreenCentre) > 0.5)
+                {
+                    throw new InvalidOperationException(
+                        "CenterX " + island.CenterX + " is not the capsule centre " + wideScreenCentre);
+                }
+            }
+            finally
+            {
+                island.Close();
+            }
+        }
+
+        /// <summary>Horizontal centre of an element in another element's coordinates.</summary>
+        private static double CentreOfElement(FrameworkElement element, UIElement relativeTo)
+        {
+            return element.TranslatePoint(new Point(element.Width / 2, 0), relativeTo).X;
+        }
+
+        /// <summary>
+        /// P2 Task C pin: the island raises GroupTileClicked with the group id
+        /// and leaves the data toggle to the manager; a manager-style
+        /// subscription toggles the persisted flag and repaints the row.
+        /// </summary>
+        private static void IslandGroupTileClickRaisesTheToggleEvent()
+        {
+            ThemeManager.Initialize("dark");
+            var island = new IslandWindow();
+            try
+            {
+                var setup = BuildIslandGroup("toggle-event", 3, 0);
+                island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { setup.Group }, setup.Members, id => false));
+                island.ShowIsland();
+                island.UpdateLayout();
+
+                string toggled = null;
+                island.GroupTileClicked += id =>
+                {
+                    toggled = id;
+                    setup.Group.IslandExpanded = !setup.Group.IslandExpanded;
+                    island.SetWidgets(setup.Members, GroupHostPolicy.BuildIslandGroupTiles(
+                        new[] { setup.Group }, setup.Members, hostId => hostId == setup.Group.Id));
+                };
+
+                var groupTile = FindIslandGroupTile(island, setup.Group.Id);
+                if (groupTile == null)
+                    throw new InvalidOperationException("the group tile is missing");
+                groupTile.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                island.UpdateLayout();
+
+                if (!string.Equals(toggled, setup.Group.Id, StringComparison.Ordinal))
+                    throw new InvalidOperationException("the group tile click did not raise GroupTileClicked");
+
+                var expected = new List<string> { "group:" + setup.Group.Id };
+                expected.AddRange(setup.Members.Select(m => "island-member:" + m.Id));
+                var tags = IslandRowTags(island);
+                if (!tags.SequenceEqual(expected))
+                {
+                    throw new InvalidOperationException("the toggled row is [" +
+                        string.Join(",", tags) + "], wanted [" + string.Join(",", expected) + "]");
+                }
+            }
+            finally
+            {
+                if (island.IsVisible) island.Close();
+            }
+        }
+
+        private sealed class IslandGroupSetup
+        {
+            public WidgetData[] Members;
+            public WidgetData[] Widgets;
+            public WidgetGroup Group;
+        }
+
+        private static IslandGroupSetup BuildIslandGroup(string prefix, int count, int activeIndex)
+        {
+            var members = BuildGroupMembers(prefix, count);
+            var group = new WidgetGroup { Id = prefix + "-g", ActiveWidgetId = members[activeIndex].Id };
+            foreach (var member in members) member.GroupId = group.Id;
+            return new IslandGroupSetup { Members = members, Group = group };
+        }
+
+        /// <summary>Expands/collapses the group through the same projection the manager sends.</summary>
+        private static void SetIslandGroupExpanded(IslandWindow island, IslandGroupSetup setup, bool expanded)
+        {
+            setup.Group.IslandExpanded = expanded;
+            var widgets = setup.Widgets ?? setup.Members;
+            island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { setup.Group }, widgets, id => id == setup.Group.Id));
+            island.UpdateLayout();
+        }
+
+        private static List<string> IslandRowTags(IslandWindow island)
+        {
+            return TilePanelOf(island).Children
+                .Cast<FrameworkElement>()
+                .Select(child => child.Tag as string ?? string.Empty)
+                .ToList();
+        }
+
+        private static Border FindIslandMemberTile(IslandWindow island, string memberId)
+        {
+            foreach (var child in TilePanelOf(island).Children)
+            {
+                var tile = child as Border;
+                if (tile != null && string.Equals(tile.Tag as string,
+                        "island-member:" + memberId, StringComparison.Ordinal))
+                    return tile;
+            }
+            return null;
+        }
+
+        private static Viewbox FindMemberIcon(Border tile)
+        {
+            var content = tile == null ? null : tile.Child as Grid;
+            return content == null ? null : content.Children.OfType<Viewbox>().FirstOrDefault();
+        }
+
+        private static bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+        {
+            for (var current = child; current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (ReferenceEquals(current, ancestor)) return true;
+            }
+            return false;
+        }
+
+        private static List<Viewbox> GroupMemberIcons(Border tile)
+        {
+            var grid = FindByTag(tile, "GroupIconGrid") as Panel;
+            if (grid == null) return new List<Viewbox>();
+            return grid.Children.OfType<Viewbox>()
+                .Where(view => (view.Tag as string ?? string.Empty)
+                    .StartsWith("GroupMemberIcon:", StringComparison.Ordinal))
+                .ToList();
         }
 
         /// <summary>
@@ -8905,6 +10131,11 @@ namespace Kobold.XamlLoadCheck
                 if (tile != null && string.Equals(tile.Tag as string, id, StringComparison.Ordinal)) return tile;
             }
             return null;
+        }
+
+        private static Border FindIslandGroupTile(IslandWindow island, string groupId)
+        {
+            return FindIslandTile(island, "group:" + groupId);
         }
 
         private static Ellipse TileDotOf(Border tile)
@@ -9264,6 +10495,21 @@ namespace Kobold.XamlLoadCheck
             for (int i = 0; i < count; i++)
             {
                 var found = FindByTag(VisualTreeHelper.GetChild(root, i), tag);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private static FrameworkElement FindByTagPrefix(DependencyObject root, string prefix)
+        {
+            if (root == null) return null;
+            var element = root as FrameworkElement;
+            if (element != null && (element.Tag as string ?? string.Empty)
+                .StartsWith(prefix, StringComparison.Ordinal)) return element;
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var found = FindByTagPrefix(VisualTreeHelper.GetChild(root, i), prefix);
                 if (found != null) return found;
             }
             return null;
@@ -17593,9 +18839,9 @@ namespace Kobold.XamlLoadCheck
             {
                 throw new InvalidOperationException("search data did not map to SearchPanelView");
             }
-            if (WidgetViewFactory.Create(new FolderData()) != null)
+            if (!(WidgetViewFactory.Create(new FolderData()) is FolderPanelView))
             {
-                throw new InvalidOperationException("folder data mapped to a view before T3a");
+                throw new InvalidOperationException("folder data did not map to FolderPanelView");
             }
             if (WidgetViewFactory.Create(new UnknownData()) != null)
             {
@@ -18527,6 +19773,234 @@ namespace Kobold.XamlLoadCheck
             {
                 window.Close();
             }
+        }
+
+        /// <summary>
+        /// Task B: the group title row opens the active member's normal widget
+        /// menu - the kind appendices and actions come from the active datum,
+        /// never from the group menu (no switch entry). The active tab decides
+        /// which kind's appendix is present.
+        /// </summary>
+        private static void GroupTitleMenuShowsTheActiveMemberMenu()
+        {
+            ThemeManager.Initialize("dark");
+
+            var search = new SearchData { Id = "search-1", Name = "Search", Color = "#6A9BCC" };
+            var note = new NoteData { Id = "note-1", Name = "Note", Color = "#788C5D" };
+            var folder = new FolderData { Id = "folder-1", Name = "Folder", Color = "#CC785C" };
+            var todo = new TodoData
+            {
+                Id = "todo-1",
+                Name = "Todo",
+                Color = "#D4A017",
+                SelectedDate = DateTime.Today
+            };
+            var group = new WidgetGroup { Id = "g-title-menu", ActiveWidgetId = "search-1" };
+            var window = new WidgetGroupWindow(
+                group, new List<WidgetData> { search, note, folder, todo });
+            try
+            {
+                ContextMenu captured = null;
+                window.MenuOpenedForChecks = menu => captured = menu;
+
+                RaiseHeaderRightClick(window);
+                if (captured == null)
+                {
+                    throw new InvalidOperationException("the title right click opened no menu");
+                }
+                AssertMenuHasHeader(captured, "Search_Rebuild");
+                AssertMenuHasHeader(captured, "Search_Cancel");
+                if (FindMenuByHeader(captured, Localization.Get("Search_Pause")) == null &&
+                    FindMenuByHeader(captured, Localization.Get("Search_Resume")) == null)
+                {
+                    throw new InvalidOperationException(
+                        "the search title menu has neither Search_Pause nor Search_Resume");
+                }
+                AssertNoSwitchEntry(captured, "search");
+
+                window.SetActive(1);
+                captured = null;
+                RaiseHeaderRightClick(window);
+                AssertMenuHasHeader(captured, "Menu_NoteFontSize");
+                AssertNoSwitchEntry(captured, "note");
+
+                window.SetActive(2);
+                captured = null;
+                RaiseHeaderRightClick(window);
+                AssertMenuHasHeader(captured, "Menu_ItemSize");
+                AssertNoSwitchEntry(captured, "folder");
+
+                window.SetActive(3);
+                captured = null;
+                RaiseHeaderRightClick(window);
+                AssertMenuHasHeader(captured, "Menu_HolidayRegion");
+                AssertNoSwitchEntry(captured, "todo");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Task B: the tab strip keeps the group menu - a tab right click still
+        /// carries the switch entries and the detach entry.
+        /// </summary>
+        private static void GroupTabRightClickStillShowsTheGroupMenu()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ContextMenu captured = null;
+                window.MenuOpenedForChecks = menu => captured = menu;
+
+                window.TabStrip.TabButtons[0].RaiseEvent(
+                    new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+                    {
+                        RoutedEvent = UIElement.MouseRightButtonDownEvent
+                    });
+
+                if (captured == null)
+                {
+                    throw new InvalidOperationException("the tab right click opened no menu");
+                }
+
+                int switches = 0;
+                foreach (var raw in captured.Items)
+                {
+                    var item = raw as MenuItem;
+                    var header = item == null ? null : item.Header as string;
+                    if (header != null && header.StartsWith("切换到该标签", StringComparison.Ordinal))
+                    {
+                        switches++;
+                    }
+                }
+                if (switches == 0)
+                {
+                    throw new InvalidOperationException("the tab menu has no switch entry");
+                }
+                if (FindGroupMenuItem(captured, WidgetGroupMenuBuilder.DetachHeader) == null)
+                {
+                    throw new InvalidOperationException("the tab menu has no detach entry");
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Task B: the removed member's view is discarded through the manager,
+        /// so a folder member must eject its stored files first.
+        /// </summary>
+        private static void GroupMemberDeleteEjectsFolderFiles()
+        {
+            var fake = new FolderLifecycleContentViewFake();
+            WidgetManager.DiscardContentView(fake);
+
+            if (fake.OnDeletingCount != 1)
+            {
+                throw new InvalidOperationException(
+                    "DiscardContentView ran OnDeleting " + fake.OnDeletingCount + " time(s), wanted 1");
+            }
+        }
+
+        private static void RaiseHeaderRightClick(WidgetGroupWindow window)
+        {
+            window.GroupChrome.Header.RaiseEvent(
+                new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right)
+                {
+                    RoutedEvent = UIElement.MouseRightButtonDownEvent
+                });
+        }
+
+        private static void AssertMenuHasHeader(ContextMenu menu, string localizationKey)
+        {
+            if (menu == null)
+            {
+                throw new InvalidOperationException("no menu was captured for " + localizationKey);
+            }
+            if (FindMenuByHeader(menu, Localization.Get(localizationKey)) == null)
+            {
+                throw new InvalidOperationException(
+                    "the title menu has no '" + Localization.Get(localizationKey) +
+                    "' entry (wanted " + localizationKey + ")");
+            }
+        }
+
+        private static void AssertNoSwitchEntry(ContextMenu menu, string kind)
+        {
+            if (menu == null)
+            {
+                throw new InvalidOperationException("no menu was captured for the " + kind + " tab");
+            }
+            foreach (var raw in menu.Items)
+            {
+                var item = raw as MenuItem;
+                var header = item == null ? null : item.Header as string;
+                if (header != null && header.StartsWith("切换到该标签", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "the " + kind + " title menu carries the group switch entry '" + header + "'");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A deterministic content view that also owns folder lifecycle hooks;
+        /// the delete path must call OnDeleting exactly once.
+        /// </summary>
+        private sealed class FolderLifecycleContentViewFake : IWidgetContentView, IFolderPanelLifecycle
+        {
+            public int OnDeletingCount { get; private set; }
+
+            public WidgetData Data => null;
+
+            public FrameworkElement View => null;
+
+            public string ChromeTitle => null;
+
+            public bool HasTitleMenu => false;
+
+            public string ChromeTitleTooltip => null;
+
+            public void Attach(WidgetData data, IWidgetViewHost host) { }
+
+            public void RebindHost(IWidgetViewHost host) { }
+
+            public void Activate() { }
+
+            public void Deactivate() { }
+
+            public void Refresh() { }
+
+            public void RefreshChromeTitle() { }
+
+            public void ToggleTitleMenu(FrameworkElement anchor) { }
+
+            public bool HandlePreviewKeyDown(KeyEventArgs e) => false;
+
+            public void HandleMouseDownOutsideEditor(object source) { }
+
+            public void FlushPendingEdit() { }
+
+            public bool TryUndo() => false;
+
+            public void HandleKeyDown(KeyEventArgs e) { }
+
+            public void HandleDeactivated() { }
+
+            public void HandleSourceInitialized() { }
+
+            public void ApplyAdaptiveLayout() { }
+
+            public void OnDeleting() { OnDeletingCount++; }
+
+            public void DeactivateForPanelHide() { }
         }
 
         /// <summary>
@@ -20162,7 +21636,13 @@ namespace Kobold.XamlLoadCheck
                 };
                 groupHost.AddMember(intruder);
                 groupHost.UpdateLayout();
-                endGap = new Point(TabCenterInStrip(strip, strip.TabButtons.Count - 1) + 40, 10);
+                // Member names make the tabs wider than the kind labels did, so
+                // the "past the last tab centre" probe can fall outside this
+                // small group. Clamp it inside the host: this pin exercises the
+                // stale snapshot refusing the reorder, not the detach gesture.
+                double endX = TabCenterInStrip(strip, strip.TabButtons.Count - 1) + 40;
+                double hostRight = Math.Max(0, groupHost.ActualWidth - 4);
+                endGap = new Point(Math.Min(endX, hostRight), 10);
                 strip.UpdateTabDrag(endGap);
                 strip.EndTabDrag(endGap);
 
@@ -20622,46 +22102,77 @@ namespace Kobold.XamlLoadCheck
                 Color groupBase = ShellBorderColor(groupWindow);
 
                 started.Invoke(source, new object[] { new Point(noteCenter.X - 3000, noteCenter.Y) });
+                if (CachedMergePreviewOf(source) != null || MergePreviewWasRendered(source))
+                    throw new InvalidOperationException(
+                        "the drag start kept a cached merge preview");
                 moved.Invoke(source, new object[] { noteCenter });
                 if (ShellBorderColor(note) == noteBase)
                     throw new InvalidOperationException("the hovered note did not show the merge hint");
+                AssertMergePreviewShown(note, "the hovered note");
+                ImageSource cachedPreview = CachedMergePreviewOf(source);
+                if (cachedPreview == null)
+                    throw new InvalidOperationException(
+                        "the drag did not pre-render the dragged component");
+                if (!ReferenceEquals(MergePreviewImageOf(note.PanelChrome).Source, cachedPreview))
+                    throw new InvalidOperationException(
+                        "the target did not paint the drag's cached preview");
 
                 // The same-target move must leave the painted border alone: a
-                // sentinel survives unless the hint re-applies the theme.
+                // sentinel survives unless the hint re-applies the theme. The
+                // per-drag preview must also survive: only start/end reset it.
                 var sentinel = new SolidColorBrush(Colors.Magenta);
                 sentinel.Freeze();
                 note.PanelChrome.Shell.BorderBrush = sentinel;
                 moved.Invoke(source, new object[] { new Point(noteCenter.X + 2, noteCenter.Y + 2) });
                 if (!ReferenceEquals(note.PanelChrome.Shell.BorderBrush, sentinel))
                     throw new InvalidOperationException("a same-target move repainted the hint again");
+                AssertMergePreviewShown(note, "the same-target move");
+                if (!ReferenceEquals(CachedMergePreviewOf(source), cachedPreview))
+                    throw new InvalidOperationException(
+                        "a same-target move dropped the cached merge preview");
 
                 moved.Invoke(source, new object[] { lockedCenter });
                 if (ShellBorderColor(note) != noteBase)
                     throw new InvalidOperationException("leaving the note did not restore its border");
                 if (ShellBorderColor(locked) != lockedBase)
                     throw new InvalidOperationException("a locked widget showed the merge hint");
+                AssertMergePreviewCleared(note, "leaving the note for a locked target");
+                AssertMergePreviewCleared(locked, "the locked target");
 
                 moved.Invoke(source, new object[] { folderCenter });
-                if (ShellBorderColor(folder) != folderBase)
-                    throw new InvalidOperationException("a Folder target showed the merge hint");
+                if (ShellBorderColor(folder) == folderBase)
+                    throw new InvalidOperationException("an unlocked Folder target did not show the merge hint");
+                if (ShellBorderColor(note) != noteBase)
+                    throw new InvalidOperationException("leaving the note for the folder did not restore the note border");
+                AssertMergePreviewShown(folder, "the hovered folder");
+                AssertMergePreviewCleared(note, "leaving the note for the folder");
 
                 moved.Invoke(source, new object[] { groupCenter });
                 if (ShellBorderColor(groupWindow) == groupBase)
                     throw new InvalidOperationException("an unlocked group did not show the merge hint");
+                AssertMergePreviewShown(groupWindow, "the hovered group");
+                AssertMergePreviewCleared(folder, "leaving the folder for the group");
 
                 group.IsLocked = true;
                 moved.Invoke(source, new object[] { new Point(groupCenter.X + 2, groupCenter.Y) });
                 if (ShellBorderColor(groupWindow) != groupBase)
                     throw new InvalidOperationException("a locked group kept the merge hint");
+                AssertMergePreviewCleared(groupWindow, "the locked group");
                 group.IsLocked = false;
 
                 moved.Invoke(source, new object[] { noteCenter });
                 if (ShellBorderColor(note) == noteBase)
                     throw new InvalidOperationException("the note hint did not come back");
+                AssertMergePreviewShown(note, "the returning note");
+                AssertMergePreviewCleared(groupWindow, "leaving the group for the note");
 
                 ended.Invoke(source, new object[] { noteCenter });
                 if (ShellBorderColor(note) != noteBase)
                     throw new InvalidOperationException("the release left the merge hint painted");
+                AssertMergePreviewCleared(note, "the release");
+                if (CachedMergePreviewOf(source) != null || MergePreviewWasRendered(source))
+                    throw new InvalidOperationException(
+                        "the drag end kept a cached merge preview");
             }
             finally
             {
@@ -20672,6 +22183,186 @@ namespace Kobold.XamlLoadCheck
                 folder.Close();
                 groupWindow.Close();
             }
+        }
+
+        /// <summary>
+        /// P2-5: a merge target paints the dragged component's pre-rendered
+        /// bitmap inside the chrome preview layer with the localized drop
+        /// label; clearing the hint collapses the layer and drops the image.
+        /// </summary>
+        private static void MergePreviewShowsTheDraggedComponent()
+        {
+            var target = new TodoWidget(new TodoData
+            {
+                Id = "preview-target",
+                Name = "Preview target",
+                Color = "#6A9BCC"
+            });
+            try
+            {
+                var preview = NewMergePreviewBitmap();
+                target.SetMergeHint(true, preview);
+
+                WidgetChrome chrome = ChromeOf(target);
+                Grid layer = MergePreviewLayerOf(chrome);
+                if (layer.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("the merge preview layer is hidden");
+                Image image = MergePreviewImageOf(chrome);
+                if (!ReferenceEquals(image.Source, preview))
+                    throw new InvalidOperationException("the merge preview image is not the rendered source");
+                TextBlock label = MergePreviewLabelOf(chrome);
+                if (label.Text != Localization.Get("UI_MergeDropHint"))
+                    throw new InvalidOperationException(
+                        "the merge preview label is '" + label.Text + "'");
+
+                target.SetMergeHint(false);
+                if (layer.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the merge preview layer stayed visible");
+                if (image.Source != null)
+                    throw new InvalidOperationException("the hidden merge preview kept its image");
+            }
+            finally
+            {
+                target.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2-5: without a bitmap the hint is the existing accent border only
+        /// (no empty preview layer); a bitmap that arrives after the border
+        /// still paints, because the guard compares the preview too.
+        /// </summary>
+        private static void MergePreviewWithoutImageKeepsTheBorderOnly()
+        {
+            var target = new TodoWidget(new TodoData
+            {
+                Id = "preview-border-only",
+                Name = "Border only",
+                Color = "#6A9BCC"
+            });
+            try
+            {
+                Color baseline = ShellBorderColor(target);
+                target.SetMergeHint(true);
+
+                WidgetChrome chrome = ChromeOf(target);
+                Grid layer = MergePreviewLayerOf(chrome);
+                if (layer.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("an image-less hint painted an empty preview layer");
+                if (ShellBorderColor(target) == baseline)
+                    throw new InvalidOperationException("the image-less hint did not paint the accent border");
+
+                var preview = NewMergePreviewBitmap();
+                target.SetMergeHint(true, preview);
+                if (layer.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("a late preview image did not paint");
+                if (!ReferenceEquals(MergePreviewImageOf(chrome).Source, preview))
+                    throw new InvalidOperationException("the late preview image is not the rendered source");
+
+                target.SetMergeHint(false);
+                if (layer.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the cleared preview layer stayed visible");
+                if (ShellBorderColor(target) != baseline)
+                    throw new InvalidOperationException("the cleared hint did not restore the shell border");
+            }
+            finally
+            {
+                target.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2-5: the preview layer is chrome-level, so a group window merge
+        /// target paints the dragged component too.
+        /// </summary>
+        private static void MergePreviewWorksOnAGroupTarget()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                var preview = NewMergePreviewBitmap();
+                window.SetMergeHint(true, preview);
+
+                WidgetChrome chrome = ChromeOf(window);
+                Grid layer = MergePreviewLayerOf(chrome);
+                if (layer.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("the group merge preview layer is hidden");
+                if (!ReferenceEquals(MergePreviewImageOf(chrome).Source, preview))
+                    throw new InvalidOperationException("the group preview image is not the rendered source");
+
+                window.SetMergeHint(false);
+                if (layer.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("the group merge preview layer stayed visible");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        private static WriteableBitmap NewMergePreviewBitmap()
+        {
+            var bitmap = new WriteableBitmap(40, 30, 96, 96, PixelFormats.Pbgra32, null);
+            bitmap.Freeze();
+            return bitmap;
+        }
+
+        private static Grid MergePreviewLayerOf(WidgetChrome chrome)
+        {
+            var layer = chrome.FindName("MergePreviewLayer") as Grid;
+            if (layer == null)
+                throw new InvalidOperationException("the chrome has no MergePreviewLayer");
+            return layer;
+        }
+
+        private static Image MergePreviewImageOf(WidgetChrome chrome)
+        {
+            var image = chrome.FindName("MergePreviewImage") as Image;
+            if (image == null)
+                throw new InvalidOperationException("the chrome has no MergePreviewImage");
+            return image;
+        }
+
+        private static TextBlock MergePreviewLabelOf(WidgetChrome chrome)
+        {
+            var label = chrome.FindName("MergePreviewLabel") as TextBlock;
+            if (label == null)
+                throw new InvalidOperationException("the chrome has no MergePreviewLabel");
+            return label;
+        }
+
+        /// <summary>The target is painting the dragged component's bitmap.</summary>
+        private static void AssertMergePreviewShown(WidgetWindowBase target, string context)
+        {
+            WidgetChrome chrome = ChromeOf(target);
+            if (MergePreviewLayerOf(chrome).Visibility != Visibility.Visible)
+                throw new InvalidOperationException(context + " did not show the merge preview layer");
+            if (MergePreviewImageOf(chrome).Source == null)
+                throw new InvalidOperationException(context + " showed the preview layer without an image");
+        }
+
+        /// <summary>The target dropped both the layer and its bitmap.</summary>
+        private static void AssertMergePreviewCleared(WidgetWindowBase target, string context)
+        {
+            WidgetChrome chrome = ChromeOf(target);
+            if (MergePreviewLayerOf(chrome).Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException(context + " kept the merge preview layer visible");
+            if (MergePreviewImageOf(chrome).Source != null)
+                throw new InvalidOperationException(context + " kept the merge preview image");
+        }
+
+        private static ImageSource CachedMergePreviewOf(WidgetWindowBase source)
+        {
+            return PrivateBaseField<ImageSource>(source, "_mergePreviewImage");
+        }
+
+        private static bool MergePreviewWasRendered(WidgetWindowBase source)
+        {
+            return PrivateBaseField<bool>(source, "_mergePreviewRendered");
         }
 
         /// <summary>Shows a window far offscreen without activation (a real handle/rect).</summary>
@@ -21918,69 +23609,137 @@ namespace Kobold.XamlLoadCheck
         }
 
         /// <summary>
-        /// Adding/removing a group badge is a membership-only refresh: the
-        /// island keeps the existing Border tiles and adds/removes the badge
-        /// and tooltip in place.
+        /// A same-group refresh must repaint the folded tile without replacing
+        /// the row: a member rename/pin, a thumbnail colour change, a merge and
+        /// a detach keep the same group Border, its open outline and its updated
+        /// 2x2 thumbnails/tooltip. Dissolving the group still replaces the row
+        /// with the standalone tiles.
         /// </summary>
-        private static void P0BIslandUpdatesBadgesInPlace()
+        private static void P0BIslandRefreshesGroupTileInPlace()
         {
             ThemeManager.Initialize("dark");
-            var first = new FolderData { Name = "P0B badge todo", Color = "#B5654A" };
-            var second = new FolderData { Name = "P0B badge note", Color = "#4A7BB5" };
+            var first = new FolderData { Id = "p0b-tile-a", Name = "P0B member A", Color = "#B5654A" };
+            var second = new NoteData { Id = "p0b-tile-b", Name = "P0B member B", Color = "#4A7BB5" };
+            var solo = new TodoData { Id = "p0b-tile-solo", Name = "P0B solo", Color = "#788C5D" };
+            var group = new WidgetGroup { Id = "p0b-tile-g", ActiveWidgetId = first.Id };
+            first.GroupId = group.Id; second.GroupId = group.Id;
+            first.GroupOrder = 0; second.GroupOrder = 1;
+            var widgets = new List<WidgetData> { solo, first, second };
             var island = new IslandWindow();
             try
             {
-                var widgets = new WidgetData[] { first, second };
-                island.SetWidgets(widgets);
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => false));
                 island.ShowIsland();
                 island.UpdateLayout();
 
-                var before = TilePanelOf(island).Children.Cast<Border>().ToList();
-                if (before.Count != 2)
-                {
-                    throw new InvalidOperationException("the island built " + before.Count + " tiles, wanted 2");
-                }
+                var panel = TilePanelOf(island);
+                if (panel.Children.Count != 2)
+                    throw new InvalidOperationException("the island built " + panel.Children.Count +
+                        " tiles for one group plus one standalone, wanted 2");
+                var groupTile = FindIslandGroupTile(island, group.Id);
+                if (groupTile == null)
+                    throw new InvalidOperationException("the membership refresh did not fold the group");
+                if (FindGroupBadge(groupTile) != null)
+                    throw new InvalidOperationException("the folded tile still carries a count badge");
 
-                var info = new WidgetGroupTileInfo { MemberCount = 2, MemberNames = "P0B badge todo / P0B badge note" };
-                var groupInfo = new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal)
-                {
-                    { first.Id, info },
-                    { second.Id, info }
-                };
-
-                island.SetWidgets(widgets, groupInfo);
+                island.SetOpenStates(new[] { group.Id });
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
                 island.UpdateLayout();
 
-                var after = TilePanelOf(island).Children.Cast<Border>().ToList();
-                if (!ReferenceEquals(after[0], before[0]) || !ReferenceEquals(after[1], before[1]))
-                {
-                    throw new InvalidOperationException("the membership refresh replaced the tile visuals");
-                }
-                foreach (var tile in after)
-                {
-                    var badge = FindGroupBadge(tile);
-                    if (badge == null || badge.Width != 14 || badge.Height != 14)
-                    {
-                        throw new InvalidOperationException("the in-place refresh did not add the 14x14 badge");
-                    }
-                }
-                if (!(after[0].ToolTip as string ?? string.Empty).Contains("P0B badge note"))
-                {
-                    throw new InvalidOperationException("the in-place refresh did not add the member names to the tooltip");
-                }
+                if (!ReferenceEquals(groupTile, FindIslandGroupTile(island, group.Id)))
+                    throw new InvalidOperationException("a same-group refresh replaced the group tile");
+                if (groupTile.BorderThickness.Left != 1.5)
+                    throw new InvalidOperationException("the refresh dropped the group's open outline");
 
-                island.SetWidgets(widgets);
+                // Rename and pin a member: the folded tile keeps its Border,
+                // repaints its tooltip and keeps the open outline.
+                first.Name = "P0B renamed member A";
+                first.IsPanelPinned = true;
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
+                island.UpdateLayout();
+
+                if (!ReferenceEquals(groupTile, FindIslandGroupTile(island, group.Id)))
+                    throw new InvalidOperationException("a member rename replaced the group tile");
+                string tooltip = groupTile.ToolTip as string ?? string.Empty;
+                if (!tooltip.Contains("P0B renamed member A") || tooltip.Contains("P0B member A"))
+                    throw new InvalidOperationException("the in-place refresh did not update the member names: " + tooltip);
+                if (groupTile.BorderThickness.Left != 1.5)
+                    throw new InvalidOperationException("a member rename dropped the group's open outline");
+
+                // Thumbnail content changes in place too.
+                var oldFirstIcon = GroupMemberIcons(groupTile).FirstOrDefault();
+                first.Color = "#D4A017";
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
+                island.UpdateLayout();
+
+                if (!ReferenceEquals(groupTile, FindIslandGroupTile(island, group.Id)))
+                    throw new InvalidOperationException("a member colour change replaced the group tile");
+                var newFirstIcon = GroupMemberIcons(groupTile).FirstOrDefault();
+                if (oldFirstIcon == null || newFirstIcon == null
+                    || IconFingerprint(oldFirstIcon.Child) == IconFingerprint(newFirstIcon.Child)
+                    || !IconFingerprint(newFirstIcon.Child).Contains(Describe(Utils.HexToColor(first.Color))))
+                    throw new InvalidOperationException("the in-place refresh did not repaint the member thumbnail");
+
+                // Merge a new member into the same group: the projected row is
+                // still [standalone, group], so only the group content changes.
+                var third = new TodoData
+                {
+                    Id = "p0b-tile-c", Name = "P0B member C", Color = "#6A9BCC", GroupOrder = 2
+                };
+                third.GroupId = group.Id;
+                widgets.Add(third);
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
+                island.UpdateLayout();
+
+                if (!ReferenceEquals(groupTile, FindIslandGroupTile(island, group.Id)))
+                    throw new InvalidOperationException("a same-group merge replaced the group tile");
+                if (GroupMemberIcons(groupTile).Count != 3)
+                    throw new InvalidOperationException("the merged member did not appear in the 2x2 grid");
+                if (!(groupTile.ToolTip as string ?? string.Empty).Contains("P0B member C"))
+                    throw new InvalidOperationException("the merged member did not reach the tooltip");
+                if (groupTile.BorderThickness.Left != 1.5)
+                    throw new InvalidOperationException("the merge dropped the group's open outline");
+
+                // Detach that member while the group survives: same Border,
+                // one fewer thumbnail, no stale member name.
+                widgets.Remove(third);
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
+                island.UpdateLayout();
+
+                if (!ReferenceEquals(groupTile, FindIslandGroupTile(island, group.Id)))
+                    throw new InvalidOperationException("a same-group detach replaced the group tile");
+                if (GroupMemberIcons(groupTile).Count != 2)
+                    throw new InvalidOperationException("the detached member stayed in the 2x2 grid");
+                if ((groupTile.ToolTip as string ?? string.Empty).Contains("P0B member C"))
+                    throw new InvalidOperationException("the detached member stayed in the tooltip");
+                if (groupTile.BorderThickness.Left != 1.5)
+                    throw new InvalidOperationException("the detach dropped the group's open outline");
+
+                // Dissolving to one member removes the group tile and rebuilds
+                // the row into standalone tiles.
+                widgets.Remove(second);
+                island.SetWidgets(widgets, GroupHostPolicy.BuildIslandGroupTiles(
+                    new[] { group }, widgets, id => id == group.Id));
                 island.UpdateLayout();
 
                 var ungrouped = TilePanelOf(island).Children.Cast<Border>().ToList();
-                if (!ReferenceEquals(ungrouped[0], before[0]) || !ReferenceEquals(ungrouped[1], before[1]))
-                {
-                    throw new InvalidOperationException("removing the group info replaced the tile visuals");
-                }
+                if (ungrouped.Count != 2)
+                    throw new InvalidOperationException("removing the group did not unfold the members");
+                if (ungrouped.Any(tile => (tile.Tag as string ?? string.Empty)
+                        .StartsWith("group:", StringComparison.Ordinal)))
+                    throw new InvalidOperationException("the dissolved group tile stayed in the row");
+                if (ungrouped.Any(tile => ReferenceEquals(tile, groupTile)))
+                    throw new InvalidOperationException("dissolving the group kept the old group Border");
                 if (FindGroupBadge(ungrouped[0]) != null || FindGroupBadge(ungrouped[1]) != null)
-                {
-                    throw new InvalidOperationException("the in-place refresh kept a stale group badge");
-                }
+                    throw new InvalidOperationException("an unfolded member kept a stale group badge");
+                if ((ungrouped[0].ToolTip as string ?? string.Empty).Contains(second.Name))
+                    throw new InvalidOperationException("an unfolded member kept the group member names");
             }
             finally
             {
@@ -22030,6 +23789,2534 @@ namespace Kobold.XamlLoadCheck
 
         #endregion
 
+        #region Folder group pins (Task T3b)
+
+        private static FolderData NewT3bFolderData(string id, string name)
+        {
+            return new FolderData
+            {
+                Id = id,
+                Name = name,
+                Color = "#B5654A",
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 380,
+                PanelHeight = 480
+            };
+        }
+
+        private static NoteData NewT3bNoteData(string id, string name)
+        {
+            return new NoteData
+            {
+                Id = id,
+                Name = name,
+                Color = "#788C5D",
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 320,
+                PanelHeight = 400
+            };
+        }
+
+        /// <summary>Builds a two-member Folder+Note group through the real factory.</summary>
+        private static WidgetGroupWindow CreateT3bFolderGroup(
+            FolderData folder, NoteData note, out WidgetGroup group)
+        {
+            ThemeManager.Initialize("dark");
+            group = new WidgetGroup
+            {
+                Id = "t3b-folder-group",
+                ActiveWidgetId = folder.Id,
+                PanelWidth = 760,
+                PanelHeight = 540
+            };
+            return WidgetWindowFactory.CreateGroup(
+                group, new List<WidgetData> { folder, note }) as WidgetGroupWindow;
+        }
+
+        /// <summary>
+        /// The folder's accessories are the active tab's: leading Back, trailing
+        /// Path/Help, footer MoreItemsText. Inactive means none of them are
+        /// installed on the shared chrome.
+        /// </summary>
+        private static void AssertFolderOwnsChromeSlots(
+            WidgetChrome chrome, FolderPanelView view, bool owned, string label)
+        {
+            var back = (FrameworkElement)view.FindName("BackButton");
+            var path = (FrameworkElement)view.FindName("PathButton");
+            var help = (FrameworkElement)view.FindName("HelpButton");
+            var more = (FrameworkElement)view.FindName("MoreItemsText");
+
+            bool leading = ReferenceEquals(chrome.HeaderLeading.Content, back);
+            var trailing = chrome.HeaderTrailing.Content as StackPanel;
+            bool trailingOwned = trailing != null
+                && trailing.Children.Contains(path)
+                && trailing.Children.Contains(help);
+            bool footer = ReferenceEquals(chrome.FooterHost.Content, more);
+
+            if (owned)
+            {
+                if (!leading || !trailingOwned || !footer)
+                {
+                    throw new InvalidOperationException(
+                        label + ": the active folder does not own the chrome slots (" +
+                        "leading=" + leading + ", trailing=" + trailingOwned + ", footer=" + footer + ")");
+                }
+                return;
+            }
+
+            if (leading || trailingOwned || footer)
+            {
+                throw new InvalidOperationException(
+                    label + ": an inactive folder still owns chrome slots (" +
+                    "leading=" + leading + ", trailing=" + trailingOwned + ", footer=" + footer + ")");
+            }
+        }
+
+        /// <summary>
+        /// A folder tab attaches to the real group window. The active folder owns
+        /// the chrome accessories and is the content view; switching to the note
+        /// removes the folder chrome without touching the window size, and
+        /// switching back restores the same elements and the same view instance.
+        /// The folder title/tooltip follow its selection.
+        /// </summary>
+        private static void FolderGroupAttachesAndTabSwitchesKeepTheView()
+        {
+            var folder = NewT3bFolderData("t3b-tab-folder", "T3b Folder");
+            folder.Items.Add(new WidgetItem(IO.Path.Combine(@"C:\kobold-t3b-probe", "entry.txt")));
+            var note = NewT3bNoteData("t3b-tab-note", "T3b Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                ShowGroupWindow(window);
+                window.UpdateLayout();
+
+                if (window.ActiveMemberId != folder.Id || window.ActiveIndex != 0)
+                {
+                    throw new InvalidOperationException("the folder tab is not active");
+                }
+
+                var folderView = window.Views[0] as FolderPanelView;
+                if (folderView == null)
+                {
+                    throw new InvalidOperationException("the folder member did not build a FolderPanelView");
+                }
+                if (!(window.Views[1] is NotePanelView))
+                {
+                    throw new InvalidOperationException("the note member did not build a NotePanelView");
+                }
+
+                AssertFolderOwnsChromeSlots(window.GroupChrome, folderView, true, "folder active");
+
+                // The title follows the folder context (single selection name +
+                // whole-path tooltip).
+                var container = (ItemsControl)folderView.FindName("ItemsContainer");
+                var items = container.ItemsSource as List<DisplayItem>;
+                if (items == null || items.Count != 1)
+                {
+                    throw new InvalidOperationException("the folder probe built no item");
+                }
+                items[0].IsSelected = true;
+                folderView.RefreshChromeTitle();
+                string wantedTitle = IO.Path.GetFileName(items[0].Path);
+                if (window.GroupChrome.Title != wantedTitle)
+                {
+                    throw new InvalidOperationException(
+                        "the group title is '" + window.GroupChrome.Title + "', wanted '" + wantedTitle + "'");
+                }
+                if (!Equals(window.GroupChrome.TitleText.ToolTip, items[0].Path))
+                {
+                    throw new InvalidOperationException(
+                        "the group title tooltip is '" + window.GroupChrome.TitleText.ToolTip +
+                        "', wanted the selected path");
+                }
+
+                object itemsSourceBefore = container.ItemsSource;
+                double width = window.Width;
+                double height = window.Height;
+
+                window.SetActive(1);
+                if (!(window.ActiveView is NotePanelView))
+                {
+                    throw new InvalidOperationException("switching to the note did not activate its view");
+                }
+                AssertFolderOwnsChromeSlots(window.GroupChrome, folderView, false, "note active");
+                if (window.Width != width || window.Height != height)
+                {
+                    throw new InvalidOperationException("switching to the note resized the group");
+                }
+
+                window.SetActive(0);
+                if (!ReferenceEquals(window.Views[0], folderView))
+                {
+                    throw new InvalidOperationException("switching back rebuilt the folder view");
+                }
+                AssertFolderOwnsChromeSlots(window.GroupChrome, folderView, true, "folder active again");
+                if (!ReferenceEquals(container.ItemsSource, itemsSourceBefore))
+                {
+                    throw new InvalidOperationException(
+                        "switching back to an unchanged folder rebuilt its item list");
+                }
+                if (window.Width != width || window.Height != height)
+                {
+                    throw new InvalidOperationException("switching back to the folder resized the group");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        /// <summary>
+        /// Only the active tab watches: the browsing folder starts its watcher on
+        /// activation, stops it when the note takes over, and a file added while
+        /// the note is active shows up when the folder is activated again (the
+        /// activate path refreshes the listing). Switching away stops it again.
+        /// </summary>
+        private static void FolderGroupOnlyTheActiveTabWatchesAndRefreshes()
+        {
+            string dir = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-t3b-watch-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(dir);
+            IO.File.WriteAllText(IO.Path.Combine(dir, "first.txt"), "1");
+
+            var folder = NewT3bFolderData("t3b-watch-folder", "T3b Watch");
+            folder.BrowseStack = new List<string> { dir };
+            var note = NewT3bNoteData("t3b-watch-note", "T3b Watch Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+                var watcher = PrivateField<FolderWatcher>(view, "_browseWatcher");
+                if (!watcher.IsWatching)
+                {
+                    throw new InvalidOperationException("the active browsing folder is not watching");
+                }
+
+                window.SetActive(1);
+                if (watcher.IsWatching)
+                {
+                    throw new InvalidOperationException("the folder kept watching while the note was active");
+                }
+
+                string added = IO.Path.Combine(dir, "second.txt");
+                IO.File.WriteAllText(added, "2");
+
+                window.SetActive(0);
+                if (!watcher.IsWatching)
+                {
+                    throw new InvalidOperationException("the folder did not resume watching on activation");
+                }
+
+                var container = (ItemsControl)view.FindName("ItemsContainer");
+                var items = container.ItemsSource as List<DisplayItem>;
+                if (items == null || items.Count != 2)
+                {
+                    throw new InvalidOperationException(
+                        "the browse listing was not refreshed on activation (" +
+                        (items == null ? "no items" : items.Count + " items") + ")");
+                }
+                bool found = false;
+                foreach (var item in items)
+                {
+                    if (string.Equals(item.Path, added, StringComparison.OrdinalIgnoreCase)) found = true;
+                }
+                if (!found)
+                {
+                    throw new InvalidOperationException("the rebuilt listing does not contain the new file");
+                }
+
+                window.SetActive(1);
+                if (watcher.IsWatching)
+                {
+                    throw new InvalidOperationException("the folder kept watching after switching away again");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+                try { IO.Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// A watcher dispatch queued before the tab switch must not rebuild an
+        /// inactive folder. With the note active, the private refresh is invoked
+        /// directly: the item source and entries stay untouched. Switching back
+        /// re-reads the folder and picks the new file up.
+        /// </summary>
+        private static void FolderGroupInactiveTabIgnoresQueuedBrowseRefresh()
+        {
+            string dir = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-t3b-inactive-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(dir);
+            IO.File.WriteAllText(IO.Path.Combine(dir, "first.txt"), "1");
+
+            var folder = NewT3bFolderData("t3b-inactive-folder", "T3b Inactive");
+            folder.BrowseStack = new List<string> { dir };
+            var note = NewT3bNoteData("t3b-inactive-note", "T3b Inactive Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+                var container = (ItemsControl)view.FindName("ItemsContainer");
+                var before = container.ItemsSource as List<DisplayItem>;
+                if (before == null || before.Count != 1)
+                {
+                    throw new InvalidOperationException("the browse listing was not built before the switch");
+                }
+                object sourceBefore = container.ItemsSource;
+
+                window.SetActive(1);
+                if (window.ActiveMemberId != note.Id)
+                {
+                    throw new InvalidOperationException("the note tab did not become active");
+                }
+
+                string added = IO.Path.Combine(dir, "second.txt");
+                IO.File.WriteAllText(added, "2");
+
+                // The watcher's pool callback may already be queued; the view
+                // must drop it because this tab is no longer active.
+                FolderPrivateMethod("RefreshBrowseIfChanged").Invoke(view, null);
+
+                if (!ReferenceEquals(container.ItemsSource, sourceBefore))
+                {
+                    throw new InvalidOperationException(
+                        "a queued browse refresh rebuilt the inactive folder's item list");
+                }
+                var stillThere = container.ItemsSource as List<DisplayItem>;
+                if (stillThere == null || stillThere.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "a queued browse refresh changed the inactive folder's entries");
+                }
+
+                window.SetActive(0);
+                var after = container.ItemsSource as List<DisplayItem>;
+                if (after == null || after.Count != 2)
+                {
+                    throw new InvalidOperationException(
+                        "switching back did not pick up the file added while inactive (" +
+                        (after == null ? "no items" : after.Count + " items") + ")");
+                }
+                bool found = false;
+                foreach (var item in after)
+                {
+                    if (string.Equals(item.Path, added, StringComparison.OrdinalIgnoreCase)) found = true;
+                }
+                if (!found)
+                {
+                    throw new InvalidOperationException(
+                        "the refreshed listing does not contain the file added while inactive");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+                try { IO.Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Hiding a standalone folder starts the close fade while the panel is
+        /// still on screen; the header accessories stay installed until the
+        /// window really closes/detaches.
+        /// </summary>
+        private static void FolderHideKeepsTheChromeAccessories()
+        {
+            var data = new FolderData
+            {
+                Id = "t3b-hide-folder",
+                Name = "T3b Hide",
+                Color = "#B5654A",
+                PanelX = -32000,
+                PanelY = -32000,
+                PanelWidth = 380,
+                PanelHeight = 480
+            };
+            var widget = new FolderWidget(data);
+            try
+            {
+                widget.ShowPanel(-32000, -32000, activate: false, animate: false);
+                widget.UpdateLayout();
+
+                var chrome = ChromeOf(widget);
+                AssertFolderOwnsChromeSlots(chrome, widget.PanelView, true, "before hide");
+
+                widget.HidePanel();
+                if (widget.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the standalone folder did not hide");
+                }
+                AssertFolderOwnsChromeSlots(chrome, widget.PanelView, true, "during the hide fade");
+            }
+            finally
+            {
+                widget.Close();
+            }
+        }
+
+        /// <summary>
+        /// The same fade rule for a group hide: the active folder keeps its
+        /// chrome accessories until the group is closed or a tab switch does a
+        /// full deactivation.
+        /// </summary>
+        private static void FolderGroupHideKeepsTheActiveFolderChrome()
+        {
+            var folder = NewT3bFolderData("t3b-hide-group-folder", "T3b Hide Group");
+            var note = NewT3bNoteData("t3b-hide-group-note", "T3b Hide Group Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+                AssertFolderOwnsChromeSlots(window.GroupChrome, view, true, "before group hide");
+
+                window.HidePanel();
+                if (window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the group did not hide");
+                }
+                AssertFolderOwnsChromeSlots(window.GroupChrome, view, true, "during the group hide fade");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        /// <summary>
+        /// The native shell menu hooks the host HWND. In a group that is the
+        /// group window's handle, never a folder top-level window; switching away
+        /// unhooks and switching back rehooks the same handle.
+        /// </summary>
+        private static void FolderGroupNativeMenuHookUsesTheGroupHwnd()
+        {
+            var folder = NewT3bFolderData("t3b-hook-folder", "T3b Hook");
+            var note = NewT3bNoteData("t3b-hook-note", "T3b Hook Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+
+                IntPtr panelHwnd = ((IFolderPanelHost)window).PanelHwnd;
+                if (panelHwnd == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("the group host reports no panel HWND");
+                }
+
+                HwndSource hook = PrivateField<HwndSource>(view, "_menuHookSource");
+                if (hook == null || hook.Handle != panelHwnd)
+                {
+                    throw new InvalidOperationException(
+                        "the native menu hook is " +
+                        (hook == null ? "not installed" : "on HWND " + hook.Handle) +
+                        ", wanted the group HWND " + panelHwnd);
+                }
+
+                window.SetActive(1);
+                hook = PrivateField<HwndSource>(view, "_menuHookSource");
+                if (hook != null)
+                {
+                    throw new InvalidOperationException("switching to the note left the native menu hook installed");
+                }
+
+                window.SetActive(0);
+                hook = PrivateField<HwndSource>(view, "_menuHookSource");
+                if (hook == null || hook.Handle != panelHwnd)
+                {
+                    throw new InvalidOperationException("switching back did not rehook the group HWND");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        /// <summary>
+        /// In a group the folder's lock/pin rules read through the group host:
+        /// Group.IsLocked / Group.IsPanelPinned are the view's probes, with the
+        /// standalone member data no longer consulted.
+        /// </summary>
+        private static void FolderGroupLockAndPinReadThroughTheGroup()
+        {
+            var folder = NewT3bFolderData("t3b-lock-folder", "T3b Lock");
+            folder.IsLocked = false;
+            folder.IsPanelPinned = false;
+            var note = NewT3bNoteData("t3b-lock-note", "T3b Lock Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+
+                group.IsLocked = true;
+                group.IsPanelPinned = true;
+                if (!PrivateBoolProperty(view, "IsLocked"))
+                {
+                    throw new InvalidOperationException("the folder view does not read the group lock");
+                }
+                if (!PrivateBoolProperty(view, "IsPanelPinned"))
+                {
+                    throw new InvalidOperationException("the folder view does not read the group pin");
+                }
+
+                group.IsLocked = false;
+                group.IsPanelPinned = false;
+                if (PrivateBoolProperty(view, "IsLocked") || PrivateBoolProperty(view, "IsPanelPinned"))
+                {
+                    throw new InvalidOperationException("the folder view kept the cleared group lock/pin");
+                }
+
+                // The standalone still reads the member data, not a group.
+                var standaloneData = new FolderData { Id = "t3b-lock-standalone", IsLocked = true };
+                var standalone = new FolderWidget(standaloneData);
+                try
+                {
+                    if (!PrivateBoolProperty(standalone.PanelView, "IsLocked"))
+                    {
+                        throw new InvalidOperationException("a standalone folder does not read its own lock");
+                    }
+                }
+                finally
+                {
+                    standalone.Close();
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        /// <summary>Three standalone widgets for the Folder manager pins.</summary>
+        private static void SetUpT3bFolderStandaloneWidgets(
+            out WidgetManager manager, out FolderData folder, out NoteData firstNote, out NoteData secondNote)
+        {
+            ThemeManager.Initialize("dark");
+            manager = WidgetManager.Instance;
+
+            foreach (var host in manager.Widgets.ToList())
+            {
+                if (!string.IsNullOrEmpty(host.WidgetId)) manager.RemoveWidget(host.WidgetId);
+            }
+            manager.Config.Widgets.Clear();
+            manager.Config.Groups = null;
+
+            folder = NewT3bFolderData("t3b-merge-folder", "T3b Merge Folder");
+            firstNote = NewT3bNoteData("t3b-merge-note-1", "T3b Merge Note 1");
+            secondNote = NewT3bNoteData("t3b-merge-note-2", "T3b Merge Note 2");
+
+            manager.Config.Widgets.Add(folder);
+            manager.Config.Widgets.Add(firstNote);
+            manager.Config.Widgets.Add(secondNote);
+            manager.Initialize();
+        }
+
+        /// <summary>
+        /// The real manager merges the folder into a note host as the last tab
+        /// without stealing the active tab; the inactive folder owns no chrome
+        /// slots and keeps its exact view. Switching installs the slots, and
+        /// detaching returns a standalone FolderWidget around the same view
+        /// while the surviving group stays open.
+        /// </summary>
+        private static void FolderGroupManagerMergesSwitchesAndDetachesTheLiveView()
+        {
+            WidgetManager manager = null;
+            FolderData folder;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpT3bFolderStandaloneWidgets(out manager, out folder, out firstNote, out secondNote);
+
+            try
+            {
+                var folderHost = manager.FindHostForWidget(folder.Id) as FolderWidget;
+                var firstHost = manager.FindHostForWidget(firstNote.Id);
+                var secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (folderHost == null || firstHost == null || secondHost == null)
+                {
+                    throw new InvalidOperationException("a standalone host was not created");
+                }
+
+                var folderView = folderHost.PanelView;
+                if (!manager.MergeWidgets(folderHost, firstHost))
+                {
+                    throw new InvalidOperationException("the standalone folder did not merge into the note");
+                }
+
+                var groupHost = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (groupHost == null)
+                {
+                    throw new InvalidOperationException("the merge produced no group host");
+                }
+                if (!ReferenceEquals(manager.FindHostForWidget(folder.Id), groupHost))
+                {
+                    throw new InvalidOperationException("the merged folder kept its own host");
+                }
+                if (groupHost.ActiveMemberId != firstNote.Id)
+                {
+                    throw new InvalidOperationException("the merged folder stole the active tab");
+                }
+                if (groupHost.Members.Count != 2 || !ReferenceEquals(groupHost.Members[1], folder))
+                {
+                    throw new InvalidOperationException("the folder is not the last tab");
+                }
+                if (!ReferenceEquals(groupHost.Views[1], folderView))
+                {
+                    throw new InvalidOperationException("the merge rebuilt the folder view");
+                }
+                AssertFolderOwnsChromeSlots(groupHost.GroupChrome, folderView, false, "merged inactive folder");
+
+                // A third member keeps the group alive when the folder detaches.
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the second note did not merge into the group");
+                }
+                groupHost = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 3)
+                {
+                    throw new InvalidOperationException("the group did not grow to three tabs");
+                }
+                if (groupHost.ActiveMemberId != firstNote.Id)
+                {
+                    throw new InvalidOperationException("the second merge stole the active tab");
+                }
+                if (!ReferenceEquals(groupHost.Views[1], folderView))
+                {
+                    throw new InvalidOperationException("the second merge rebuilt the folder view");
+                }
+
+                groupHost.ShowPanel(-32000, -32000, activate: false, animate: false);
+                groupHost.UpdateLayout();
+                AssertFolderOwnsChromeSlots(groupHost.GroupChrome, folderView, false, "open group note active");
+
+                groupHost.SetActiveByWidgetId(folder.Id);
+                if (groupHost.ActiveMemberId != folder.Id)
+                {
+                    throw new InvalidOperationException("switching to the folder tab failed");
+                }
+                AssertFolderOwnsChromeSlots(groupHost.GroupChrome, folderView, true, "open group folder active");
+
+                if (!manager.DetachWidget(groupHost.WidgetId, folder.Id))
+                {
+                    throw new InvalidOperationException("detaching the folder tab was refused");
+                }
+
+                var detached = manager.FindHostForWidget(folder.Id) as FolderWidget;
+                if (detached == null)
+                {
+                    throw new InvalidOperationException("the detached folder got no FolderWidget host");
+                }
+                if (!ReferenceEquals(detached.PanelView, folderView))
+                {
+                    throw new InvalidOperationException("the detached standalone hosts a recreated folder view");
+                }
+
+                var survivor = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (!ReferenceEquals(survivor, groupHost))
+                {
+                    throw new InvalidOperationException("detaching the folder closed/recreated the group");
+                }
+                if (survivor.Members.Count != 2 || survivor.ContainsWidget(folder.Id))
+                {
+                    throw new InvalidOperationException("the surviving group carries the wrong tabs");
+                }
+                if (!survivor.IsPanelOpen || !survivor.IsVisible)
+                {
+                    throw new InvalidOperationException("detaching the active folder collapsed the group");
+                }
+                if (!detached.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the detached folder was not shown");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// A two-member Folder+Note group dissolves when the note is detached:
+        /// the folder gets a standalone FolderWidget around the exact same view,
+        /// both membership fields and the group config entry are cleaned.
+        /// </summary>
+        private static void FolderGroupLastPairDissolveMovesTheFolderView()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+
+            foreach (var host in manager.Widgets.ToList())
+            {
+                if (!string.IsNullOrEmpty(host.WidgetId)) manager.RemoveWidget(host.WidgetId);
+            }
+            manager.Config.Widgets.Clear();
+            manager.Config.Groups = null;
+
+            var folder = NewT3bFolderData("t3b-dissolve-folder", "T3b Dissolve Folder");
+            var note = NewT3bNoteData("t3b-dissolve-note", "T3b Dissolve Note");
+            manager.Config.Widgets.Add(folder);
+            manager.Config.Widgets.Add(note);
+            manager.Initialize();
+
+            try
+            {
+                var folderHost = manager.FindHostForWidget(folder.Id) as FolderWidget;
+                var noteHost = manager.FindHostForWidget(note.Id);
+                if (folderHost == null || noteHost == null)
+                {
+                    throw new InvalidOperationException("a standalone host was not created");
+                }
+
+                var folderView = folderHost.PanelView;
+                if (!manager.MergeWidgets(folderHost, noteHost))
+                {
+                    throw new InvalidOperationException("the folder did not merge into the note");
+                }
+
+                var groupHost = manager.FindHostForWidget(note.Id) as WidgetGroupWindow;
+                if (groupHost == null)
+                {
+                    throw new InvalidOperationException("the merge produced no group host");
+                }
+                string groupId = groupHost.WidgetId;
+                groupHost.ShowPanel(-32000, -32000, activate: false, animate: false);
+                groupHost.UpdateLayout();
+
+                bool groupClosed = false;
+                groupHost.Closed += (s, e) => groupClosed = true;
+
+                if (!manager.DetachWidget(groupId, note.Id))
+                {
+                    throw new InvalidOperationException("the last-pair detach was refused");
+                }
+
+                if (!groupClosed)
+                {
+                    throw new InvalidOperationException("the dissolved group window was not closed");
+                }
+                if (manager.FindHostForWidget(groupId) != null)
+                {
+                    throw new InvalidOperationException("the dissolved group still resolves to a host");
+                }
+                if (manager.Config.Groups != null && manager.Config.Groups.Count != 0)
+                {
+                    throw new InvalidOperationException("the dissolved group kept its config entry");
+                }
+                if (folder.GroupId != null || folder.GroupOrder != null)
+                {
+                    throw new InvalidOperationException("the folder kept its group membership");
+                }
+                if (note.GroupId != null || note.GroupOrder != null)
+                {
+                    throw new InvalidOperationException("the note kept its group membership");
+                }
+
+                var standalone = manager.FindHostForWidget(folder.Id) as FolderWidget;
+                if (standalone == null)
+                {
+                    throw new InvalidOperationException("the folder got no standalone FolderWidget host");
+                }
+                if (!ReferenceEquals(standalone.PanelView, folderView))
+                {
+                    throw new InvalidOperationException("the dissolve recreated the folder view");
+                }
+                if (!standalone.IsPanelOpen)
+                {
+                    throw new InvalidOperationException("the dissolve left the folder standalone closed");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// A saved Folder+Note group reloads with its geometry and active id, is
+        /// returned once by the startup policy, and the factory reconstructs a
+        /// working group with a live FolderPanelView.
+        /// </summary>
+        private static void FolderGroupSavedGroupRestoresOnce()
+        {
+            ThemeManager.Initialize("dark");
+            string dir = IO.Path.Combine(IO.Path.GetTempPath(), "kobold-t3b-config-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(dir);
+            string main = IO.Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            try
+            {
+                IO.File.WriteAllText(main, @"{
+  ""Groups"": [
+    { ""Id"": ""t3b-saved-group"", ""ActiveWidgetId"": ""t3b-saved-folder"",
+      ""PanelX"": 120.0, ""PanelY"": 80.0, ""PanelDpiScale"": 1.0,
+      ""PanelWidth"": 640.0, ""PanelHeight"": 480.0,
+      ""IsExpanded"": true, ""IsLocked"": false, ""IsPanelPinned"": false }
+  ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""t3b-saved-folder"", ""Name"": ""Saved Folder"",
+      ""GroupId"": ""t3b-saved-group"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""note"", ""Id"": ""t3b-saved-note"", ""Name"": ""Saved Note"",
+      ""GroupId"": ""t3b-saved-group"", ""GroupOrder"": 1 }
+  ]
+}");
+
+                var cfg = AppConfig.Load(main, backup);
+                var restore = GroupStartupPolicy.ToRestoreGroups(cfg.Groups, cfg.Widgets);
+                if (restore.Count != 1 || restore[0].Id != "t3b-saved-group")
+                {
+                    throw new InvalidOperationException("the saved folder group was not restored exactly once");
+                }
+                if (restore[0].ActiveWidgetId != "t3b-saved-folder")
+                {
+                    throw new InvalidOperationException("the saved group lost its active folder id");
+                }
+
+                var members = GroupHostPolicy.MembersOf(restore[0], cfg.Widgets);
+                if (members.Count != 2 || members[0].Id != "t3b-saved-folder"
+                    || !(members[0] is FolderData))
+                {
+                    throw new InvalidOperationException("the saved folder group lost its member order/kinds");
+                }
+
+                var window = WidgetWindowFactory.CreateGroup(restore[0], members) as WidgetGroupWindow;
+                if (window == null)
+                {
+                    throw new InvalidOperationException("the factory did not rebuild the saved group");
+                }
+                try
+                {
+                    if (window.ActiveMemberId != "t3b-saved-folder")
+                    {
+                        throw new InvalidOperationException("the rebuilt group lost its active folder tab");
+                    }
+                    if (!(window.Views[0] is FolderPanelView))
+                    {
+                        throw new InvalidOperationException("the rebuilt group has no folder view");
+                    }
+                    var (width, height) = window.GetPanelSize();
+                    if (Math.Abs(width - 640) > 0.5 || Math.Abs(height - 480) > 0.5)
+                    {
+                        throw new InvalidOperationException(
+                            "the rebuilt group geometry is " + width + "x" + height + ", wanted 640x480");
+                    }
+                }
+                finally
+                {
+                    window.Close();
+                }
+
+                // Save the loaded config and reload it: the group block and the
+                // active id survive the round-trip and still restore once.
+                cfg.Save();
+                var reloaded = AppConfig.Load(main, backup);
+                var again = GroupStartupPolicy.ToRestoreGroups(reloaded.Groups, reloaded.Widgets);
+                if (again.Count != 1 || again[0].ActiveWidgetId != "t3b-saved-folder"
+                    || again[0].PanelWidth != 640 || again[0].PanelHeight != 480)
+                {
+                    throw new InvalidOperationException("the folder group did not survive the save/reload round-trip");
+                }
+            }
+            finally
+            {
+                try { IO.Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// A group tab shows its member's original component name (the trimmed
+        /// <see cref="WidgetData.Name"/>), not the kind label, so a folder tab
+        /// reads 季度资料 instead of 文件夹.
+        /// </summary>
+        private static void GroupTabsShowMemberNames()
+        {
+            var folder = new FolderData { Id = "tab-name-folder", Name = "季度资料", Color = "#6A9BCC" };
+            var note = new NoteData { Id = "tab-name-note", Name = "会议记录", Color = "#788C5D" };
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                if (window.TabStrip.TabButtons.Count != 2)
+                    throw new InvalidOperationException("the group does not have two tabs");
+                var labels = window.TabStrip.LabelTextsForChecks;
+                if (labels.Count != 2 || labels[0] != "季度资料" || labels[1] != "会议记录")
+                    throw new InvalidOperationException(
+                        "tabs show kind labels instead of member names: " + string.Join(" / ", labels));
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 per-member pin at the group window: the header pin toggles the
+        /// active member only, and a pin on any (even inactive) member keeps
+        /// the group open on blur.
+        /// </summary>
+        private static void GroupPinTogglesTheActiveMemberOnly()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+                AssertGroupPinState(window, group, expectedGroupPinned: false,
+                    expectedHeaderPinned: false, label: "fresh group");
+                InvokeGroupDeactivated(window);
+                if (window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException(
+                        "an all-unpinned group stayed open after losing focus");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+
+            window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                window.TogglePin();
+                if (!todo.IsPanelPinned || note.IsPanelPinned)
+                {
+                    throw new InvalidOperationException(
+                        "the header pin did not toggle exactly the active member");
+                }
+                AssertGroupPinState(window, group, expectedGroupPinned: true,
+                    expectedHeaderPinned: true, label: "active member pinned");
+
+                window.TogglePin();
+                if (todo.IsPanelPinned || note.IsPanelPinned)
+                {
+                    throw new InvalidOperationException("unpinning the active member left a pin");
+                }
+                AssertGroupPinState(window, group, expectedGroupPinned: false,
+                    expectedHeaderPinned: false, label: "active member unpinned");
+
+                // A pin on the inactive member keeps the group open but leaves
+                // the active header pin grey, because the header reflects only
+                // the tab it toggles.
+                note.IsPanelPinned = true;
+                window.UpdateUI();
+                AssertGroupPinState(window, group, expectedGroupPinned: true,
+                    expectedHeaderPinned: false, label: "inactive member pinned");
+                InvokeGroupDeactivated(window);
+                if (!window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException(
+                        "an inactive pinned member did not keep the group open on blur");
+                }
+
+                note.IsPanelPinned = false;
+                window.UpdateUI();
+                AssertGroupPinState(window, group, expectedGroupPinned: false,
+                    expectedHeaderPinned: false, label: "inactive member unpinned");
+                InvokeGroupDeactivated(window);
+                if (window.IsPanelOpen)
+                {
+                    throw new InvalidOperationException(
+                        "the group stayed open after every member pin was cleared");
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+
+            // The standalone path still writes its own datum only.
+            var standaloneData = new NoteData { Id = "pin-standalone", IsPanelPinned = false };
+            var standalone = new NoteWidget(standaloneData);
+            try
+            {
+                standalone.TogglePin();
+                if (!standaloneData.IsPanelPinned || !standalone.PanelChrome.IsPinned)
+                {
+                    throw new InvalidOperationException("a standalone pin stopped toggling its own datum");
+                }
+            }
+            finally
+            {
+                standalone.Close();
+            }
+        }
+
+        /// <summary>
+        /// P2 polish (Task A): the group window's title row no longer repeats
+        /// the member/pin counts - the chrome has no meta element and exposes
+        /// no HeaderMeta property, while the pin button stays.
+        /// </summary>
+        private static void GroupChromeHasNoMemberCountMeta()
+        {
+            WidgetGroup group;
+            TodoData todo;
+            NoteData note;
+            var window = NewGroupWindow(out group, out todo, out note);
+            try
+            {
+                ShowGroupWindow(window);
+                if (window.GroupChrome.FindName("HeaderMetaText") != null)
+                    throw new InvalidOperationException("the chrome still has a HeaderMetaText element");
+                if (typeof(WidgetChrome).GetProperty("HeaderMeta") != null)
+                    throw new InvalidOperationException("WidgetChrome still exposes HeaderMeta");
+                if (window.GroupChrome.PinIconPresenter == null)
+                    throw new InvalidOperationException("the chrome lost the pin icon");
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        private static void AssertGroupPinState(
+            WidgetGroupWindow window, WidgetGroup group, bool expectedGroupPinned,
+            bool expectedHeaderPinned, string label)
+        {
+            if (group.IsPanelPinned != expectedGroupPinned)
+            {
+                throw new InvalidOperationException(
+                    label + ": the group pin is " + group.IsPanelPinned + ", wanted " + expectedGroupPinned);
+            }
+            if (window.GroupChrome.IsPinned != expectedHeaderPinned)
+            {
+                throw new InvalidOperationException(
+                    label + ": the header pin is " + window.GroupChrome.IsPinned + ", wanted " + expectedHeaderPinned);
+            }
+
+            Brush expectedBrush = expectedHeaderPinned
+                ? ThemeManager.PinGoldBrush
+                : ThemeManager.PinUnpinnedFillBrush;
+            if (!ReferenceEquals(window.GroupChrome.PinIconPresenter.Brush, expectedBrush))
+            {
+                throw new InvalidOperationException(
+                    label + ": the header pin does not wear the " +
+                    (expectedHeaderPinned ? "gold" : "grey") + " brush");
+            }
+        }
+
+        /// <summary>
+        /// The base blur handler collapses an unpinned panel; invoking it
+        /// directly is the check seam for the any-member-pinned rule.
+        /// </summary>
+        private static void InvokeGroupDeactivated(WidgetGroupWindow window)
+        {
+            PrivateBaseMethod("Window_Deactivated").Invoke(window, new object[] { window, EventArgs.Empty });
+        }
+
+        /// <summary>
+        /// A detached member keeps its own pin: an unpinned member leaves an
+        /// unpinned standalone, a pinned member stays pinned through a detach
+        /// and through the last-pair dissolve.
+        /// </summary>
+        private static void GroupDetachPreservesEachMembersOwnPin()
+        {
+            WidgetManager manager = null;
+            FolderData folder;
+            NoteData firstNote;
+            NoteData secondNote;
+            SetUpT3bFolderStandaloneWidgets(out manager, out folder, out firstNote, out secondNote);
+
+            try
+            {
+                var folderHost = manager.FindHostForWidget(folder.Id) as FolderWidget;
+                var firstHost = manager.FindHostForWidget(firstNote.Id);
+                var secondHost = manager.FindHostForWidget(secondNote.Id);
+                if (folderHost == null || firstHost == null || secondHost == null)
+                {
+                    throw new InvalidOperationException("a standalone host was not created");
+                }
+
+                if (!manager.MergeWidgets(folderHost, firstHost))
+                {
+                    throw new InvalidOperationException("the folder did not merge into the note");
+                }
+
+                var groupHost = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (groupHost == null)
+                {
+                    throw new InvalidOperationException("the merge produced no group host");
+                }
+                if (!manager.MergeWidgets(secondHost, groupHost))
+                {
+                    throw new InvalidOperationException("the second note did not merge into the group");
+                }
+                groupHost = manager.FindHostForWidget(firstNote.Id) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 3)
+                {
+                    throw new InvalidOperationException("the group does not have three members");
+                }
+                string groupId = groupHost.WidgetId;
+
+                secondNote.IsPanelPinned = false;
+                if (!manager.DetachWidget(groupId, secondNote.Id))
+                {
+                    throw new InvalidOperationException("detaching the unpinned member was refused");
+                }
+                if (secondNote.IsPanelPinned)
+                {
+                    throw new InvalidOperationException(
+                        "an unpinned member inherited the group pin when it detached");
+                }
+
+                folder.IsPanelPinned = true;
+                groupHost.UpdateUI();
+                if (!groupHost.Group.IsPanelPinned)
+                {
+                    throw new InvalidOperationException(
+                        "the group did not derive its pin from the pinned member");
+                }
+                if (!manager.DetachWidget(groupId, folder.Id))
+                {
+                    throw new InvalidOperationException("detaching the pinned member was refused");
+                }
+                if (!folder.IsPanelPinned)
+                {
+                    throw new InvalidOperationException(
+                        "the pinned member lost its pin when the last pair dissolved");
+                }
+                if (firstNote.IsPanelPinned)
+                {
+                    throw new InvalidOperationException(
+                        "the unpinned survivor inherited a pin during the dissolve");
+                }
+            }
+            finally
+            {
+                CleanUpP0B(manager);
+            }
+        }
+
+        /// <summary>
+        /// The folder ghost preview renders a real offscreen clone without
+        /// loading it or touching the live widget; T3b adds the folder view to
+        /// the view factory, so this guards the detach preview path.
+        /// </summary>
+        private static void FolderGhostPreviewRenders()
+        {
+            ThemeManager.Initialize("dark");
+            var folder = NewT3bFolderData("t3b-ghost-folder", "T3b Ghost");
+            folder.Items.Add(new WidgetItem(IO.Path.Combine(@"C:\kobold-t3b-ghost", "entry.txt")));
+
+            BitmapSource render = RenderGhostPreview(folder);
+            if (render == null)
+            {
+                throw new InvalidOperationException("the folder ghost render returned no bitmap");
+            }
+            if (WidgetGhostRenderer.LastCloneWasLoaded)
+            {
+                throw new InvalidOperationException("the folder ghost clone was loaded");
+            }
+            if (render.PixelWidth < 1 || render.PixelHeight < 1)
+            {
+                throw new InvalidOperationException("the folder ghost render is empty");
+            }
+        }
+
+        /// <summary>The folder layout the view must derive from the group content box.</summary>
+        private static FolderLayout ExpectedFolderLayout(
+            WidgetGroupWindow window, FolderPanelView view, int itemCount)
+        {
+            var host = (IWidgetViewHost)window;
+            double contentWidth = host.ContentWidth;
+            double contentHeight = host.ContentHeight;
+            var more = (TextBlock)view.FindName("MoreItemsText");
+            if (more != null && more.Visibility == Visibility.Visible)
+            {
+                contentHeight -= WidgetConstants.FOOTER_HEIGHT;
+            }
+
+            double scale;
+            try { scale = WidgetManager.Instance.Config.ItemScale; }
+            catch { scale = 1.1; }
+            return PanelLayoutAdapter.AdaptFolder(contentWidth, contentHeight, itemCount, scale);
+        }
+
+        /// <summary>
+        /// A group resize re-adapts the active folder through the group content
+        /// box (columns and scale follow), and the view never changes the group
+        /// window size itself.
+        /// </summary>
+        private static void FolderGroupResizeReadaptsTheActiveFolder()
+        {
+            var folder = NewT3bFolderData("t3b-resize-folder", "T3b Resize");
+            folder.Items.Add(new WidgetItem(IO.Path.Combine(@"C:\kobold-t3b-resize", "entry.txt")));
+            var note = NewT3bNoteData("t3b-resize-note", "T3b Resize Note");
+
+            WidgetGroup group;
+            var window = CreateT3bFolderGroup(folder, note, out group);
+            try
+            {
+                window.ShowPanel(-32000, -32000, activate: false, animate: false);
+                window.UpdateLayout();
+
+                var view = window.Views[0] as FolderPanelView;
+                if (view == null) throw new InvalidOperationException("the folder view was not built");
+                var container = (ItemsControl)view.FindName("ItemsContainer");
+                var items = container.ItemsSource as List<DisplayItem>;
+                if (items == null) throw new InvalidOperationException("the folder listing was not built");
+
+                var firstScale = view.GridColumns;
+                var expected = ExpectedFolderLayout(window, view, items.Count);
+                var transform = container.LayoutTransform as ScaleTransform;
+                if (view.GridColumns != expected.Columns)
+                {
+                    throw new InvalidOperationException(
+                        "the 760-wide group folder has " + view.GridColumns + " columns, wanted " + expected.Columns);
+                }
+                if (transform == null || Math.Abs(transform.ScaleX - expected.Scale) > 0.001)
+                {
+                    throw new InvalidOperationException("the folder icon scale does not follow the group content box");
+                }
+
+                window.Width = 1100;
+                window.Height = 620;
+                window.UpdateLayout();
+
+                var wider = ExpectedFolderLayout(window, view, items.Count);
+                transform = container.LayoutTransform as ScaleTransform;
+                if (view.GridColumns != wider.Columns)
+                {
+                    throw new InvalidOperationException(
+                        "the widened group folder has " + view.GridColumns + " columns, wanted " + wider.Columns);
+                }
+                if (wider.Columns <= firstScale)
+                {
+                    throw new InvalidOperationException("widening the group did not add folder columns");
+                }
+                if (transform == null || Math.Abs(transform.ScaleX - wider.Scale) > 0.001)
+                {
+                    throw new InvalidOperationException("the widened folder lost the icon scale");
+                }
+
+                double width = window.Width;
+                double height = window.Height;
+                view.ApplyAdaptiveLayout();
+                if (window.Width != width || window.Height != height)
+                {
+                    throw new InvalidOperationException("the folder layout changed the group window size");
+                }
+
+                window.Width = 760;
+                window.Height = 540;
+                window.UpdateLayout();
+                var restored = ExpectedFolderLayout(window, view, items.Count);
+                if (view.GridColumns != restored.Columns)
+                {
+                    throw new InvalidOperationException(
+                        "the restored group folder has " + view.GridColumns + " columns, wanted " + restored.Columns);
+                }
+            }
+            finally
+            {
+                if (window.IsVisible) window.Close();
+            }
+        }
+
+        #endregion
+
+        #region Control plane widget/group pins (Task 6)
+
+        private static JObject ControlAdd(WidgetGroupControlService service, string kind,
+            string name, string color, bool? pinned = null)
+        {
+            var p = new JObject
+            {
+                ["kind"] = kind,
+                ["name"] = name,
+                ["color"] = color
+            };
+            if (pinned.HasValue) p["pinned"] = pinned.Value;
+            return service.Add(p);
+        }
+
+        private static string ControlAddId(WidgetGroupControlService service, string kind,
+            string name, string color, bool? pinned = null)
+        {
+            JObject added = ControlAdd(service, kind, name, color, pinned);
+            string id = (string)added["id"];
+            if (string.IsNullOrEmpty(id))
+                throw new InvalidOperationException("widget.add returned no id for " + name);
+            return id;
+        }
+
+        private static void RemoveControlWidgets(WidgetManager manager, params string[] ids)
+        {
+            if (manager == null || ids == null) return;
+            foreach (string id in ids)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                try { manager.RemoveWidget(id); } catch (Exception) { }
+            }
+        }
+
+        private static IslandWindow ManagerIsland(WidgetManager manager)
+        {
+            var field = typeof(WidgetManager).GetField("_island",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            var island = field == null ? null : field.GetValue(manager) as IslandWindow;
+            if (island == null)
+                throw new InvalidOperationException("the manager has no island in this sandbox run");
+            return island;
+        }
+
+        private static ControlException ExpectControlError(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (ControlException ex)
+            {
+                return ex;
+            }
+            throw new InvalidOperationException("the control command was accepted, wanted a protocol error");
+        }
+
+        private static void AssertControlError(Action action, string code, string label)
+        {
+            ControlException error = ExpectControlError(action);
+            if (!string.Equals(error.Code, code, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    label + " reported '" + error.Code + "', wanted '" + code + "'");
+            }
+        }
+
+        private static void AssertChanged(JObject result, params string[] expected)
+        {
+            var changed = result == null ? null : result["changed"] as JArray;
+            string actual = changed == null
+                ? "<missing>"
+                : string.Join(",", changed.Select(x => (string)x).ToArray());
+            if (changed == null || !changed.Select(x => (string)x).SequenceEqual(expected))
+            {
+                throw new InvalidOperationException(
+                    "changed was [" + actual + "], wanted [" + string.Join(",", expected) + "]");
+            }
+        }
+
+        private static void ControlWidgetAddCreatesClosedUnpinnedWidget()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            int countBefore = manager.Config.Widgets.Count;
+            string plainId = null;
+            string pinnedId = null;
+            try
+            {
+                JObject added = ControlAdd(service, "note", "Control Add Note", "#4A7BB5", false);
+                plainId = (string)added["id"];
+                if (string.IsNullOrEmpty(plainId))
+                    throw new InvalidOperationException("widget.add returned no id");
+                if ((string)added["kind"] != "note")
+                    throw new InvalidOperationException("widget.add reported kind '" + added["kind"] + "'");
+                if (manager.Config.Widgets.Count != countBefore + 1)
+                    throw new InvalidOperationException("widget.add did not add exactly one widget");
+
+                WidgetData plain = ConfigWidget(manager, plainId);
+                if (plain.Name != "Control Add Note" || plain.Color != "#4A7BB5")
+                    throw new InvalidOperationException("widget.add did not apply the caller's name/color");
+                if (plain.IsPanelPinned)
+                    throw new InvalidOperationException("widget.add pinned a widget that asked for default false");
+
+                IWidgetWindow plainHost = manager.FindHostForWidget(plainId);
+                if (plainHost == null || plainHost.IsPanelOpen)
+                    throw new InvalidOperationException("widget.add opened a panel or created no host");
+
+                IslandWindow island = ManagerIsland(manager);
+                Border tile = FindIslandTile(island, plainId);
+                if (tile == null)
+                    throw new InvalidOperationException("the island did not rebuild a tile for the new widget");
+                if (!string.Equals(tile.ToolTip as string, "Control Add Note", StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        "the island tile shows '" + tile.ToolTip + "' instead of the applied name");
+                if ((string)added["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("widget.add returned a stale revision");
+
+                JObject pinned = ControlAdd(service, "note", "Control Pinned Note", "#B5654A", true);
+                pinnedId = (string)pinned["id"];
+                WidgetData pinnedData = ConfigWidget(manager, pinnedId);
+                if (!pinnedData.IsPanelPinned)
+                    throw new InvalidOperationException("widget.add ignored pinned:true");
+                IWidgetWindow pinnedHost = manager.FindHostForWidget(pinnedId);
+                if (pinnedHost == null || pinnedHost.IsPanelOpen)
+                    throw new InvalidOperationException("a pinned widget add opened its panel");
+
+                int beforeRejected = manager.Config.Widgets.Count;
+                AssertControlError(
+                    () => service.Add(new JObject { ["kind"] = "note", ["open"] = true }),
+                    ControlErrorCodes.ValidationFailed, "widget.add open:true");
+                if (manager.Config.Widgets.Count != beforeRejected)
+                    throw new InvalidOperationException("a rejected widget.add still created a widget");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, plainId, pinnedId);
+            }
+
+            if (manager.Config.Widgets.Count != countBefore)
+                throw new InvalidOperationException("the widget.add pin left widgets behind");
+        }
+
+        private static void ControlWidgetUpdateChangesGroupedMember()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            string firstId = null;
+            string secondId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Member A", "#788C5D", false);
+                secondId = ControlAddId(service, "note", "Control Member B", "#B5654A", false);
+                service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId)
+                });
+
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 2)
+                    throw new InvalidOperationException("the update pin did not build its pair group");
+                IWidgetContentView liveView = groupHost.Views[1];
+
+                JObject updated = service.Update(new JObject
+                {
+                    ["id"] = secondId,
+                    ["name"] = "Control Member B Renamed",
+                    ["color"] = "#112233",
+                    ["pinned"] = true
+                });
+                AssertChanged(updated, "Name", "Color", "IsPanelPinned");
+
+                WidgetData data = ConfigWidget(manager, secondId);
+                if (data.Name != "Control Member B Renamed" || data.Color != "#112233"
+                    || !data.IsPanelPinned)
+                {
+                    throw new InvalidOperationException("widget.update did not apply name/color/pin");
+                }
+                if (!groupHost.Group.IsPanelPinned)
+                    throw new InvalidOperationException("the group pin did not derive from its pinned member");
+                if (!ReferenceEquals(groupHost.Views[1], liveView))
+                    throw new InvalidOperationException("widget.update recreated the member view");
+                string tabLabel = groupHost.TabStrip.TabButtons.Count > 1
+                    ? groupHost.TabStrip.TabButtons[1].ToolTip as string
+                    : null;
+                if (!string.Equals(tabLabel, "Control Member B Renamed", StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        "the tab label shows '" + tabLabel + "' after the rename");
+                if ((string)updated["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("widget.update returned a stale revision");
+
+                JObject unpinned = service.Update(new JObject
+                {
+                    ["id"] = secondId,
+                    ["pinned"] = false
+                });
+                AssertChanged(unpinned, "IsPanelPinned");
+                if (data.IsPanelPinned || groupHost.Group.IsPanelPinned)
+                    throw new InvalidOperationException("the unpinned member did not clear the group pin");
+
+                JObject noop = service.Update(new JObject
+                {
+                    ["id"] = secondId,
+                    ["name"] = "Control Member B Renamed"
+                });
+                AssertChanged(noop);
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId);
+            }
+        }
+
+        private static void ControlWidgetDeleteEjectsAndDissolves()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            string root = IO.Path.Combine(IO.Path.GetTempPath(),
+                "kobold-control-eject-" + Guid.NewGuid().ToString("N"));
+            IO.Directory.CreateDirectory(root);
+            string file = IO.Path.Combine(root, "eject-me.txt");
+            IO.File.WriteAllText(file, "control eject");
+            IO.File.SetAttributes(file, IO.File.GetAttributes(file) | IO.FileAttributes.Hidden);
+
+            int countBefore = manager.Config.Widgets.Count;
+            int groupsBefore = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            string folderId = null;
+            string noteId = null;
+            try
+            {
+                folderId = ControlAddId(service, "folder", "Control Eject Folder",
+                    UiTokens.DefaultFolderColor);
+                noteId = ControlAddId(service, "note", "Control Eject Note", "#6A9BCC");
+
+                var folderData = ConfigWidget(manager, folderId) as FolderData;
+                if (folderData == null)
+                    throw new InvalidOperationException("the added widget is not a folder");
+                folderData.Items.Add(new WidgetItem
+                {
+                    Name = IO.Path.GetFileName(file),
+                    Path = file,
+                    IsReference = true
+                });
+
+                service.Merge(new JObject
+                {
+                    ["targetId"] = noteId,
+                    ["memberIds"] = new JArray(folderId)
+                });
+                var groupHost = manager.FindHostForWidget(noteId) as WidgetGroupWindow;
+                if (groupHost == null || !groupHost.ContainsWidget(folderId))
+                    throw new InvalidOperationException("the delete pin did not build its folder group");
+                if (!StorageOps.IsHidden(file))
+                    throw new InvalidOperationException("the eject fixture file is not hidden");
+
+                AssertControlError(
+                    () => service.Delete(new JObject { ["id"] = folderId }),
+                    ControlErrorCodes.Forbidden, "widget.delete without confirm");
+                if (!StorageOps.IsHidden(file) || manager.FindHostForWidget(folderId) == null)
+                    throw new InvalidOperationException("a refused delete changed the widget or its files");
+
+                JObject deleted = service.Delete(new JObject
+                {
+                    ["id"] = folderId,
+                    ["confirm"] = true
+                });
+                if ((string)deleted["removed"] != folderId)
+                    throw new InvalidOperationException("widget.delete reported the wrong removed id");
+                if (StorageOps.IsHidden(file) || !IO.File.Exists(file))
+                    throw new InvalidOperationException("widget.delete did not eject the folder's stored file");
+                if (manager.FindHostForWidget(folderId) != null)
+                    throw new InvalidOperationException("the deleted folder still resolves to a host");
+                if (manager.Config.Widgets.Count != countBefore + 1)
+                    throw new InvalidOperationException("the delete pin left the wrong number of widgets");
+                int groupsAfter = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+                if (groupsAfter != groupsBefore)
+                    throw new InvalidOperationException("deleting the folder member did not dissolve its group");
+
+                IWidgetWindow noteHost = manager.FindHostForWidget(noteId);
+                if (noteHost == null || noteHost is WidgetGroupWindow)
+                    throw new InvalidOperationException("the surviving note did not become a standalone host");
+                if ((string)deleted["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("widget.delete returned a stale revision");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, noteId, folderId);
+                try { IO.Directory.Delete(root, true); } catch (Exception) { }
+            }
+
+            if (manager.Config.Widgets.Count != countBefore)
+                throw new InvalidOperationException("the widget.delete pin left widgets behind");
+        }
+
+        private static void ControlGroupMergeKeepsLiveViews()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            int groupsBefore = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            string firstId = null;
+            string secondId = null;
+            string thirdId = null;
+            string lockedId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Merge A", "#788C5D");
+                secondId = ControlAddId(service, "note", "Control Merge B", "#B5654A");
+                thirdId = ControlAddId(service, "note", "Control Merge C", "#6A9BCC");
+
+                var firstHost = manager.FindHostForWidget(firstId) as NoteWidget;
+                var secondHost = manager.FindHostForWidget(secondId) as NoteWidget;
+                var thirdHost = manager.FindHostForWidget(thirdId) as NoteWidget;
+                if (firstHost == null || secondHost == null || thirdHost == null)
+                    throw new InvalidOperationException("a merge source has no note host");
+
+                JObject merged = service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId)
+                });
+                string groupId = (string)merged["groupId"];
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || string.IsNullOrEmpty(groupId) || groupId != groupHost.WidgetId)
+                    throw new InvalidOperationException("group.merge did not return the new group id");
+                if (groupHost.Members.Count != 2
+                    || groupHost.Members[0].Id != firstId
+                    || groupHost.Members[1].Id != secondId)
+                {
+                    throw new InvalidOperationException("group.merge did not keep target-first order");
+                }
+                if (!ReferenceEquals(groupHost.Views[0], firstHost.PanelView)
+                    || !ReferenceEquals(groupHost.Views[1], secondHost.PanelView))
+                {
+                    throw new InvalidOperationException("group.merge recreated a live view");
+                }
+                if (groupHost.ActiveMemberId != firstId)
+                    throw new InvalidOperationException("group.merge stole the active tab");
+                int groupsAfterFirst = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+                if (groupsAfterFirst != groupsBefore + 1)
+                    throw new InvalidOperationException("group.merge did not add exactly one group");
+
+                JObject grown = service.Merge(new JObject
+                {
+                    ["targetId"] = groupId,
+                    ["memberIds"] = new JArray(thirdId)
+                });
+                var sameGroup = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (!ReferenceEquals(sameGroup, groupHost) || (string)grown["groupId"] != groupId)
+                    throw new InvalidOperationException("merging into an existing group did not re-resolve the target");
+                if (sameGroup.Members.Count != 3 || sameGroup.Members[2].Id != thirdId)
+                    throw new InvalidOperationException("the second merge did not append the third tab");
+                if (!ReferenceEquals(sameGroup.Views[2], thirdHost.PanelView))
+                    throw new InvalidOperationException("merging into a group recreated the source view");
+                if (sameGroup.ActiveMemberId != firstId)
+                    throw new InvalidOperationException("merging into a group moved the active tab");
+
+                AssertControlError(
+                    () => service.Merge(new JObject
+                    {
+                        ["targetId"] = groupId,
+                        ["memberIds"] = new JArray(firstId)
+                    }),
+                    ControlErrorCodes.ValidationFailed, "group.merge with a group member source");
+                AssertControlError(
+                    () => service.Merge(new JObject
+                    {
+                        ["targetId"] = groupId,
+                        ["memberIds"] = new JArray("control-missing-source")
+                    }),
+                    ControlErrorCodes.ValidationFailed, "group.merge with a missing source");
+
+                lockedId = ControlAddId(service, "note", "Control Merge Locked", "#B5654A");
+                service.Update(new JObject { ["id"] = lockedId, ["locked"] = true });
+                AssertControlError(
+                    () => service.Merge(new JObject
+                    {
+                        ["targetId"] = groupId,
+                        ["memberIds"] = new JArray(lockedId)
+                    }),
+                    ControlErrorCodes.ValidationFailed, "group.merge with a locked source");
+                if (sameGroup.Members.Count != 3)
+                    throw new InvalidOperationException("a refused merge changed the group");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId, thirdId, lockedId);
+            }
+        }
+
+        private static void ControlGroupDetachKeepsGroupThenDissolves()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            int groupsBefore = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            string firstId = null;
+            string secondId = null;
+            string thirdId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Detach A", "#788C5D");
+                secondId = ControlAddId(service, "note", "Control Detach B", "#B5654A");
+                thirdId = ControlAddId(service, "note", "Control Detach C", "#6A9BCC");
+
+                service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId, thirdId)
+                });
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 3)
+                    throw new InvalidOperationException("the detach pin did not build a three-tab group");
+                string groupId = groupHost.WidgetId;
+                IWidgetContentView secondView = groupHost.Views[1];
+
+                groupHost.Group.IsLocked = true;
+                AssertControlError(
+                    () => service.Detach(new JObject { ["groupId"] = groupId, ["widgetId"] = secondId }),
+                    ControlErrorCodes.ValidationFailed, "group.detach on a locked group");
+                groupHost.Group.IsLocked = false;
+
+                AssertControlError(
+                    () => service.Detach(new JObject { ["groupId"] = groupId, ["widgetId"] = "control-not-a-member" }),
+                    ControlErrorCodes.ValidationFailed, "group.detach on a non-member");
+
+                JObject detached = service.Detach(new JObject
+                {
+                    ["groupId"] = groupId,
+                    ["widgetId"] = secondId
+                });
+                if ((string)detached["standaloneId"] != secondId)
+                    throw new InvalidOperationException("group.detach reported the wrong standalone id");
+                if (detached["dissolved"] == null || (bool)detached["dissolved"])
+                    throw new InvalidOperationException("detaching from three tabs reported dissolved");
+
+                var sameGroup = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (!ReferenceEquals(sameGroup, groupHost) || sameGroup.Members.Count != 2
+                    || sameGroup.ContainsWidget(secondId))
+                {
+                    throw new InvalidOperationException("the group did not survive the first detach");
+                }
+                if (ConfigWidget(manager, secondId).GroupId != null)
+                    throw new InvalidOperationException("the detached member kept its membership");
+                var detachedHost = manager.FindHostForWidget(secondId) as NoteWidget;
+                if (detachedHost == null || detachedHost.WidgetId != secondId)
+                    throw new InvalidOperationException("the detached member got no standalone host");
+                if (!ReferenceEquals(detachedHost.PanelView, secondView))
+                    throw new InvalidOperationException("group.detach recreated the live view");
+
+                JObject dissolved = service.Detach(new JObject
+                {
+                    ["groupId"] = groupId,
+                    ["widgetId"] = firstId
+                });
+                if ((string)dissolved["standaloneId"] != firstId)
+                    throw new InvalidOperationException("the last-pair detach reported the wrong id");
+                if (dissolved["dissolved"] == null || !(bool)dissolved["dissolved"])
+                    throw new InvalidOperationException("the last-pair detach did not report dissolved");
+                if (manager.FindHostForWidget(groupId) != null)
+                    throw new InvalidOperationException("the dissolved group still resolves to a host");
+
+                var firstHost = manager.FindHostForWidget(firstId);
+                var thirdHost = manager.FindHostForWidget(thirdId);
+                if (firstHost == null || firstHost is WidgetGroupWindow
+                    || thirdHost == null || thirdHost is WidgetGroupWindow)
+                {
+                    throw new InvalidOperationException("a dissolved member did not become standalone");
+                }
+                if ((manager.Config.Groups == null ? 0 : manager.Config.Groups.Count) != groupsBefore)
+                    throw new InvalidOperationException("the detach pin left a group behind");
+                if ((string)dissolved["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("group.detach returned a stale revision");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId, thirdId);
+            }
+        }
+
+        private static void ControlGroupReorderMovesTabsAndActive()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            string firstId = null;
+            string secondId = null;
+            string thirdId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Reorder A", "#788C5D");
+                secondId = ControlAddId(service, "note", "Control Reorder B", "#B5654A");
+                thirdId = ControlAddId(service, "note", "Control Reorder C", "#6A9BCC");
+
+                service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId, thirdId)
+                });
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 3)
+                    throw new InvalidOperationException("the reorder pin did not build a three-tab group");
+                string groupId = groupHost.WidgetId;
+                var viewsBefore = new List<IWidgetContentView>(groupHost.Views);
+
+                JObject reordered = service.Reorder(new JObject
+                {
+                    ["groupId"] = groupId,
+                    ["from"] = 0,
+                    ["to"] = 2
+                });
+                if ((string)reordered["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("group.reorder returned a stale revision");
+
+                var same = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (!ReferenceEquals(same, groupHost))
+                    throw new InvalidOperationException("group.reorder recreated the group");
+                if (same.Members.Count != 3
+                    || same.Members[0].Id != secondId
+                    || same.Members[1].Id != thirdId
+                    || same.Members[2].Id != firstId)
+                {
+                    throw new InvalidOperationException("group.reorder did not move the tabs");
+                }
+                if (same.ActiveMemberId != firstId || same.ActiveIndex != 2
+                    || same.Group.ActiveWidgetId != firstId)
+                {
+                    throw new InvalidOperationException("group.reorder did not keep the dragged tab active");
+                }
+                if (!ReferenceEquals(same.Views[2], viewsBefore[0])
+                    || !ReferenceEquals(same.Views[0], viewsBefore[1])
+                    || !ReferenceEquals(same.Views[1], viewsBefore[2]))
+                {
+                    throw new InvalidOperationException("group.reorder recreated or misplaced a view");
+                }
+                if (ConfigWidget(manager, firstId).GroupOrder != 2
+                    || ConfigWidget(manager, secondId).GroupOrder != 0
+                    || ConfigWidget(manager, thirdId).GroupOrder != 1)
+                {
+                    throw new InvalidOperationException("group.reorder did not persist GroupOrder");
+                }
+
+                AssertControlError(
+                    () => service.Reorder(new JObject { ["groupId"] = groupId, ["from"] = 0, ["to"] = 3 }),
+                    ControlErrorCodes.ValidationFailed, "group.reorder with an out-of-range index");
+                AssertControlError(
+                    () => service.Reorder(new JObject { ["groupId"] = groupId, ["from"] = 1, ["to"] = 1 }),
+                    ControlErrorCodes.ValidationFailed, "group.reorder no-op");
+                same.Group.IsLocked = true;
+                AssertControlError(
+                    () => service.Reorder(new JObject { ["groupId"] = groupId, ["from"] = 0, ["to"] = 1 }),
+                    ControlErrorCodes.ValidationFailed, "group.reorder on a locked group");
+                same.Group.IsLocked = false;
+
+                if (same.Members[0].Id != secondId || same.Members[2].Id != firstId)
+                    throw new InvalidOperationException("a refused reorder changed the tab order");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId, thirdId);
+            }
+        }
+
+        private static void ControlGroupDissolveReturnsEveryMember()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            int groupsBefore = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            string firstId = null;
+            string secondId = null;
+            string thirdId = null;
+            string fourthId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Dissolve A", "#788C5D");
+                secondId = ControlAddId(service, "note", "Control Dissolve B", "#B5654A");
+                thirdId = ControlAddId(service, "note", "Control Dissolve C", "#6A9BCC");
+                fourthId = ControlAddId(service, "note", "Control Dissolve D", "#B08A4A");
+
+                service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId, thirdId, fourthId)
+                });
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 4)
+                    throw new InvalidOperationException("the dissolve pin did not build a four-tab group");
+                string groupId = groupHost.WidgetId;
+                var originalIds = new List<string> { firstId, secondId, thirdId, fourthId };
+
+                AssertControlError(
+                    () => service.Dissolve(new JObject { ["groupId"] = groupId }),
+                    ControlErrorCodes.Forbidden, "group.dissolve without confirm");
+                if (manager.FindHostForWidget(groupId) == null)
+                    throw new InvalidOperationException("a refused dissolve removed the group");
+
+                groupHost.Group.IsLocked = true;
+                AssertControlError(
+                    () => service.Dissolve(new JObject { ["groupId"] = groupId, ["confirm"] = true }),
+                    ControlErrorCodes.ValidationFailed, "group.dissolve on a locked group");
+                groupHost.Group.IsLocked = false;
+
+                JObject dissolved = service.Dissolve(new JObject
+                {
+                    ["groupId"] = groupId,
+                    ["confirm"] = true
+                });
+                var standaloneIds = dissolved["standaloneIds"] as JArray;
+                if (standaloneIds == null
+                    || !standaloneIds.Select(x => (string)x).SequenceEqual(originalIds))
+                {
+                    throw new InvalidOperationException(
+                        "group.dissolve returned [" +
+                        (standaloneIds == null ? "<missing>" : string.Join(",", standaloneIds.Select(x => (string)x).ToArray())) +
+                        "], wanted every original member");
+                }
+                if (manager.FindHostForWidget(groupId) != null)
+                    throw new InvalidOperationException("the dissolved group still resolves to a host");
+                foreach (string id in originalIds)
+                {
+                    var host = manager.FindHostForWidget(id);
+                    if (host == null || host is WidgetGroupWindow)
+                        throw new InvalidOperationException("member " + id + " did not become standalone");
+                    if (ConfigWidget(manager, id).GroupId != null)
+                        throw new InvalidOperationException("member " + id + " kept its membership");
+                }
+                if ((manager.Config.Groups == null ? 0 : manager.Config.Groups.Count) != groupsBefore)
+                    throw new InvalidOperationException("group.dissolve left the group config behind");
+                if ((string)dissolved["revision"] != ConfigRevision.Compute(manager.Config))
+                    throw new InvalidOperationException("group.dissolve returned a stale revision");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId, thirdId, fourthId);
+            }
+        }
+
+        /// <summary>
+        /// Task 6 fix round: an update payload is a strict field whitelist, and
+        /// a folder/todo/note block only fits its own kind. Unknown fields and
+        /// a mismatched block are validation errors, not silent no-ops.
+        /// </summary>
+        private static void ControlWidgetUpdateRejectsUnknownAndMismatchedFields()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            string noteId = null;
+            string folderId = null;
+            try
+            {
+                noteId = ControlAddId(service, "note", "Control Strict Note", "#788C5D");
+                folderId = ControlAddId(service, "folder", "Control Strict Folder",
+                    UiTokens.DefaultFolderColor);
+                string noteName = ConfigWidget(manager, noteId).Name;
+                string noteColor = ConfigWidget(manager, noteId).Color;
+                int countBefore = manager.Config.Widgets.Count;
+
+                AssertControlError(
+                    () => service.Update(new JObject { ["id"] = noteId, ["bogus"] = 1 }),
+                    ControlErrorCodes.ValidationFailed, "widget.update with an unknown field");
+                AssertControlError(
+                    () => service.Update(new JObject
+                    {
+                        ["id"] = noteId,
+                        ["folder"] = new JObject { ["gridColumns"] = 4 }
+                    }),
+                    ControlErrorCodes.ValidationFailed, "widget.update with a folder block on a note");
+                AssertControlError(
+                    () => service.Update(new JObject
+                    {
+                        ["id"] = noteId,
+                        ["todo"] = new JObject { ["holidayRegion"] = "cn" }
+                    }),
+                    ControlErrorCodes.ValidationFailed, "widget.update with a todo block on a note");
+                AssertControlError(
+                    () => service.Update(new JObject
+                    {
+                        ["id"] = folderId,
+                        ["note"] = new JObject { ["fontScale"] = 1.2 }
+                    }),
+                    ControlErrorCodes.ValidationFailed, "widget.update with a note block on a folder");
+
+                WidgetData note = ConfigWidget(manager, noteId);
+                if (note.Name != noteName || note.Color != noteColor)
+                    throw new InvalidOperationException("a refused update changed the note");
+                if (manager.Config.Widgets.Count != countBefore)
+                    throw new InvalidOperationException("a refused update changed the widget count");
+                var folder = ConfigWidget(manager, folderId) as FolderData;
+                if (folder == null || folder.GridColumns == 4)
+                    throw new InvalidOperationException("a mismatched folder block reached the note");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, noteId, folderId);
+            }
+        }
+
+        /// <summary>
+        /// Task 6 fix round: a group id is not a widget delete target. The
+        /// delete must refuse it and leave the group and its members intact,
+        /// while a grouped member id still deletes just that member.
+        /// </summary>
+        private static void ControlWidgetDeleteRejectsGroupId()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            int groupsBefore = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            string firstId = null;
+            string secondId = null;
+            try
+            {
+                firstId = ControlAddId(service, "note", "Control Guard A", "#788C5D");
+                secondId = ControlAddId(service, "note", "Control Guard B", "#B5654A");
+                service.Merge(new JObject
+                {
+                    ["targetId"] = firstId,
+                    ["memberIds"] = new JArray(secondId)
+                });
+
+                var groupHost = manager.FindHostForWidget(firstId) as WidgetGroupWindow;
+                if (groupHost == null || groupHost.Members.Count != 2)
+                    throw new InvalidOperationException("the delete guard pin did not build its pair group");
+                string groupId = groupHost.WidgetId;
+                int widgetsWithGroup = manager.Config.Widgets.Count;
+                int groupsWithGroup = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+
+                AssertControlError(
+                    () => service.Delete(new JObject { ["id"] = groupId, ["confirm"] = true }),
+                    ControlErrorCodes.ValidationFailed, "widget.delete with a group id");
+
+                if (!(manager.FindHostForWidget(groupId) is WidgetGroupWindow))
+                    throw new InvalidOperationException("the refused group delete removed the group");
+                if (manager.Config.Widgets.Count != widgetsWithGroup)
+                    throw new InvalidOperationException("the refused group delete removed a member");
+                if ((manager.Config.Groups == null ? 0 : manager.Config.Groups.Count) != groupsWithGroup)
+                    throw new InvalidOperationException("the refused group delete removed the group config");
+                if (ConfigWidget(manager, firstId).GroupId != groupId
+                    || ConfigWidget(manager, secondId).GroupId != groupId)
+                {
+                    throw new InvalidOperationException("the refused group delete changed membership");
+                }
+
+                JObject deleted = service.Delete(new JObject
+                {
+                    ["id"] = secondId,
+                    ["confirm"] = true
+                });
+                if ((string)deleted["removed"] != secondId)
+                    throw new InvalidOperationException("a grouped member delete reported the wrong id");
+                if (manager.FindHostForWidget(secondId) != null)
+                    throw new InvalidOperationException("the deleted group member still resolves to a host");
+                if (manager.Config.Widgets.Count != widgetsWithGroup - 1)
+                    throw new InvalidOperationException("the grouped member delete removed the wrong count");
+                if ((manager.Config.Groups == null ? 0 : manager.Config.Groups.Count) != groupsBefore)
+                    throw new InvalidOperationException("the grouped member delete did not dissolve the pair");
+                var survivor = manager.FindHostForWidget(firstId);
+                if (survivor == null || survivor is WidgetGroupWindow)
+                    throw new InvalidOperationException("the surviving member did not become standalone");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, firstId, secondId);
+            }
+        }
+
+        /// <summary>
+        /// Task 6 fix round 2: a rejected widget.update must not have applied
+        /// any earlier field. The note pin pairs a real name change with a
+        /// mismatched folder block; the folder pin pairs a real name change
+        /// with an out-of-range gridColumns. Both must throw and leave the
+        /// live data, including ConfigRevision, byte-for-byte unchanged.
+        /// </summary>
+        private static void ControlWidgetUpdateValidatesBeforeMutating()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var service = new WidgetGroupControlService(manager);
+            string noteId = null;
+            string folderId = null;
+            try
+            {
+                noteId = ControlAddId(service, "note", "Control Atomic Note", "#788C5D", true);
+                folderId = ControlAddId(service, "folder", "Control Atomic Folder",
+                    UiTokens.DefaultFolderColor);
+
+                WidgetData note = ConfigWidget(manager, noteId);
+                string noteName = note.Name;
+                string noteColor = note.Color;
+                bool notePinned = note.IsPanelPinned;
+                int notePosX = note.PosX;
+                int notePosY = note.PosY;
+                string noteRevision = ConfigRevision.Compute(manager.Config);
+
+                AssertControlError(
+                    () => service.Update(new JObject
+                    {
+                        ["id"] = noteId,
+                        ["name"] = "Control Atomic Note Changed",
+                        ["folder"] = new JObject { ["gridColumns"] = 4 }
+                    }),
+                    ControlErrorCodes.ValidationFailed,
+                    "widget.update with a name change and a mismatched folder block");
+
+                WidgetData noteAfter = ConfigWidget(manager, noteId);
+                if (noteAfter.Name != noteName || noteAfter.Color != noteColor
+                    || noteAfter.IsPanelPinned != notePinned
+                    || noteAfter.PosX != notePosX || noteAfter.PosY != notePosY)
+                {
+                    throw new InvalidOperationException(
+                        "a rejected note update mutated the live widget");
+                }
+                if (ConfigRevision.Compute(manager.Config) != noteRevision)
+                    throw new InvalidOperationException(
+                        "a rejected note update changed the config revision");
+
+                var folder = ConfigWidget(manager, folderId) as FolderData;
+                if (folder == null)
+                    throw new InvalidOperationException("the added widget is not a folder");
+                int folderGrid = folder.GridColumns;
+                string folderName = folder.Name;
+                string folderColor = folder.Color;
+                bool folderPinned = folder.IsPanelPinned;
+                int folderPosX = folder.PosX;
+                int folderPosY = folder.PosY;
+                string folderRevision = ConfigRevision.Compute(manager.Config);
+
+                AssertControlError(
+                    () => service.Update(new JObject
+                    {
+                        ["id"] = folderId,
+                        ["name"] = "Control Atomic Folder Changed",
+                        ["folder"] = new JObject { ["gridColumns"] = 99 }
+                    }),
+                    ControlErrorCodes.ValidationFailed,
+                    "widget.update with a name change and an invalid gridColumns");
+
+                var folderAfter = ConfigWidget(manager, folderId) as FolderData;
+                if (folderAfter == null
+                    || folderAfter.Name != folderName || folderAfter.Color != folderColor
+                    || folderAfter.IsPanelPinned != folderPinned
+                    || folderAfter.PosX != folderPosX || folderAfter.PosY != folderPosY
+                    || folderAfter.GridColumns != folderGrid)
+                {
+                    throw new InvalidOperationException(
+                        "a rejected folder update mutated the live widget");
+                }
+                if (ConfigRevision.Compute(manager.Config) != folderRevision)
+                    throw new InvalidOperationException(
+                        "a rejected folder update changed the config revision");
+            }
+            finally
+            {
+                RemoveControlWidgets(manager, noteId, folderId);
+            }
+        }
+
+        #endregion
+
+        #region Control plane diagnostics pins (Task 7)
+
+        private static ControlResponse RunControl(ControlRequestRouter router, string method,
+            JObject parameters = null)
+        {
+            return router.Handle(new ControlRequest
+            {
+                V = ControlProtocol.Version,
+                Id = "task7-" + method,
+                Method = method,
+                Params = parameters
+            });
+        }
+
+        private static JToken RunControlResult(ControlRequestRouter router, string method,
+            JObject parameters = null)
+        {
+            ControlResponse response = RunControl(router, method, parameters);
+            if (response == null || !response.Ok || response.Result == null)
+            {
+                string code = response == null || response.Error == null
+                    ? "<none>"
+                    : response.Error.Code;
+                string message = response == null || response.Error == null
+                    ? "<none>"
+                    : response.Error.Message;
+                throw new InvalidOperationException(method + " failed: " + code + " " + message);
+            }
+            return response.Result;
+        }
+
+        private static JObject RunControlOk(ControlRequestRouter router, string method,
+            JObject parameters = null)
+        {
+            var result = RunControlResult(router, method, parameters) as JObject;
+            if (result == null)
+                throw new InvalidOperationException(method + " did not return an object");
+            return result;
+        }
+
+        private static void AssertControlResponseError(ControlRequestRouter router, string method,
+            JObject parameters, string code, string label)
+        {
+            ControlResponse response = RunControl(router, method, parameters);
+            if (response == null || response.Ok || response.Error == null)
+                throw new InvalidOperationException(label + " was accepted, wanted '" + code + "'");
+            if (!string.Equals(response.Error.Code, code, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    label + " reported '" + response.Error.Code + "', wanted '" + code + "'");
+            }
+        }
+
+        private static void RequireFields(JObject target, string label, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                if (target == null || target[name] == null)
+                    throw new InvalidOperationException(label + " is missing '" + name + "'");
+            }
+        }
+
+        private static JObject RequireObject(JObject target, string name)
+        {
+            var value = target == null ? null : target[name] as JObject;
+            if (value == null)
+                throw new InvalidOperationException("'" + name + "' is not an object");
+            return value;
+        }
+
+        private static JArray RequireArray(JObject target, string name)
+        {
+            var value = target == null ? null : target[name] as JArray;
+            if (value == null)
+                throw new InvalidOperationException("'" + name + "' is not an array");
+            return value;
+        }
+
+        private static bool RequireBool(JObject target, string name)
+        {
+            JToken value = target == null ? null : target[name];
+            if (value == null || value.Type != JTokenType.Boolean)
+                throw new InvalidOperationException("'" + name + "' is not a boolean");
+            return value.Value<bool>();
+        }
+
+        private static long RequireLong(JObject target, string name)
+        {
+            JToken value = target == null ? null : target[name];
+            if (value == null || value.Type != JTokenType.Integer)
+                throw new InvalidOperationException("'" + name + "' is not an integer");
+            return value.Value<long>();
+        }
+
+        private static string RequireString(JObject target, string name)
+        {
+            JToken value = target == null ? null : target[name];
+            if (value == null || value.Type != JTokenType.String
+                || string.IsNullOrWhiteSpace(value.Value<string>()))
+            {
+                throw new InvalidOperationException("'" + name + "' is not a non-empty string");
+            }
+            return value.Value<string>();
+        }
+
+        private static void DiagnosticsSnapshotCarriesEverySection()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var router = new ControlRequestRouter();
+
+            JObject snapshot = RunControlOk(router, "diag.snapshot");
+            RequireFields(snapshot, "diag.snapshot",
+                "app", "config", "island", "search", "memory", "fullscreen", "folders", "logs");
+
+            JObject app = RequireObject(snapshot, "app");
+            RequireFields(app, "snapshot.app", "version", "pid", "startedUtc", "installPath");
+            RequireString(app, "version");
+            if (RequireLong(app, "pid") <= 0)
+                throw new InvalidOperationException("snapshot.app.pid is not a process id");
+            RequireString(app, "startedUtc");
+            string installPath = RequireString(app, "installPath");
+            if (!IO.Directory.Exists(installPath))
+                throw new InvalidOperationException("snapshot.app.installPath does not exist: " + installPath);
+
+            JObject config = RequireObject(snapshot, "config");
+            RequireFields(config, "snapshot.config",
+                "path", "backupPath", "schemaVersion", "revision", "widgetCount", "groupCount");
+            RequireString(config, "path");
+            RequireString(config, "backupPath");
+            if ((string)config["revision"] != ConfigRevision.Compute(manager.Config))
+                throw new InvalidOperationException("snapshot.config.revision does not match the live config");
+            if (RequireLong(config, "widgetCount") != manager.Config.Widgets.Count)
+                throw new InvalidOperationException("snapshot.config.widgetCount does not match the live config");
+            int groupCount = manager.Config.Groups == null ? 0 : manager.Config.Groups.Count;
+            if (RequireLong(config, "groupCount") != groupCount)
+                throw new InvalidOperationException("snapshot.config.groupCount does not match the live config");
+
+            JObject island = RequireObject(snapshot, "island");
+            RequireFields(island, "snapshot.island", "visible", "expanded");
+            if (RequireBool(island, "expanded") != manager.IslandExpanded)
+                throw new InvalidOperationException("snapshot.island.expanded does not match the island");
+
+            JObject search = RequireObject(snapshot, "search");
+            RequireFields(search, "snapshot.search",
+                "state", "message", "filesIndexed", "directoriesScanned", "skippedDirectories",
+                "incrementalAvailable", "scanCancelled", "needsRebuild", "databasePath",
+                "reconcileMinutes", "index");
+            FileSearchStatus status = FileSearchIndexService.Instance.Status;
+            if ((string)search["state"] != status.State.ToString())
+                throw new InvalidOperationException("snapshot.search.state does not match the service");
+            if (RequireLong(search, "filesIndexed") != status.FilesIndexed)
+                throw new InvalidOperationException("snapshot.search.filesIndexed does not match the service");
+            JObject index = RequireObject(search, "index");
+            RequireFields(index, "snapshot.search.index",
+                "hasIndex", "lastScanUtc", "lastReconcileUtc");
+            if (RequireBool(index, "hasIndex") != FileSearchIndexService.Instance.ReadStatus().HasIndex)
+                throw new InvalidOperationException("snapshot.search.index.hasIndex does not match the store");
+
+            JObject memory = RequireObject(snapshot, "memory");
+            RequireFields(memory, "snapshot.memory",
+                "workingSetBytes", "privateBytes", "lastTrimUtc", "trimmedThisIdlePeriod");
+            if (RequireLong(memory, "workingSetBytes") <= 0)
+                throw new InvalidOperationException("snapshot.memory.workingSetBytes is not positive");
+            if (RequireLong(memory, "privateBytes") <= 0)
+                throw new InvalidOperationException("snapshot.memory.privateBytes is not positive");
+            if (RequireBool(memory, "trimmedThisIdlePeriod") != manager.TrimmedThisIdlePeriod)
+                throw new InvalidOperationException("snapshot.memory.trimmedThisIdlePeriod does not match");
+
+            JObject fullscreen = RequireObject(snapshot, "fullscreen");
+            RequireFields(fullscreen, "snapshot.fullscreen", "avoiding");
+            if (RequireBool(fullscreen, "avoiding") != manager.FullscreenAvoiding)
+                throw new InvalidOperationException("snapshot.fullscreen.avoiding does not match the watcher");
+
+            RequireArray(snapshot, "folders");
+
+            JObject logs = RequireObject(snapshot, "logs");
+            RequireFields(logs, "snapshot.logs", "app", "search");
+            RequireString(logs, "app");
+            RequireString(logs, "search");
+        }
+
+        private static void DiagnosticsFoldersListFolderViews()
+        {
+            ThemeManager.Initialize("dark");
+            WidgetManager manager = WidgetManager.Instance;
+            var router = new ControlRequestRouter();
+            var service = new WidgetGroupControlService(manager);
+            string folderId = null;
+            string tempDir = null;
+            FolderPanelView fakeView = null;
+            try
+            {
+                folderId = ControlAddId(service, "folder", "Diagnostics Folder", "#4A7BB5");
+
+                JArray folders = RunControlResult(router, "diag.folders") as JArray;
+                if (folders == null)
+                    throw new InvalidOperationException("diag.folders did not return an array");
+                JObject entry = folders.OfType<JObject>()
+                    .FirstOrDefault(f => (string)f["widgetId"] == folderId);
+                if (entry == null)
+                    throw new InvalidOperationException("diag.folders did not list the added folder widget");
+                RequireFields(entry, "folder entry",
+                    "widgetId", "name", "browsePath", "watcherActive", "itemCount", "active");
+                if ((string)entry["name"] != "Diagnostics Folder")
+                    throw new InvalidOperationException("the folder entry carries the wrong name");
+                if (entry["browsePath"].Type != JTokenType.Null)
+                    throw new InvalidOperationException("a root folder entry must have a null browsePath");
+                if (RequireBool(entry, "watcherActive"))
+                    throw new InvalidOperationException("a closed folder widget must not watch");
+                if (entry["itemCount"].Type != JTokenType.Integer)
+                    throw new InvalidOperationException("the folder entry itemCount is not an integer");
+                if (!RequireBool(entry, "active"))
+                    throw new InvalidOperationException("a standalone folder view must report active");
+
+                // The watcher-active half: a real temp directory behind a fake
+                // host keeps the panel closed (no window is shown).
+                tempDir = IO.Path.Combine(_checkSandbox, "diag-folder-" + Guid.NewGuid().ToString("N"));
+                IO.Directory.CreateDirectory(tempDir);
+                IO.File.WriteAllText(IO.Path.Combine(tempDir, "alpha.txt"), "a");
+                IO.File.WriteAllText(IO.Path.Combine(tempDir, "beta.txt"), "b");
+
+                var data = new FolderData { Id = "diag-fake-folder", Name = "Diagnostics Fake" };
+                var host = new FakeViewHost(data)
+                {
+                    IsPanelOpen = true,
+                    ContentWidth = 340,
+                    ContentHeight = 300
+                };
+                fakeView = new FolderPanelView();
+                ((IWidgetContentView)fakeView).Attach(data, host);
+                fakeView.EnterFolder(tempDir);
+                fakeView.Activate();
+
+                JObject view = fakeView.FolderDiagnosticsSnapshot();
+                RequireFields(view, "folder view snapshot",
+                    "widgetId", "name", "browsePath", "watcherActive", "itemCount", "active");
+                if ((string)view["widgetId"] != data.Id || (string)view["name"] != data.Name)
+                    throw new InvalidOperationException("the folder view snapshot lost its identity");
+                if ((string)view["browsePath"] != tempDir)
+                    throw new InvalidOperationException("the folder view snapshot lost its browse path");
+                if (!RequireBool(view, "watcherActive"))
+                    throw new InvalidOperationException("an active browsing folder must watch its directory");
+                if (RequireLong(view, "itemCount") != 2)
+                    throw new InvalidOperationException("the folder view snapshot did not count the temp files");
+                if (!RequireBool(view, "active"))
+                    throw new InvalidOperationException("the activated folder view is not marked active");
+            }
+            finally
+            {
+                if (fakeView != null)
+                {
+                    try { fakeView.Detach(); } catch (Exception) { }
+                }
+                RemoveControlWidgets(manager, folderId);
+                if (tempDir != null)
+                {
+                    try { IO.Directory.Delete(tempDir, true); } catch (Exception) { }
+                }
+            }
+        }
+
+        private static void DiagnosticsSearchStatusAndQueryMatchService()
+        {
+            var router = new ControlRequestRouter();
+            FileSearchIndexService search = FileSearchIndexService.Instance;
+            FileSearchStatus status = search.Status;
+            IndexStatus index = search.ReadStatus();
+
+            JObject payload = RunControlOk(router, "diag.search.status");
+            RequireFields(payload, "diag.search.status",
+                "state", "message", "filesIndexed", "directoriesScanned", "skippedDirectories",
+                "incrementalAvailable", "scanCancelled", "needsRebuild", "databasePath",
+                "reconcileMinutes", "index");
+            if ((string)payload["state"] != status.State.ToString())
+                throw new InvalidOperationException("diag.search.status state does not match the service");
+            if (RequireLong(payload, "filesIndexed") != status.FilesIndexed)
+                throw new InvalidOperationException("diag.search.status filesIndexed does not match the service");
+            if (RequireLong(payload, "directoriesScanned") != status.DirectoriesScanned)
+                throw new InvalidOperationException("diag.search.status directoriesScanned does not match the service");
+            if (RequireLong(payload, "skippedDirectories") != status.SkippedDirectories)
+                throw new InvalidOperationException("diag.search.status skippedDirectories does not match the service");
+            if (RequireBool(payload, "needsRebuild") != status.NeedsRebuild)
+                throw new InvalidOperationException("diag.search.status needsRebuild does not match the service");
+            if (RequireLong(payload, "reconcileMinutes") != search.ReconcileIntervalMinutes)
+                throw new InvalidOperationException("diag.search.status reconcileMinutes does not match the service");
+            JObject indexPayload = RequireObject(payload, "index");
+            RequireFields(indexPayload, "diag.search.status.index",
+                "hasIndex", "lastScanUtc", "lastReconcileUtc");
+            if (RequireBool(indexPayload, "hasIndex") != index.HasIndex)
+                throw new InvalidOperationException("diag.search.status index.hasIndex does not match the store");
+
+            JObject empty = RunControlOk(router, "diag.search.query",
+                new JObject { ["text"] = "   " });
+            if (RequireLong(empty, "totalMatches") != 0)
+                throw new InvalidOperationException("an empty search reported matches");
+            if (RequireBool(empty, "limitReached"))
+                throw new InvalidOperationException("an empty search reported limitReached");
+            if (RequireArray(empty, "items").Count != 0)
+                throw new InvalidOperationException("an empty search returned items");
+        }
+
+        private static void DiagnosticsLogTailReadsAppLog()
+        {
+            string previous = AppDiagnostics.LogPath;
+            string directory = IO.Path.Combine(_checkSandbox, "diag-tail-" + Guid.NewGuid().ToString("N"));
+            string path = IO.Path.Combine(directory, "app.log");
+            IO.Directory.CreateDirectory(directory);
+            AppDiagnostics.LogPath = path;
+            try
+            {
+                AppDiagnostics.Write("task7 tail marker one");
+                AppDiagnostics.Write("task7 tail marker two");
+
+                var router = new ControlRequestRouter();
+                JObject tail = RunControlOk(router, "diag.logs.tail",
+                    new JObject { ["name"] = "app", ["lines"] = 5 });
+                if ((string)tail["path"] != path)
+                    throw new InvalidOperationException("the app tail read the wrong file");
+                JArray lines = RequireArray(tail, "lines");
+                if (!lines.OfType<JValue>().Any(x => ((string)x).Contains("task7 tail marker two")))
+                    throw new InvalidOperationException("the app tail missed the written line");
+
+                // A rotated live file falls back to .1.
+                IO.File.Move(path, path + ".1");
+                JObject rotated = RunControlOk(router, "diag.logs.tail",
+                    new JObject { ["name"] = "app" });
+                if ((string)rotated["path"] != path + ".1")
+                    throw new InvalidOperationException("the app tail did not fall back to the rotated log");
+                JArray rotatedLines = RequireArray(rotated, "lines");
+                if (!rotatedLines.OfType<JValue>().Any(x => ((string)x).Contains("task7 tail marker two")))
+                    throw new InvalidOperationException("the rotated app tail missed the written line");
+
+                // Both files absent is an empty tail, not an error.
+                IO.File.Delete(path + ".1");
+                JObject missing = RunControlOk(router, "diag.logs.tail",
+                    new JObject { ["name"] = "app" });
+                if ((string)missing["path"] != path)
+                    throw new InvalidOperationException("a missing log reports an unexpected path");
+                if (RequireArray(missing, "lines").Count != 0)
+                    throw new InvalidOperationException("a missing log returned lines");
+
+                AssertControlResponseError(router, "diag.logs.tail",
+                    new JObject { ["name"] = "other" },
+                    ControlErrorCodes.ValidationFailed,
+                    "diag.logs.tail with an unknown name");
+            }
+            finally
+            {
+                AppDiagnostics.LogPath = previous;
+                try { IO.Directory.Delete(directory, true); } catch (Exception) { }
+            }
+        }
+
+        private static void DiagnosticsSearchCommandsQueueWithoutWaiting()
+        {
+            var router = new ControlRequestRouter();
+            AssertControlResponseError(router, "search.rebuild", new JObject(),
+                ControlErrorCodes.Forbidden, "search.rebuild without confirm");
+            AssertControlResponseError(router, "search.rebuild",
+                new JObject { ["confirm"] = false },
+                ControlErrorCodes.Forbidden, "search.rebuild with confirm=false");
+
+            // The singleton is unconfigured in the sandbox: rebuild only
+            // re-reports that state and never starts a real full scan.
+            JObject rebuilt = RunControlOk(router, "search.rebuild",
+                new JObject { ["confirm"] = true });
+            RequireFields(rebuilt, "search.rebuild",
+                "state", "message", "filesIndexed", "reconcileMinutes", "index");
+
+            JObject cancelled = RunControlOk(router, "search.cancel");
+            RequireFields(cancelled, "search.cancel", "state", "index");
+            JObject paused = RunControlOk(router, "search.pause");
+            RequireFields(paused, "search.pause", "state", "index");
+            JObject resumed = RunControlOk(router, "search.resume");
+            RequireFields(resumed, "search.resume", "state", "index");
+            JObject reconciled = RunControlOk(router, "search.reconcile");
+            RequireFields(reconciled, "search.reconcile", "state", "index");
+        }
+
+        private static void DiagnosticsShowIslandReturnsOk()
+        {
+            WidgetManager manager = WidgetManager.Instance;
+            IslandWindow island = ManagerIsland(manager);
+            try
+            {
+                JObject shown = RunControlOk(new ControlRequestRouter(), "app.showIsland");
+                if (!RequireBool(shown, "shown"))
+                    throw new InvalidOperationException("app.showIsland did not report shown");
+                if (!island.IsExpanded)
+                    throw new InvalidOperationException("app.showIsland did not expand the island");
+            }
+            finally
+            {
+                island.CollapseForChecks();
+            }
+        }
+
+        #endregion
+
         private static int TryCheck(string name, Action check)
         {
             try
@@ -22065,6 +26352,311 @@ namespace Kobold.XamlLoadCheck
                     Console.WriteLine("  INNER " + inner.GetType().FullName + ": " + inner.Message);
                 }
                 return 1;
+            }
+        }
+
+        /// <summary>
+        /// A config.patch backed by the real ConfigApplyService on the sandboxed
+        /// manager. The three service appliers are injected so the pin never
+        /// touches the registry, Explorer or the real desktop.
+        /// </summary>
+        private static ConfigControlService NewConfigApplyCheckService(
+            Func<bool, bool> startupRegistry,
+            Func<bool, bool> quickAccess,
+            Func<bool, bool> desktopIcons)
+        {
+            var apply = new ConfigApplyService(
+                WidgetManager.Instance, startupRegistry, quickAccess, desktopIcons);
+            return new ConfigControlService(
+                () => WidgetManager.Instance.Config,
+                apply.Apply,
+                IO.Path.Combine(_checkSandbox, "config.json"),
+                IO.Path.Combine(_checkSandbox, "backups"));
+        }
+
+        private static JObject RunConfigPatch(ConfigControlService service, string patchJson)
+        {
+            return service.Patch(
+                new JObject { ["patch"] = JObject.Parse(patchJson) },
+                service.CurrentRevision);
+        }
+
+        private static T PrivateInstanceField<T>(object target, string name)
+        {
+            if (target == null) return default(T);
+            FieldInfo field = target.GetType().GetField(
+                name, BindingFlags.Instance | BindingFlags.NonPublic);
+            return field == null ? default(T) : (T)field.GetValue(target);
+        }
+
+        /// <summary>
+        /// The Task 5 hot-apply pin: every patch goes through
+        /// ConfigControlService -> ConfigApplyService and must update both the
+        /// live config and the process-wide theme/language/icon/file-search
+        /// state. The descriptors are restored in finally so later checks keep
+        /// their expected starting point.
+        /// </summary>
+        private static void ConfigApplyHotFieldsReachTheLiveApp()
+        {
+            AppConfig config = WidgetManager.Instance.Config;
+            string originalTheme = config.Theme;
+            string originalLanguage = config.Language;
+            string originalIconStyle = config.IconStyle;
+            double originalOpacity = config.PanelOpacity;
+            double originalDelay = config.IslandCollapseDelay;
+            double originalScale = config.ItemScale;
+            FileSearchSettings originalSearch = config.FileSearch;
+            bool originalHideIcons = config.HideDesktopIcons;
+
+            int desktopCalls = 0;
+            bool desktopWanted = false;
+            try
+            {
+                // Start from known values so every patch below is a real change.
+                config.Theme = "dark";
+                config.Language = "en";
+                config.IconStyle = IconStyleIds.Classic;
+                config.IslandCollapseDelay = 1.0;
+                config.PanelOpacity = 1.0;
+                config.ItemScale = 1.1;
+                ThemeManager.SetTheme("dark");
+                Localization.SetLanguage("en");
+                IconStyleManager.Set(IconStyleIds.Classic);
+
+                var service = NewConfigApplyCheckService(
+                    value => true,
+                    value => true,
+                    value =>
+                    {
+                        desktopCalls++;
+                        desktopWanted = value;
+                        return true;
+                    });
+
+                Brush darkBackground = ThemeManager.BackgroundBrush;
+                JObject themeResult = RunConfigPatch(service, @"{""Theme"":""light""}");
+                if (themeResult["warnings"] is JObject themeWarnings && themeWarnings.Count > 0)
+                {
+                    throw new InvalidOperationException("the theme patch reported warnings");
+                }
+                if (ThemeManager.IsDarkTheme)
+                {
+                    throw new InvalidOperationException("config.patch {\"Theme\":\"light\"} did not switch the theme");
+                }
+                if (ReferenceEquals(ThemeManager.BackgroundBrush, darkBackground))
+                {
+                    throw new InvalidOperationException("the light theme kept the dark background brush");
+                }
+                if (!string.Equals(config.Theme, "light", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("the live config did not keep the light theme");
+                }
+
+                RunConfigPatch(service, @"{""Language"":""zh""}");
+                if (!string.Equals(Localization.CurrentLanguage, "zh", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "config.patch {\"Language\":\"zh\"} left the language at " + Localization.CurrentLanguage);
+                }
+                if (!string.Equals(config.Language, "zh", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("the live config did not keep the Chinese language");
+                }
+
+                RunConfigPatch(service, @"{""IslandCollapseDelay"":2.0}");
+                if (Math.Abs(config.IslandCollapseDelay - 2.0) > 0.0001)
+                {
+                    throw new InvalidOperationException(
+                        "the island collapse delay is " + config.IslandCollapseDelay.ToString("0.###"));
+                }
+
+                RunConfigPatch(service, @"{""IconStyle"":""handdrawn""}");
+                if (!string.Equals(IconStyleManager.Current, IconStyleIds.HandDrawn, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "config.patch {\"IconStyle\":\"handdrawn\"} left the style at " + IconStyleManager.Current);
+                }
+                if (!string.Equals(config.IconStyle, "handdrawn", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("the live config did not keep the hand-drawn style");
+                }
+
+                RunConfigPatch(service, @"{""PanelOpacity"":0.6,""ItemScale"":1.25}");
+                if (Math.Abs(config.PanelOpacity - 0.6) > 0.0001
+                    || Math.Abs(config.ItemScale - 1.25) > 0.0001)
+                {
+                    throw new InvalidOperationException("the opacity/item-scale patch did not reach the live config");
+                }
+
+                RunConfigPatch(
+                    service,
+                    @"{""FileSearch"":{""Configured"":true,""Enabled"":true,""ReconcileMinutes"":7}}");
+                if (config.FileSearch == null || !config.FileSearch.Configured
+                    || config.FileSearch.ReconcileMinutes != 7)
+                {
+                    throw new InvalidOperationException(
+                        "the file-search settings did not reach the live config");
+                }
+                FileSearchSettings applied = PrivateInstanceField<FileSearchSettings>(
+                    FileSearchIndexService.Instance, "_settings");
+                if (applied == null || applied.ReconcileMinutes != 7)
+                {
+                    throw new InvalidOperationException(
+                        "FileSearchIndexService.ApplySettings did not receive the patched settings");
+                }
+
+                int desktopCallsBefore = desktopCalls;
+                RunConfigPatch(service, @"{""HideDesktopIcons"":true}");
+                if (desktopCalls != desktopCallsBefore + 1 || !desktopWanted)
+                {
+                    throw new InvalidOperationException(
+                        "the HideDesktopIcons patch did not reach the desktop applier");
+                }
+                if (!config.HideDesktopIcons)
+                {
+                    throw new InvalidOperationException(
+                        "the live config did not keep HideDesktopIcons = true");
+                }
+            }
+            finally
+            {
+                config.Theme = originalTheme;
+                config.Language = originalLanguage;
+                config.IconStyle = originalIconStyle;
+                config.PanelOpacity = originalOpacity;
+                config.IslandCollapseDelay = originalDelay;
+                config.ItemScale = originalScale;
+                config.FileSearch = originalSearch;
+                config.HideDesktopIcons = originalHideIcons;
+                FileSearchIndexService.Instance.ApplySettings(originalSearch);
+
+                Localization.SetLanguage(originalLanguage);
+                ThemeManager.SetTheme(originalTheme);
+                IconStyleManager.Set(originalIconStyle);
+                WidgetManager.Instance.RefreshAllWidgets();
+                WidgetManager.Instance.ApplyIslandSettings();
+            }
+        }
+
+        /// <summary>
+        /// A false service result must surface as a warning while the requested
+        /// value still lands in the live config. Both appliers are fakes.
+        /// </summary>
+        private static void ConfigApplyReportsFailedAppliers()
+        {
+            AppConfig config = WidgetManager.Instance.Config;
+            bool originalStart = config.StartWithWindows;
+            bool originalPin = config.PinStorageToQuickAccess;
+            try
+            {
+                config.StartWithWindows = true;
+                config.PinStorageToQuickAccess = true;
+
+                int startupCalls = 0;
+                int quickAccessCalls = 0;
+                var service = NewConfigApplyCheckService(
+                    value =>
+                    {
+                        startupCalls++;
+                        return false;
+                    },
+                    value =>
+                    {
+                        quickAccessCalls++;
+                        return false;
+                    },
+                    value => true);
+
+                JObject result = RunConfigPatch(
+                    service,
+                    @"{""StartWithWindows"":false,""PinStorageToQuickAccess"":false}");
+                var warnings = result["warnings"] as JObject;
+                if (warnings == null || warnings["StartWithWindows"] == null
+                    || warnings["PinStorageToQuickAccess"] == null)
+                {
+                    throw new InvalidOperationException(
+                        "the failed appliers produced no per-field warnings");
+                }
+                if (startupCalls != 1 || quickAccessCalls != 1)
+                {
+                    throw new InvalidOperationException(
+                        "a changed shell field did not reach its applier exactly once");
+                }
+                if (config.StartWithWindows || config.PinStorageToQuickAccess)
+                {
+                    throw new InvalidOperationException(
+                        "the live config did not keep the requested startup/Quick Access values");
+                }
+            }
+            finally
+            {
+                config.StartWithWindows = originalStart;
+                config.PinStorageToQuickAccess = originalPin;
+            }
+        }
+
+        /// <summary>
+        /// The desktop guard's startup/exit path against a fake state: startup
+        /// records the raw value and hides, exit shows the icons. No real
+        /// registry value or desktop window is touched.
+        /// </summary>
+        private static void DesktopGuardUsesTheInjectedState()
+        {
+            DesktopIconGuard.IDesktopIconState previous = DesktopIconGuard.State;
+            var fake = new FakeDesktopIconState { Raw = 1 };
+            AppConfig config = WidgetManager.Instance.Config;
+            bool originalHide = config.HideDesktopIcons;
+            int? originalRaw = config.HideIconsOriginal;
+            try
+            {
+                DesktopIconGuard.State = fake;
+                config.HideDesktopIcons = true;
+
+                DesktopIconGuard.ApplyOnStartup(config);
+                if (config.HideIconsOriginal != 1)
+                {
+                    throw new InvalidOperationException(
+                        "startup did not record the raw desktop-icon value");
+                }
+                if (fake.SetHideCalls != 1 || !fake.LastHide)
+                {
+                    throw new InvalidOperationException(
+                        "startup did not hide the desktop icons through the seam");
+                }
+
+                fake.LastHide = false;
+                DesktopIconGuard.RestoreOnExit();
+                if (fake.SetHideCalls != 2 || fake.LastHide)
+                {
+                    throw new InvalidOperationException(
+                        "exit did not show the desktop icons through the seam");
+                }
+            }
+            finally
+            {
+                DesktopIconGuard.State = previous;
+                config.HideDesktopIcons = originalHide;
+                config.HideIconsOriginal = originalRaw;
+                config.Save();
+            }
+        }
+
+        private sealed class FakeDesktopIconState : DesktopIconGuard.IDesktopIconState
+        {
+            public int? Raw;
+            public int SetHideCalls;
+            public bool LastHide;
+
+            public int? ReadRaw()
+            {
+                return Raw;
+            }
+
+            public bool SetHidden(bool hide)
+            {
+                SetHideCalls++;
+                LastHide = hide;
+                return true;
             }
         }
     }

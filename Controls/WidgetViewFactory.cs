@@ -3,8 +3,8 @@ using Kobold.Core;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// Maps a widget datum to its content view. Folder joins in T3a; every
-    /// other kind (and a null datum) has no view yet.
+    /// Maps a widget datum to its content view. Every tab-capable kind has a
+    /// real view; an unknown kind (and a null datum) has none.
     /// </summary>
     internal static class WidgetViewFactory
     {
@@ -13,6 +13,7 @@ namespace Kobold.Controls
             if (data is TodoData) return new TodoCalendarView();
             if (data is NoteData) return new NotePanelView();
             if (data is SearchData) return new SearchPanelView();
+            if (data is FolderData) return new FolderPanelView();
             return null;
         }
     }

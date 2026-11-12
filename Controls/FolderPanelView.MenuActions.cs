@@ -17,23 +17,14 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - menus and file actions. Browsing may write to disk through
+    /// FolderPanelView - menus and file actions. Browsing may write to disk through
     /// explicit actions, but it never touches _data.Items.
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         private void ShowMessage(string message)
         {
-            RunModal(() => MessageBox.Show(this, message, "Kobold", MessageBoxButton.OK, MessageBoxImage.Warning));
-        }
-
-        private IntPtr PanelHwnd
-        {
-            get
-            {
-                try { return new System.Windows.Interop.WindowInteropHelper(this).Handle; }
-                catch (Exception) { return IntPtr.Zero; }
-            }
+            RunModal(() => MessageBox.Show(HostWindow, message, "Kobold", MessageBoxButton.OK, MessageBoxImage.Warning));
         }
 
         private static bool PathExists(string path) => File.Exists(path) || Directory.Exists(path);
@@ -43,6 +34,28 @@ namespace Kobold.Controls
             if (check == NameCheck.Exists) return Localization.Get("Dialog_NameExists");
             if (check == NameCheck.Invalid) return Localization.Get("Dialog_NameInvalid");
             return null;
+        }
+
+        private string ShowInputModal(string title, string prompt, string initialValue, Func<string, string> validate)
+        {
+            string result = null;
+            RunModal(() =>
+            {
+                result = DialogFactory.ShowInput(HostWindow, title, prompt, initialValue, validate,
+                    _data == null ? null : _data.Color);
+            });
+            return result;
+        }
+
+        private bool ShowConfirmModal(string message)
+        {
+            var answer = MessageBoxResult.No;
+            RunModal(() =>
+            {
+                answer = MessageBox.Show(HostWindow, message, Localization.Get("Dialog_Confirm"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Question);
+            });
+            return answer == MessageBoxResult.Yes;
         }
 
         private void RefreshPanel()
@@ -104,7 +117,7 @@ namespace Kobold.Controls
             string result = null;
             RunModal(() =>
             {
-                result = DialogFactory.ShowNewFile(this, title,
+                result = DialogFactory.ShowNewFile(HostWindow, title,
                     Localization.Get("Dialog_LabelFileName"),
                     Localization.Get("Dialog_LabelExtension"),
                     Localization.Get("Dialog_WillCreateFormat"),
@@ -232,7 +245,7 @@ namespace Kobold.Controls
             ShowMenu(menu, anchor);
         }
 
-        private ContextMenu BuildBrowseItemMenu(DisplayItem item, List<DisplayItem> selected)
+        internal ContextMenu BuildBrowseItemMenu(DisplayItem item, List<DisplayItem> selected)
         {
             bool single = selected.Count == 1;
 
@@ -242,8 +255,8 @@ namespace Kobold.Controls
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(item.Path, item.IsDirectory), single, IconId.Terminal)
                 .AddItem("Menu_OpenInExplorer", () => OpenInExplorer(item.Path, item.IsDirectory), single, IconId.Desktop)
                 .AddItem("Menu_CopyPath", () => CopySelectedPaths(selected), true, IconId.Copy)
-                .AddItem("Menu_Copy", () => CopySelection(selected, false), !_data.IsLocked, IconId.Copy)
-                .AddItem("Menu_Cut", () => CopySelection(selected, true), !_data.IsLocked, IconId.Edit);
+                .AddItem("Menu_Copy", () => CopySelection(selected, false), !IsLocked, IconId.Copy)
+                .AddItem("Menu_Cut", () => CopySelection(selected, true), !IsLocked, IconId.Edit);
 
             if (IsColorable(item)) builder.AddMenuItem(CreateFolderColorEntry(item));
 
@@ -284,7 +297,7 @@ namespace Kobold.Controls
                 .AddItem("Menu_NewFile", () => CreateBrowseTextFile(directory), true, IconId.File);
             // Smoke fix B: no files on the clipboard means no Paste entry at
             // all; a locked widget still shows it, greyed out.
-            if (canPaste) builder.AddItem("Menu_Paste", PasteHere, !_data.IsLocked, IconId.Copy);
+            if (canPaste) builder.AddItem("Menu_Paste", PasteHere, !IsLocked, IconId.Copy);
             return builder
                 .AddSeparator()
                 .AddItem("Menu_OpenTerminal", () => OpenTerminalFor(directory, true), true, IconId.Terminal)
@@ -305,7 +318,7 @@ namespace Kobold.Controls
                 .AddItem("Menu_NewFile", CreateNewFile, true, IconId.File)
                 .AddItem("Menu_NewFolder", CreateNewFolder, true, IconId.Folder);
             // Smoke fix B: same paste gate as the browse background menu.
-            if (canPaste) builder.AddItem("Menu_Paste", PasteIntoWidget, !_data.IsLocked, IconId.Copy);
+            if (canPaste) builder.AddItem("Menu_Paste", PasteIntoWidget, !IsLocked, IconId.Copy);
             return builder.Build();
         }
 
@@ -315,7 +328,7 @@ namespace Kobold.Controls
         }
 
         /// <summary>Root (widget items) menu: the previous behaviour plus Open in Terminal.</summary>
-        private ContextMenu BuildRootItemMenu(DisplayItem item)
+        internal ContextMenu BuildRootItemMenu(DisplayItem item)
         {
             var menu = new ContextMenu();
 
@@ -345,7 +358,7 @@ namespace Kobold.Controls
             // default dropped files are references and stay in place).
             // Locked widgets forbid moving content in or out.
             var dataItem = _data.Items.FirstOrDefault(i => i.Path == item.Path);
-            if (dataItem != null && dataItem.IsReference && !item.IsMissing && !_data.IsLocked)
+            if (dataItem != null && dataItem.IsReference && !item.IsMissing && !IsLocked)
             {
                 var storeItem = new MenuItem
                 {
@@ -357,7 +370,7 @@ namespace Kobold.Controls
             }
 
             // Stored item: move the file back while keeping the entry in the widget
-            if (dataItem != null && !dataItem.IsReference && !_data.IsLocked)
+            if (dataItem != null && !dataItem.IsReference && !IsLocked)
             {
                 var unstoreItem = new MenuItem
                 {
@@ -373,7 +386,7 @@ namespace Kobold.Controls
             {
                 Header = Localization.Get("Menu_RemoveItem"),
                 Icon = MenuIcons.Create(IconId.Close, ThemeManager.DangerBrush),
-                IsEnabled = !_data.IsLocked // locked widgets forbid moving content out
+                IsEnabled = !IsLocked // locked widgets forbid moving content out
             };
             remItem.Click += (s, a) =>
             {
@@ -398,7 +411,7 @@ namespace Kobold.Controls
             {
                 Header = Localization.Get("Menu_Copy"),
                 Icon = MenuIcons.Create(IconId.Copy),
-                IsEnabled = !_data.IsLocked // locked widgets refuse every clipboard action
+                IsEnabled = !IsLocked // locked widgets refuse every clipboard action
             };
             copyItem.Click += (s, a) => CopySelection(item.IsSelected ? GetSelectedItems() : new List<DisplayItem> { item }, false);
 
@@ -436,7 +449,7 @@ namespace Kobold.Controls
         /// folder's current colour (a hollow swatch when it has none) plus the
         /// localised label. No submenu - the palette owns the colours.
         /// </summary>
-        private MenuItem CreateFolderColorEntry(DisplayItem item)
+        internal MenuItem CreateFolderColorEntry(DisplayItem item)
         {
             string resource = FolderColor.GetIconResource(item.Path);
             string current = CurrentFolderColor(resource);
@@ -465,7 +478,7 @@ namespace Kobold.Controls
         private void OpenFolderColorPalette(DisplayItem item, string current, bool hasCustomIcon)
         {
             RunModal(() => ColorPaletteDialog.Show(
-                this,
+                HostWindow,
                 Localization.Get("Menu_FolderColor"),
                 UiTokens.FolderIconPalette,
                 current,
@@ -610,6 +623,14 @@ namespace Kobold.Controls
             {
                 Debug.WriteLine("[Kobold] Native-menu hook failed: " + ex.Message);
             }
+        }
+
+        private void RemoveMenuHook()
+        {
+            if (_menuHookSource == null) return;
+            try { _menuHookSource.RemoveHook(MenuMessageHook); }
+            catch (Exception ex) { Debug.WriteLine("[Kobold] Native-menu unhook failed: " + ex.Message); }
+            _menuHookSource = null;
         }
 
         private IntPtr MenuMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)

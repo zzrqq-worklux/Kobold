@@ -60,10 +60,13 @@
     </Window.Resources>
 
     <!--
-        The window keeps a FIXED size; only the inner Content animates.
-        Animating window geometry would issue a Win32 SetWindowPos every frame
-        and make the layered window stutter. Window.Background is null so the
-        empty area stays click-through - only Content is hit-testable.
+        The window is sized for the active row (an instant resize, not animated);
+        only the inner Content animates. Animating window geometry would issue a
+        Win32 SetWindowPos every frame and make the layered window stutter.
+        Window.Background is null so the empty area stays click-through - only
+        Content is hit-testable. The capsule content is centred in the window:
+        a group's inline member icons extend the tile row symmetrically, and the
+        whole window shifts only when the active row would leave the work area.
     -->
     <Grid>
         <Grid x:Name="IslandBody"
@@ -89,71 +92,81 @@
                 </Rectangle.Effect>
             </Rectangle>
 
-            <!-- Three parts: fixed desktop entry | scrollable widget tiles |
-                 fixed add + settings. Only the middle scrolls and it is capped
-                 (IslandLayout), so the fixed entries can never scroll away. -->
-            <StackPanel x:Name="IslandRow"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                        Visibility="Hidden">
+            <!-- One capsule row: the fixed desktop entry, the scrollable widget
+                 tiles (standalone tiles, folded group tiles and an expanded
+                 group's inline member icons) and the fixed add/settings
+                 entries. -->
+            <Grid x:Name="CapsuleRow"
+                  HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <!-- Desktop entry: single click toggles desktop icons, double click opens the folder -->
-                <Border x:Name="DesktopTile" Width="44" Height="44" CornerRadius="8"
-                        Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
-                    <Viewbox Width="30" Height="30">
-                        <Grid Width="24" Height="24">
-                            <icons:IconPresenter x:Name="DesktopTileIcon" Icon="Desktop" Size="24"
+                <StackPanel x:Name="IslandRow" Grid.Column="0"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Visibility="Hidden">
+
+                    <!-- Desktop entry: single click toggles desktop icons, double click opens the folder -->
+                    <Border x:Name="DesktopTile" Width="44" Height="44" CornerRadius="8"
+                            Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
+                        <Viewbox Width="30" Height="30">
+                            <Grid Width="24" Height="24">
+                                <icons:IconPresenter x:Name="DesktopTileIcon" Icon="Desktop" Size="24"
+                                                     StrokeThickness="1.7"
+                                                     Brush="{DynamicResource Kobold.Brush.IslandForeground}"
+                                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <!-- State overlay (not an icon): the slash marks hidden desktop icons. -->
+                                <Path x:Name="DesktopSlash"
+                                      Stroke="{DynamicResource Kobold.Brush.IslandForeground}"
+                                      StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Data="M 4.19,4.30 L 9.17,8.35 L 14.82,12.40 L 19.90,16.38"
+                                      Visibility="Collapsed"/>
+                            </Grid>
+                        </Viewbox>
+                    </Border>
+
+                    <Rectangle x:Name="TileDivider" Width="1" Height="26" Margin="6,0,6,0"
+                               VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
+
+                    <!-- Middle: one 44x44 tile per widget (added in code). The width is
+                         set to IslandLayout.MiddleViewWidth, so the row clips here. -->
+                    <ScrollViewer x:Name="TileScroller"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  CanContentScroll="False"
+                                  Focusable="False"
+                                  Visibility="Visible">
+                        <StackPanel x:Name="TilePanel" Orientation="Horizontal"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </ScrollViewer>
+
+                    <!-- Settings entry: opens the settings window -->
+                    <Rectangle x:Name="SettingsDivider" Width="1" Height="26" Margin="6,0,6,0"
+                               VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
+
+                    <!-- Add-widget entry: creates a widget with the default settings -->
+                    <Border x:Name="AddTile" Width="44" Height="44" CornerRadius="8"
+                            Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
+                        <Viewbox Width="30" Height="30">
+                            <icons:IconPresenter x:Name="AddTileIcon" Icon="Plus" Size="24"
                                                  StrokeThickness="1.7"
-                                                 Brush="{DynamicResource Kobold.Brush.IslandForeground}"
-                                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <!-- State overlay (not an icon): the slash marks hidden desktop icons. -->
-                            <Path x:Name="DesktopSlash"
-                                  Stroke="{DynamicResource Kobold.Brush.IslandForeground}"
-                                  StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                  Data="M 4.19,4.30 L 9.17,8.35 L 14.82,12.40 L 19.90,16.38"
-                                  Visibility="Collapsed"/>
-                        </Grid>
-                    </Viewbox>
-                </Border>
+                                                 Brush="{DynamicResource Kobold.Brush.IslandForeground}"/>
+                        </Viewbox>
+                    </Border>
 
-                <Rectangle x:Name="TileDivider" Width="1" Height="26" Margin="6,0,6,0"
-                           VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
-
-                <!-- Middle: one 44x44 tile per widget (added in code). The width is
-                     set to IslandLayout.MiddleViewWidth, so the row clips here. -->
-                <ScrollViewer x:Name="TileScroller"
-                              HorizontalScrollBarVisibility="Hidden"
-                              VerticalScrollBarVisibility="Disabled"
-                              CanContentScroll="False"
-                              Focusable="False"
-                              Visibility="Visible">
-                    <StackPanel x:Name="TilePanel" Orientation="Horizontal"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </ScrollViewer>
-
-                <!-- Settings entry: opens the settings window -->
-                <Rectangle x:Name="SettingsDivider" Width="1" Height="26" Margin="6,0,6,0"
-                           VerticalAlignment="Center" Fill="{DynamicResource Kobold.Brush.IslandDivider}"/>
-
-                <!-- Add-widget entry: creates a widget with the default settings -->
-                <Border x:Name="AddTile" Width="44" Height="44" CornerRadius="8"
-                        Background="Transparent" Cursor="Hand" Margin="0,0,8,0">
-                    <Viewbox Width="30" Height="30">
-                        <icons:IconPresenter x:Name="AddTileIcon" Icon="Plus" Size="24"
-                                             StrokeThickness="1.7"
-                                             Brush="{DynamicResource Kobold.Brush.IslandForeground}"/>
-                    </Viewbox>
-                </Border>
-
-                <Border x:Name="SettingsTile" Width="44" Height="44" CornerRadius="8"
-                        Background="Transparent" Cursor="Hand">
-                    <Viewbox Width="30" Height="30">
-                        <icons:IconPresenter x:Name="SettingsTileIcon" Icon="Settings" Size="24"
-                                             StrokeThickness="1.6"
-                                             Brush="{DynamicResource Kobold.Brush.IslandForeground}"/>
-                    </Viewbox>
-                </Border>
-            </StackPanel>
+                    <Border x:Name="SettingsTile" Width="44" Height="44" CornerRadius="8"
+                            Background="Transparent" Cursor="Hand">
+                        <Viewbox Width="30" Height="30">
+                            <icons:IconPresenter x:Name="SettingsTileIcon" Icon="Settings" Size="24"
+                                                 StrokeThickness="1.6"
+                                                 Brush="{DynamicResource Kobold.Brush.IslandForeground}"/>
+                        </Viewbox>
+                    </Border>
+                </StackPanel>
+            </Grid>
 
             <!-- Scroll hint for the middle section: the margins span exactly
                  between the fixed parts (12px padding + desktop entry on the

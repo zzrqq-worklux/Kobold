@@ -72,7 +72,7 @@ namespace Kobold.Core
         /// Whether a header drag from <paramref name="source"/> may merge into
         /// <paramref name="target"/>: never for null/same, never from a group,
         /// never with a locked source/target or a locked target group, and
-        /// only for the tab-able kinds (Folder is deferred to T3/Ruling 7).
+        /// only for the tab-able kinds (todo, note, search, folder).
         /// </summary>
         public static bool CanMerge(IWidgetWindow source, IWidgetWindow target)
         {
@@ -121,10 +121,10 @@ namespace Kobold.Core
             return null;
         }
 
-        /// <summary>The kinds a group may host; Folder joins after T3.</summary>
+        /// <summary>The kinds a group may host as tabs.</summary>
         private static bool IsMergeableKind(WidgetData data)
         {
-            return data is TodoData || data is NoteData || data is SearchData;
+            return data is TodoData || data is NoteData || data is SearchData || data is FolderData;
         }
     }
 }

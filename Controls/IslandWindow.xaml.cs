@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -34,20 +34,28 @@ namespace Kobold.Controls
         private bool _isExpanded;
         private List<WidgetData> _widgets = new List<WidgetData>();
 
-        // Identity of the currently built tiles (id/kind/colour/name). A
-        // membership-only refresh keeps every Border and updates badges and
-        // tooltips in place; anything that changes the visuals rebuilds.
-        private string _tileSignature;
+        // The rendered row is split into a layout signature and two content
+        // signatures. A layout change rebuilds the row; a group-only content
+        // change (rename/pin/merge/detach inside the same group) updates the
+        // existing Borders in place while the group is collapsed.
+        private string _layoutSignature;
+        private string _standaloneContentSignature;
+        private string _groupContentSignature;
 
-        // Group projection keyed by member id: the count badge and the member
-        // names its tooltip adds. Replaced wholesale on every SetWidgets so a
-        // dissolved group leaves no stale badge behind.
-        private readonly Dictionary<string, WidgetGroupTileInfo> _groupInfo =
+        // The island projection keyed by group id: one folded tile per group
+        // with its member descriptors. Replaced wholesale on every SetWidgets
+        // so a dissolved group leaves no stale tile behind.
+        private readonly List<WidgetGroupTileInfo> _groupTiles = new List<WidgetGroupTileInfo>();
+        private readonly Dictionary<string, WidgetGroupTileInfo> _groupTilesById =
             new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal);
 
-        // Live panel visibility, keyed by widget id. SetOpenState updates the
-        // existing tile in place; a rebuild (icon style / widget add/remove)
-        // re-applies it to the new tile.
+        // The row actually rendered: standalone tiles plus one group tile at
+        // the first member's config slot. Other members are hidden.
+        private List<ProjectedTile> _projectedTiles = new List<ProjectedTile>();
+
+        // Live panel visibility, keyed by widget id (standalone) or group id
+        // (folded group tile). SetOpenState updates the existing tile in place;
+        // a rebuild (icon style / widget add/remove) re-applies it.
         private readonly Dictionary<string, bool> _openStates =
             new Dictionary<string, bool>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _widgetColors =
@@ -80,7 +88,10 @@ namespace Kobold.Controls
         /// <summary>Raised with the folder id when a widget tile is clicked.</summary>
         public event Action<string> WidgetActivated;
 
-        /// <summary>Raised with the folder id when a widget tile is right-clicked.</summary>
+        /// <summary>Raised with the group id when a folded group tile is clicked.</summary>
+        internal event Action<string> GroupTileClicked;
+
+        /// <summary>Raised with the folder or group id when a tile is right-clicked.</summary>
         public event Action<string> WidgetMenuRequested;
 
         public IslandWindow()
@@ -200,7 +211,10 @@ namespace Kobold.Controls
         /// <summary>Y coordinate (DIP) where a panel opened from the island should start.</summary>
         public double PanelTop => WidgetConstants.ISLAND_EXPANDED_HEIGHT + WidgetConstants.ISLAND_PANEL_GAP;
 
-        /// <summary>Horizontal centre (DIP) of the island - where panels open centred.</summary>
+        /// <summary>
+        /// Horizontal centre (DIP) of the island window - the capsule content is
+        /// centred in it, so panels open around the same centre the drag uses.
+        /// </summary>
         public double CenterX => Left + Width / 2;
 
         /// <summary>Steps the island out of the way of a fullscreen app (and back).</summary>
@@ -217,29 +231,37 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// Feeds the widget list rendered as tiles when expanded. A grouped
-        /// member also receives its group's tile info (member count and names);
-        /// the optional argument keeps every existing SetWidgets(list) call
-        /// source-compatible.
+        /// Feeds the island the widget list and its group projection. A group
+        /// with at least two members folds into one tile at its first member's
+        /// config slot; its other members are hidden. Standalone widgets keep
+        /// one tile each. The optional argument keeps every existing
+        /// SetWidgets(list) call source-compatible.
         /// </summary>
         public void SetWidgets(IEnumerable<WidgetData> widgets,
-            IReadOnlyDictionary<string, WidgetGroupTileInfo> groupInfo = null)
+            IReadOnlyList<WidgetGroupTileInfo> groups = null)
         {
             _widgets = widgets?.ToList() ?? new List<WidgetData>();
 
-            _groupInfo.Clear();
-            if (groupInfo != null)
+            _groupTiles.Clear();
+            _groupTilesById.Clear();
+            if (groups != null)
             {
-                foreach (var pair in groupInfo)
+                foreach (var group in groups)
                 {
-                    if (!string.IsNullOrEmpty(pair.Key) && pair.Value != null)
-                        _groupInfo[pair.Key] = pair.Value;
+                    if (group == null || string.IsNullOrEmpty(group.GroupId)) continue;
+                    if (group.MemberCount < 2) continue;
+                    if (group.Members == null) group.Members = new List<WidgetGroupTileMember>();
+                    _groupTiles.Add(group);
+                    _groupTilesById[group.GroupId] = group;
                 }
             }
 
-            // Drop visibility for widgets that no longer exist, and keep the
-            // colours the tile wash/dot need.
+            _projectedTiles = BuildProjectedTiles();
+
+            // Drop visibility for hosts that no longer exist, and keep the
+            // colours the standalone tile wash/dot need.
             var live = new HashSet<string>(_widgets.Select(w => w.Id), StringComparer.Ordinal);
+            foreach (var group in _groupTiles) live.Add(group.GroupId);
             foreach (string id in _openStates.Keys.Where(id => !live.Contains(id)).ToList())
             {
                 _openStates.Remove(id);
@@ -252,32 +274,39 @@ namespace Kobold.Controls
                     _widgetColors[widget.Id] = widget.Color;
             }
 
-            // A group-membership refresh only changes badges/tooltips: keep
-            // every existing Border when the tile list itself is unchanged.
-            var visible = _widgets.Where(HasWindowKind).ToList();
-            string signature = TileSignature(visible);
-            bool rebuild = signature != _tileSignature
-                || TilePanel.Children.Count != visible.Count;
+            // A layout change rebuilds the row. A same-group content change
+            // (rename/pin/merge/detach) repaints the existing group tile in
+            // place; a standalone visual change may rebuild the row.
+            string layout = LayoutSignature(_projectedTiles);
+            string standaloneContent = StandaloneContentSignature(_projectedTiles);
+            string groupContent = GroupContentSignature(_projectedTiles);
+            bool layoutChanged = layout != _layoutSignature
+                || TilePanel.Children.Count != RenderedSlotCount();
+            bool standaloneChanged = standaloneContent != _standaloneContentSignature;
+            bool groupChanged = groupContent != _groupContentSignature;
             double middleWidthBefore = TileScroller.Width;
 
+            bool rebuild = layoutChanged || standaloneChanged;
             if (rebuild)
             {
                 RebuildTiles();
             }
-            else
+            else if (groupChanged)
             {
-                UpdateTileGroupDecorations(visible);
+                string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
+                if (!UpdateGroupTilesInPlace(iconStyle)) RebuildTiles();
             }
 
-            // The island must not resize or run its expand animation for a
-            // membership-only refresh either.
+            // The island must not resize or run its expand animation for an
+            // in-place open-state refresh either.
             bool geometryChanged = Math.Abs(TileScroller.Width - middleWidthBefore) > 0.01;
             if (rebuild || geometryChanged) UpdateWindowGeometry();
 
             if (_isExpanded && (rebuild || geometryChanged))
             {
-                double width = GetExpandedWidth();
-                AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
+                double width = GetActiveCapsuleWidth();
+                double height = GetActiveCapsuleHeight();
+                AnimateTo(width, height, width, height);
                 SyncScrollBarFromScroller();
                 FlashScrollBar();
             }
@@ -411,13 +440,15 @@ namespace Kobold.Controls
             double step = (cursor.X - _islandDragLastCursor.X) / dpi;
             _islandDragLastCursor = new Point(cursor.X, cursor.Y);
 
-            // Immediate feedback clamps to the virtual desktop; the drop
-            // re-clamps against the island monitor's work area (mouse-up).
-            double half = Width / 2;
-            double minX = SystemParameters.VirtualScreenLeft + half;
-            double maxX = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - half;
-            double centerX = Math.Max(minX, Math.Min(Left + Width / 2 + step, maxX));
-            Left = centerX - Width / 2;
+            // Immediate feedback clamps the window's centre to the virtual
+            // desktop; the drop re-clamps against the island monitor's work
+            // area (mouse-up). The capsule content is centred in the window,
+            // so the centre is the stable anchor while the window widens for
+            // an expanded group.
+            double center = CenterX + step;
+            Left = IslandLayout.ClampCenter(
+                center, Width, SystemParameters.VirtualScreenLeft,
+                SystemParameters.VirtualScreenWidth) - Width / 2;
             e.Handled = true;
         }
 
@@ -432,12 +463,14 @@ namespace Kobold.Controls
                 _isDraggingIsland = false;
                 try
                 {
-                    // Snap the dragged spot onto the island monitor's work area
-                    // and remember that centre - never the previously saved one,
-                    // which is what UpdateWindowGeometry would restore.
-                    double center = ClampCenterX(Left + Width / 2, Width);
+                    // Snap the window's centre into the island monitor's work
+                    // area and remember it. The capsule content is centred in
+                    // the window, so the saved centre restores the same spot
+                    // regardless of the active width.
+                    Rect work = GetWorkArea();
+                    double center = IslandLayout.ClampCenter(
+                        CenterX, Width, work.Left, work.Width);
                     Left = center - Width / 2;
-                    // Remember the pill center so it survives expanded-width changes.
                     WidgetManager.Instance.Config.IslandX = center;
                     WidgetManager.Instance.SaveConfig();
                 }
@@ -556,8 +589,9 @@ namespace Kobold.Controls
             AddTile.ToolTip = Localization.Get("Island_AddWidget");
             SettingsTile.ToolTip = Localization.Get("Settings_Title");
             PillShape.Fill = ThemeManager.IslandBackgroundExpandedBrush;
-            double width = GetExpandedWidth();
-            AnimateTo(width, WidgetConstants.ISLAND_EXPANDED_HEIGHT, width, WidgetConstants.ISLAND_EXPANDED_HEIGHT);
+            double width = GetActiveCapsuleWidth();
+            double height = GetActiveCapsuleHeight();
+            AnimateTo(width, height, width, height);
             ShowTiles();
         }
 
@@ -566,6 +600,12 @@ namespace Kobold.Controls
         {
             Expand();
         }
+
+        /// <summary>True while the island shows its expanded tile row.</summary>
+        public bool IsExpanded => _isExpanded;
+
+        /// <summary>Test seam: folds the island without a hover/timer round-trip.</summary>
+        internal void CollapseForChecks() => Collapse();
 
         private void Collapse()
         {
@@ -615,21 +655,129 @@ namespace Kobold.Controls
             TilePanel.Children.Clear();
 
             string iconStyle = WidgetManager.Instance.Config.IconStyle ?? "classic";
-            var widgets = _widgets.Where(HasWindowKind).ToList();
-            _tileSignature = TileSignature(widgets);
-            foreach (var widget in widgets)
+            _layoutSignature = LayoutSignature(_projectedTiles);
+            _standaloneContentSignature = StandaloneContentSignature(_projectedTiles);
+            _groupContentSignature = GroupContentSignature(_projectedTiles);
+            foreach (var entry in _projectedTiles)
             {
-                TilePanel.Children.Add(CreateTile(widget, iconStyle));
+                if (entry.Group != null)
+                {
+                    TilePanel.Children.Add(CreateGroupTile(entry.Group, iconStyle));
+
+                    // An expanded group inserts its member icons immediately
+                    // after the group tile, before the next projected tile.
+                    if (entry.Group.IslandExpanded)
+                    {
+                        var members = entry.Group.Members ?? new List<WidgetGroupTileMember>();
+                        foreach (var member in members)
+                            TilePanel.Children.Add(CreateMemberTile(member, entry.Group, iconStyle));
+                    }
+                }
+                else
+                {
+                    TilePanel.Children.Add(CreateTile(entry.Widget, iconStyle));
+                }
             }
 
             // The middle section measures itself: its content, capped to a share
             // of the island monitor's work area. Anything wider scrolls, with
-            // the hint bar below.
-            TileScroller.Width = IslandLayout.MiddleViewWidth(widgets.Count, GetWorkArea().Width);
+            // the hint bar below. An expanded group contributes one slot per
+            // visible member icon.
+            TileScroller.Width = IslandLayout.MiddleViewWidth(RenderedSlotCount(), GetWorkArea().Width);
 
-            // Without widgets the trailing divider would sit right next to the
+            // Without tiles the trailing divider would sit right next to the
             // desktop divider - hide it so the entries stay separated once.
-            SettingsDivider.Visibility = widgets.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SettingsDivider.Visibility = _projectedTiles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// The number of tiles the row actually draws: one per projected entry
+        /// plus one per member icon of an expanded group.
+        /// </summary>
+        private int RenderedSlotCount()
+        {
+            int count = 0;
+            foreach (var entry in _projectedTiles)
+            {
+                count += 1;
+                if (entry.Group != null && entry.Group.IslandExpanded)
+                    count += entry.Group.MemberCount;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Repaints the group tiles in place when only the group content
+        /// changed. Every Border stays; the open outline is re-applied after
+        /// the thumbnail rebuild. Returns false when the row no longer matches
+        /// the projection or any group is expanded (the member icons break the
+        /// one-tile-per-entry index mapping), so the caller rebuilds the row.
+        /// </summary>
+        private bool UpdateGroupTilesInPlace(string iconStyle)
+        {
+            if (AnyGroupExpanded()) return false;
+            if (TilePanel.Children.Count != _projectedTiles.Count) return false;
+
+            for (int i = 0; i < _projectedTiles.Count; i++)
+            {
+                var entry = _projectedTiles[i];
+                var tile = TilePanel.Children[i] as Border;
+                if (tile == null) return false;
+
+                if (entry.Group != null)
+                {
+                    if (!IsGroupTile(tile)) return false;
+                    UpdateGroupTile(tile, entry.Group, iconStyle);
+                    ApplyTileOpenState(tile);
+                }
+                else if (!string.Equals(tile.Tag as string, entry.Widget.Id, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            _groupContentSignature = GroupContentSignature(_projectedTiles);
+            return true;
+        }
+
+        private bool AnyGroupExpanded()
+        {
+            foreach (var entry in _projectedTiles)
+            {
+                if (entry.Group != null && entry.Group.IslandExpanded) return true;
+            }
+            return false;
+        }
+
+        private static bool IsGroupTile(Border tile)
+        {
+            string tag = tile.Tag as string;
+            return tag != null && tag.StartsWith("group:", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The rendered row: standalone widgets keep their slot, a group emits
+        /// one folded tile at its first member's config slot and hides the rest.
+        /// </summary>
+        private List<ProjectedTile> BuildProjectedTiles()
+        {
+            var tiles = new List<ProjectedTile>();
+            var emittedGroups = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var widget in _widgets)
+            {
+                if (!HasWindowKind(widget)) continue;
+
+                WidgetGroupTileInfo group;
+                if (!string.IsNullOrEmpty(widget.GroupId)
+                    && _groupTilesById.TryGetValue(widget.GroupId, out group))
+                {
+                    if (emittedGroups.Add(group.GroupId))
+                        tiles.Add(new ProjectedTile { Group = group });
+                    continue;
+                }
+                tiles.Add(new ProjectedTile { Widget = widget });
+            }
+            return tiles;
         }
 
         /// <summary>Unknown kinds have neither tile nor window; they only stay in the config.</summary>
@@ -892,9 +1040,6 @@ namespace Kobold.Controls
             bool open = _openStates.ContainsKey(widget.Id);
             var accent = WidgetAccent.ReadableBrush(widget.Color);
 
-            WidgetGroupTileInfo groupInfo = GroupInfoFor(widget);
-            bool grouped = groupInfo != null;
-
             var dot = new Ellipse
             {
                 Width = 3,
@@ -919,13 +1064,6 @@ namespace Kobold.Controls
             });
             content.Children.Add(dot);
 
-            if (grouped)
-            {
-                // A click-through count badge in the tile's top-right corner:
-                // the tile stays 44x44 and the row's layout math is untouched.
-                content.Children.Add(CreateGroupBadge(groupInfo, accent));
-            }
-
             var tile = new Border
             {
                 Width = WidgetConstants.ISLAND_TILE_SIZE,
@@ -933,7 +1071,7 @@ namespace Kobold.Controls
                 CornerRadius = new CornerRadius(8),
                 Background = open ? TileOpenBackground(widget.Id) : Brushes.Transparent,
                 Cursor = Cursors.Hand,
-                ToolTip = TileTooltip(widget, grouped ? groupInfo : null),
+                ToolTip = widget.Name,
                 Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
                 Tag = widget.Id,
                 Child = content
@@ -964,133 +1102,333 @@ namespace Kobold.Controls
         }
 
         /// <summary>
-        /// The identity of the tile visuals: a change here means the icons or
-        /// the base tooltip changed and the tiles must be rebuilt. Group
-        /// membership and open state are deliberately absent - both repaint in
-        /// place.
+        /// One 44x44 member icon of an expanded group: the kind's 32px icon in
+        /// the member colour, the active member's open wash + dot and a gold
+        /// upright pin on pinned members. The name is only a tooltip - the row
+        /// never writes member names or counts as text. A click activates the
+        /// member and leaves the expansion to the manager's persisted flag.
         /// </summary>
-        private static string TileSignature(IEnumerable<WidgetData> widgets)
+        private Border CreateMemberTile(WidgetGroupTileMember member,
+            WidgetGroupTileInfo info, string iconStyle)
         {
-            return string.Join("\u001e", widgets.Select(widget =>
-                (widget == null ? string.Empty : widget.Id) + "\u001f" +
-                (widget == null ? string.Empty : widget.Kind) + "\u001f" +
-                (widget == null ? string.Empty : widget.Color) + "\u001f" +
-                (widget == null ? string.Empty : widget.Name)));
+            string memberId = member == null ? string.Empty : member.Id;
+            string color = member == null ? null : member.Color;
+            bool active = member != null && !string.IsNullOrEmpty(info.ActiveWidgetId)
+                && string.Equals(info.ActiveWidgetId, memberId, StringComparison.Ordinal);
+
+            var iconCanvas = new Canvas { Width = 64, Height = 64 };
+            var kind = WidgetKindRegistry.Find(member == null ? null : member.Kind);
+            IconRendererFactory.CreateByKey(kind != null ? kind.IconKey : "folder", iconStyle)
+                .Render(iconCanvas, color ?? UiTokens.DefaultFolderColor);
+
+            var dot = new Ellipse
+            {
+                Width = 3,
+                Height = 3,
+                Tag = "TileDot",
+                Fill = WidgetAccent.ReadableBrush(color ?? UiTokens.DefaultFolderColor),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 3),
+                IsHitTestVisible = false,
+                Visibility = active ? Visibility.Visible : Visibility.Collapsed
+            };
+
+            var pin = new IconPresenter
+            {
+                Icon = IconId.Pin,
+                Size = 9,
+                StrokeThickness = 1.7,
+                Rotation = 0,
+                Brush = ThemeManager.PinGoldBrush,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 2, 2, 0),
+                IsHitTestVisible = false,
+                Visibility = member != null && member.IsPinned
+                    ? Visibility.Visible
+                    : Visibility.Collapsed,
+                Tag = "IslandMemberPin:" + memberId
+            };
+
+            var content = new Grid { IsHitTestVisible = false };
+            content.Children.Add(new Viewbox
+            {
+                Width = TileIconSize,
+                Height = TileIconSize,
+                Child = iconCanvas,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            content.Children.Add(dot);
+            content.Children.Add(pin);
+
+            var tile = new Border
+            {
+                Width = WidgetConstants.ISLAND_TILE_SIZE,
+                Height = WidgetConstants.ISLAND_TILE_SIZE,
+                CornerRadius = new CornerRadius(8),
+                Background = active ? TileOpenBackground(memberId) : Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = member == null ? null : member.Name,
+                Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
+                Tag = "island-member:" + memberId,
+                Child = content
+            };
+            tile.MouseLeftButtonUp += (s, e) =>
+            {
+                WidgetActivated?.Invoke(memberId);
+                e.Handled = true;
+            };
+
+            return tile;
         }
 
-        /// <summary>Refreshes the group badge/tooltip of every existing tile, keeping the Borders.</summary>
-        private void UpdateTileGroupDecorations(IList<WidgetData> widgets)
+        /// <summary>
+        /// One folded 44x44 group tile at the first member's slot: a neutral
+        /// 34x34 plate holding a 2x2 thumbnail grid (11px member icons in
+        /// GroupOrder, max four cells; 5+ draws the first three + "+N"). It has
+        /// no Folder glyph, no count badge and no member-colour ring; the open
+        /// state is a neutral outline keyed by the group id.
+        /// </summary>
+        private Border CreateGroupTile(WidgetGroupTileInfo info, string iconStyle)
         {
-            int count = Math.Min(widgets.Count, TilePanel.Children.Count);
-            for (int i = 0; i < count; i++)
+            var iconGrid = new UniformGrid
             {
-                var tile = TilePanel.Children[i] as Border;
-                if (tile != null) ApplyTileGroupDecoration(tile, widgets[i]);
+                Rows = 2,
+                Columns = 2,
+                Margin = new Thickness(3),
+                Tag = "GroupIconGrid"
+            };
+
+            var plate = new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                Tag = "GroupPlate",
+                Child = iconGrid
+            };
+
+            var content = new Grid { IsHitTestVisible = false };
+            content.Children.Add(plate);
+
+            var tile = new Border
+            {
+                Width = WidgetConstants.ISLAND_TILE_SIZE,
+                Height = WidgetConstants.ISLAND_TILE_SIZE,
+                CornerRadius = new CornerRadius(10),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Margin = new Thickness(0, 0, WidgetConstants.ISLAND_TILE_GAP, 0),
+                Tag = "group:" + info.GroupId,
+                Child = content
+            };
+
+            tile.MouseEnter += (s, e) =>
+            {
+                tile.Background = ThemeManager.IslandHoverBrush;
+            };
+            tile.MouseLeave += (s, e) =>
+            {
+                tile.Background = _openStates.ContainsKey(info.GroupId)
+                    ? ThemeManager.IslandHoverBrush
+                    : Brushes.Transparent;
+            };
+            tile.MouseLeftButtonUp += (s, e) =>
+            {
+                // The manager toggles the group's persisted inline member-icon
+                // expansion from this event; the group menu stays on right click.
+                GroupTileClicked?.Invoke(info.GroupId);
+                e.Handled = true;
+            };
+            tile.MouseRightButtonUp += (s, e) =>
+            {
+                WidgetMenuRequested?.Invoke(info.GroupId);
+                e.Handled = true;
+            };
+
+            UpdateGroupTile(tile, info, iconStyle);
+            ApplyTileOpenState(tile);
+            return tile;
+        }
+
+        /// <summary>
+        /// Repaints a folded group tile's plate, ordered 2x2 thumbnails, +N
+        /// overflow and tooltip from the latest projection, keeping the tile's
+        /// Border alive so a collapsed same-group refresh does not rebuild the row.
+        /// </summary>
+        private static void UpdateGroupTile(Border tile, WidgetGroupTileInfo info, string iconStyle)
+        {
+            if (tile == null || info == null) return;
+
+            tile.ToolTip = info.MemberNames;
+
+            var content = tile.Child as Grid;
+            Border plate = null;
+            if (content != null)
+            {
+                foreach (var child in content.Children)
+                {
+                    var border = child as Border;
+                    if (border != null && "GroupPlate".Equals(border.Tag as string))
+                    {
+                        plate = border;
+                        break;
+                    }
+                }
+            }
+            if (plate == null) return;
+
+            plate.Background = GroupPlateBackground();
+            plate.BorderBrush = GroupPlateBorderBrush();
+
+            var iconGrid = plate.Child as Panel;
+            if (iconGrid == null) return;
+            iconGrid.Children.Clear();
+
+            var members = info.Members ?? new List<WidgetGroupTileMember>();
+            int iconCount = info.MemberCount > 4 ? 3 : Math.Min(info.MemberCount, 4);
+            for (int i = 0; i < iconCount && i < members.Count; i++)
+            {
+                var member = members[i];
+                var iconCanvas = new Canvas { Width = 64, Height = 64 };
+                var kind = WidgetKindRegistry.Find(member.Kind);
+                IconRendererFactory.CreateByKey(kind != null ? kind.IconKey : "folder", iconStyle)
+                    .Render(iconCanvas, member.Color);
+
+                iconGrid.Children.Add(new Viewbox
+                {
+                    Width = 11,
+                    Height = 11,
+                    Child = iconCanvas,
+                    Tag = "GroupMemberIcon:" + member.Id,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+
+            if (info.MemberCount > 4)
+            {
+                iconGrid.Children.Add(new TextBlock
+                {
+                    Text = "+" + (info.MemberCount - 3).ToString(CultureInfo.InvariantCulture),
+                    Tag = "GroupOverflow",
+                    FontSize = 9,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = ThemeManager.IslandForegroundBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
             }
         }
 
-        /// <summary>Adds, updates or removes one tile's count badge and member-name tooltip.</summary>
-        private void ApplyTileGroupDecoration(Border tile, WidgetData widget)
+        /// <summary>The neutral translucent wash inside the folded group plate.</summary>
+        private static Brush GroupPlateBackground()
         {
-            var content = tile.Child as Grid;
-            if (content == null || widget == null) return;
+            Color foreground = ThemeManager.IslandForegroundBrush.Color;
+            return WidgetAccent.Frozen(Color.FromArgb(14, foreground.R, foreground.G, foreground.B));
+        }
 
-            WidgetGroupTileInfo info = GroupInfoFor(widget);
-            var accent = WidgetAccent.ReadableBrush(widget.Color);
-            var existing = GroupBadgeOf(content);
+        /// <summary>The neutral 1px border of the folded group plate.</summary>
+        private static Brush GroupPlateBorderBrush()
+        {
+            Color foreground = ThemeManager.IslandForegroundBrush.Color;
+            return WidgetAccent.Frozen(Color.FromArgb(23, foreground.R, foreground.G, foreground.B));
+        }
 
-            if (info != null)
+        /// <summary>
+        /// The rendered row layout: standalone widget ids and, for a group, its
+        /// id plus its island expansion flag. An expanded group also contributes
+        /// its ordered member ids, because its member icons are part of the row;
+        /// a collapsed group's members are hidden, so a same-group merge can
+        /// still repaint its one tile in place. A change here (fold/unfold,
+        /// expand/collapse, merge/detach, reorder) rebuilds the row in order.
+        /// </summary>
+        private static string LayoutSignature(IEnumerable<ProjectedTile> tiles)
+        {
+            var parts = new List<string>();
+            foreach (var entry in tiles)
             {
-                if (existing == null)
+                if (entry.Group != null)
                 {
-                    content.Children.Add(CreateGroupBadge(info, accent));
+                    string part = "g\u001f" + entry.Group.GroupId + "\u001f"
+                        + (entry.Group.IslandExpanded ? "1" : "0");
+                    if (entry.Group.IslandExpanded)
+                    {
+                        var members = entry.Group.Members ?? new List<WidgetGroupTileMember>();
+                        part += "\u001f" + string.Join("\u001e", members.Select(
+                            member => member == null ? string.Empty : member.Id ?? string.Empty));
+                    }
+                    parts.Add(part);
                 }
                 else
                 {
-                    UpdateGroupBadge(existing, info, accent);
+                    parts.Add("w\u001f" + (entry.Widget == null ? string.Empty : entry.Widget.Id));
                 }
             }
-            else if (existing != null)
+            return string.Join("\u001d", parts);
+        }
+
+        /// <summary>
+        /// Standalone tile visuals. A change here may rebuild the row; groups
+        /// never participate.
+        /// </summary>
+        private static string StandaloneContentSignature(IEnumerable<ProjectedTile> tiles)
+        {
+            var parts = new List<string>();
+            foreach (var entry in tiles)
             {
-                content.Children.Remove(existing);
+                if (entry.Group != null) continue;
+                var widget = entry.Widget;
+                parts.Add("w\u001f" +
+                    (widget == null ? string.Empty : widget.Id) + "\u001f" +
+                    (widget == null ? string.Empty : widget.Kind) + "\u001f" +
+                    (widget == null ? string.Empty : widget.Color) + "\u001f" +
+                    (widget == null ? string.Empty : widget.Name));
             }
-
-            tile.ToolTip = TileTooltip(widget, info);
+            return string.Join("\u001d", parts);
         }
 
-        /// <summary>The group projection for a tile, or null when it is not a grouped member.</summary>
-        private WidgetGroupTileInfo GroupInfoFor(WidgetData widget)
+        /// <summary>
+        /// The folded group tile's content: identity, member count and the
+        /// ordered member descriptors (kind/colour/name/pin). A change here
+        /// repaints the existing group tile in place.
+        /// </summary>
+        private static string GroupContentSignature(IEnumerable<ProjectedTile> tiles)
         {
-            WidgetGroupTileInfo info;
-            if (widget == null || string.IsNullOrEmpty(widget.Id)) return null;
-            if (!_groupInfo.TryGetValue(widget.Id, out info)) return null;
-            return info != null && info.MemberCount >= 2 ? info : null;
-        }
-
-        /// <summary>The one 14x14 click-through count badge both tile paths use.</summary>
-        private static Border CreateGroupBadge(WidgetGroupTileInfo info, Brush accent)
-        {
-            var badge = new Border
+            var parts = new List<string>();
+            foreach (var entry in tiles)
             {
-                Tag = "GroupBadge",
-                Width = 14,
-                Height = 14,
-                CornerRadius = new CornerRadius(7),
-                BorderThickness = new Thickness(1),
-                Background = ThemeManager.IslandBackgroundBrush,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 1, 1, 0),
-                IsHitTestVisible = false,
-                Child = new TextBlock
-                {
-                    FontSize = 9,
-                    FontWeight = FontWeights.SemiBold,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
-            };
-            UpdateGroupBadge(badge, info, accent);
-            return badge;
-        }
-
-        private static void UpdateGroupBadge(Border badge, WidgetGroupTileInfo info, Brush accent)
-        {
-            badge.BorderBrush = accent;
-            badge.Background = ThemeManager.IslandBackgroundBrush;
-            var text = badge.Child as TextBlock;
-            if (text == null) return;
-            text.Text = info.MemberCount.ToString(CultureInfo.InvariantCulture);
-            text.Foreground = accent;
-        }
-
-        private static Border GroupBadgeOf(Grid content)
-        {
-            foreach (var child in content.Children)
-            {
-                var border = child as Border;
-                if (border != null && "GroupBadge".Equals(border.Tag as string)) return border;
+                if (entry.Group == null) continue;
+                var group = entry.Group;
+                var members = group.Members ?? new List<WidgetGroupTileMember>();
+                parts.Add("g\u001f" + group.GroupId + "\u001f" + group.MemberCount + "\u001f"
+                    + (group.ActiveWidgetId ?? string.Empty) + "\u001e"
+                    + string.Join("\u001e", members.Select(member =>
+                        (member.Id ?? string.Empty) + "\u001f" +
+                        (member.Kind ?? string.Empty) + "\u001f" +
+                        (member.Color ?? string.Empty) + "\u001f" +
+                        (member.Name ?? string.Empty) + "\u001f" +
+                        (member.IsPinned ? "1" : "0"))));
             }
-            return null;
+            return string.Join("\u001d", parts);
         }
 
-        private static string TileTooltip(WidgetData widget, WidgetGroupTileInfo info)
-        {
-            string tooltip = widget == null ? null : widget.Name;
-            if (info != null && !string.IsNullOrWhiteSpace(info.MemberNames))
-            {
-                tooltip = (string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip + Environment.NewLine)
-                    + info.MemberNames;
-            }
-            return tooltip;
-        }
-
-        private void UpdateTileOpenState(string widgetId)
+        private void UpdateTileOpenState(string hostId)
         {
             foreach (var child in TilePanel.Children)
             {
                 var tile = child as Border;
-                if (tile == null || !string.Equals(tile.Tag as string, widgetId, StringComparison.Ordinal))
+                if (tile == null) continue;
+                string tag = tile.Tag as string;
+                // An inline member tile's wash is owned by its own active
+                // member, never by the group's open state.
+                if (tag != null && tag.StartsWith("island-member:", StringComparison.Ordinal))
+                    continue;
+                if (!string.Equals(tag, hostId, StringComparison.Ordinal)
+                    && !string.Equals(tag, "group:" + hostId, StringComparison.Ordinal))
                     continue;
                 ApplyTileOpenState(tile);
             }
@@ -1108,9 +1446,27 @@ namespace Kobold.Controls
 
         private void ApplyTileOpenState(Border tile)
         {
-            string id = tile.Tag as string;
-            bool open = !string.IsNullOrEmpty(id) && _openStates.ContainsKey(id);
-            tile.Background = open ? TileOpenBackground(id) : Brushes.Transparent;
+            string tag = tile.Tag as string;
+            // Member tiles are painted from their own active member; the group
+            // open state must never repaint them.
+            if (tag != null && tag.StartsWith("island-member:", StringComparison.Ordinal))
+                return;
+            bool isGroup = tag != null && tag.StartsWith("group:", StringComparison.Ordinal);
+            string hostId = isGroup ? tag.Substring("group:".Length) : tag;
+            bool open = !string.IsNullOrEmpty(hostId) && _openStates.ContainsKey(hostId);
+
+            if (isGroup)
+            {
+                // The folded tile's open state is neutral: a 1.5px theme
+                // foreground outline plus the lifted hover wash. Never a
+                // member colour and never a dot.
+                tile.BorderThickness = open ? new Thickness(1.5) : new Thickness(0);
+                tile.BorderBrush = open ? ThemeManager.IslandForegroundBrush : Brushes.Transparent;
+                tile.Background = open ? ThemeManager.IslandHoverBrush : Brushes.Transparent;
+                return;
+            }
+
+            tile.Background = open ? TileOpenBackground(hostId) : Brushes.Transparent;
 
             var content = tile.Child as Grid;
             if (content == null) return;
@@ -1118,7 +1474,7 @@ namespace Kobold.Controls
             {
                 var dot = child as Ellipse;
                 if (dot == null || !"TileDot".Equals(dot.Tag as string)) continue;
-                dot.Fill = WidgetAccent.ReadableBrush(WidgetColorOf(id));
+                dot.Fill = WidgetAccent.ReadableBrush(WidgetColorOf(hostId));
                 dot.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
                 break;
             }
@@ -1139,8 +1495,6 @@ namespace Kobold.Controls
                 ThemeManager.IslandBackgroundBrush.Color, WidgetColorOf(widgetId), 0.14));
         }
 
-
-
         private void ActivateTile(string widgetId)
         {
             // Keep the island open so several panels can be toggled without re-hovering.
@@ -1151,31 +1505,39 @@ namespace Kobold.Controls
 
         #region Geometry & Animation
 
-        private double GetExpandedWidth()
+        /// <summary>
+        /// Width of the active capsule: one slot per rendered tile, including
+        /// the member icons of every expanded group.
+        /// </summary>
+        private double GetActiveCapsuleWidth()
         {
-            // The middle (tile) section is capped to a share of the screen; the
-            // fixed desktop/add/settings entries always stay in view, so the
-            // capsule is the fixed parts plus that capped middle. The cap uses
-            // the island monitor's work area, matching RebuildTiles, so the tile
-            // scroller never outgrows the capsule.
-            return IslandLayout.ContentWidth(_widgets.Count(HasWindowKind), GetWorkArea().Width);
+            return Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH,
+                IslandLayout.ContentWidth(RenderedSlotCount(), GetWorkArea().Width));
+        }
+
+        private double GetActiveCapsuleHeight()
+        {
+            return WidgetConstants.ISLAND_EXPANDED_HEIGHT;
         }
 
         /// <summary>
-        /// Sizes the (never-animated) window so it can host the largest state plus
-        /// room for the drop shadow, and places it at the remembered horizontal
-        /// position (centered when none is set), always glued to the top.
+        /// Sizes the (never-animated) window so it can host the largest state
+        /// plus room for the drop shadow, and places it around the remembered
+        /// centre. The capsule content is centred in the window, so the saved
+        /// centre is the visual centre too; the whole window is clamped into
+        /// the work area.
         /// </summary>
         private void UpdateWindowGeometry()
         {
-            double widest = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, GetExpandedWidth());
-            Width = widest + 2 * ShadowPadding;
-            Height = WidgetConstants.ISLAND_EXPANDED_HEIGHT + ShadowPadding;
+            double activeWidth = GetActiveCapsuleWidth();
+            Width = Math.Max(WidgetConstants.ISLAND_HOVER_WIDTH, activeWidth) + 2 * ShadowPadding;
+            Height = Math.Max(WidgetConstants.ISLAND_EXPANDED_HEIGHT,
+                WidgetConstants.ISLAND_HOVER_HEIGHT) + ShadowPadding;
 
             Rect work = GetWorkArea();
-            double fallbackCenter = work.Left + work.Width / 2;
-            double centerX = ClampCenterX(GetSavedCenterX() ?? fallbackCenter, Width);
-            Left = centerX - Width / 2;
+            double center = GetSavedCenterX() ?? work.Left + work.Width / 2;
+            center = IslandLayout.ClampCenter(center, Width, work.Left, work.Width);
+            Left = center - Width / 2;
             Top = 0; // glued to the top of the WPF virtual desktop, as before
         }
 
@@ -1183,13 +1545,6 @@ namespace Kobold.Controls
         {
             try { return WidgetManager.Instance.Config.IslandX; }
             catch { return null; }
-        }
-
-        /// <summary>Keeps the whole island window (including shadow) on its monitor.</summary>
-        private double ClampCenterX(double centerX, double windowWidth)
-        {
-            Rect work = GetWorkArea();
-            return IslandLayout.ClampCenter(centerX, windowWidth, work.Left, work.Width);
         }
 
         /// <summary>
@@ -1234,5 +1589,12 @@ namespace Kobold.Controls
         }
 
         #endregion
+
+        /// <summary>One rendered slot: either a standalone widget or a folded group tile.</summary>
+        private sealed class ProjectedTile
+        {
+            public WidgetData Widget;
+            public WidgetGroupTileInfo Group;
+        }
     }
 }

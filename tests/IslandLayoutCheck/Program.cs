@@ -80,6 +80,31 @@ namespace Kobold.IslandLayoutCheck
             Check(IslandLayout.ContentWidth(20, 1560) == 588,
                 "a capped middle section keeps the capsule at its maximum width");
 
+            // P2 Task C: inline member tiles extend the existing row, so the
+            // capsule is left-anchored and the whole row is clamped into the
+            // work area. An inside row keeps its left edge; an overflowing row
+            // shifts left just enough; an oversized row anchors to the margin.
+            Check(IslandLayout.ClampAnchoredLeft(100, 600, 0, 1920, 16) == 100,
+                "island layout: an inside row keeps its left edge");
+            Check(IslandLayout.ClampAnchoredLeft(1500, 600, 0, 1920, 16) == 1304,
+                "island layout: an overflowing row shifts left just enough");
+            Check(IslandLayout.ClampAnchoredLeft(-50, 300, 0, 1920, 16) == 16,
+                "island layout: the left edge clamps to the margin");
+            Check(IslandLayout.ClampAnchoredLeft(100, 2000, 0, 1920, 16) == 16,
+                "island layout: an oversized row anchors left");
+            Check(IslandLayout.ClampAnchoredLeft(-2000, 600, -1920, 1920, 16) == -1904,
+                "island layout: the clamp works on a monitor left of the primary");
+            Check(IslandLayout.MiddleContentWidth(1 + 3) == 208,
+                "island layout: an expanded three-member group adds three member slots");
+
+            // The pill drag's virtual-screen clamp works on the capsule's LEFT
+            // edge (margin 0): at either screen edge the capsule keeps its edge.
+            // A centre clamp would jump it inward by half its width.
+            Check(IslandLayout.ClampAnchoredLeft(0, 456, 0, 1920, 0) == 0,
+                "island layout: a left-edge drag keeps the capsule's left edge");
+            Check(IslandLayout.ClampAnchoredLeft(1900, 456, 0, 1920, 0) == 1464,
+                "island layout: a right-edge drag clamps the capsule's right edge");
+
             // The scroll offset is clamped to the scrollable middle: never before
             // its start, never past its end, and a middle that fits does not move.
             Check(IslandLayout.ClampOffset(-5, 200) == 0,
@@ -138,9 +163,9 @@ namespace Kobold.IslandLayoutCheck
             Check(IslandLayout.ClampCenter(-1900, 500, -1920, 1920) == -1670,
                 "the clamp works left of the primary monitor too");
 
-            // T5: a group adds no tile and no layout slot - its three members
-            // are three tiles, exactly like three ungrouped widgets (the count
-            // badge rides inside each tile, so the middle section is unchanged).
+            // P2: a group folds to one island tile. Its three members no longer
+            // contribute three slots - the folded tile occupies one middle slot
+            // and the other members leave the row.
             var group = new WidgetGroup { Id = "g1", ActiveWidgetId = "m1" };
             var grouped = new List<WidgetData>
             {
@@ -148,12 +173,16 @@ namespace Kobold.IslandLayoutCheck
                 new FolderData { Id = "m2", GroupId = "g1", GroupOrder = 1 },
                 new FolderData { Id = "m3", GroupId = "g1", GroupOrder = 2 }
             };
-            int memberTiles = GroupHostPolicy.MembersOf(group, grouped).Count;
-            Check(memberTiles == 3, "island: a three-member group still contributes three tiles");
-            Check(IslandLayout.MiddleContentWidth(memberTiles) == IslandLayout.MiddleContentWidth(3),
-                "island: grouping does not change the middle content width");
-            Check(Math.Abs(IslandLayout.ContentWidth(memberTiles, 1560) - IslandLayout.ContentWidth(3, 1560)) < 0.001,
-                "island: grouping does not change the capsule width");
+            var projected = GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { group }, grouped, id => false);
+            Check(projected.Count == 1,
+                "island: a three-member group folds into one group tile");
+            Check(IslandLayout.MiddleContentWidth(projected.Count)
+                  == IslandLayout.MiddleContentWidth(1),
+                "island: the folded group tile occupies one middle slot");
+            Check(Math.Abs(IslandLayout.ContentWidth(projected.Count, 1560)
+                           - IslandLayout.ContentWidth(1, 1560)) < 0.001,
+                "island: grouping one member slot does not widen the capsule");
         }
     }
 }

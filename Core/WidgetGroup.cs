@@ -23,6 +23,13 @@ namespace Kobold.Core
         public bool IsExpanded { get; set; }
         public bool IsLocked { get; set; }
         public bool IsPanelPinned { get; set; }
+
+        /// <summary>
+        /// True while the group's member icons are shown inline in the island
+        /// row. Independent of <see cref="IsExpanded"/> (the group window) and
+        /// persisted so the row survives an island collapse and a restart.
+        /// </summary>
+        public bool IslandExpanded { get; set; }
     }
 
     /// <summary>

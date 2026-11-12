@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kobold — Widget Groups UI1c · Size Policy</title>
+<style>
+:root {
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Fraunces', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, Georgia, serif;
+  --page-ink: #1b1813;
+  --page-muted: #655c4f;
+
+  --dark-bg: #191714;
+  --dark-surface: #211e1a;
+  --dark-surface2: #2a261f;
+  --dark-border: #3d372e;
+  --dark-border-soft: #332e26;
+  --dark-text: #faf6ee;
+  --dark-secondary: #cbc3b5;
+  --dark-muted: #91887a;
+  --dark-faint: #6f675b;
+  --dark-accent: #d97757;
+
+  --light-bg: #f7f2e8;
+  --light-surface: #fbf8f1;
+  --light-surface2: #f0e9dc;
+  --light-border: #d8cfc0;
+  --light-border-soft: #e5dccd;
+  --light-text: #2b2620;
+  --light-secondary: #6f6659;
+  --light-muted: #8b8172;
+  --light-faint: #afa391;
+  --light-accent: #cc785c;
+
+  --todo: #6a9bcc;
+  --note: #788c5d;
+  --gold: #d4a017;
+}
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0; padding: 42px 48px 46px;
+  font-family: var(--font-ui); color: var(--page-ink);
+  background:
+    radial-gradient(1000px 560px at 8% -6%, #f4ecdd 0%, rgba(244,236,221,0) 62%),
+    radial-gradient(820px 560px at 96% 12%, #cfc0a7 0%, rgba(207,192,167,0) 58%),
+    linear-gradient(135deg, #e3d7c2 0%, #d6ccba 48%, #c9bba4 100%);
+}
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+svg.icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+svg.icon.sm { width: 13px; height: 13px; }
+svg.icon.xs { width: 11px; height: 11px; }
+.page { max-width: 1540px; margin: 0 auto; }
+
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 26px; }
+.eyebrow { font-size: 10px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase; color: #7a7164; margin-bottom: 10px; }
+.page-head h1 { font-family: var(--font-display); font-weight: 400; font-size: 46px; line-height: 1.02; letter-spacing: -.035em; margin: 0 0 9px; }
+.page-head p { margin: 0; max-width: 760px; font-size: 13px; line-height: 1.7; color: var(--page-muted); }
+.head-side { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; padding-bottom: 4px; }
+.version-chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #bfb19b; border-radius: 999px; padding: 6px 11px; font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #5d5548; background: rgba(249,244,234,.62); }
+.version-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--dark-accent); }
+.head-note { font-size: 10px; line-height: 1.65; text-align: right; color: #7a7164; letter-spacing: .02em; white-space: nowrap; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.stage-card { min-width: 0; border: 1px solid rgba(126,111,89,.22); border-radius: 20px; background: rgba(249,244,234,.34); padding: 18px 18px 20px; box-shadow: 0 24px 60px rgba(83,69,48,.10); }
+.stage-label { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 12px; font-size: 10px; color: #6f6659; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; }
+.stage-label .hint { text-transform: none; letter-spacing: .01em; font-weight: 400; color: #8b8172; }
+
+/* ---------- group: left rail + pane ---------- */
+.group {
+  display: flex; width: 100%; max-width: 760px; height: 540px;
+  border-radius: 14px; overflow: hidden; position: relative;
+  border: 1px solid var(--dark-border); background: var(--dark-bg);
+  box-shadow: 0 26px 54px rgba(0,0,0,.46), 0 2px 0 rgba(255,255,255,.03) inset;
+  color: var(--dark-text); font-size: 12px;
+}
+.group.light { border-color: var(--light-border); background: var(--light-bg); color: var(--light-text); box-shadow: 0 26px 54px rgba(80,65,43,.22), 0 2px 0 rgba(255,255,255,.55) inset; }
+
+.rail {
+  width: 142px; flex: none; display: flex; flex-direction: column;
+  background: var(--dark-surface2); border-right: 1px solid var(--dark-border);
+  padding: 12px 9px 10px;
+}
+.group.light .rail { background: var(--light-surface2); border-right-color: var(--light-border); }
+.rail-head { display: flex; align-items: center; justify-content: space-between; padding: 1px 5px 11px; }
+.rail-eyebrow { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--dark-muted); font-weight: 600; }
+.group.light .rail-eyebrow { color: var(--light-muted); }
+.rail-count { min-width: 17px; height: 17px; border-radius: 9px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: var(--dark-secondary); background: rgba(250,246,238,.06); }
+.group.light .rail-count { color: var(--light-secondary); background: rgba(43,38,32,.06); }
+
+.rail-tabs { display: flex; flex-direction: column; gap: 3px; }
+.rail-tab {
+  height: 37px; border-radius: 8px; border: 1px solid transparent;
+  display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  color: var(--dark-secondary); cursor: pointer; white-space: nowrap;
+  font-size: 12.5px; font-weight: 500; transition: background .14s ease, color .14s ease;
+}
+.group.light .rail-tab { color: var(--light-secondary); }
+.rail-tab .tab-icon { color: var(--dark-muted); display: flex; }
+.group.light .rail-tab .tab-icon { color: var(--light-muted); }
+.rail-tab:hover { background: rgba(250,246,238,.055); color: var(--dark-text); }
+.group.light .rail-tab:hover { background: rgba(43,38,32,.055); color: var(--light-text); }
+.rail-tab.active { background: var(--dark-bg); border-color: var(--dark-border); color: var(--dark-text); box-shadow: 0 1px 0 rgba(255,255,255,.035) inset; }
+.group.light .rail-tab.active { background: var(--light-bg); border-color: var(--light-border); color: var(--light-text); }
+.rail-tab.active .tab-icon { color: var(--accent); }
+.rail-tab .tab-label { overflow: hidden; text-overflow: ellipsis; }
+.rail-tab .tab-more { margin-left: auto; color: var(--dark-muted); opacity: 0; }
+.rail-tab.active .tab-more { opacity: 1; }
+.group.light .rail-tab .tab-more { color: var(--light-muted); }
+
+.rail-foot { margin-top: auto; padding: 10px 5px 2px; font-size: 9.5px; line-height: 1.65; color: var(--dark-faint); }
+.group.light .rail-foot { color: var(--light-faint); }
+
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--dark-bg); }
+.group.light .pane { background: var(--light-bg); }
+.pane-header {
+  height: 45px; flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; border-top: 2px solid var(--accent, var(--dark-accent));
+  border-bottom: 1px solid var(--dark-border); background: var(--dark-surface2);
+}
+.group.light .pane-header { background: var(--light-surface2); border-bottom-color: var(--light-border); }
+.pane-title { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.pane-title .name { font-family: var(--font-display); font-size: 16px; font-weight: 500; letter-spacing: -.01em; white-space: nowrap; }
+.pane-title .meta { font-size: 9.5px; color: var(--dark-muted); white-space: nowrap; }
+.group.light .pane-title .meta { color: var(--light-muted); }
+.pane-title .chevron { color: var(--dark-muted); display: flex; margin-left: 1px; }
+.group.light .pane-title .chevron { color: var(--light-muted); }
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.icon-btn { width: 26px; height: 26px; border: 0; border-radius: 7px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--dark-muted); cursor: pointer; }
+.icon-btn:hover { background: rgba(250,246,238,.07); color: var(--dark-text); }
+.group.light .icon-btn { color: var(--light-muted); }
+.group.light .icon-btn:hover { background: rgba(43,38,32,.06); color: var(--light-text); }
+.icon-btn.pinned, .icon-btn.locked { color: var(--gold); }
+.pane-body { flex: 1; min-height: 0; padding: 13px 15px 15px; }
+
+/* ---------- todo ---------- */
+.todo { display: flex; flex-direction: column; height: 460px; }
+.month-nav { display: grid; grid-template-columns: 24px 1fr 24px auto; align-items: center; height: 28px; gap: 2px; }
+.nav-button { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dark-secondary); }
+.month-title { text-align: center; font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.today-pill { height: 20px; padding: 0 8px; border-radius: 10px; display: inline-flex; align-items: center; background: var(--dark-surface2); color: var(--dark-secondary); font-size: 10px; margin-left: 5px; }
+.group.light .today-pill { background: var(--light-surface2); color: var(--light-secondary); }
+.week-head { display: grid; grid-template-columns: repeat(7, 1fr); margin-top: 7px; }
+.week-head span { text-align: center; font-size: 9.5px; color: var(--dark-muted); letter-spacing: .04em; padding: 1px 0 4px; }
+.group.light .week-head span { color: var(--light-muted); }
+.calendar { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 31px; border-top: 1px solid var(--dark-border-soft); }
+.group.light .calendar { border-top-color: var(--light-border-soft); }
+.day { position: relative; display: flex; align-items: center; justify-content: center; font-size: 11.5px; color: var(--dark-secondary); border-bottom: 1px solid rgba(61,55,46,.38); }
+.group.light .day { color: var(--light-secondary); border-bottom-color: rgba(216,207,192,.62); }
+.day:nth-child(7n), .day:nth-child(7n-6) { color: var(--dark-muted); }
+.group.light .day:nth-child(7n), .group.light .day:nth-child(7n-6) { color: var(--light-muted); }
+.day.out { color: var(--dark-faint); opacity: .62; }
+.group.light .day.out { color: var(--light-faint); }
+.day .num { position: relative; z-index: 1; }
+.day.selected .num { color: var(--accent); width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--accent); border-radius: 50% 46% 51% 48%; transform: rotate(-4deg); }
+.day.selected::after { content: ''; position: absolute; width: 5px; height: 5px; right: calc(50% - 14px); top: 2px; border-right: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent); transform: rotate(38deg); opacity: .95; }
+.day.today .num::after { content: ''; position: absolute; left: 50%; bottom: 1px; width: 3px; height: 3px; border-radius: 50%; background: var(--accent); transform: translateX(-50%); }
+.divider { height: 1px; background: var(--dark-border-soft); margin: 9px 0 8px; }
+.group.light .divider { background: var(--light-border-soft); }
+.day-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 3px; }
+.day-head .date { font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.day-head .count { font-size: 10px; color: var(--dark-muted); }
+.group.light .day-head .count { color: var(--light-muted); }
+.todo-list { display: flex; flex-direction: column; }
+.todo-row { display: flex; align-items: flex-start; gap: 8px; min-height: 31px; padding: 5px 7px; border-radius: 6px; color: var(--dark-text); }
+.todo-row:hover { background: rgba(250,246,238,.035); }
+.group.light .todo-row { color: var(--light-text); }
+.group.light .todo-row:hover { background: rgba(43,38,32,.035); }
+.checkbox { width: 15px; height: 15px; border-radius: 4px; border: 1.4px solid var(--dark-muted); flex: none; margin-top: 1px; display: flex; align-items: center; justify-content: center; color: transparent; }
+.group.light .checkbox { border-color: var(--light-muted); }
+.checkbox.checked { background: var(--accent); border-color: var(--accent); color: #fff; }
+.todo-row.done .todo-text { text-decoration: line-through; color: var(--dark-muted); }
+.group.light .todo-row.done .todo-text { color: var(--light-muted); }
+.todo-text { font-size: 12px; line-height: 1.35; padding-top: .5px; }
+.todo-child { display: flex; align-items: flex-start; gap: 7px; min-height: 24px; padding: 2px 7px 2px 30px; color: var(--dark-secondary); }
+.group.light .todo-child { color: var(--light-secondary); }
+.todo-child .checkbox { width: 12px; height: 12px; border-radius: 3px; margin-top: 1px; }
+.todo-child .todo-text { font-size: 11px; }
+.add-pill { margin-top: 7px; height: 30px; border-radius: 15px; border: 1px solid rgba(106,155,204,.36); background: rgba(106,155,204,.10); color: var(--accent); display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 11.5px; width: fit-content; }
+.add-pill .plus { font-size: 15px; line-height: 1; margin-top: -1px; }
+
+/* ---------- notes ---------- */
+.notes { height: 460px; display: flex; flex-direction: column; gap: 8px; }
+.note-card { border: 1px solid var(--light-border); border-radius: 9px; background: var(--light-surface); padding: 9px 11px 9px; box-shadow: 0 1px 0 rgba(255,255,255,.55) inset; }
+.note-card:hover { border-color: #c8bcaa; background: #fdfbf6; }
+.note-title-row { display: flex; align-items: baseline; gap: 8px; }
+.note-title { font-size: 12.5px; font-weight: 600; letter-spacing: .01em; }
+.note-time { margin-left: auto; font-size: 9.5px; color: var(--light-muted); white-space: nowrap; }
+.note-excerpt { margin-top: 3px; font-size: 10.5px; line-height: 1.55; color: var(--light-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note-progress { margin-top: 5px; display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--light-muted); }
+.note-progress .bar { width: 54px; height: 3px; border-radius: 2px; background: #e5dccd; overflow: hidden; }
+.note-progress .bar span { display: block; height: 100%; background: var(--note); border-radius: 2px; }
+
+/* ---------- states ---------- */
+.section { margin-top: 26px; border: 1px solid rgba(126,111,89,.22); border-radius: 20px; background: rgba(249,244,234,.42); padding: 22px 24px 24px; box-shadow: 0 18px 44px rgba(83,69,48,.08); }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.section-head h2 { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: -.02em; }
+.section-head p { margin: 0; font-size: 11px; line-height: 1.6; color: #7a7164; max-width: 620px; }
+.states { display: grid; grid-template-columns: 1.1fr 1fr .95fr; gap: 16px; }
+.state-card { border: 1px solid rgba(126,111,89,.20); border-radius: 13px; background: rgba(255,253,248,.58); padding: 14px 14px 15px; min-height: 172px; }
+.state-title { font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #7a7164; margin-bottom: 11px; }
+.state-note { margin-top: 9px; font-size: 10.5px; line-height: 1.6; color: #71685a; }
+.rail-crop { width: 142px; border-radius: 10px; background: var(--dark-surface2); border: 1px solid var(--dark-border); padding: 9px 8px; }
+.rail-crop .rail-tab { height: 34px; font-size: 11.5px; }
+.rail-crop .rail-tab.active { background: var(--dark-bg); }
+.menu-demo { width: 100%; border-radius: 10px; border: 1px solid #3d372e; background: #211e1a; padding: 6px; color: #faf6ee; box-shadow: 0 12px 26px rgba(0,0,0,.28); }
+.menu-row { height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 9px; border-radius: 7px; font-size: 11px; color: #cbc3b5; }
+.menu-row .mi { color: #91887a; }
+.menu-row.highlight { background: #2a261f; color: #faf6ee; }
+.menu-row.highlight .mi { color: #d97757; }
+.menu-sep { height: 1px; background: #3d372e; margin: 5px 10px; }
+.drag-demo { position: relative; height: 90px; border-radius: 10px; background: linear-gradient(180deg, #f2ebdf, #e9dfcf); border: 1px solid #d8cfc0; overflow: hidden; }
+.ghost-tab { position: absolute; left: 14px; top: 20px; height: 34px; padding: 0 12px; border-radius: 8px; background: #fbf8f1; border: 1px solid #c8bcaa; color: #2b2620; display: inline-flex; align-items: center; gap: 7px; font-size: 11px; box-shadow: 0 9px 18px rgba(80,65,43,.18); transform: rotate(-2deg); opacity: .94; }
+.ghost-window { position: absolute; right: 12px; top: 16px; width: 142px; height: 62px; border-radius: 8px; border: 1.5px dashed #b8a98f; background: rgba(251,248,241,.48); }
+.ghost-window::before { content: '独立窗口'; position: absolute; left: 9px; top: 7px; font-size: 8px; letter-spacing: .07em; color: #8b8172; }
+.drag-arrow { position: absolute; left: 134px; top: 38px; width: 50px; height: 1px; background: #b8a98f; transform: rotate(-8deg); }
+.drag-arrow::after { content: ''; position: absolute; right: -1px; top: -3px; width: 7px; height: 7px; border-right: 1.5px solid #b8a98f; border-top: 1.5px solid #b8a98f; transform: rotate(45deg); }
+.rule-strip { margin-top: 16px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 10px; color: #6f6659; }
+.rule-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 999px; border: 1px solid rgba(126,111,89,.24); background: rgba(255,253,248,.54); }
+.rule-chip b { font-weight: 600; color: #4c4439; }
+.footer { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 20px; font-size: 10px; line-height: 1.6; color: #7a7164; }
+.footer strong { font-weight: 600; color: #5d5548; }
+
+.size-section .section-head { margin-bottom: 18px; }
+.size-policy { display: flex; gap: 18px; align-items: flex-start; }
+.size-diagram {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 20px; border-radius: 14px;
+  border: 1px solid rgba(126,111,89,.20); background: rgba(255,253,248,.52);
+}
+.size-member {
+  flex: none; width: 126px; height: 96px; border-radius: 10px; padding: 10px 11px;
+  display: flex; flex-direction: column; gap: 4px; border: 1px solid;
+}
+.size-member.note { background: #edf2e7; border-color: #c9d4bd; }
+.size-member.todo { width: 142px; height: 116px; background: #e8eff7; border-color: #bfd0e4; }
+.size-name { font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #6f6659; }
+.size-member b, .size-group b { font-family: var(--font-display); font-size: 16px; font-weight: 500; color: #2b2620; white-space: nowrap; }
+.size-member em, .size-group em { font-style: normal; font-size: 9.5px; color: #8b8172; }
+.size-op { color: #a79a86; font-size: 20px; }
+.size-op.arrow { font-size: 24px; }
+.size-group {
+  flex: none; width: 178px; height: 124px; border-radius: 10px; padding: 12px 13px;
+  background: #211e1a; color: #faf6ee; border: 1px solid #3d372e;
+  display: flex; flex-direction: column; gap: 4px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+}
+.size-group .size-name { color: #91887a; }
+.size-group b { color: #faf6ee; }
+.size-group em { color: #91887a; }
+.size-rules { flex: 1 1 45%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+.size-rule {
+  border: 1px solid rgba(126,111,89,.20); border-radius: 10px;
+  background: rgba(255,253,248,.58); padding: 10px 12px;
+}
+.size-rule b {
+  display: block; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: #5d5548; margin-bottom: 4px;
+}
+.size-rule p { margin: 0; font-size: 10.5px; line-height: 1.55; color: #71685a; }
+.size-note { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.size-note span {
+  font-size: 10px; color: #6f6659; border: 1px solid rgba(126,111,89,.24);
+  border-radius: 999px; padding: 5px 9px; background: rgba(255,253,248,.45);
+}
+
+@media (max-width: 1180px) {
+  body { padding: 28px 22px 32px; }
+  .stage { grid-template-columns: 1fr; }
+  .states { grid-template-columns: 1fr 1fr; }
+  .page-head { align-items: flex-start; }
+  .head-note { white-space: normal; }
+}
+</style>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.2"></rect><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"></path><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"></path></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3.5h8.5L19 8v12.5H6z"></path><path d="M14.5 3.5V8H19M9 12h6M9 15h6M9 18h4"></path></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7.5a4 4 0 0 1 8 0V10M12 14v2"></path></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3zM12 14v6"></path></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"></circle></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"></path></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"></path></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"></path></symbol>
+  <symbol id="i-detach" viewBox="0 0 24 24"><path d="M9 4H4v5M15 20h5v-5M4 4l6 6M20 20l-6-6"></path></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17h1.2a1.8 1.8 0 0 0 0-3.6h-.6a1.8 1.8 0 0 1 0-3.6H16a4.5 4.5 0 0 0 4.5-4.5c0-2.9-3.8-5.3-8.5-5.3Z"></path><circle cx="7.5" cy="10" r=".9" fill="currentColor" stroke="none"></circle><circle cx="10" cy="6.8" r=".9" fill="currentColor" stroke="none"></circle><circle cx="14" cy="6.8" r=".9" fill="currentColor" stroke="none"></circle></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16zM14.5 5.5l4 4"></path></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"></path></symbol>
+</svg>
+
+<div class="page">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Kobold · Widget Groups · UI1c</div>
+      <h1>尺寸不同，组怎么长</h1>
+      <p>左侧标签栏不变；这一版补上“组件宽高不一样”的规则：合并时组窗口按较大的成员长，切换标签时不跳窗，内容按共享视口重排；分离时各自回到自己的尺寸。</p>
+    </div>
+    <div class="head-side">
+      <div class="version-chip"><i></i>UI1c · 尺寸策略</div>
+      <div class="head-note">dark / light · Todo + Note only<br>尺寸为示意，实际 clamp 到工作区 · 2026-11-03</div>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="stage-card">
+      <div class="stage-label"><span>01 · Dark · Todo active</span><span class="hint">Todo 内容首选约 600×480；组窗口不跟着缩</span></div>
+      <div class="group" style="--accent: var(--todo);">
+        <aside class="rail">
+          <div class="rail-head"><span class="rail-eyebrow">组件</span><span class="rail-count">2</span></div>
+          <div class="rail-tabs">
+            <div class="rail-tab active">
+              <span class="tab-icon"><svg class="icon sm"><use href="#i-calendar"></use></svg></span>
+              <span class="tab-label">待办</span>
+            </div>
+            <div class="rail-tab">
+              <span class="tab-icon"><svg class="icon sm"><use href="#i-note"></use></svg></span>
+              <span class="tab-label">笔记</span>
+            </div>
+          </div>
+          <div class="rail-foot">待办<br>约 600×480</div>
+        </aside>
+        <section class="pane">
+          <header class="pane-header">
+            <div class="pane-title">
+              <span class="name">待办</span>
+              <span class="meta">2 个组件</span>
+            </div>
+            <div class="header-actions">
+              <button class="icon-btn" title="当前组件菜单"><svg class="icon sm"><use href="#i-more"></use></svg></button>
+              <button class="icon-btn" title="锁定"><svg class="icon sm"><use href="#i-lock"></use></svg></button>
+              <button class="icon-btn pinned" title="置顶"><svg class="icon sm"><use href="#i-pin"></use></svg></button>
+            </div>
+          </header>
+          <div class="pane-body">
+            <div class="todo">
+              <div class="month-nav">
+                <div class="nav-button"><svg class="icon sm"><use href="#i-chev-left"></use></svg></div>
+                <div class="month-title">2026 年 11 月</div>
+                <div class="nav-button"><svg class="icon sm"><use href="#i-chev-right"></use></svg></div>
+                <div class="today-pill">今天</div>
+              </div>
+              <div class="week-head"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+              <div class="calendar">
+                <div class="day out"><span class="num">26</span></div><div class="day out"><span class="num">27</span></div><div class="day out"><span class="num">28</span></div><div class="day out"><span class="num">29</span></div><div class="day out"><span class="num">30</span></div><div class="day out"><span class="num">31</span></div><div class="day"><span class="num">1</span></div>
+                <div class="day"><span class="num">2</span></div><div class="day selected today"><span class="num">3</span></div><div class="day"><span class="num">4</span></div><div class="day"><span class="num">5</span></div><div class="day"><span class="num">6</span></div><div class="day"><span class="num">7</span></div><div class="day"><span class="num">8</span></div>
+                <div class="day"><span class="num">9</span></div><div class="day"><span class="num">10</span></div><div class="day"><span class="num">11</span></div><div class="day"><span class="num">12</span></div><div class="day"><span class="num">13</span></div><div class="day"><span class="num">14</span></div><div class="day"><span class="num">15</span></div>
+                <div class="day"><span class="num">16</span></div><div class="day"><span class="num">17</span></div><div class="day"><span class="num">18</span></div><div class="day"><span class="num">19</span></div><div class="day"><span class="num">20</span></div><div class="day"><span class="num">21</span></div><div class="day"><span class="num">22</span></div>
+                <div class="day"><span class="num">23</span></div><div class="day"><span class="num">24</span></div><div class="day"><span class="num">25</span></div><div class="day"><span class="num">26</span></div><div class="day"><span class="num">27</span></div><div class="day"><span class="num">28</span></div><div class="day"><span class="num">29</span></div>
+                <div class="day"><span class="num">30</span></div><div class="day out"><span class="num">1</span></div><div class="day out"><span class="num">2</span></div><div class="day out"><span class="num">3</span></div><div class="day out"><span class="num">4</span></div><div class="day out"><span class="num">5</span></div><div class="day out"><span class="num">6</span></div>
+              </div>
+              <div class="divider"></div>
+              <div class="day-head"><span class="date">11 月 3 日 · 周二</span><span class="count">3 项</span></div>
+              <div class="todo-list">
+                <div class="todo-row"><span class="checkbox"></span><span class="todo-text">整理 UI1b 左侧标签栏的交互状态</span></div>
+                <div class="todo-child"><span class="checkbox checked"><svg class="icon xs"><use href="#i-check"></use></svg></span><span class="todo-text">确认左侧 rail 的激活层级</span></div>
+                <div class="todo-child"><span class="checkbox"></span><span class="todo-text">拖出标签的 ghost 与落点提示</span></div>
+                <div class="todo-row done"><span class="checkbox checked"><svg class="icon xs"><use href="#i-check"></use></svg></span><span class="todo-text">阅读 WidgetManager / WidgetChrome</span></div>
+              </div>
+              <div class="add-pill"><span class="plus">＋</span><span>添加待办</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="stage-card">
+      <div class="stage-label"><span>02 · Light · Note active</span><span class="hint">Note 内容首选约 300×380；组内按共享视口重排</span></div>
+      <div class="group light" style="--accent: var(--note);">
+        <aside class="rail">
+          <div class="rail-head"><span class="rail-eyebrow">组件</span><span class="rail-count">2</span></div>
+          <div class="rail-tabs">
+            <div class="rail-tab">
+              <span class="tab-icon"><svg class="icon sm"><use href="#i-calendar"></use></svg></span>
+              <span class="tab-label">待办</span>
+            </div>
+            <div class="rail-tab active">
+              <span class="tab-icon"><svg class="icon sm"><use href="#i-note"></use></svg></span>
+              <span class="tab-label">笔记</span>
+            </div>
+          </div>
+          <div class="rail-foot">笔记<br>约 300×380</div>
+        </aside>
+        <section class="pane">
+          <header class="pane-header">
+            <div class="pane-title">
+              <span class="name">笔记</span>
+              <span class="meta">2 个组件</span>
+            </div>
+            <div class="header-actions">
+              <button class="icon-btn" title="当前组件菜单"><svg class="icon sm"><use href="#i-more"></use></svg></button>
+              <button class="icon-btn locked" title="锁定"><svg class="icon sm"><use href="#i-lock"></use></svg></button>
+              <button class="icon-btn" title="置顶"><svg class="icon sm"><use href="#i-pin"></use></svg></button>
+            </div>
+          </header>
+          <div class="pane-body">
+            <div class="notes">
+              <div class="note-card">
+                <div class="note-title-row"><span class="note-title">周二产品评审</span><span class="note-time">今天 14:20</span></div>
+                <div class="note-excerpt">标签组首版只做 Todo + Note；左侧 rail 负责切换，右侧内容保持自己的状态。拖出标签是主路径，右键菜单兜底。</div>
+                <div class="note-progress"><svg class="icon xs"><use href="#i-check"></use></svg><span>2 / 4</span><span class="bar"><span style="width:50%"></span></span></div>
+              </div>
+              <div class="note-card">
+                <div class="note-title-row"><span class="note-title">FolderWidget 风险清单</span><span class="note-time">昨天 18:02</span></div>
+                <div class="note-excerpt">内容与窗口行为耦合：拖拽、浏览栈、watcher、原生 Shell 菜单都直接读 Host。先把 View 抽出来，再谈进组。</div>
+                <div class="note-progress"><svg class="icon xs"><use href="#i-check"></use></svg><span>1 / 6</span><span class="bar"><span style="width:16%"></span></span></div>
+              </div>
+              <div class="note-card">
+                <div class="note-title-row"><span class="note-title">island 点击规则</span><span class="note-time">11 月 1 日</span></div>
+                <div class="note-excerpt">点击组内任意组件 → 打开组窗口并切到对应标签；已经打开时只切换标签，不重复创建窗口。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <section class="section size-section">
+    <div class="section-head">
+      <h2>不同尺寸怎么处理</h2>
+      <p>组窗口只有一套尺寸。成员自己的宽高只在合并和分离时参与计算；切换标签时不跳窗，内容按共享视口重排。</p>
+    </div>
+
+    <div class="size-policy">
+      <div class="size-diagram">
+        <div class="size-member note">
+          <span class="size-name">笔记</span>
+          <b>约 300×380</b>
+          <em>内容首选</em>
+        </div>
+        <div class="size-op">+</div>
+        <div class="size-member todo">
+          <span class="size-name">待办</span>
+          <b>约 600×480</b>
+          <em>内容首选</em>
+        </div>
+        <div class="size-op arrow">→</div>
+        <div class="size-group">
+          <span class="size-name">组窗口</span>
+          <b>约 760×540</b>
+          <em>rail 142 + 共享视口</em>
+        </div>
+      </div>
+      <div class="size-rules">
+        <div class="size-rule"><b>合并时</b><p>组窗口取“目标尺寸 / 新成员首选 / 所有成员最小”的最大值，再 clamp 到工作区。新成员更大，组长大；新成员更小，组不缩。</p></div>
+        <div class="size-rule"><b>切换时</b><p>组窗口尺寸不变。当前 View 铺满共享视口并重排：Todo 日历/列表、Note 卡片、Folder 列数都按这个视口算。</p></div>
+        <div class="size-rule"><b>分离时</b><p>独立窗口恢复该组件自己记住的宽高（例如笔记回 300×380），不继承组窗口的 760×540。</p></div>
+        <div class="size-rule"><b>下限</b><p>组最小尺寸 = 所有成员最小尺寸的最大值；拖动组边框不会小于它，避免切到某个标签时内容被裁。</p></div>
+      </div>
+    </div>
+
+    <div class="size-note">
+      <span>尺寸仅示意</span>
+      <span>组内不做 per-tab resize</span>
+      <span>成员尺寸只在分离时恢复</span>
+      <span>大组件进来，组长大；小组件进来，组不缩</span>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div><strong>Widget Groups UI1c</strong> · shared viewport, per-member size kept for separation · Todo + Note only</div>
+    <div>静态视觉稿，仅用于确认方向 · 不改生产代码 · 2026-11-03</div>
+  </footer>
+</div>
+
+</body>
+</html>
+
+
+
+

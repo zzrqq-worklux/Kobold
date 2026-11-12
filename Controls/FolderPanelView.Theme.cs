@@ -10,14 +10,14 @@ using Path = System.Windows.Shapes.Path;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - Theme related methods
+    /// FolderPanelView - Theme related methods
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         /// <summary>
         /// Refreshes entire widget theme - called when theme changes or on startup
         /// </summary>
-        public override void RefreshTheme()
+        public void RefreshTheme()
         {
             // Apply all theme colors synchronously
             ApplyThemeColors();
@@ -36,7 +36,7 @@ namespace Kobold.Controls
             // Panel shell, title, lock/pin icons and header tint: the chrome
             // repaints all of them from its own state (same maths as the old
             // hand-built shell).
-            Chrome.ApplyTheme();
+            Chrome?.ApplyTheme();
 
             // Empty state text
             EmptyText.Foreground = textBrush;
@@ -65,6 +65,10 @@ namespace Kobold.Controls
         
         private void UpdatePanelColor()
         {
+            // Inactive tabs must not repaint the shared chrome for the active
+            // tab; Activate runs UpdateUI and applies the folder colour.
+            if (!_isActive || Chrome == null) return;
+
             // Claude Warm: the panel is a near-opaque theme surface, never a
             // widget-colour wash. The widget colour tints the 1 DIP outer
             // border, the header rail/dot and the item selection.
@@ -108,7 +112,7 @@ namespace Kobold.Controls
         /// settings. Only the legacy fallback path reaches it; every running
         /// panel uses its persisted size.
         /// </summary>
-        protected override (double width, double height) GetContentSize()
+        internal (double width, double height) GetContentSize()
         {
             var (w, h) = PanelLayoutAdapter.MigrateFolderSize(
                 Math.Max(1, _data.GridColumns), _data.MaxPanelRows, Math.Max(1, _lastItemCount), GetItemScale());

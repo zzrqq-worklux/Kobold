@@ -1,266 +1,115 @@
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
+using System.Windows.Input;
 using Kobold.Core;
 using Kobold.Helpers;
-using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
-    /// <summary>
-    /// FolderWidget - Main class with core functionality
-    /// Partial classes: Theme.cs, Dialogs.cs, Interactions.cs
-    /// Implements INotifyPropertyChanged for data binding; the shared panel
-    /// behaviour (show/hide, placement, lock/pin/drag, modals) lives in
-    /// <see cref="WidgetWindowBase"/>.
-    /// </summary>
-    public partial class FolderWidget : WidgetWindowBase, INotifyPropertyChanged
+    /// <summary>Standalone folder window: shared chrome, host adaptation and lifecycle.</summary>
+    public partial class FolderWidget : WidgetWindowBase, IWidgetViewHost, IFolderPanelHost
     {
-        #region INotifyPropertyChanged
-        
-        public event PropertyChangedEventHandler PropertyChanged;
-        
-        protected void OnPropertyChanged(string propertyName)
+        private readonly FolderData _folderData;
+        private readonly FolderPanelView _view;
+
+        public FolderWidget(FolderData data) : this(data, null)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-        
-        #endregion
-        
-        #region Fields
-        
-        private FolderData _data;
-        
-        // Item drag-drop fields
-        private bool _isDraggingItem = false;
-        private Point _itemDragStartPos;
-        private DisplayItem _draggedItem = null;
-
-        private int _lastItemCount;
-
-        // Bumped by every UpdateUI. A background icon load from an older
-        // generation must not repaint the newer items after a folder-color
-        // change rebuilt the list.
-        private int _iconLoadGeneration;
-
-        // The adaptive layout's current column count (bound by the items grid).
-        private int _adaptiveColumns = WidgetConstants.DEFAULT_GRID_COLUMNS;
-
-        // Constants from WidgetConstants for local access
-        private const double DRAG_THRESHOLD = WidgetConstants.DRAG_THRESHOLD;
-
-        // The user-set icon scale (the menu's six sizes; default 1.1). The
-        // live layout reads it on every re-arrange, the engine fallback size
-        // and this widget's dynamic panel minimum read it too.
-        private double GetItemScale()
-        {
-            try { return WidgetManager.Instance.Config.ItemScale; }
-            catch { return 1.1; } // AppConfig.ItemScale default when the manager is not ready
         }
 
-        // The dynamic kind minimum: two columns at the current icon scale.
-        protected override (double width, double height) GetMinPanelSize()
-            => PanelLayoutAdapter.MinFolderSize(GetItemScale());
-        
-        #endregion
-
-        #region Properties
-
-        public string FolderId => _data.Id;
-
         /// <summary>
-        /// The panel's shell element (the chrome's border): its backdrop,
-        /// hit-test root and the carrier of the widget-local selection brush
-        /// resources. Exposed for the XamlLoadCheck pin that used to name
-        /// ExpandedPanel directly.
+        /// Builds the standalone host around a live FolderPanelView released by
+        /// a group, or a fresh view when <paramref name="contents"/> is null.
+        /// The released view is rebound, never re-attached or rebuilt.
         /// </summary>
-        public FrameworkElement PanelShell => Chrome.Shell;
-
-        /// <summary>
-        /// Grid columns for XAML binding - derived from the panel size by the
-        /// layout adapter. Read-only: the retired menu was the only writer.
-        /// </summary>
-        public int GridColumns => _adaptiveColumns;
-        
-        #endregion
-
-        #region Constructor
-
-        public FolderWidget(FolderData data) : base(data)
+        internal FolderWidget(FolderData data, IWidgetContentView contents) : base(data)
         {
             InitializeComponent();
-            _data = data;
+            _folderData = data;
             Left = data.PosX;
             Top = data.PosY;
 
-            // Browsing is remembered across hiding the panel and restarting the
-            // app; a folder that is gone falls back to the widget's own items.
-            // Must run before AttachChrome: its UpdateUI reads the browse stack.
-            _browseStack.AddRange(BrowsePath.NormalizeStack(_data.BrowseStack, System.IO.Directory.Exists));
-
-            // The shared chrome owns the shell, the lock/pin buttons and the
-            // header drag/right-click input; AttachChrome wires all of it and
-            // calls UpdateUI. The folder keeps its own panel-background input.
-            InstallChromeSlots();
             AttachChrome(FolderChrome);
-            Chrome.Shell.MouseLeftButtonDown += PanelShell_MouseLeftButtonDown;
-            Chrome.Shell.MouseRightButtonDown += PanelShell_MouseRightButtonDown;
 
-            // Folder changes on disk refresh the browse view (see Watch.cs).
-            _browseWatcher.Changed += OnBrowseFolderChanged;
-
-            // The native shell menu (Task 5) needs the panel's HWND to forward
-            // WM_DRAWITEM/WM_MEASUREITEM/WM_INITMENUPOPUP to IContextMenu2/3.
-            SourceInitialized += (s, e) => EnsureMenuHook();
-
-            Closing += (s, e) => _browseWatcher.Dispose();
-        }
-
-        /// <summary>
-        /// Moves the folder's header buttons, content grid and footer hint from
-        /// the XAML staging grid into the chrome's slots. The chrome exposes
-        /// its slots as fields (ContentPresenter), so the assignment has to
-        /// happen here; the layout each slot used to have is unchanged.
-        /// </summary>
-        private void InstallChromeSlots()
-        {
-            // Detach from the staging grid first: WPF refuses to hand an element
-            // that already has a logical parent to a ContentPresenter.
-            SlotSource.Children.Remove(BackButton);
-            SlotSource.Children.Remove(PathButton);
-            SlotSource.Children.Remove(HelpButton);
-            SlotSource.Children.Remove(ContentPanel);
-            SlotSource.Children.Remove(MoreItemsText);
-
-            FolderChrome.HeaderLeading.Content = BackButton;
-
-            // Path + Help share the trailing slot (the old header had them in
-            // separate columns; a horizontal stack keeps the same order/spacing
-            // before the chrome's lock/pin).
-            var trailing = new StackPanel
+            var live = contents as FolderPanelView;
+            if (contents != null && live == null)
             {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
+                throw new ArgumentException(
+                    "The folder widget can only adopt a FolderPanelView.", nameof(contents));
+            }
+            WidgetData liveData = live == null ? null : ((IWidgetContentView)live).Data;
+            if (liveData != null && data != null
+                && !ReferenceEquals(liveData, data)
+                && !string.Equals(liveData.Id, data.Id, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "The released folder view belongs to a different widget.", nameof(contents));
+            }
+
+            _view = live ?? new FolderPanelView();
+            FolderChrome.ContentHost.Content = _view;
+            if (live != null) ((IWidgetContentView)_view).RebindHost(this);
+            else _view.Attach(data, this);
+
+            // A standalone folder is its own active surface even before the
+            // first show; the group keeps its inactive tabs inert.
+            _view.Activate();
+
+            SourceInitialized += (s, e) => _view.HandleSourceInitialized();
+            Closing += (s, e) =>
+            {
+                if (!HasReleasedContentView) _view.Detach();
             };
-            trailing.Children.Add(PathButton);
-            trailing.Children.Add(HelpButton);
-            FolderChrome.HeaderTrailing.Content = trailing;
-
-            FolderChrome.ContentHost.Content = ContentPanel;
-            FolderChrome.FooterHost.Content = MoreItemsText;
-
-            // The staging grid has served its purpose; drop it from the window.
-            RootGrid.Children.Remove(SlotSource);
         }
-        
-        #endregion
 
-        #region UI Updates
+        public FolderPanelView PanelView => _view;
+        public FrameworkElement PanelShell => Chrome.Shell;
+        public string FolderId => _folderData.Id;
+        public int GridColumns => _view.GridColumns;
+        public bool IsBrowsing => _view.IsBrowsing;
+
+        public void EnterFolder(string path) => _view.EnterFolder(path);
+        public void GoBack() => _view.GoBack();
+
+        private void Window_Deactivated(object sender, EventArgs e) => _view.HandleDeactivated();
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (_view.HandlePreviewKeyDown(e)) e.Handled = true;
+        }
+
+        private void Window_KeyDown(object sender, KeyEventArgs e) => _view.HandleKeyDown(e);
+
+        protected override void OnPanelShown() => _view.Activate();
+        protected override void OnPanelHidden() => _view.DeactivateForPanelHide();
+        protected override void OnPanelSizeChanged() => _view.ApplyAdaptiveLayout();
+        protected override void OnDeleting() => _view.OnDeleting();
 
         public override void UpdateUI()
         {
-            // Name / lock / pin / colour first; the title then follows the
-            // selection (browse path / widget name when nothing is selected).
             base.UpdateUI();
-
-            RefreshChromeTitle();
-            BackButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
-            BackButton.ToolTip = Localization.Get("UI_BrowseBack");
-            PathButton.Visibility = IsBrowsing ? Visibility.Visible : Visibility.Collapsed;
-            PathButton.ToolTip = IsBrowsing ? CurrentBrowsePath : null;
-            BadgeHelpTitle.Text = Localization.Get("UI_BadgeHelpTitle");
-            BadgeHelpStored.Text = Localization.Get("UI_BadgeHelpStored");
-            BadgeHelpMissing.Text = Localization.Get("UI_BadgeHelpMissing");
-
-            var items = IsBrowsing ? BuildBrowseItems() : BuildRootItems();
-            _lastItemCount = items.Count;
-
-            // Set ItemsSource - BindableUniformGrid.BindableColumns is bound to GridColumns property
-            ItemsContainer.ItemsSource = items;
-
-            // Footer visibility first: the engine's content height depends on it.
-            UpdateEmptyState(items.Count);
-            UpdateMoreItemsFooter(items.Count);
-
-            // The single re-arrange entry: columns and scale both come from the
-            // engine for the panel's current (live or persisted) size.
-            ApplyAdaptiveLayout();
-
-            LoadItemIcons(items);
-
-            // Update panel colors
-            UpdatePanelColor();
-
-            // Apply item text colors after items are rendered
-            Dispatcher.BeginInvoke(new Action(() => ApplyItemTextColors()),
-                System.Windows.Threading.DispatcherPriority.Loaded);
-
-            // Enter/leave folders and theme changes all land here; keep the
-            // watcher following the folder that is on screen now.
-            UpdateBrowseWatch();
+            _view?.UpdateUI();
         }
 
-        /// <summary>The chrome title follows the selection: one entry shows its
-        /// full name (tooltip: the whole path), several show the count, and an
-        /// empty selection falls back to the widget name / browse path.</summary>
-        private void RefreshChromeTitle()
+        public override void RefreshTheme()
         {
-            var selected = GetSelectedItems();
-            string title;
-            string tooltip = null;
-            if (selected.Count == 1)
+            if (_view == null)
             {
-                title = GetDisplayName(selected[0].Path);
-                tooltip = selected[0].Path;
+                base.RefreshTheme();
+                return;
             }
-            else if (selected.Count > 1)
-            {
-                title = Localization.Format("UI_SelectedCountFormat", selected.Count);
-            }
-            else
-            {
-                title = IsBrowsing ? BrowsePath.Label(CurrentBrowsePath) : _data.Name;
-                tooltip = IsBrowsing ? CurrentBrowsePath : null;
-            }
-            Chrome.Title = title;
-            Chrome.TitleText.ToolTip = tooltip;
+
+            // Same order as the pre-extraction override: the window state first,
+            // then the view's theme paint and item rebuild.
+            base.UpdateUI();
+            _view.RefreshTheme();
         }
 
-        /// <summary>
-        /// The single re-arrange entry: fits the grid into the panel's content
-        /// area through the pure engine and publishes the column count and the
-        /// icon scale the renderer consumes.
-        /// </summary>
-        private void ApplyAdaptiveLayout()
+        public override void ShowWidgetMenu(Action onClosed = null)
         {
-            double panelW, panelH;
-            if (IsPanelOpen) { panelW = Width; panelH = Height; }     // during a drag: the live window size
-            else { (panelW, panelH) = GetPanelSize(); }               // before opening: the persisted size
-            var border = Chrome.Shell.BorderThickness;
-            double contentW = panelW - border.Left - border.Right;
-            double contentH = panelH - WidgetConstants.HEADER_HEIGHT - border.Top - border.Bottom;
-            if (MoreItemsText.Visibility == Visibility.Visible) contentH -= WidgetConstants.FOOTER_HEIGHT;
-            var layout = PanelLayoutAdapter.AdaptFolder(contentW, contentH, _lastItemCount, GetItemScale());
-            ItemsContainer.LayoutTransform = new ScaleTransform(layout.Scale, layout.Scale);
-            if (_adaptiveColumns != layout.Columns)
-            {
-                _adaptiveColumns = layout.Columns;
-                OnPropertyChanged(nameof(GridColumns));
-            }
+            WidgetMenuBuilder.Build(this, onClosed).IsOpen = true;
         }
 
-        protected override void OnPanelSizeChanged() => ApplyAdaptiveLayout();
-
-        /// <summary>
-        /// Icon-scale change: an open panel below the new minimum grows to it
-        /// (the one allowed automatic resize); every other panel only
-        /// re-arranges. Closed panels keep their stored size - GetPanelSize
-        /// clamps on open.
-        /// </summary>
         public void ApplyItemScaleChange()
         {
             if (IsPanelOpen)
@@ -276,115 +125,65 @@ namespace Kobold.Controls
             UpdateUI();
         }
 
-        private void LoadItemIcons(List<DisplayItem> items)
+        private double GetItemScale()
         {
-            var realIcons = new List<DisplayItem>();
-            var extraFolders = new List<DisplayItem>();
-            var genericFiles = new List<DisplayItem>();
-
-            if (!IsBrowsing)
-            {
-                realIcons.AddRange(items); // root mode is unchanged: every icon loads
-            }
-            else
-            {
-                // The budget counts files only: directories share one cached icon,
-                // so a folder-heavy listing must not spend the budget on them.
-                int fileBudget = WidgetConstants.MAX_BROWSE_ICON_LOADS;
-                foreach (var item in items)
-                {
-                    if (item.IsDirectory) extraFolders.Add(item);
-                    else if (realIcons.Count < fileBudget) realIcons.Add(item);
-                    else genericFiles.Add(item);
-                }
-            }
-
-            int generation = ++_iconLoadGeneration;
-            System.Threading.Tasks.Task.Run(() =>
-            {
-                foreach (var item in realIcons)
-                {
-                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
-                    ApplyIcon(item, GetFileIcon(item.Path));
-                }
-                foreach (var folder in extraFolders)
-                {
-                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
-                    ApplyIcon(folder, GetFileIcon(folder.Path));
-                }
-                if (genericFiles.Count > 0)
-                {
-                    if (generation != System.Threading.Volatile.Read(ref _iconLoadGeneration)) return;
-                    var generic = GetGenericFileIcon();
-                    foreach (var item in genericFiles) ApplyIcon(item, generic);
-                }
-            });
+            try { return WidgetManager.Instance.Config.ItemScale; }
+            catch { return 1.1; }
         }
 
-        private void ApplyIcon(DisplayItem item, ImageSource icon)
-        {
-            if (icon == null) return;
+        protected override (double width, double height) GetMinPanelSize()
+            => PanelLayoutAdapter.MinFolderSize(GetItemScale());
 
-            try
-            {
-                if (!icon.IsFrozen) icon.Freeze();
-                Dispatcher.BeginInvoke(new Action(() => item.Icon = icon),
-                    System.Windows.Threading.DispatcherPriority.Normal);
-            }
-            catch { /* Ignore icon load errors */ }
-        }
+        protected override (double width, double height) GetContentSize()
+            => _view == null ? (0, 0) : _view.GetContentSize();
 
-        private void UpdateEmptyState(int itemCount)
+        internal void RefreshChromeTitle(string title = null)
         {
-            if (itemCount > 0)
+            if (title == null)
             {
-                EmptyState.Visibility = Visibility.Collapsed;
+                _view?.RefreshChromeTitle();
                 return;
             }
-
-            EmptyState.Visibility = Visibility.Visible;
-            if (!IsBrowsing)
-            {
-                EmptyText.Text = Localization.Get("UI_DropHere");
-                return;
-            }
-
-            EmptyText.Text = Localization.Get(_browseListing != null && _browseListing.Failed
-                ? "UI_FolderAccessDenied"
-                : "UI_FolderEmpty");
+            if (Chrome == null) return;
+            Chrome.Title = title;
+            Chrome.TitleText.ToolTip = null;
         }
 
-        private void UpdateMoreItemsFooter(int itemCount)
+        #region IWidgetViewHost / IFolderPanelHost
+
+        WidgetData IWidgetViewHost.Data => Data;
+        WidgetChrome IWidgetViewHost.Chrome => Chrome;
+        bool IWidgetViewHost.IsPanelOpen => IsPanelOpen;
+        double IWidgetViewHost.ContentWidth => WidgetViewHostMetrics.ContentWidth(this);
+        double IWidgetViewHost.ContentHeight => WidgetViewHostMetrics.ContentHeight(this);
+        (double width, double height) IWidgetViewHost.GetPanelSize() => GetPanelSize();
+        void IWidgetViewHost.NotifyDataChanged() => NotifyDataChanged();
+        void IWidgetViewHost.RefreshChromeTitle(string title) => RefreshChromeTitle(title);
+        void IWidgetViewHost.PersistSelection() => WidgetManager.Instance.SaveConfig();
+        void IWidgetViewHost.ShowWidgetMenu() => ShowWidgetMenu(null);
+
+        IntPtr IFolderPanelHost.PanelHwnd
         {
-            bool show = IsBrowsing && _browseListing != null && _browseListing.Truncated;
-
-            MoreItemsText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-
-            if (show)
+            get
             {
-                MoreItemsText.Text = Localization.Format("UI_BrowseMoreItems",
-                    _browseListing.TotalCount - itemCount);
+                try { return new System.Windows.Interop.WindowInteropHelper(this).Handle; }
+                catch (Exception) { return IntPtr.Zero; }
             }
         }
-        
-        /// <summary>
-        /// Gets display name for a file - removes .lnk extension from shortcuts
-        /// </summary>
-        private string GetDisplayName(string path)
-        {
-            string fileName = System.IO.Path.GetFileName(path);
-            
-            // Remove .lnk extension from shortcuts for cleaner display
-            if (fileName.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-            {
-                return fileName.Substring(0, fileName.Length - 4);
-            }
-            
-            return fileName;
-        }
+
+        bool IFolderPanelHost.IsLocked => _folderData.IsLocked;
+        bool IFolderPanelHost.IsPanelPinned => _folderData.IsPanelPinned;
+        bool IFolderPanelHost.IsModalOpen => IsModalOpen;
+        void IFolderPanelHost.RunModal(Action show) => RunModal(show);
+        void IFolderPanelHost.HidePanel() => HidePanel();
+        void IFolderPanelHost.FitPanelToWorkArea() => FitPanelToWorkArea();
 
         #endregion
+
+        // Legacy reflection pins still enter through the window facade.
+        private MenuItem CreateFolderColorEntry(DisplayItem item) => _view.CreateFolderColorEntry(item);
+        private ContextMenu BuildRootItemMenu(DisplayItem item) => _view.BuildRootItemMenu(item);
+        private ContextMenu BuildBrowseItemMenu(DisplayItem item, System.Collections.Generic.List<DisplayItem> selected)
+            => _view.BuildBrowseItemMenu(item, selected);
     }
 }
-
-

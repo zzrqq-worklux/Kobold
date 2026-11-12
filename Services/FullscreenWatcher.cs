@@ -31,6 +31,9 @@ namespace Kobold.Services
         private bool _lastAvoid;
         private bool _disposed;
 
+        /// <summary>True while an external fullscreen window covers its monitor.</summary>
+        public bool IsAvoiding => _lastAvoid;
+
         /// <param name="onAvoidChanged">
         /// Called on the UI dispatcher with true when an external fullscreen
         /// window is up (island should step aside) and false when it is gone.

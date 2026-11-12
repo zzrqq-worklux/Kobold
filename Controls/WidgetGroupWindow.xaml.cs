@@ -5,10 +5,12 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Kobold.Core;
 using Kobold.Helpers;
+using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Controls
 {
@@ -19,7 +21,7 @@ namespace Kobold.Controls
     /// visibility - views are never recreated and the window never resizes.
     /// The group itself owns the panel geometry, open state, lock and pin.
     /// </summary>
-    public partial class WidgetGroupWindow : WidgetWindowBase, IWidgetViewHost, IGroupDragHost
+    public partial class WidgetGroupWindow : WidgetWindowBase, IWidgetViewHost, IGroupDragHost, IFolderPanelHost
     {
         private const double TAB_ROW_HEIGHT = WidgetGroupTabStrip.RowHeight;
 
@@ -87,6 +89,12 @@ namespace Kobold.Controls
             _group = group;
             _members = new List<WidgetData>(members);
             _membersView = new ReadOnlyCollection<WidgetData>(_members);
+
+            // The base constructor built the group state before this member
+            // copy existed; hand it the live list so its derived pin follows
+            // membership and detach/merge changes.
+            var state = PanelState as GroupPanelState;
+            if (state != null) state.Members = _members;
 
             InitializeComponent();
             AttachChrome(GroupChrome);
@@ -170,6 +178,23 @@ namespace Kobold.Controls
             // Any size route (drag, programmatic, startup restore) re-fits the
             // active view; the base's resize hook only covers the drag path.
             SizeChanged += (s, e) => ApplyActiveViewSize();
+
+            // The folder's native shell menu needs the real group HWND, which
+            // only exists after the window is shown. The active folder tab is
+            // the only one allowed to hook it.
+            SourceInitialized += (s, e) =>
+            {
+                var folder = ActiveView as IFolderPanelLifecycle;
+                if (folder != null) folder.HandleSourceInitialized();
+            };
+
+            // A host deactivation clears the active folder's selection; the
+            // other views keep their own (unchanged) lifecycle.
+            Deactivated += (s, e) =>
+            {
+                var folder = ActiveView as IFolderPanelLifecycle;
+                if (folder != null) folder.HandleDeactivated();
+            };
 
             Closing += (s, e) =>
             {
@@ -469,6 +494,31 @@ namespace Kobold.Controls
 
         #endregion
 
+        #region IFolderPanelHost
+
+        IntPtr IFolderPanelHost.PanelHwnd
+        {
+            get
+            {
+                try { return new WindowInteropHelper(this).Handle; }
+                catch (Exception) { return IntPtr.Zero; }
+            }
+        }
+
+        bool IFolderPanelHost.IsLocked => _group != null && _group.IsLocked;
+
+        bool IFolderPanelHost.IsPanelPinned => _group != null && _group.IsPanelPinned;
+
+        bool IFolderPanelHost.IsModalOpen => IsModalOpen;
+
+        void IFolderPanelHost.RunModal(Action show) => RunModal(show);
+
+        void IFolderPanelHost.HidePanel() => HidePanel();
+
+        void IFolderPanelHost.FitPanelToWorkArea() => FitPanelToWorkArea();
+
+        #endregion
+
         #region Panel sizing
 
         protected override (double width, double height) GetContentSize()
@@ -491,12 +541,19 @@ namespace Kobold.Controls
             return (width, height + TAB_ROW_HEIGHT);
         }
 
-        private static (double width, double height) KindMin(WidgetData member)
+        private (double width, double height) KindMin(WidgetData member)
         {
             if (member is TodoData) return (TODO_MIN_WIDTH, TODO_MIN_HEIGHT);
             if (member is NoteData) return (NOTE_MIN_WIDTH, NOTE_MIN_HEIGHT);
             if (member is SearchData) return (SEARCH_MIN_WIDTH, SEARCH_MIN_HEIGHT);
+            if (member is FolderData) return PanelLayoutAdapter.MinFolderSize(GetItemScale());
             return (DEFAULT_MIN_WIDTH, DEFAULT_MIN_HEIGHT);
+        }
+
+        private double GetItemScale()
+        {
+            try { return WidgetManager.Instance.Config.ItemScale; }
+            catch { return 1.1; }
         }
 
         private double ContentWidth
@@ -618,8 +675,16 @@ namespace Kobold.Controls
             IWidgetContentView active = ActiveView;
             if (active == null) return;
 
-            // The todo calendar owns its list viewport geometry; the other
-            // views lay out naturally from the content box.
+            // The folder adapts its columns/scale to the group content box;
+            // the todo calendar owns its list viewport geometry; the other
+            // views lay out naturally.
+            var folder = active as IFolderPanelLifecycle;
+            if (folder != null)
+            {
+                folder.ApplyAdaptiveLayout();
+                return;
+            }
+
             var todo = active as TodoCalendarView;
             if (todo != null) todo.ApplyResizeLayout();
         }
@@ -872,6 +937,23 @@ namespace Kobold.Controls
 
         #region Chrome state
 
+        /// <summary>
+        /// Toggles the pin of the tab currently shown only. The group pin is
+        /// re-derived from every member, so pinning one tab keeps the window
+        /// open while the others stay their own pin state.
+        /// </summary>
+        public override void TogglePin()
+        {
+            WidgetData active = ActiveView == null ? null : ActiveView.Data;
+            if (active == null) return;
+
+            active.IsPanelPinned = !active.IsPanelPinned;
+            _group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(_members);
+            UpdateUI();
+            NotifyDataChanged();
+            OnPanelStateChanged();
+        }
+
         public override void UpdateUI()
         {
             // A locked group never paints the insertion line or reorders.
@@ -880,9 +962,14 @@ namespace Kobold.Controls
             // AttachChrome runs UpdateUI before the member views exist.
             if (GroupChrome == null || _views == null || ActiveView == null) return;
 
+            // The group field is compatibility: every member pin is the source
+            // of truth, so a pin toggled outside this window (the island, a
+            // config repair) is reflected the next time the chrome repaints.
+            _group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(_members);
+
             RefreshChromeTitle();
             GroupChrome.IsLocked = _group.IsLocked;
-            GroupChrome.IsPinned = _group.IsPanelPinned;
+            GroupChrome.IsPinned = ActiveView.Data != null && ActiveView.Data.IsPanelPinned;
             GroupChrome.PanelColor = ActiveView.Data == null ? null : ActiveView.Data.Color;
             GroupChrome.TitleMenuEnabled = ActiveView.HasTitleMenu;
             if (_tabStrip != null)
@@ -913,8 +1000,20 @@ namespace Kobold.Controls
             string resolved = title ?? ActiveView.ChromeTitle ?? string.Empty;
             GroupChrome.Title = resolved;
 
+            // The note detail carries its full title; the folder carries its
+            // selected path (or current browse path) as the tooltip.
+            string tooltip = null;
             var note = ActiveView as NotePanelView;
-            GroupChrome.TitleText.ToolTip = note != null && !note.IsHome ? resolved : null;
+            if (note != null && !note.IsHome)
+            {
+                tooltip = resolved;
+            }
+            else
+            {
+                var folder = ActiveView as IFolderPanelLifecycle;
+                if (folder != null) tooltip = folder.ChromeTitleTooltip;
+            }
+            GroupChrome.TitleText.ToolTip = tooltip;
         }
 
         protected override void OnPanelShown()
@@ -930,8 +1029,10 @@ namespace Kobold.Controls
         protected override void OnPanelHidden()
         {
             // The whole group is leaving: settle every member's edit and close
-            // any open note title menu before the base fade starts.
-            DeactivateAllViews();
+            // any open note title menu before the base fade starts. The active
+            // folder keeps its chrome during the fade; close/tab switches still
+            // use the full deactivation.
+            DeactivateAllViews(keepActiveFolderChrome: true);
             base.OnPanelHidden();
         }
 
@@ -956,7 +1057,39 @@ namespace Kobold.Controls
             // a member's PanelWidth/PanelHeight from the group shell.
         }
 
-        private void DeactivateAllViews()
+        /// <summary>
+        /// A group delete must let every folder member restore its stored
+        /// files before the group members disappear.
+        /// </summary>
+        protected override void OnDeleting()
+        {
+            base.OnDeleting();
+            if (_views == null) return;
+
+            for (int i = 0; i < _views.Count; i++)
+            {
+                var folder = _views[i] as IFolderPanelLifecycle;
+                if (folder != null) folder.OnDeleting();
+            }
+        }
+
+        /// <summary>
+        /// The shared item-size menu reached an open group: re-adapt the active
+        /// folder in place, never resize the group (the standalone folder may
+        /// grow its own panel to its new minimum; the group keeps its size).
+        /// </summary>
+        internal void ApplyItemScaleChange()
+        {
+            var folder = ActiveView as IFolderPanelLifecycle;
+            if (folder != null)
+            {
+                folder.ApplyAdaptiveLayout();
+                return;
+            }
+            UpdateUI();
+        }
+
+        private void DeactivateAllViews(bool keepActiveFolderChrome = false)
         {
             // Hide/close: a queued focus request from this surface must never
             // fire after the group has left the screen.
@@ -965,6 +1098,18 @@ namespace Kobold.Controls
             for (int i = 0; i < _views.Count; i++)
             {
                 if (_views[i] == null) continue;
+
+                if (keepActiveFolderChrome && i == _activeIndex)
+                {
+                    var folder = _views[i] as IFolderPanelLifecycle;
+                    if (folder != null)
+                    {
+                        folder.DeactivateForPanelHide();
+                        _views[i].FlushPendingEdit();
+                        continue;
+                    }
+                }
+
                 _views[i].Deactivate();
                 _views[i].FlushPendingEdit();
             }
@@ -975,10 +1120,29 @@ namespace Kobold.Controls
         #region Menu
 
         /// <summary>
+        /// Test seam: when set, an opened menu is handed to this callback
+        /// instead of a real popup, so checks can inspect it without pumping a
+        /// live ContextMenu.
+        /// </summary>
+        internal Action<ContextMenu> MenuOpenedForChecks { get; set; }
+
+        private void OpenMenu(ContextMenu menu)
+        {
+            if (menu == null) return;
+            if (MenuOpenedForChecks != null)
+            {
+                MenuOpenedForChecks(menu);
+                return;
+            }
+            menu.IsOpen = true;
+        }
+
+        /// <summary>
         /// The current/tab menu: one switch entry per member (checked on the
         /// active one), the live detach entry (T6) and hide-group. The shared
-        /// builder keeps the structure in one place for the header and the
-        /// island's member menu.
+        /// builder keeps the structure in one place for the tab strip and the
+        /// island's member menu; the title row opens the active member's menu
+        /// instead (see <see cref="ShowHeaderMenu"/>).
         /// </summary>
         internal ContextMenu BuildWidgetMenu(Action onClosed = null)
         {
@@ -995,7 +1159,91 @@ namespace Kobold.Controls
         public override void ShowWidgetMenu(Action onClosed = null)
         {
             ContextMenu menu = BuildWidgetMenu(onClosed);
-            menu.IsOpen = true;
+            OpenMenu(menu);
+        }
+
+        /// <summary>
+        /// The title row opens the active member's normal widget menu. Rename,
+        /// colour, font, item size and holiday region act on that member's
+        /// datum; lock stays the group lock (like the header lock button), pin
+        /// toggles the active member, and delete removes only that member.
+        /// </summary>
+        protected override void ShowHeaderMenu()
+        {
+            WidgetData data = Data;
+            if (data == null) return;
+
+            var actions = new WidgetMenuActions
+            {
+                IsPanelOpen = IsPanelOpen,
+                IsLocked = _group != null && _group.IsLocked,
+                ToggleVisibility = () => WidgetManager.Instance.ToggleWidgetPanel(this),
+                Rename = () => RenameActiveMember(data),
+                ChangeColor = () => ChangeActiveMemberColor(data),
+                ToggleLock = ToggleLock,
+                TogglePin = TogglePin,
+                Delete = () => DeleteActiveMember(data),
+                Changed = () =>
+                {
+                    // The standalone hosts refresh their own view inside
+                    // UpdateUI; the group must refresh the active member here
+                    // so a font/holiday edit repaints immediately.
+                    RefreshActiveView();
+                    UpdateUI();
+                    NotifyDataChanged();
+                }
+            };
+
+            OpenMenu(WidgetMenuBuilder.Build(data, actions, null));
+        }
+
+        private void RenameActiveMember(WidgetData data)
+        {
+            string newName = ShowInputModal(
+                Localization.Get("Dialog_Rename"),
+                Localization.Get("Dialog_EnterName"),
+                data.Name,
+                null);
+
+            if (string.IsNullOrWhiteSpace(newName)) return;
+
+            data.Name = newName.Trim();
+            UpdateUI();
+            NotifyDataChanged();
+        }
+
+        private void ChangeActiveMemberColor(WidgetData data)
+        {
+            RunModal(() => ColorPaletteDialog.Show(
+                this,
+                Localization.Get("Dialog_PickColor"),
+                UiTokens.FolderPalette,
+                data.Color,
+                allowDefault: false,
+                defaultText: null,
+                onPick: color =>
+                {
+                    data.Color = color;
+                    RefreshTheme();
+                    RefreshActiveView();
+                    NotifyDataChanged();
+                },
+                onDefault: null));
+        }
+
+        private void RefreshActiveView()
+        {
+            IWidgetContentView active = ActiveView;
+            if (active != null) active.Refresh();
+        }
+
+        private void DeleteActiveMember(WidgetData data)
+        {
+            if (!ShowConfirmModal(Localization.Format("Dialog_DeleteWidget", data.Name))) return;
+
+            // The manager takes the member out of the group; DiscardContentView
+            // runs the folder's OnDeleting so stored files are ejected first.
+            WidgetManager.Instance.RemoveWidget(data.Id);
         }
 
         #endregion
@@ -1033,6 +1281,17 @@ namespace Kobold.Controls
             return true;
         }
 
+        /// <summary>
+        /// The bubbling half of the folder input: clipboard, Backspace, Esc,
+        /// F5/Enter/Apps. Todo/Note/Search do not implement the optional
+        /// lifecycle interface, so they are untouched.
+        /// </summary>
+        private void Window_KeyDown(object sender, KeyEventArgs e)
+        {
+            var folder = ActiveView as IFolderPanelLifecycle;
+            if (folder != null) folder.HandleKeyDown(e);
+        }
+
         private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             IWidgetContentView active = ActiveView;
@@ -1058,6 +1317,13 @@ namespace Kobold.Controls
                 _group = group;
             }
 
+            /// <summary>
+            /// The live member list, assigned by the window after its copy.
+            /// While null (the base constructor's first UpdateUI) the derived
+            /// pin is simply false.
+            /// </summary>
+            public IList<WidgetData> Members { get; set; }
+
             public string Id => _group.Id;
             public double? PanelX { get => _group.PanelX; set => _group.PanelX = value; }
             public double? PanelY { get => _group.PanelY; set => _group.PanelY = value; }
@@ -1066,7 +1332,16 @@ namespace Kobold.Controls
             public double? PanelHeight { get => _group.PanelHeight; set => _group.PanelHeight = value; }
             public bool IsExpanded { get => _group.IsExpanded; set => _group.IsExpanded = value; }
             public bool IsLocked { get => _group.IsLocked; set => _group.IsLocked = value; }
-            public bool IsPanelPinned { get => _group.IsPanelPinned; set => _group.IsPanelPinned = value; }
+
+            /// <summary>
+            /// Any pinned member keeps the whole group open on blur. The setter
+            /// still writes the group's compatibility field.
+            /// </summary>
+            public bool IsPanelPinned
+            {
+                get => GroupHostPolicy.AnyMemberPinned(Members);
+                set => _group.IsPanelPinned = value;
+            }
         }
 
         private static WidgetData FirstMember(IList<WidgetData> members)

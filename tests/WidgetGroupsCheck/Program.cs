@@ -75,7 +75,11 @@ namespace Kobold.WidgetGroupsCheck
             StartupPolicyRestoresExpandedGroups();
             EmptyGroupsAreNeverWritten();
             GroupHostPolicyPins();
+            IslandGroupProjectionPins();
+            PerMemberPinPins();
+            LegacyGroupPinMigratesToActiveMember();
             GroupedMembersAreNotStandalonePanels();
+            FolderGroupRoundTripAndStartup();
             GroupDragPolicyPins();
             GroupReorderPolicyPins();
             SurfaceSwitchGatePins();
@@ -97,11 +101,13 @@ namespace Kobold.WidgetGroupsCheck
     { ""Id"": ""g1"", ""ActiveWidgetId"": ""w2"",
       ""PanelX"": 120.5, ""PanelY"": 80.25, ""PanelDpiScale"": 1.5,
       ""PanelWidth"": 640.0, ""PanelHeight"": 480.0,
-      ""IsExpanded"": true, ""IsLocked"": true, ""IsPanelPinned"": true },
+      ""IsExpanded"": true, ""IsLocked"": true, ""IsPanelPinned"": true,
+      ""IslandExpanded"": true },
     { ""Id"": ""g2"", ""ActiveWidgetId"": ""w3"",
       ""PanelX"": 10.0, ""PanelY"": 20.0, ""PanelDpiScale"": 1.0,
       ""PanelWidth"": 300.0, ""PanelHeight"": 200.0,
-      ""IsExpanded"": false, ""IsLocked"": false, ""IsPanelPinned"": false }
+      ""IsExpanded"": false, ""IsLocked"": false, ""IsPanelPinned"": false,
+      ""IslandExpanded"": false }
   ],
   ""Widgets"": [
     { ""Kind"": ""folder"", ""Id"": ""w1"", ""Name"": ""A"", ""GroupId"": ""g1"", ""GroupOrder"": 0, ""Items"": [] },
@@ -123,6 +129,8 @@ namespace Kobold.WidgetGroupsCheck
                   && Nearly(g1.PanelHeight, 480), "round-trip: the nullable geometry loads");
             Check(g2 != null && g2.ActiveWidgetId == "w3" && !g2.IsExpanded && !g2.IsLocked
                   && !g2.IsPanelPinned, "round-trip: a collapsed, unlocked group loads");
+            Check(g1 != null && g1.IslandExpanded && g2 != null && !g2.IslandExpanded,
+                "round-trip: each group's island expansion flag loads");
             Check(Membership(cfg, "w1") == "g1:0" && Membership(cfg, "w2") == "g1:1"
                   && Membership(cfg, "w3") == "g2:0" && Membership(cfg, "w4") == "g2:1",
                 "round-trip: the membership fields load");
@@ -144,6 +152,8 @@ namespace Kobold.WidgetGroupsCheck
                   && rg1.IsPanelPinned && Nearly(rg1.PanelX, 120.5)
                   && Nearly(rg1.PanelWidth, 640) && Nearly(rg1.PanelHeight, 480),
                 "round-trip: the group state survives a save and reload");
+            Check(rg1 != null && rg1.IslandExpanded,
+                "round-trip: the island expansion survives a save and reload");
             Check(Membership(reloaded, "w1") == "g1:0" && Membership(reloaded, "w2") == "g1:1"
                   && Membership(reloaded, "w3") == "g2:0" && Membership(reloaded, "w4") == "g2:1",
                 "round-trip: the membership survives a save and reload");
@@ -540,28 +550,190 @@ namespace Kobold.WidgetGroupsCheck
             var open = new HashSet<string>(StringComparer.Ordinal);
             Func<string, bool> isOpen = id => open.Contains(id);
 
-            var tiles = GroupHostPolicy.OpenTileIds(groups, widgets, isOpen);
+            var tiles = GroupHostPolicy.OpenProjectedTileIds(groups, widgets, isOpen);
             Check(tiles.Count == 0, "host: closed groups and closed widgets mark no tile");
 
             open.Add("g1");
-            tiles = GroupHostPolicy.OpenTileIds(groups, widgets, isOpen);
-            Check(tiles.Count == 1 && tiles[0] == "a2",
-                "host: an open group marks only its active member");
+            tiles = GroupHostPolicy.OpenProjectedTileIds(groups, widgets, isOpen);
+            Check(tiles.Count == 1 && tiles[0] == "g1",
+                "host: an open group marks its folded group tile");
 
             open.Add("solo");
-            tiles = GroupHostPolicy.OpenTileIds(groups, widgets, isOpen);
-            Check(tiles.Count == 2 && tiles.Contains("a2") && tiles.Contains("solo"),
+            tiles = GroupHostPolicy.OpenProjectedTileIds(groups, widgets, isOpen);
+            Check(tiles.Count == 2 && tiles.Contains("g1") && tiles.Contains("solo"),
                 "host: an open ungrouped widget keeps its own id");
 
             open.Remove("g1");
-            tiles = GroupHostPolicy.OpenTileIds(groups, widgets, isOpen);
+            tiles = GroupHostPolicy.OpenProjectedTileIds(groups, widgets, isOpen);
             Check(tiles.Count == 1 && tiles[0] == "solo",
-                "host: closing the group drops the active member ring");
+                "host: closing the group drops the group tile ring");
 
             Check(GroupHostPolicy.MembersOf(null, widgets).Count == 0
                   && GroupHostPolicy.MembersOf(groups[0], null).Count == 0
-                  && GroupHostPolicy.OpenTileIds(null, null, null).Count == 0,
+                  && GroupHostPolicy.OpenProjectedTileIds(null, null, null).Count == 0,
                 "host: null inputs give empty results");
+        }
+
+        /// <summary>
+        /// P2 island projection: one folded tile per group, members ordered by
+        /// GroupOrder, the member descriptors the 2x2 thumbnails draw, and the
+        /// open ring keyed by the group id rather than a member id.
+        /// </summary>
+        private static void IslandGroupProjectionPins()
+        {
+            var folder = new FolderData { Id = "island-f", Name = "资料", Kind = "folder", Color = "#B5654A" };
+            var todo = new TodoData { Id = "island-t", Name = "待办", Kind = "todo", Color = "#4A7BB5" };
+            var note = new NoteData { Id = "island-n", Name = "笔记", Kind = "note", Color = "#788C5D" };
+            var group = new WidgetGroup { Id = "island-g", ActiveWidgetId = todo.Id };
+            folder.GroupId = group.Id; folder.GroupOrder = 0;
+            todo.GroupId = group.Id; todo.GroupOrder = 1;
+            note.GroupId = group.Id; note.GroupOrder = 2;
+            todo.IsPanelPinned = true;
+
+            var widgets = new WidgetData[] { folder, todo, note };
+            var tiles = GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { group }, widgets, id => id == group.Id);
+            Check(tiles.Count == 1 && tiles[0].GroupId == group.Id,
+                "island projection: one tile per group");
+            Check(tiles[0].Members.Count == 3 && tiles[0].Members[0].Id == folder.Id
+                  && tiles[0].Members[1].Id == todo.Id && tiles[0].Members[2].Id == note.Id,
+                "island projection: members keep GroupOrder");
+            Check(tiles[0].MemberCount == 3 && tiles[0].MemberNames == "资料 / 待办 / 笔记",
+                "island projection: the member count and names feed the tooltip");
+            Check(tiles[0].ActiveWidgetId == todo.Id && tiles[0].IsOpen,
+                "island projection: active id and open state");
+            Check(tiles[0].PinnedCount == 1 && tiles[0].Members[1].IsPinned,
+                "island projection: the pinned member is per member");
+            Check(tiles[0].Members[0].Kind == "folder" && tiles[0].Members[0].Color == "#B5654A",
+                "island projection: members carry their own kind and colour");
+
+            // P2 Task C: the per-group island expansion reaches the tile and
+            // two groups keep independent flags.
+            group.IslandExpanded = true;
+            var expandedTiles = GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { group }, widgets, id => id == group.Id);
+            Check(expandedTiles.Count == 1 && expandedTiles[0].IslandExpanded,
+                "island projection: an expanded group projects its island flag");
+
+            group.IslandExpanded = false;
+            var collapsedTiles = GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { group }, widgets, id => id == group.Id);
+            Check(collapsedTiles.Count == 1 && !collapsedTiles[0].IslandExpanded,
+                "island projection: a collapsed group projects a false island flag");
+
+            var secondA = new FolderData
+            {
+                Id = "island-s1", Name = "S1", Kind = "folder", Color = "#B5654A",
+                GroupId = "island-g2", GroupOrder = 0
+            };
+            var secondB = new FolderData
+            {
+                Id = "island-s2", Name = "S2", Kind = "folder", Color = "#4A7BB5",
+                GroupId = "island-g2", GroupOrder = 1
+            };
+            var secondGroup = new WidgetGroup
+            {
+                Id = "island-g2", ActiveWidgetId = secondA.Id, IslandExpanded = true
+            };
+            var perGroup = GroupHostPolicy.BuildIslandGroupTiles(
+                new[] { group, secondGroup },
+                new WidgetData[] { folder, todo, note, secondA, secondB },
+                id => false);
+            Check(perGroup.Count == 2 && !perGroup[0].IslandExpanded
+                  && perGroup[1].IslandExpanded,
+                "island projection: each group carries its own island flag");
+
+            var open = GroupHostPolicy.OpenProjectedTileIds(
+                new[] { group }, widgets, id => id == group.Id);
+            Check(open.Count == 1 && open[0] == group.Id,
+                "island projection: the open ring is keyed by the group tile");
+
+            var mixed = new WidgetData[]
+            {
+                new FolderData { Id = "island-solo", Name = "solo" }, folder, todo, note
+            };
+            Check(GroupHostPolicy.OpenProjectedTileIds(
+                      new[] { group }, mixed, id => id == group.Id).Count == 1,
+                "island projection: an open group contributes exactly one open id");
+            Check(GroupHostPolicy.BuildIslandGroupTiles(
+                      new[] { group }, new WidgetData[] { folder }, id => true).Count == 0,
+                "island projection: a one-member group has no folded tile");
+            Check(GroupHostPolicy.BuildIslandGroupTiles(null, widgets, null).Count == 0
+                  && GroupHostPolicy.BuildIslandGroupTiles(new[] { group }, null, null).Count == 0
+                  && GroupHostPolicy.OpenProjectedTileIds(null, null, null).Count == 0,
+                "island projection: null inputs give empty results");
+        }
+
+        /// <summary>
+        /// P2 per-member pin: the group is pinned when any member is, and the
+        /// pinned count counts members rather than groups. Pure helpers only.
+        /// </summary>
+        private static void PerMemberPinPins()
+        {
+            var a = new TodoData { Id = "pin-a" };
+            var b = new NoteData { Id = "pin-b" };
+            var members = new WidgetData[] { a, b };
+            Check(!GroupHostPolicy.AnyMemberPinned(members),
+                "pin: an all-unpinned group is unpinned");
+            a.IsPanelPinned = true;
+            Check(GroupHostPolicy.AnyMemberPinned(members),
+                "pin: any pinned member keeps the group pinned");
+            Check(GroupHostPolicy.PinnedCount(members) == 1,
+                "pin: the pinned count counts members, not groups");
+            b.IsPanelPinned = true;
+            Check(GroupHostPolicy.PinnedCount(new WidgetData[] { a, b, null }) == 2,
+                "pin: the pinned count skips null members");
+            Check(!GroupHostPolicy.AnyMemberPinned(null)
+                  && GroupHostPolicy.PinnedCount(null) == 0,
+                "pin: null members are unpinned and count zero");
+        }
+
+        /// <summary>
+        /// A legacy group-level pin with no member pin migrates onto the active
+        /// member on load; the group field stays a derived any-member value.
+        /// </summary>
+        private static void LegacyGroupPinMigratesToActiveMember()
+        {
+            string dir = NewCase("legacy-pin");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{
+  ""Groups"": [
+    { ""Id"": ""g1"", ""ActiveWidgetId"": ""w1"", ""IsPanelPinned"": true },
+    { ""Id"": ""g2"", ""ActiveWidgetId"": ""w3"", ""IsPanelPinned"": true },
+    { ""Id"": ""g3"", ""ActiveWidgetId"": ""w5"", ""IsPanelPinned"": false }
+  ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""w1"", ""GroupId"": ""g1"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""w2"", ""GroupId"": ""g1"", ""GroupOrder"": 1, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""w3"", ""GroupId"": ""g2"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""w4"", ""GroupId"": ""g2"", ""GroupOrder"": 1, ""IsPanelPinned"": true, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""w5"", ""GroupId"": ""g3"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""folder"", ""Id"": ""w6"", ""GroupId"": ""g3"", ""GroupOrder"": 1, ""IsPanelPinned"": true, ""Items"": [] }
+  ]
+}");
+
+            var cfg = AppConfig.Load(main, backup);
+            var g1 = Find(cfg.Groups, "g1");
+            var g2 = Find(cfg.Groups, "g2");
+            var g3 = Find(cfg.Groups, "g3");
+
+            Check(Widget(cfg, "w1") != null && Widget(cfg, "w1").IsPanelPinned
+                  && !Widget(cfg, "w2").IsPanelPinned,
+                "legacy pin: a group pin with no member pin moves to the active member");
+            Check(g1 != null && g1.IsPanelPinned,
+                "legacy pin: the migrated group stays pinned");
+
+            Check(!Widget(cfg, "w3").IsPanelPinned && Widget(cfg, "w4").IsPanelPinned,
+                "legacy pin: an already-pinned member wins over the active member");
+            Check(g2 != null && g2.IsPanelPinned,
+                "legacy pin: the group pin is derived from the pinned member");
+
+            Check(!Widget(cfg, "w5").IsPanelPinned && Widget(cfg, "w6").IsPanelPinned,
+                "legacy pin: a per-member pin alone does not migrate");
+            Check(g3 != null && g3.IsPanelPinned,
+                "legacy pin: the group field derives any-member against a false stored pin");
         }
 
         /// <summary>A grouped member's own IsExpanded never restores a standalone panel.</summary>
@@ -577,6 +749,59 @@ namespace Kobold.WidgetGroupsCheck
             var restore = StartupPanels.ToRestore(widgets);
             Check(restore.Count == 1 && restore[0].Id == "free",
                 "startup: grouped members are not restored as standalone panels");
+        }
+
+        /// <summary>
+        /// A Folder+Note group round-trips through the config (geometry,
+        /// active folder id, membership/order) and the startup policy returns
+        /// it exactly once for restore.
+        /// </summary>
+        private static void FolderGroupRoundTripAndStartup()
+        {
+            string dir = NewCase("folder-group");
+            string main = Path.Combine(dir, "config.json");
+            string backup = main + ".backup";
+
+            File.WriteAllText(main, @"{
+  ""Groups"": [
+    { ""Id"": ""fg1"", ""ActiveWidgetId"": ""folder-1"",
+      ""PanelX"": 100.0, ""PanelY"": 50.0, ""PanelDpiScale"": 1.25,
+      ""PanelWidth"": 600.0, ""PanelHeight"": 460.0,
+      ""IsExpanded"": true, ""IsLocked"": false, ""IsPanelPinned"": true }
+  ],
+  ""Widgets"": [
+    { ""Kind"": ""folder"", ""Id"": ""folder-1"", ""Name"": ""F"",
+      ""GroupId"": ""fg1"", ""GroupOrder"": 0, ""Items"": [] },
+    { ""Kind"": ""note"", ""Id"": ""note-1"", ""Name"": ""N"",
+      ""GroupId"": ""fg1"", ""GroupOrder"": 1 }
+  ]
+}");
+
+            var cfg = AppConfig.Load(main, backup);
+            var group = Find(cfg.Groups, "fg1");
+            Check(group != null && group.ActiveWidgetId == "folder-1" && group.IsExpanded
+                  && group.IsPanelPinned && Nearly(group.PanelWidth, 600)
+                  && Nearly(group.PanelHeight, 460),
+                "folder group: the Folder+Note group state loads");
+
+            var members = GroupHostPolicy.MembersOf(group, cfg.Widgets);
+            Check(members.Count == 2 && members[0].Id == "folder-1"
+                  && members[0] is FolderData && members[1].Id == "note-1"
+                  && members[1] is NoteData,
+                "folder group: the Folder+Note member order and kinds load");
+
+            var restore = GroupStartupPolicy.ToRestoreGroups(cfg.Groups, cfg.Widgets);
+            Check(restore.Count == 1 && restore[0].Id == "fg1"
+                  && restore[0].ActiveWidgetId == "folder-1",
+                "folder group: startup restores the folder group once");
+
+            cfg.Save();
+            var reloaded = AppConfig.Load(main, backup);
+            var again = GroupStartupPolicy.ToRestoreGroups(reloaded.Groups, reloaded.Widgets);
+            Check(again.Count == 1 && again[0].Id == "fg1"
+                  && again[0].ActiveWidgetId == "folder-1"
+                  && Nearly(again[0].PanelWidth, 600) && Nearly(again[0].PanelHeight, 460),
+                "folder group: the folder group survives a save and reload");
         }
 
         /// <summary>
@@ -653,12 +878,14 @@ namespace Kobold.WidgetGroupsCheck
             Check(GroupDragPolicy.CanMerge(search, note),
                 "merge: search is a mergeable kind");
 
-            Check(!GroupDragPolicy.CanMerge(folder, note),
-                "merge: a Folder source is refused (deferred)");
-            Check(!GroupDragPolicy.CanMerge(todo, folder),
-                "merge: a Folder target is refused (deferred)");
-            Check(!GroupDragPolicy.CanMerge(folder, new FakeWindow(new FolderData { Id = "cm-folder-2" })),
-                "merge: Folder to Folder is refused");
+            Check(GroupDragPolicy.CanMerge(folder, note),
+                "merge: a Folder source merges into a note");
+            Check(GroupDragPolicy.CanMerge(todo, folder),
+                "merge: a Folder target accepts a todo");
+            Check(GroupDragPolicy.CanMerge(folder, new FakeWindow(new FolderData { Id = "cm-folder-2" })),
+                "merge: two standalone Folders merge");
+            Check(GroupDragPolicy.CanMerge(folder, groupSource),
+                "merge: a Folder merges into an unlocked group");
         }
 
         /// <summary>

@@ -13,11 +13,11 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Controls
 {
     /// <summary>
-    /// FolderWidget - In-panel folder browsing. The browser is a read-only view
+    /// FolderPanelView - In-panel folder browsing. The browser is a read-only view
     /// over the file system: it never touches _data.Items and never writes files;
     /// it only remembers where it was left (FolderData.BrowseStack).
     /// </summary>
-    public partial class FolderWidget
+    public partial class FolderPanelView
     {
         #region Browse State
 

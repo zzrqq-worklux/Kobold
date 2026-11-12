@@ -10,15 +10,42 @@ using Localization = Kobold.Core.Localization;
 namespace Kobold.Helpers
 {
     /// <summary>
+    /// The actions a widget menu entry invokes. A standalone window passes its
+    /// own operations; a group window passes the active member's operations
+    /// while keeping its group lock and panel visibility.
+    /// </summary>
+    public sealed class WidgetMenuActions
+    {
+        /// <summary>True while the host panel is open (labels show/hide).</summary>
+        public bool IsPanelOpen { get; set; }
+
+        /// <summary>
+        /// Optional lock-state override. A group lock lives on the group, not
+        /// on the active member's datum, so the group supplies it here.
+        /// </summary>
+        public bool? IsLocked { get; set; }
+
+        public Action ToggleVisibility { get; set; }
+        public Action Rename { get; set; }
+        public Action ChangeColor { get; set; }
+        public Action ToggleLock { get; set; }
+        public Action TogglePin { get; set; }
+        public Action Delete { get; set; }
+
+        /// <summary>Runs after a kind-specific edit (font, holiday region).</summary>
+        public Action Changed { get; set; }
+    }
+
+    /// <summary>
     /// Builds the common widget menu (show/hide, rename, colour, lock, pin,
     /// delete) plus the kind-specific appendices (folder: the item-size
     /// picker; todo: the holiday region; note: the font scale). The folder
     /// layout entries (columns / max rows) are retired: the panel adapts its
     /// own column count and spacing. The icon size stays a user choice - a
-    /// folder-only appendix
-    /// whose scale feeds the folder rendering. Hosts are widget windows, so
-    /// the shared window operations are reached through
-    /// <see cref="WidgetWindowBase"/>.
+    /// folder-only appendix whose scale feeds the folder rendering. Hosts are
+    /// widget windows, so the shared window operations are reached through
+    /// <see cref="WidgetWindowBase"/>; a group supplies its active member's
+    /// data through the core overload.
     /// </summary>
     public static class WidgetMenuBuilder
     {
@@ -28,24 +55,51 @@ namespace Kobold.Helpers
         /// </summary>
         public static ContextMenu Build(IWidgetWindow host, Action onClosed)
         {
-            var menu = new MenuBuilder(host.Data.Color)
-                .AddItem(host.IsPanelOpen ? "Menu_HideWidget" : "Menu_ShowWidget",
-                    () => WidgetManager.Instance.ToggleWidgetPanel(host), true,
-                    host.IsPanelOpen ? IconId.EyeOff : IconId.Eye)
-                .AddItem("Menu_Rename", () => AsWindow(host)?.BeginRename(), true, IconId.Edit)
-                .AddItem("Menu_ChangeColor", () => AsWindow(host)?.BeginColorChange(), true, IconId.Palette)
-                .AddItem(host.Data.IsLocked ? "Menu_UnlockWidget" : "Menu_LockWidget",
-                    () => ToggleLock(host), true, IconId.Lock)
-                .AddItem(host.Data.IsPanelPinned ? "Menu_UnpinWidget" : "Menu_PinWidget",
-                    () => TogglePin(host), true, IconId.Pin);
+            if (host == null) throw new ArgumentNullException("host");
 
-            if (host.Data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
-            if (host.Data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu(host));
-            if (host.Data is NoteData noteData) menu.AddMenuItem(CreateNoteFontMenu(host, noteData));
-            if (host.Data is SearchData) AddSearchActions(menu);
+            return Build(host.Data, new WidgetMenuActions
+            {
+                IsPanelOpen = host.IsPanelOpen,
+                ToggleVisibility = () => WidgetManager.Instance.ToggleWidgetPanel(host),
+                Rename = () => AsWindow(host)?.BeginRename(),
+                ChangeColor = () => AsWindow(host)?.BeginColorChange(),
+                ToggleLock = () => ToggleLock(host),
+                TogglePin = () => TogglePin(host),
+                Delete = () => Delete(host),
+                Changed = () => DataChanged(host)
+            }, onClosed);
+        }
+
+        /// <summary>
+        /// The shared core: the common entries plus the kind appendices read
+        /// from <paramref name="data"/>, with every action supplied by the
+        /// caller. A standalone host adapts itself above; a group window passes
+        /// its active member's datum and operations.
+        /// </summary>
+        public static ContextMenu Build(WidgetData data, WidgetMenuActions actions, Action onClosed)
+        {
+            if (data == null) throw new ArgumentNullException("data");
+            actions = actions ?? new WidgetMenuActions();
+
+            bool locked = actions.IsLocked ?? data.IsLocked;
+            var menu = new MenuBuilder(data.Color)
+                .AddItem(actions.IsPanelOpen ? "Menu_HideWidget" : "Menu_ShowWidget",
+                    actions.ToggleVisibility, true,
+                    actions.IsPanelOpen ? IconId.EyeOff : IconId.Eye)
+                .AddItem("Menu_Rename", actions.Rename, true, IconId.Edit)
+                .AddItem("Menu_ChangeColor", actions.ChangeColor, true, IconId.Palette)
+                .AddItem(locked ? "Menu_UnlockWidget" : "Menu_LockWidget",
+                    actions.ToggleLock, true, IconId.Lock)
+                .AddItem(data.IsPanelPinned ? "Menu_UnpinWidget" : "Menu_PinWidget",
+                    actions.TogglePin, true, IconId.Pin);
+
+            if (data is FolderData) menu.AddMenuItem(CreateItemSizeMenu());
+            if (data is TodoData) menu.AddMenuItem(CreateHolidayRegionMenu((TodoData)data, actions));
+            if (data is NoteData) menu.AddMenuItem(CreateNoteFontMenu((NoteData)data, actions));
+            if (data is SearchData) AddSearchActions(menu);
 
             var built = menu.AddSeparator()
-                .AddItem("Menu_Delete", () => Delete(host), true, IconId.Delete, ThemeManager.DangerBrush)
+                .AddItem("Menu_Delete", actions.Delete, true, IconId.Delete, ThemeManager.DangerBrush)
                 .Build();
 
             if (onClosed != null) built.Closed += (s, e) => onClosed();
@@ -193,6 +247,13 @@ namespace Kobold.Helpers
                     folder.ApplyItemScaleChange();
                     continue;
                 }
+                if (widget is WidgetGroupWindow group)
+                {
+                    // The item-size picker reaches the active grouped folder;
+                    // the group keeps its own geometry.
+                    group.ApplyItemScaleChange();
+                    continue;
+                }
                 widget.UpdateUI();
             }
         }
@@ -208,14 +269,14 @@ namespace Kobold.Helpers
         /// and a pick writes the region back through the widget's usual change
         /// path (repaint + persist). The day cells keep their height.
         /// </summary>
-        private static MenuItem CreateHolidayRegionMenu(IWidgetWindow host)
+        private static MenuItem CreateHolidayRegionMenu(TodoData data, WidgetMenuActions actions)
         {
             var regionItem = new MenuItem
             {
                 Header = Localization.Get("Menu_HolidayRegion"),
                 Icon = MenuIcons.Create(IconId.Calendar)
             };
-            string current = PublicHolidays.NormalizeRegion((host.Data as TodoData)?.HolidayRegion);
+            string current = PublicHolidays.NormalizeRegion(data == null ? null : data.HolidayRegion);
 
             string[] keys =
             {
@@ -238,8 +299,8 @@ namespace Kobold.Helpers
                 };
                 item.Click += (s, e) =>
                 {
-                    if (host.Data is TodoData data) data.HolidayRegion = id;
-                    DataChanged(host);
+                    if (data != null) data.HolidayRegion = id;
+                    if (actions.Changed != null) actions.Changed();
                 };
                 regionItem.Items.Add(item);
             }
@@ -261,11 +322,10 @@ namespace Kobold.Helpers
             FileSearchIndexService service = FileSearchIndexService.Instance;
             menu.AddItem("Search_Rebuild", () => service.RequestRebuild(), true, IconId.Refresh);
 
-            // A cancel entry only means something while a full scan is running.
-            if (service.Status.State == FileSearchState.Indexing)
-            {
-                menu.AddItem("Search_Cancel", () => service.CancelScan(), true, IconId.Close);
-            }
+            // The cancel entry is always present so the menu's shape is stable;
+            // it only does something while a full scan is running.
+            menu.AddItem("Search_Cancel", () => service.CancelScan(),
+                service.Status.State == FileSearchState.Indexing, IconId.Close);
 
             bool paused = service.Status.State == FileSearchState.Paused;
             menu.AddItem(paused ? "Search_Resume" : "Search_Pause", () =>
@@ -294,20 +354,20 @@ namespace Kobold.Helpers
         /// the inline edit box rescale together while the home cards keep
         /// their own type.
         /// </summary>
-        private static MenuItem CreateNoteFontMenu(IWidgetWindow host, NoteData data)
+        private static MenuItem CreateNoteFontMenu(NoteData data, WidgetMenuActions actions)
         {
             var root = new MenuItem
             {
                 Header = Localization.Get("Menu_NoteFontSize"),
                 Icon = MenuIcons.Create(IconId.TextSize)
             };
-            AddFontEntry(root, host, data, "Note_FontSmall", NoteFontScale.Small);
-            AddFontEntry(root, host, data, "Note_FontMedium", NoteFontScale.Medium);
-            AddFontEntry(root, host, data, "Note_FontLarge", NoteFontScale.Large);
+            AddFontEntry(root, data, actions, "Note_FontSmall", NoteFontScale.Small);
+            AddFontEntry(root, data, actions, "Note_FontMedium", NoteFontScale.Medium);
+            AddFontEntry(root, data, actions, "Note_FontLarge", NoteFontScale.Large);
             return root;
         }
 
-        private static void AddFontEntry(MenuItem root, IWidgetWindow host, NoteData data,
+        private static void AddFontEntry(MenuItem root, NoteData data, WidgetMenuActions actions,
             string key, double scale)
         {
             var item = new MenuItem
@@ -318,7 +378,7 @@ namespace Kobold.Helpers
             item.Click += (s, e) =>
             {
                 data.FontScale = scale;
-                DataChanged(host);
+                if (actions.Changed != null) actions.Changed();
             };
             root.Items.Add(item);
         }

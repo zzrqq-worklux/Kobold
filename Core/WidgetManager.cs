@@ -36,6 +36,7 @@ namespace Kobold.Core
         private readonly IdleTrimPolicy _trimPolicy = new IdleTrimPolicy();
         private readonly System.Windows.Threading.DispatcherTimer _trimTimer;
         private DateTime _lastInteractionUtc = DateTime.UtcNow;
+        private DateTime? _lastTrimUtc;
 
         // >0 while a merge/detach swap is in flight. Island refreshes raised
         // by visibility/data events inside the scope only set the pending flag;
@@ -64,6 +65,21 @@ namespace Kobold.Core
 
         public AppConfig Config => _config;
         public IReadOnlyList<IWidgetWindow> Widgets => _widgets.AsReadOnly();
+
+        /// <summary>The last successful idle working-set trim, or null before the first one.</summary>
+        public DateTime? LastTrimUtc => _lastTrimUtc;
+
+        /// <summary>True while the current idle period has already been trimmed.</summary>
+        public bool TrimmedThisIdlePeriod => _trimPolicy.TrimmedThisIdlePeriod;
+
+        /// <summary>True while the fullscreen watcher says the island must step aside.</summary>
+        public bool FullscreenAvoiding => _fullscreenWatcher != null && _fullscreenWatcher.IsAvoiding;
+
+        /// <summary>True while the island window is on screen.</summary>
+        public bool IslandVisible => _island != null && _island.IsVisible;
+
+        /// <summary>True while the island is expanded into its tile row.</summary>
+        public bool IslandExpanded => _island != null && _island.IsExpanded;
 
         /// <summary>
         /// Redirects the singleton's config/backup paths before it is first
@@ -160,6 +176,7 @@ namespace Kobold.Core
             _island = new IslandWindow();
             _island.WidgetActivated += OnWidgetActivated;
             _island.WidgetMenuRequested += OnWidgetMenuRequested;
+            _island.GroupTileClicked += OnIslandGroupTileClicked;
             RefreshIsland();
             _island.Show();
 
@@ -208,13 +225,17 @@ namespace Kobold.Core
         {
             if (!_trimPolicy.ShouldTrim(DateTime.UtcNow - _lastInteractionUtc, IsBusy())) return;
 
-            if (MemoryTrimmer.Trim()) _trimPolicy.NotifyTrimmed();
+            if (MemoryTrimmer.Trim())
+            {
+                _lastTrimUtc = DateTime.UtcNow;
+                _trimPolicy.NotifyTrimmed();
+            }
         }
 
         /// <summary>
-        /// Refreshes the widget tiles shown by the island. A grouped member
-        /// carries its group's badge/tooltip, and only the open group's active
-        /// member carries the open ring.
+        /// Refreshes the widget tiles shown by the island. A group folds into
+        /// one tile carrying its member descriptors; only the open group tile
+        /// carries the neutral open ring.
         /// </summary>
         public void RefreshIsland()
         {
@@ -228,9 +249,9 @@ namespace Kobold.Core
 
         private void RefreshIslandNow()
         {
-            var groupInfo = BuildGroupTileInfo();
-            _island?.SetWidgets(_config.Widgets, groupInfo);
-            _island?.SetOpenStates(GroupHostPolicy.OpenTileIds(
+            _island?.SetWidgets(_config.Widgets,
+                GroupHostPolicy.BuildIslandGroupTiles(_config.Groups, _config.Widgets, IsHostOpen));
+            _island?.SetOpenStates(GroupHostPolicy.OpenProjectedTileIds(
                 _config.Groups, _config.Widgets, IsHostOpen));
         }
 
@@ -253,40 +274,6 @@ namespace Kobold.Core
 
             _islandRefreshPending = false;
             RefreshIslandNow();
-        }
-
-        /// <summary>The island projection of every group with at least two members.</summary>
-        private Dictionary<string, WidgetGroupTileInfo> BuildGroupTileInfo()
-        {
-            var info = new Dictionary<string, WidgetGroupTileInfo>(StringComparer.Ordinal);
-            if (_config.Groups == null) return info;
-
-            foreach (var group in _config.Groups)
-            {
-                var members = GroupHostPolicy.MembersOf(group, _config.Widgets);
-                if (members.Count < 2) continue;
-
-                var names = new List<string>();
-                foreach (var member in members)
-                {
-                    string label = string.IsNullOrWhiteSpace(member.Name)
-                        ? WidgetGroupTabStrip.KindLabel(member)
-                        : member.Name.Trim();
-                    names.Add(label);
-                }
-
-                var tileInfo = new WidgetGroupTileInfo
-                {
-                    MemberCount = members.Count,
-                    MemberNames = string.Join(" / ", names)
-                };
-
-                foreach (var member in members)
-                {
-                    if (!string.IsNullOrEmpty(member.Id)) info[member.Id] = tileInfo;
-                }
-            }
-            return info;
         }
 
         /// <summary>True while the host window with this id (group id or widget id) is open.</summary>
@@ -340,8 +327,8 @@ namespace Kobold.Core
 
         /// <summary>
         /// Opens the clicked widget's panel centered below the island. A group
-        /// member opens/switches/collapses its group instead of a window of
-        /// its own.
+        /// member opens its group and switches to that tab - a member click
+        /// never collapses the group.
         /// </summary>
         private void OnWidgetActivated(string widgetId)
         {
@@ -372,14 +359,9 @@ namespace Kobold.Core
                 return;
             }
 
-            if (isMember && string.Equals(group.ActiveMemberId, widgetId, StringComparison.Ordinal))
-            {
-                // Clicking the already-active tab collapses the whole group.
-                group.HidePanel();
-                RefreshIsland();
-                return;
-            }
-
+            // The group is already open: always switch to the clicked member,
+            // even when it is the active tab. A member click never closes the
+            // group (only a standalone tile toggles).
             if (isMember)
             {
                 group.SetActiveByWidgetId(widgetId);
@@ -408,6 +390,21 @@ namespace Kobold.Core
 
             _island.PauseAutoCollapse();
             host.ShowWidgetMenu(() => _island.ResumeAutoCollapse());
+        }
+
+        /// <summary>
+        /// A group tile click toggles that group's inline island expansion and
+        /// repaints the row. The island itself never reads the group model; it
+        /// only reports the click, and the persisted flag survives an island
+        /// collapse and a restart.
+        /// </summary>
+        private void OnIslandGroupTileClicked(string groupId)
+        {
+            var group = _config.Groups?.FirstOrDefault(g => g != null && g.Id == groupId);
+            if (group == null) return;
+            group.IslandExpanded = !group.IslandExpanded;
+            SaveConfig();
+            RefreshIsland();
         }
 
         /// <summary>Opens a widget's panel; defaults to centered below the island when unplaced.</summary>
@@ -449,9 +446,31 @@ namespace Kobold.Core
         /// <summary>
         /// Creates a widget of the given kind with the default name, palette
         /// colour and staggered position - shared by the island add menu and
-        /// the tray new-widget submenu.
+        /// the tray new-widget submenu. The interactive path opens the panel
+        /// pinned so it survives while being filled.
         /// </summary>
         public IWidgetWindow CreateWidget(string kindId)
+        {
+            return CreateWidgetCore(kindId, open: true, pinned: true);
+        }
+
+        /// <summary>
+        /// The control-plane variant: the same default data and config entry as
+        /// <see cref="CreateWidget"/>, but the panel stays closed and unpinned.
+        /// The caller can apply its own name/color/position and refresh the
+        /// island afterwards (see WidgetGroupControlService).
+        /// </summary>
+        public IWidgetWindow CreateWidgetForControl(string kindId)
+        {
+            return CreateWidgetCore(kindId, open: false, pinned: false);
+        }
+
+        /// <summary>
+        /// The one create path both callers share, so the UI and the control
+        /// plane cannot drift in default data, position, colour, naming,
+        /// folder grid, size migration, config insertion or island refresh.
+        /// </summary>
+        private IWidgetWindow CreateWidgetCore(string kindId, bool open, bool pinned)
         {
             var kind = WidgetKindRegistry.Find(kindId);
             if (kind == null) return null;
@@ -459,13 +478,13 @@ namespace Kobold.Core
             var data = kind.CreateDefault();
             int screenWidth = (int)SystemParameters.PrimaryScreenWidth;
             int screenHeight = (int)SystemParameters.PrimaryScreenHeight;
-            int widgetCount = _widgets.Count;
+            int count = _widgets.Count;
 
-            data.PosX = screenWidth / 2 - 50 + (widgetCount % 5) * 30;
-            data.PosY = screenHeight / 2 - 50 + (widgetCount % 5) * 30;
-            data.Color = CreationColors[widgetCount % CreationColors.Length];
+            data.PosX = screenWidth / 2 - 50 + (count % 5) * 30;
+            data.PosY = screenHeight / 2 - 50 + (count % 5) * 30;
+            data.Color = CreationColors[count % CreationColors.Length];
             data.Name = Localization.Get(kind.NameKey);
-            data.IsPanelPinned = true; // opens pinned so it survives while being filled
+            data.IsPanelPinned = pinned;
 
             if (data is FolderData folder) folder.GridColumns = _config.DefaultGridColumns;
 
@@ -476,7 +495,7 @@ namespace Kobold.Core
             _config.AddWidget(data);
             var widget = CreateWidgetInternal(data);
             RefreshIsland();
-            OpenPanel(widget);
+            if (open) OpenPanel(widget);
             SaveConfig();
             return widget;
         }
@@ -507,6 +526,25 @@ namespace Kobold.Core
             _island?.RefreshIconStyle();
         }
 
+        /// <summary>
+        /// Re-adapts every open folder host to a changed item scale. A group
+        /// re-adapts its active folder through its content box; standalone
+        /// folders regrow when the new size falls below their minimum. The
+        /// final repaint picks the new scale up everywhere.
+        /// </summary>
+        public void ApplyItemScaleChange()
+        {
+            foreach (var host in _widgets.ToList())
+            {
+                var folder = host as FolderWidget;
+                if (folder != null) folder.ApplyItemScaleChange();
+
+                var group = host as WidgetGroupWindow;
+                if (group != null) group.ApplyItemScaleChange();
+            }
+            RefreshAllWidgets();
+        }
+
         /// <summary>Applies the saved "hide desktop icons" preference at startup.</summary>
         public void ApplyDesktopIconsOnStartup()
         {
@@ -535,6 +573,18 @@ namespace Kobold.Core
             _config.HideDesktopIcons = hide;
             _config.Save();
             return true;
+        }
+
+        /// <summary>
+        /// The control-plane variant: records the requested value and applies
+        /// it without saving (the router owns the save). Returns false when the
+        /// desktop refused the change; the requested value is still kept so the
+        /// next startup retries it.
+        /// </summary>
+        public bool ApplyHideDesktopIconsForControl(bool hide)
+        {
+            _config.HideDesktopIcons = hide;
+            return DesktopIcons.SetHidden(hide);
         }
 
         /// <summary>
@@ -785,6 +835,7 @@ namespace Kobold.Core
                     for (int i = 0; i < survivors.Count; i++) survivors[i].GroupOrder = i;
                     if (GroupHostPolicy.IndexOfMember(group, _config.Widgets, group.ActiveWidgetId) < 0)
                         group.ActiveWidgetId = survivors[0].Id;
+                    group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(survivors);
 
                     // The group window is untouched: same instance, same tabs,
                     // same size/position/open state.
@@ -841,11 +892,17 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// The deleted member's view is no longer hosted: settle any service
-        /// subscription it owns (the search kind) before letting it go.
+        /// The deleted member's view is no longer hosted: let a folder eject
+        /// its stored files, then settle any service subscription it owns (the
+        /// search kind) before letting it go.
         /// </summary>
-        private static void DiscardContentView(IWidgetContentView view)
+        internal static void DiscardContentView(IWidgetContentView view)
         {
+            if (view == null) return;
+
+            var folder = view as IFolderPanelLifecycle;
+            if (folder != null) folder.OnDeleting();
+
             var search = view as SearchPanelView;
             if (search != null) search.Detach();
         }
@@ -938,6 +995,7 @@ namespace Kobold.Core
                     // grow:false: an existing group always keeps its size; the
                     // incoming view simply uses the group's content box.
                     targetGroup.AddMember(source.Data, sourceView, grow: false);
+                    group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(targetGroup.Members);
                 }
                 catch (Exception ex)
                 {
@@ -1039,7 +1097,7 @@ namespace Kobold.Core
                     PanelHeight = Math.Max(targetHeight, sourceHeight + WidgetGroupTabStrip.RowHeight),
                     IsExpanded = wasOpen,
                     IsLocked = targetData.IsLocked,
-                    IsPanelPinned = targetData.IsPanelPinned
+                    IsPanelPinned = targetData.IsPanelPinned || sourceData.IsPanelPinned
                 };
 
                 if (_config.Groups == null) _config.Groups = new List<WidgetGroup>();
@@ -1133,8 +1191,8 @@ namespace Kobold.Core
         /// same group window and move only the detached live view out; one
         /// left dissolves the group into two standalone hosts, both around the
         /// exact views the group carried. The detached member keeps its own
-        /// panel size, inherits the group's open/pin/lock flags and cascades
-        /// from the group's corner.
+        /// panel size and its own pin; it inherits the group's open/lock flags
+        /// and cascades from the group's corner.
         /// </summary>
         public bool DetachWidget(string groupId, string widgetId)
         {
@@ -1193,6 +1251,7 @@ namespace Kobold.Core
                     for (int i = 0; i < survivors.Count; i++) survivors[i].GroupOrder = i;
                     if (GroupHostPolicy.IndexOfMember(group, _config.Widgets, group.ActiveWidgetId) < 0)
                         group.ActiveWidgetId = survivors[0].Id;
+                    group.IsPanelPinned = GroupHostPolicy.AnyMemberPinned(survivors);
 
                     ApplyDetachedStandaloneState(detached, group, left, top, dpi, wasOpen);
 
@@ -1383,7 +1442,7 @@ namespace Kobold.Core
             }
         }
 
-        /// <summary>The detached member's own panel size stays; the group's position/flags follow it out.</summary>
+        /// <summary>The detached member's own panel size and pin stay; only the group's placement/flags follow it out.</summary>
         private static void ApplyDetachedStandaloneState(
             WidgetData data, WidgetGroup group, double? groupLeft, double? groupTop, double? dpi, bool groupOpen)
         {
@@ -1392,7 +1451,6 @@ namespace Kobold.Core
             data.GroupId = null;
             data.GroupOrder = null;
             data.IsExpanded = groupOpen;
-            data.IsPanelPinned = group.IsPanelPinned;
             data.IsLocked = group.IsLocked;
             if (groupLeft.HasValue) data.PanelX = groupLeft.Value + DETACH_CASCADE;
             if (groupTop.HasValue) data.PanelY = groupTop.Value + DETACH_CASCADE;
@@ -1400,7 +1458,7 @@ namespace Kobold.Core
         }
 
         /// <summary>
-        /// A dissolved member inherits the group flags and cascades from its
+        /// A dissolved member keeps its own pin and cascades from the group's
         /// corner; its own PanelWidth/PanelHeight are deliberately not touched.
         /// </summary>
         private static void ApplyDissolvedStandaloneState(
@@ -1412,7 +1470,6 @@ namespace Kobold.Core
             data.GroupId = null;
             data.GroupOrder = null;
             data.IsExpanded = groupOpen;
-            data.IsPanelPinned = group.IsPanelPinned;
             data.IsLocked = group.IsLocked;
             if (groupLeft.HasValue) data.PanelX = groupLeft.Value + DETACH_CASCADE * Math.Max(1, cascadeSteps);
             if (groupTop.HasValue) data.PanelY = groupTop.Value + DETACH_CASCADE * Math.Max(1, cascadeSteps);

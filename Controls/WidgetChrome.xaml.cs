@@ -198,6 +198,43 @@ namespace Kobold.Controls
         }
 
         /// <summary>
+        /// Shows the pre-rendered bitmap of the dragged component as a merge
+        /// target preview: a translucent accent wash, an inside accent border,
+        /// the bitmap itself and a small drop-hint pill. A null bitmap keeps
+        /// the layer collapsed (the host falls back to its border hint only).
+        /// </summary>
+        public void ShowMergePreview(ImageSource preview, string label)
+        {
+            if (MergePreviewLayer == null) return;
+            if (preview == null)
+            {
+                HideMergePreview();
+                return;
+            }
+
+            MergePreviewImage.Source = preview;
+            MergePreviewLabel.Text = label ?? string.Empty;
+
+            // The pill hangs under the header; a group window adds its bare
+            // tab row above it, so the header's bottom moves down by 32 DIP.
+            double tabRow = TabRowDefinition != null && TabRowDefinition.Height.IsAbsolute
+                ? TabRowDefinition.Height.Value
+                : 0;
+            MergePreviewPill.Margin = new Thickness(0, tabRow + 40 + 8, 0, 0);
+
+            MergePreviewLayer.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>Hides the merge preview layer and releases its bitmap.</summary>
+        public void HideMergePreview()
+        {
+            if (MergePreviewLayer == null) return;
+            MergePreviewLayer.Visibility = Visibility.Collapsed;
+            MergePreviewImage.Source = null;
+            MergePreviewLabel.Text = string.Empty;
+        }
+
+        /// <summary>
         /// Repaints everything theme-dependent: panel backdrop, header tint,
         /// title, the title chevron and the lock/pin icon states.
         /// </summary>
