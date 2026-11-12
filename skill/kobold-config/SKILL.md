@@ -85,7 +85,9 @@ execution is blocked, run the locator and the client with
   conflict.
 - These commands require explicit user confirmation and `--yes`:
   `widget delete`, `group dissolve`, `config replace`, `config restore`,
-  `search rebuild`, and any command run with `--restart`.
+  `search rebuild`, and any command run with `--restart`. The service enforces
+  it: a write without `confirm:true` fails with `forbidden` (exit code 1), so a
+  retry always needs a fresh `--yes`, never a silent one.
 - Default to `config get --summary`. `--full` returns note and task content and
   needs explicit consent.
 - Do not run arbitrary shell commands or write arbitrary files. Create only the

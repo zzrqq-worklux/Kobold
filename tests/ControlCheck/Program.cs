@@ -846,10 +846,28 @@ namespace Kobold.ControlCheck
                 Check(stale && applyDocumentCount == 0 && launchCount == 0,
                     "config replace: a stale baseRevision conflicts before any write");
 
+                bool writeForbidden = false;
+                try
+                {
+                    service.Replace(new JObject
+                    {
+                        ["document"] = structuralJson,
+                        ["restart"] = true
+                    }, service.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    writeForbidden = ex.Code == ControlErrorCodes.Forbidden;
+                }
+                Check(writeForbidden && applyDocumentCount == 0 && launchCount == 0
+                      && beforeRestartCount == 0,
+                    "config replace: a structural write without confirm is forbidden before anything is applied");
+
                 JObject restarted = service.Replace(new JObject
                 {
                     ["document"] = structuralJson,
-                    ["restart"] = true
+                    ["restart"] = true,
+                    ["confirm"] = true
                 }, service.CurrentRevision);
                 Check((bool)restarted["wouldChange"] && (bool)restarted["restartRequired"]
                       && (bool)restarted["wrote"] && (bool)restarted["restarting"]
@@ -878,7 +896,8 @@ namespace Kobold.ControlCheck
                 JObject failed = service.Replace(new JObject
                 {
                     ["document"] = failingJson,
-                    ["restart"] = true
+                    ["restart"] = true,
+                    ["confirm"] = true
                 }, service.CurrentRevision);
                 Check((bool)failed["wrote"] && !(bool)failed["restarting"]
                       && (bool)failed["restartFailed"] && (bool)failed["restartRequired"],
@@ -892,7 +911,8 @@ namespace Kobold.ControlCheck
                 int backupsBeforeHot = Directory.GetFiles(backupDirectory, "config-*.json").Length;
                 JObject hot = service.Replace(new JObject
                 {
-                    ["document"] = hotDocument
+                    ["document"] = hotDocument,
+                    ["confirm"] = true
                 }, service.CurrentRevision);
                 Check((bool)hot["wouldChange"] && !(bool)hot["restartRequired"]
                       && (bool)hot["wrote"] && !(bool)hot["restarting"]
@@ -901,6 +921,23 @@ namespace Kobold.ControlCheck
                       && Directory.GetFiles(backupDirectory, "config-*.json").Length
                           == backupsBeforeHot + 1,
                     "config replace: a hot-only change uses the hot apply path with a backup");
+
+                JObject hotUnconfirmed = JObject.Parse(ConfigDocument.ToJson(live, full: true));
+                hotUnconfirmed["Theme"] = "dark";
+                bool hotForbidden = false;
+                try
+                {
+                    service.Replace(new JObject
+                    {
+                        ["document"] = hotUnconfirmed
+                    }, service.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    hotForbidden = ex.Code == ControlErrorCodes.Forbidden;
+                }
+                Check(hotForbidden && hotApplyCount == 1,
+                    "config replace: a hot write without confirm is forbidden before the apply");
 
                 JObject noopDocument = JObject.Parse(ConfigDocument.ToJson(live, full: true));
                 int backupsBeforeNoop = Directory.GetFiles(backupDirectory, "config-*.json").Length;
@@ -961,7 +998,8 @@ namespace Kobold.ControlCheck
                 JObject guardRestart = guardService.Replace(new JObject
                 {
                     ["document"] = @"{""HideDesktopIcons"":false,""Widgets"":[{""Kind"":""note"",""Id"":""g2"",""Name"":""GuardNext"",""Notes"":[]}]}",
-                    ["restart"] = true
+                    ["restart"] = true,
+                    ["confirm"] = true
                 }, guardService.CurrentRevision);
                 Check((bool)guardRestart["restarting"] && oldPreferenceSeen,
                     "config replace: the desktop guard sees the old HideDesktopIcons value");
@@ -970,16 +1008,22 @@ namespace Kobold.ControlCheck
 
                 JObject newerSchemaDocument =
                     JObject.Parse(ConfigDocument.ToJson(guardLive, full: true));
-                newerSchemaDocument["SchemaVersion"] = 99;
-                JObject newerSchema = guardService.Replace(new JObject
+                newerSchemaDocument["SchemaVersion"] = AppConfig.CurrentSchemaVersion + 1;
+                bool newerSchemaRejected = false;
+                try
                 {
-                    ["document"] = newerSchemaDocument
-                }, guardService.CurrentRevision);
-                Check((bool)newerSchema["wouldChange"]
-                      && ((JArray)newerSchema["changes"]).Select(x => (string)x)
-                          .Contains("SchemaVersion")
-                      && guardLive.SchemaVersion == 99,
-                    "config replace: an explicit newer SchemaVersion is left untouched");
+                    guardService.Replace(new JObject
+                    {
+                        ["document"] = newerSchemaDocument
+                    }, guardService.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    newerSchemaRejected = ex.Code == ControlErrorCodes.ValidationFailed
+                        && guardLive.SchemaVersion == AppConfig.CurrentSchemaVersion;
+                }
+                Check(newerSchemaRejected,
+                    "config replace: a newer SchemaVersion is rejected instead of being written back");
 
                 bool outsideForbidden = false;
                 try
@@ -1030,7 +1074,8 @@ namespace Kobold.ControlCheck
                 JObject restored = service.Restore(new JObject
                 {
                     ["backup"] = restorePath,
-                    ["restart"] = true
+                    ["restart"] = true,
+                    ["confirm"] = true
                 }, service.CurrentRevision);
                 Check((bool)restored["wrote"] && (bool)restored["restarting"]
                       && applyDocumentCount == 3 && launchCount == 3
@@ -1067,7 +1112,8 @@ namespace Kobold.ControlCheck
                     Params = new JObject
                     {
                         ["document"] = routedJson,
-                        ["restart"] = true
+                        ["restart"] = true,
+                        ["confirm"] = true
                     },
                     BaseRevision = service.CurrentRevision
                 });
@@ -1083,7 +1129,8 @@ namespace Kobold.ControlCheck
                     Params = new JObject
                     {
                         ["backup"] = restorePath,
-                        ["restart"] = true
+                        ["restart"] = true,
+                        ["confirm"] = true
                     },
                     BaseRevision = service.CurrentRevision
                 });

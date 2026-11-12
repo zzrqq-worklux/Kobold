@@ -240,6 +240,15 @@ namespace Kobold.Core.Control
         /// </summary>
         public JObject Replace(JObject p, string baseRevision)
         {
+            return ReplaceCore(p, baseRevision, "config.replace");
+        }
+
+        /// <summary>
+        /// The shared replace body. <paramref name="command"/> only names the
+        /// caller in error messages, so a restore never claims to be a replace.
+        /// </summary>
+        private JObject ReplaceCore(JObject p, string baseRevision, string command)
+        {
             if (string.IsNullOrEmpty(baseRevision)) throw ControlException.RevisionRequired();
 
             string current = CurrentRevision;
@@ -257,8 +266,14 @@ namespace Kobold.Core.Control
 
             // A hand-written document that omits the schema field deserializes
             // as 0. That is not a downgrade request, so it adopts the live
-            // schema before the diff; an explicit newer value is left alone.
+            // schema before the diff. An explicit newer value is rejected:
+            // AppConfig would refuse to save it anyway, turning a "wrote:true"
+            // response into a silent no-op.
             if (parsed.SchemaVersion == 0) parsed.SchemaVersion = live.SchemaVersion;
+            if (parsed.SchemaVersion > AppConfig.CurrentSchemaVersion)
+                throw ControlException.Validation(
+                    "Config schema " + parsed.SchemaVersion + " is newer than this build's "
+                    + AppConfig.CurrentSchemaVersion + ".");
 
             JObject currentRoot = JObject.FromObject(live);
             JObject nextRoot = JObject.FromObject(parsed);
@@ -270,6 +285,7 @@ namespace Kobold.Core.Control
             bool wouldChange = changes.Count > 0;
             bool dryRun = BoolParam(parameters, "dryRun");
             bool restart = BoolParam(parameters, "restart");
+            bool confirm = BoolParam(parameters, "confirm");
 
             if (!wouldChange)
             {
@@ -291,6 +307,12 @@ namespace Kobold.Core.Control
                     restartRequired: true, wrote: false, restarting: false,
                     restartFailed: false, revision: current);
             }
+
+            // Every path below writes. Dry runs and the restartRequired preview
+            // returned above stay side-effect free, so they need no confirmation;
+            // a real write must be explicit even for a trusted local client.
+            if (!confirm)
+                throw ControlException.Forbidden(command + " requires confirm:true.");
 
             if (structural)
             {
@@ -321,6 +343,7 @@ namespace Kobold.Core.Control
         /// under the service's backup directory are accepted (canonical path,
         /// case-insensitive, separator boundary), and the document then takes
         /// the exact same structural/hot/backup path as <see cref="Replace"/>.
+        /// Because that path writes, the request needs <c>confirm:true</c> too.
         /// </summary>
         public JObject Restore(JObject p, string baseRevision)
         {
@@ -350,7 +373,7 @@ namespace Kobold.Core.Control
             var replaceParameters = (JObject)parameters.DeepClone();
             replaceParameters.Remove("backup");
             replaceParameters["document"] = json;
-            return Replace(replaceParameters, baseRevision);
+            return ReplaceCore(replaceParameters, baseRevision, "config.restore");
         }
 
         /// <summary>

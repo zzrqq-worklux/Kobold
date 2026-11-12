@@ -82,8 +82,10 @@ namespace Kobold.Core.Control
 
         /// <summary>
         /// Waits (at most 15 s) for the exiting parent, then starts a normal
-        /// app instance. Failure is logged and reported, never thrown: the
-        /// helper has no UI that could explain it.
+        /// app instance. When the parent is still alive after the wait the
+        /// helper gives up instead of racing the single-instance mutex.
+        /// Failure is logged and reported, never thrown: the helper has no UI
+        /// that could explain it.
         /// </summary>
         public static bool Run(int parentPid, string exePath)
         {
@@ -94,7 +96,17 @@ namespace Kobold.Core.Control
                 using (Process parent = Process.GetProcessById(parentPid))
                 {
                     if (!parent.WaitForExit(ParentWaitMilliseconds))
-                        AppDiagnostics.Write("restart helper: the parent did not exit within 15 s");
+                    {
+                        // Starting a second instance now would race the
+                        // single-instance mutex: the old process still owns it,
+                        // so the new one would activate the old window and
+                        // exit, leaving the user with "nothing happened".
+                        // Report the failure and leave the old app running.
+                        AppDiagnostics.Write(
+                            "restart helper: the parent did not exit within "
+                            + ParentWaitMilliseconds + " ms; not starting a second instance");
+                        return false;
+                    }
                 }
             }
             catch (Exception)

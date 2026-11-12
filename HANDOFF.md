@@ -303,11 +303,11 @@ skill/kobold-config/        可移植 agent skill
 
 这些不阻塞当前使用，但换机器继续开发时应知道：
 
-1. `config.replace/restore` 的服务端没有强制 `confirm:true`；目前由 CLI `--yes` / `--restart` 和 skill 流程做用户确认。若要防绕过 CLI，需要在 `ConfigControlService.Replace` 写入分支加服务端检查。
-2. `RestartHelper.Run` 等父进程 15 秒；超时后仍会启动新实例。旧进程若仍未退出，新实例会撞 mutex 并退出，可能表现为重启失败；建议改成“父进程未退出则不启动”或延长/提示。
-3. `ControlServer` 没有 spec 3.2 的读/执行超时；消息上限按字符数而非 UTF-8 字节；`Stop()` 不 join listener 线程。
+1. 【已在 Linux 端修复，待 Windows 矩阵验证】`config.replace/restore` 现在由服务端强制 `confirm:true`：真正写入前检查，`dry-run` 和 `restartRequired` 预览不要求；缺失时返回 `forbidden`（CLI 退出码 1）。绕过 CLI 直接说协议也写不动。
+2. 【已修复，待验证】`RestartHelper.Run` 等父进程 15 秒；父进程仍未退出时不再启动新实例，helper 直接返回 false（进程退出码 1）并写日志，避免新实例撞 mutex 后“什么都没发生”。
+3. 【已修复，待验证】`ControlServer` 现在有界：等待连接 15 秒、单个请求 30 秒看门狗（超时直接丢弃连接）、消息上限按 UTF-8 字节在读取过程中限制 1 MiB（超限回 `invalid_request`）、`Stop()` 会 join listener 线程 2 秒。注：30 秒是“读+派发+写”的总预算，UI 线程被模态框卡住超过 30 秒时 CLI 会收到断连而不是一直挂住。
 4. `diag.search.query` 的 seeded-index 路径没有在 XamlLoadCheck 中覆盖；只覆盖空 query 和状态结构。条目映射代码已实现。
-5. `config.replace` 未拒绝更新的 `SchemaVersion`；`config.patch` 的数值/枚举范围主要依赖 UI clamp，服务端未做严格语义范围校验。
+5. 【SchemaVersion 已修，其余待办】`config.replace` 现在拒绝 `SchemaVersion` 大于本版本 `CurrentSchemaVersion` 的文档（`validation_failed`），不再出现“回 wrote:true 但 `AppConfig.Save` 静默拒绝落盘”；`config.patch` 的数值/枚举范围仍主要依赖 UI clamp，服务端未做严格语义范围校验。
 6. `MenuRenderCheck` / `WindowSwitcherCheck` 没有设置 `App.SuppressStartupForChecks`；`XamlLoadCheck` 已设置。它们当前通过，但若以后开始 pump dispatcher，可能撞到单实例 mutex。
 7. `tests/XamlLoadCheck` 的 glyph 扫描排除 `.superpowers` 证据目录；这是测试工作区产物，不是生产代码。
 8. `desktop.ini` 是当前工作树里的未跟踪本地文件，未提交；新机器不需要它。

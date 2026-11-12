@@ -659,7 +659,8 @@ namespace Kobold.ConfigSafetyCheck
             JObject restarting = service.Replace(new JObject
             {
                 ["document"] = structural,
-                ["restart"] = true
+                ["restart"] = true,
+                ["confirm"] = true
             }, service.CurrentRevision);
 
             Check((bool)restarting["wrote"] && (bool)restarting["restarting"]
@@ -717,7 +718,8 @@ namespace Kobold.ConfigSafetyCheck
             legacyService.Replace(new JObject
             {
                 ["document"] = @"{""Folders"":[{""Name"":""LegacyFolder"",""Items"":[]}]}",
-                ["restart"] = true
+                ["restart"] = true,
+                ["confirm"] = true
             }, legacyService.CurrentRevision);
 
             Check(legacyApplied != null && legacyApplied.Folders == null
@@ -772,7 +774,8 @@ namespace Kobold.ConfigSafetyCheck
             JObject restored = restoreService.Restore(new JObject
             {
                 ["backup"] = snapshotPath,
-                ["restart"] = true
+                ["restart"] = true,
+                ["confirm"] = true
             }, restoreService.CurrentRevision);
 
             Check((bool)restored["wrote"] && (bool)restored["restarting"]
