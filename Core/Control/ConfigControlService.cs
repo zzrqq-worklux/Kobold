@@ -159,6 +159,12 @@ namespace Kobold.Core.Control
                 next.ToString(Formatting.None), out List<string> warnings);
             if (parsed == null) throw ControlException.Validation(warnings);
 
+            // Shape checks are not enough: the settings UI clamps its own
+            // inputs, so a raw protocol call must be held to the same limits.
+            var limitErrors = new List<string>();
+            ConfigLimits.ValidatePatch(patch, limitErrors);
+            if (limitErrors.Count > 0) throw ControlException.Validation(limitErrors);
+
             // Compare the normalized rendered documents per patched top-level
             // property, so a no-op patch reports no change and a nested
             // FileSearch edit is still one top-level change.
@@ -201,6 +207,7 @@ namespace Kobold.Core.Control
             JObject parameters = p ?? new JObject();
             List<string> warnings;
             AppConfig parsed;
+            var limitErrors = new List<string>();
 
             JToken document = parameters["document"];
             if (document != null)
@@ -215,15 +222,18 @@ namespace Kobold.Core.Control
                 var root = JObject.FromObject(_getConfig());
                 ApplyMergePatch(root, patch);
                 parsed = ConfigDocument.Parse(root.ToString(Formatting.None), out warnings);
+                ConfigLimits.ValidatePatch(patch, limitErrors);
             }
             else
             {
                 throw ControlException.Validation("A document or patch is required.");
             }
 
+            if (limitErrors.Count > 0) warnings.AddRange(limitErrors);
+
             return new JObject
             {
-                ["ok"] = parsed != null,
+                ["ok"] = parsed != null && limitErrors.Count == 0,
                 ["warnings"] = new JArray(warnings),
                 ["normalizedSummary"] = parsed == null
                     ? (JToken)JValue.CreateNull()

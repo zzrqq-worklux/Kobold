@@ -116,6 +116,13 @@ namespace Kobold.Core.Control
         }
 
         /// <summary>
+        /// Test seam: a check that seeds its own index can answer a query without
+        /// a scan or the process-wide database. Null in the app, which always
+        /// asks the live service.
+        /// </summary>
+        internal static Func<string, int, SearchQueryResult> QueryOverrideForChecks { get; set; }
+
+        /// <summary>
         /// Caps and caps-only query: empty text short-circuits without touching
         /// the service, and nothing here ever waits for a scan.
         /// </summary>
@@ -131,7 +138,11 @@ namespace Kobold.Core.Control
                 };
             }
 
-            SearchQueryResult result = SearchService.Search(text, ClampSearchLimit(limit), CancellationToken.None);
+            int capped = ClampSearchLimit(limit);
+            Func<string, int, SearchQueryResult> overrideQuery = QueryOverrideForChecks;
+            SearchQueryResult result = overrideQuery != null
+                ? overrideQuery(text, capped)
+                : SearchService.Search(text, capped, CancellationToken.None);
             var items = new JArray();
             foreach (var entry in result.Items)
             {

@@ -12,3 +12,6 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Kobold.MenuRenderCheck")]
 // The control checks drive the internal AppDiagnostics test seams (Task 2).
 [assembly: InternalsVisibleTo("Kobold.ControlCheck")]
+// WindowSwitcherCheck needs the startup-suppression flag so pumping the
+// dispatcher never falls into the real single-instance path.
+[assembly: InternalsVisibleTo("Kobold.WindowSwitcherCheck")]

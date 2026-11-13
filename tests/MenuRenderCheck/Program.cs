@@ -46,6 +46,9 @@ namespace Kobold.MenuRenderCheck
 
             try
             {
+                // Pumping the dispatcher must never fall into the real
+                // single-instance startup path.
+                App.SuppressStartupForChecks = true;
                 var app = new App();
                 app.InitializeComponent();               // App.xaml: the menu styles
                 WidgetManager.Instance.ToString();       // theme tokens

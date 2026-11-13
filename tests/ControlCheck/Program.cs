@@ -531,6 +531,68 @@ namespace Kobold.ControlCheck
                 Check(nestedNoop["wouldChange"] != null && !(bool)nestedNoop["wouldChange"],
                     "config patch: an unchanged nested FileSearch edit is a no-op");
 
+                // --- config.patch: server-side limits (spec 5.5). The settings
+                //     UI clamps its own inputs, so a raw protocol call must not be
+                //     able to store values no window can render.
+                double opacityBefore = live.PanelOpacity;
+                string beforeLimits = service.CurrentRevision;
+                bool badOpacity = false;
+                try
+                {
+                    service.Patch(new JObject
+                    {
+                        ["patch"] = JObject.Parse(@"{""PanelOpacity"":5}")
+                    }, service.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    JToken errors = ex.Details == null ? null : ex.Details["errors"];
+                    badOpacity = ex.Code == ControlErrorCodes.ValidationFailed
+                        && errors != null
+                        && errors.ToString().IndexOf("PanelOpacity", StringComparison.Ordinal) >= 0;
+                }
+                Check(badOpacity && Math.Abs(live.PanelOpacity - opacityBefore) < 0.0001
+                      && service.CurrentRevision == beforeLimits,
+                    "config patch: a PanelOpacity above the range is rejected before any write");
+
+                bool badTheme = false;
+                try
+                {
+                    service.Patch(new JObject
+                    {
+                        ["patch"] = JObject.Parse(@"{""Theme"":""blue""}")
+                    }, service.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    badTheme = ex.Code == ControlErrorCodes.ValidationFailed;
+                }
+                Check(badTheme && live.Theme != "blue",
+                    "config patch: an unknown Theme is rejected");
+
+                bool badColumns = false;
+                try
+                {
+                    service.Patch(new JObject
+                    {
+                        ["patch"] = JObject.Parse(@"{""DefaultGridColumns"":0}")
+                    }, service.CurrentRevision);
+                }
+                catch (ControlException ex)
+                {
+                    badColumns = ex.Code == ControlErrorCodes.ValidationFailed;
+                }
+                Check(badColumns && live.DefaultGridColumns > 0,
+                    "config patch: a zero DefaultGridColumns is rejected");
+
+                JObject limited = service.Validate(new JObject
+                {
+                    ["patch"] = JObject.Parse(@"{""ItemScale"":9}")
+                });
+                Check(limited["ok"] != null && !(bool)limited["ok"]
+                      && ((JArray)limited["warnings"]).Count > 0,
+                    "config validate: a patch outside the limits reports ok false");
+
                 // --- config.validate ---
                 string beforeValidate = service.CurrentRevision;
                 JObject validDocument = service.Validate(new JObject

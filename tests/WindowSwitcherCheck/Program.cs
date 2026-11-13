@@ -47,6 +47,9 @@ namespace Kobold.WindowSwitcherCheck
 
             try
             {
+                // Pumping the dispatcher must never fall into the real
+                // single-instance startup path.
+                App.SuppressStartupForChecks = true;
                 var app = new App();
                 app.InitializeComponent();
                 WidgetManager.Instance.ToString(); // installs the theme tokens like App.OnStartup

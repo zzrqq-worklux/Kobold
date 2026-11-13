@@ -1218,6 +1218,8 @@ namespace Kobold.XamlLoadCheck
                     DiagnosticsSnapshotCarriesEverySection);
                 failures += TryCheck("diagnostics: search status and query mirror the service",
                     DiagnosticsSearchStatusAndQueryMatchService);
+                failures += TryCheck("diagnostics: a non-empty query maps its rows into the payload",
+                    DiagnosticsSearchQueryMapsRows);
                 failures += TryCheck("diagnostics: the app log tail reads, rotates and misses safely",
                     DiagnosticsLogTailReadsAppLog);
                 failures += TryCheck("diagnostics: search commands queue without waiting",
@@ -26217,6 +26219,108 @@ namespace Kobold.XamlLoadCheck
                 throw new InvalidOperationException("an empty search reported limitReached");
             if (RequireArray(empty, "items").Count != 0)
                 throw new InvalidOperationException("an empty search returned items");
+        }
+
+        /// <summary>
+        /// Not just the empty-query shortcut: the payload must carry the row
+        /// mapping (path/name/kind/extension/size/time) and the limit cap, so a
+        /// broken projection cannot hide behind "no results". The rows come from
+        /// the query seam instead of a real index: FileSearchCheck already owns
+        /// the store, and a WPF check has no business opening SQLite.
+        /// </summary>
+        private static void DiagnosticsSearchQueryMapsRows()
+        {
+            var rows = new[]
+            {
+                new SearchEntry
+                {
+                    Path = @"C:\seed\quarterly-report.docx",
+                    Name = "quarterly-report.docx",
+                    Extension = "docx",
+                    IsDirectory = false,
+                    SizeBytes = 123456,
+                    ModifiedUtc = 1700000000
+                },
+                new SearchEntry
+                {
+                    Path = @"C:\seed\quarterly-archive",
+                    Name = "quarterly-archive",
+                    Extension = null,
+                    IsDirectory = true,
+                    SizeBytes = 0,
+                    ModifiedUtc = 0
+                }
+            };
+
+            DiagnosticsService.QueryOverrideForChecks = (text, limit) =>
+            {
+                var matches = rows
+                    .Where(row => row.Name.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+                return new SearchQueryResult(matches.Take(limit).ToArray(), matches.Count,
+                    matches.Count > limit);
+            };
+
+            try
+            {
+                var router = new ControlRequestRouter();
+                JObject payload = RunControlOk(router, "diag.search.query",
+                    new JObject { ["text"] = "quarterly", ["limit"] = 50 });
+
+                if (RequireLong(payload, "totalMatches") != 2)
+                    throw new InvalidOperationException(
+                        "the query reported " + RequireLong(payload, "totalMatches") + " matches, wanted 2");
+                if (RequireBool(payload, "limitReached"))
+                    throw new InvalidOperationException("a complete result reported limitReached");
+
+                JArray items = RequireArray(payload, "items");
+                if (items.Count != 2)
+                    throw new InvalidOperationException("the query returned " + items.Count + " items, wanted 2");
+
+                JObject fileRow = items.OfType<JObject>().First(x => !(bool)x["isDirectory"]);
+                RequireFields(fileRow, "diag.search.query item",
+                    "path", "name", "isDirectory", "extension", "sizeBytes", "modifiedUtc");
+                if ((string)fileRow["path"] != @"C:\seed\quarterly-report.docx")
+                    throw new InvalidOperationException("the query payload lost the row path");
+                if ((string)fileRow["name"] != "quarterly-report.docx")
+                    throw new InvalidOperationException("the query payload lost the row name");
+                if ((string)fileRow["extension"] != "docx")
+                    throw new InvalidOperationException("the query payload lost the extension");
+                if (RequireLong(fileRow, "sizeBytes") != 123456)
+                    throw new InvalidOperationException("the query payload lost the size");
+                string expectedModified = DateTimeOffset.FromUnixTimeSeconds(1700000000)
+                    .UtcDateTime.ToString("o");
+                if ((string)fileRow["modifiedUtc"] != expectedModified)
+                    throw new InvalidOperationException("the query payload did not format modifiedUtc");
+
+                JObject dirRow = items.OfType<JObject>().First(x => (bool)x["isDirectory"]);
+                if ((string)dirRow["extension"] != string.Empty)
+                    throw new InvalidOperationException("a directory without an extension must report an empty string");
+                JToken dirModified = dirRow["modifiedUtc"];
+                string dirModifiedText = dirModified == null ? "<absent>" : dirModified.ToString();
+                if (dirModified != null && dirModified.Type != JTokenType.Null
+                    && dirModifiedText.Length > 0)
+                {
+                    throw new InvalidOperationException(
+                        "an unknown mtime must report null, not [" + dirModified.Type
+                        + "] '" + dirModifiedText + "'");
+                }
+
+                // The cap is applied before the store and still reports the true
+                // total, so a caller can tell "cut" from "nothing else".
+                JObject capped = RunControlOk(router, "diag.search.query",
+                    new JObject { ["text"] = "quarterly", ["limit"] = 1 });
+                if (RequireArray(capped, "items").Count != 1)
+                    throw new InvalidOperationException("the limit cap returned more than one item");
+                if (RequireLong(capped, "totalMatches") != 2)
+                    throw new InvalidOperationException("the capped query lost the true total");
+                if (!RequireBool(capped, "limitReached"))
+                    throw new InvalidOperationException("a capped query must report limitReached");
+            }
+            finally
+            {
+                DiagnosticsService.QueryOverrideForChecks = null;
+            }
         }
 
         private static void DiagnosticsLogTailReadsAppLog()
