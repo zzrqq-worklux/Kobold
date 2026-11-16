@@ -1,821 +1,352 @@
-# Kobold — Windows Desktop Organizer
-
 <div align="center">
 
-![Kobold Logo](Resources/kobold-logo.png)
+<img src="docs/media/kobold-icon.png" width="112" alt="Kobold: four panels gathered into one group"/>
 
-**桌面整理小组件** | **Windows Desktop Folder Widgets**
+# Kobold
+
+**把桌面收进一条岛 · Put your desktop into one island**
 
 Windows 10/11 · WPF · .NET Framework 4.8 · MIT
 
+[English](#english) · [中文](#中文)
+
 </div>
 
-Kobold keeps your desktop tidy with a **dynamic-island launcher** at the
-top of the screen and floating **folder panels**. Hover the island to
-expand it: open the Desktop, jump into any widget, create a new one, or
-open Settings — no need to hunt for the tray icon.
+Kobold puts a slim **dynamic island** at the top of the screen and keeps your
+files, todos and notes in floating panels below it. Hover the island, click a
+tile, and the panel is there — no tray hunt, no desktop clutter.
 
-Built from [FoldRa](https://github.com/YusufEren97/FoldRa) as a secondary
-development base.
+![A folder panel and a note panel side by side](docs/media/hero.gif)
 
-## Features
+*A folder panel and a note, one drag away from becoming a tabbed group. · 文件夹和笔记面板，拖一下即可合并成分组。*
 
-- **Dynamic island launcher** — a slim pill at the top centre expands on
-  hover into desktop / widget / add / settings entries. Click a widget
-  tile to toggle its panel; drag the pill to move the island. Only the
-  widget tiles scroll (a slim bar underneath hints at it) when there are
-  more than fit; right-click a tile for that widget's options.
-- **Folder panels** — glassy panels with per-widget colours, lock, pin and
-  rename; drag any edge or the bottom-right corner to resize one freely, and
-  the size is remembered per widget across restarts (a locked panel cannot be
-  resized). The grid follows the panel: a wider panel spreads the icons out
-  and adds a column as soon as one more fits, while a taller one only adds rows
-  with the row spacing unchanged — the extra height stays at the bottom.
-  **Item size** is a six-step setting in the widget menu and no longer follows
-  the panel; the old per-widget **columns** / **max rows** options are gone,
-  and panels no longer resize themselves with their content. Panels that were
-  open when the app closed come back on the next launch, on the monitor and
-  scale they were saved on, without stealing focus.
-- **Folder selection in the title bar** — the panel title follows the
-  selection: one entry shows its full name (the tooltip holds the whole
-  path), several show **N selected**, and an empty selection falls back to
-  the widget's name (or the folder being browsed). The arrow keys walk the
-  grid: left/right step to the neighbouring cell across rows, up/down hold
-  the column, a short last row falls to its last entry, and an edge stops —
-  with nothing selected, the first arrow picks the first entry.
-- **Widget kinds** — a new widget is a **folder**, a **todo** or a **note**,
-  picked when you create it; all three kinds behave the same on the island, in
-  panels, in the context menus and when panels come back after a restart.
-- **One launcher card** — the note title `▾` and the island `+` open the same
-  floating card: one surface and row style; the island rows show each kind's
-  icon, name and a one-line hint. Right-click menus stay classic context menus.
-- **Note widget** — a note widget is a list of cards (its home), newest
-  first: each card shows the note's **title** (its first heading or line),
-  when it was last edited, a two-line excerpt derived from the text and a
-  `✓ 2/5` task-progress badge when the note holds task boxes. Click a card and
-  the note opens as a detail page that fills the widget — no page jump — and
-  the list hides. The `▾` next to the title opens a dropdown: **＋ New**,
-  **‹ Notes** back to the list, and every note for a one-click switch (the
-  current one is ticked and highlighted); the title text itself stays the drag
-  area. The detail is a rendered Markdown subset — headings, lists, task
-  boxes, quotes, code blocks, tables, dividers, emphasis and links
-  (http/https links open in the browser) — and its task boxes stay live:
-  clicking one writes it back into the source. Click any block and **that
-  block alone** becomes a source box in place, with the caret exactly on the
-  character you clicked, while the rest stays rendered. Clicking the blank
-  space (between blocks, the card padding or the panel margin) saves and
-  leaves the edit but stays on the note, and so does Esc; clicking the blank
-  space below the last block appends a new block and starts editing it; Esc or
-  Backspace on a rendered note returns to the list. The box keeps the
-  quick-insert right-click menu (headings; bold / italic / strike / inline
-  code / link; bullet, numbered and task lists, quote, code block, table,
-  divider), whose insertions the box's own Ctrl+Z undoes. **Font size** —
-  Small / Medium / Large — is a per-widget entry in the widget's right-click
-  menu that scales the note and its inline box, not the cards. There is no
-  save or cancel button: typing is saved as you go, Esc never drops text, the
-  dropdown's **＋ New** (or the blank area's right-click menu on home) starts a
-  new note with the editor ready (an empty new note goes away when you leave),
-  a note emptied on the way out is discarded, and a delete from the card's row
-  menu steps back with the list's Ctrl+Z.
-- **Todo widget** — a month calendar (‹ › change the month, **Today** when
-  you are on another month) over the day's list: completed entries are struck
-  through and sink to the bottom. An open entry whose date is in the past
-  shows up on today with a `↷ original date` badge (display only — the stored
-  date never changes). Sub-todos nest one level: indented, without dates of
-  their own; ticking a parent ticks all of its children, while unticking the
-  parent leaves the children as they are. The panel size is entirely up to
-  dragging: the calendar cell height and the day's list stretch with the
-  height. In the Chinese UI a day cell's **second line** (festival / solar
-  term / lunar date) shows only when the cell is tall enough. The divider
-  between the calendar and the list can itself be dragged to give either half
-  more room; the **+** row sticks to the bottom while the list scrolls and
-  follows the last entry when there is room, and clicking it jumps the list to
-  the bottom. Today wears the hand-drawn circle with a matching hand-drawn
-  check tucked into its bottom-right corner.
-- **Todo editing, undo & cleanup** — click a row to edit it in place: the
-  insertion caret takes the widget's colour (system ink under high contrast),
-  and Backspace at the very start of the text is a ladder — an open entry is
-  ticked (the normal completion path: today is stamped as the completion date
-  and a parent's children follow), a completed or emptied one is deleted,
-  parents and sub-todos alike. Enter walks the list: a parent's editor opens
-  its first sub-todo (or its sub-todo adder when it has none), a sub-todo's
-  editor opens the next sibling (or its parent's adder after the last), and
-  an adder keeps adding while you type; an empty Enter moves to the next
-  parent's editor and ends at the bottom add box. Clicking away never jumps.
-  Deletes and ticks — the row menu, the ladder, **Clear completed**, parent /
-  child / ladder ticks — step back with Ctrl+Z up to 20 steps (no redo; a
-  focused editor keeps its own text undo). **Clear completed**, on the list's
-  or the calendar's blank space, removes the selected day's completed entries
-  — a completed parent goes with its whole subtree, completed sub-todos under
-  an open parent go one by one — and is greyed out when the day has none;
-  Ctrl+Z brings the batch back.
-- **Widget groups** — merge a folder, todo, note or search widget into one
-  group window by dragging one panel's header onto another. The members sit
-  behind bare top tabs: no pill or divider, just a 2px underline in the active
-  widget's colour, and each tab shows the member's own name (the kind label is
-  only a fallback). The title shows the active tab's context and carries no
-  member or pin count. Lock and the panel geometry belong to the group; pinning
-  is per member — any pinned member keeps the group window open when it loses
-  focus, and the header pin toggles only the active member. Right-clicking the
-  title row opens the active member's own menu (rename, colour, kind-specific
-  options, lock, pin, delete), while right-clicking a tab still opens the group
-  menu (switch tab / detach / hide group); the island group tile keeps that
-  same group menu. On the island a group folds into one 44×44 tile: a 2×2 grid
-  of member icons (the first three plus `+N` for five or more), a neutral
-  outline while the group is open, and no count badge or folder glyph. Clicking
-  the tile expands it inline: 44×44 member icon tiles are inserted immediately
-  to the right of the group tile, pushing the rest of the row right — not a
-  popup, a second window or a separate panel; clicking it again folds them
-  away. Each icon names its member in a tooltip only, the active member wears a
-  soft wash and a small dot, and a small gold pin marks pinned members. Clicking
-  a member icon opens the group and switches to its tab. The expansion is
-  stored per group (`WidgetGroup.IslandExpanded`): it survives island
-  collapse/expand and restart, and several groups may be expanded at once.
-  While you drag one component over another, the merge target shows a
-  pre-rendered preview of the dragged component before you release. Drag a tab
-  out (or right-click **Detach this widget**) to split it off again, and a
-  group that drops to one member dissolves by itself. Deleting a folder member
-  from a group ejects its stored files first, and a folder tab keeps browsing,
-  its native file menu, drag/drop and the live folder watcher while it is the
-  active tab.
-- **Quiet windows** — the island and the panels stay out of Alt+Tab and Task
-  View while still behaving like normal, activatable windows.
-- **Steps aside for fullscreen** — while a fullscreen app or video is in
-  front, the island steps out of the way and comes back when the fullscreen
-  session ends.
-- **Browse folders in place** — double-click a folder entry to list its
-  contents inside the panel: drill in, go back (button or Backspace), open
-  files with the shell. While the panel is open the listing follows the
-  folder live, and the panel remembers the folder you left it in, across
-  hides and restarts.
-- **File actions in panels** — while browsing a folder, create, rename and
-  delete (to the Recycle Bin) in place, open a terminal at the current
-  folder, or fall back to the full Windows context menu (Git Bash, 7-Zip,
-  properties…) via **Show more options**.
-- **File clipboard while browsing** — press Ctrl+C to copy the selected
-  entries, Ctrl+X to cut them, Ctrl+V to paste them into the folder on
-  screen. It is Explorer's own file clipboard, so it works both ways: copy
-  out of a panel and paste into an Explorer window or the desktop, or copy
-  in Explorer and paste into a panel (a cut pastes as a move). A copy-paste
-  never overwrites — when the name is taken, both copies are kept; a
-  cut-paste collision keeps the shell's own replace prompt. Locked panels
-  refuse every clipboard action.
-- **File clipboard on a panel** — with items selected at a panel's root,
-  Ctrl+C publishes them to the system clipboard so Explorer or another panel
-  can paste them; Ctrl+V adds the clipboard's files to the panel as
-  **references** — the same rule as dropping files in: the original stays
-  where it is. The root panel does not respond to Ctrl+X.
-- **New File dialog** — the panel's empty-area **New File** entry and the
-  browse menu's entry share one dialog: a name box and an editable extension
-  selector with the thirteen common suffixes (.txt, .md, .json, .csv, .log,
-  .html, .xml, .ini, .bat, .ps1, .docx, .xlsx, .pptx; a custom
-  single-segment extension can be typed) plus a live **Will create** preview
-  of the final name. A name that already ends with the suffix is not doubled;
-  the dialog follows the widget's colour. Text files are created empty under
-  exactly the previewed name; `.docx` / `.xlsx` / `.pptx` are written from a
-  minimal OOXML template (a blank paragraph / worksheet / slide) with the
-  parts Office expects. Opening them in Word / Excel / PowerPoint is a smoke
-  check, not an automated pin. The browse menu's old **New Text
-  Document** entry is now this **New File**.
-- **Folder colors** — right-click a folder in a panel and pick one of nine
-  colors from the same 3×3 palette the widget colour uses: the icon changes
-  everywhere (Explorer included), and **Default color** puts the system icon
-  back. The default entry is only offered when the folder already has a
-  custom colour. The name/prompt dialogs (new folder, rename) follow the
-  widget's colour too.
-- **Drag & drop everywhere** — drop files from Explorer onto a panel,
-  reorder entries with a drop indicator, move them between widgets, or drag
-  them out. Windows performs the move, so dropping an entry into an Explorer
-  window or onto the desktop really relocates the file — collision prompts
-  and progress are the shell's own.
-- **Move files between panels** — browse a folder in two panels and drag
-  entries from one into the other: the files move into the folder on screen.
-- **Drop into a folder** — while browsing, drop entries onto any folder
-  entry to move them inside, or hold Ctrl to copy them; dropping them on the
-  **Back** button moves them up to the parent folder. Locked panels refuse
-  the drop.
-- **Drop into a browsed folder** — an external file dropped on the panel
-  blank copies into the current folder; dropped on a folder row it copies
-  into that subfolder. Explorer-style `(1)` names keep both copies. File
-  rows and locked panels still refuse.
-- **Enterprise WeChat** — its FileDrop (a WXWork cache path) follows the
-  same rules: the widget root keeps a reference, a browsed folder gets a
-  copy.
-- **Readable badges** — a coloured cabinet badge means the file lives in
-  Kobold storage; a grey `!` means the source was deleted or moved.
-- **Safe by design** — ejecting or unstoring moves files back to their
-  original location; nothing is trapped inside a widget.
-- **Desktop icons toggle** — single-click the island's desktop entry to
-  hide/show desktop icons, double-click to open the Desktop folder.
-- **Theming** — dark/light applies to every surface (panels, island,
-  settings, menus, tooltips); context menus pick up their widget's colour;
-  with Windows high contrast on, every surface follows the system colours.
-- **Slim scrollbars, rounded menus** — every scrollbar is a thin pill: an
-  8 px hit area, a 4 px resting thumb that grows to 6 px and darkens while
-  hovered or dragged, and no track arrows. Context menus share one rounded,
-  airy surface — 12 px corners, an inset pill hover, a thin chevron for
-  submenus, and disabled entries at half opacity — still tinted with their
-  widget's colour.
-- **Three languages** — English, 简体中文, 日本語.
-- **Tray + startup** — tray menu for add / show all / hide all / settings
-  / exit, single-instance guard and optional auto-start with Windows.
-- **Idle memory trim** — after two minutes without interaction the app hands
-  its working set back to Windows: the Task Manager figure drops to a few MB
-  while idle, and the pages fault back in on demand.
-- **DPI aware** — PerMonitorV2, verified at 200% scaling.
+---
 
-## File search
+## English
 
-Add the **search** widget from the island `+` menu (or the tray menu) to find
-files and folders by name across your fixed NTFS drives.
+The recordings use the Chinese interface; the same controls are available in English under **Settings → Language**.
 
-- **Index** — `%LocalAppData%\Kobold\search-index.db` (SQLite). The native
-  `e_sqlite3.dll` and its managed support assemblies ship flat beside
-  `Kobold.exe`; the installer copies all 12 runtime files. Only **metadata** is
-  stored — path, name, extension, size, modified time and root. File contents
-  are never read or indexed.
-- **Diagnostics** — every service state and query is appended to
-  `%LocalAppData%\Kobold\logs\search.log` (rotates at 1 MB, one `.1` kept). The
-  file records the query text, match count, elapsed time and any error, so a
-  transient "no results" leaves evidence.
-- **Defaults** — folders and extensionless files are included, plus a built-in
-  list of common document, image, video, audio, archive and code types.
-  **All files** turns the type filter off; the type list and extra excluded
-  folders are editable in **Settings → File search**.
-- **Skipped by default** — ten cache trees stay out of both the scan and the
-  watcher: Chrome and Edge `User Data`, Firefox `Profiles` (Roaming, plus the
-  Local copy Profile Groups leave), the Store apps' volatile directories
-  (`%LocalAppData%\Packages\<app>\LocalCache`, `TempState`, `AC` — `LocalState`
-  is still searched), `INetCache`, `WebCache`, JetBrains caches, and the
-  `%AppData%\Code`, `~\.vscode` and `~\.cache` folders. Rows an older build
-  indexed under them are removed by the next reconcile, so a reconcile interval
-  of 0 keeps them until the next rebuild.
-- **No admin rights** — the index is per-user under `%LocalAppData%`. System
-  and build folders (`WinSxS`, `node_modules`, `.git`), reparse points and
-  over-long paths are skipped, and the skipped-folder count is shown with the
-  status.
-- **First run** — an onboarding card lists the fixed drives with **Start
-  indexing** and **Later**. Nothing is scanned until you start; the chosen
-  roots are remembered.
-- **Lifecycle** — a full scan runs at below-normal priority and publishes
-  atomically, so the old results stay searchable until it finishes; cancelling
-  keeps the old index. A watcher applies creates, renames and deletes
-  incrementally, and a **30-minute reconcile** catches missed changes.
-  **Rebuild index** and **Pause indexing** live in the widget menu and
-  Settings.
-- **Results** — up to 300 rows in a virtualized list with the true match count
-  (“showing first N of M”); name matches rank before path-only matches. Open,
-  open location and copy path sit on each row.
-- **Three languages** — en / zh / ja copy for the widget, onboarding, status
-  and settings.
+### Quick start
 
-### Manual full-disk smoke checklist
+Kobold is a portable app for the current user; it needs no administrator
+rights.
 
-The automated checks use scratch trees only. A full-disk pass on a real machine
-is still **outstanding** — do this before calling the feature release-ready:
+1. Download the latest `Kobold-v*-win-x64.zip` from [Releases](https://github.com/zzrqq-worklux/Kobold/releases), extract it anywhere and run `Kobold.exe`. Or run `tools\install.cmd` once to install it to `%LocalAppData%\Programs\Kobold` with a Start Menu shortcut and an uninstall entry.
+2. On first launch the island appears at the top centre. Hover it and click **+** to add a folder, todo, note or search widget; panels you leave open come back next time.
+3. The tray keeps Kobold one right-click away. The tray glyph is the simplified **K** mark; the desktop/app icon is the grouped-squares mark.
 
-1. Start indexing on a machine with a full system drive; wait for Ready and
-   check that the file count is plausible.
-2. Search a Chinese name, a very long path and an extensionless file.
-3. Create, rename and delete a file while the widget is open; each change
-   appears without a rebuild.
-4. Restart Kobold; the index is kept and searching works without rescanning.
-5. Use **Rebuild index**; results stay searchable during the scan and the
-   rebuilt index finishes Ready.
-6. Delete or corrupt `search-index.db` and restart; the app quarantines or
-   recreates it and can rebuild.
-7. Install and uninstall without a UAC prompt; choose **All** and confirm the
-   index files are gone while `%LocalAppData%\Kobold` itself is left in place.
+![Kobold tray menu: add widget, show all, hide all, settings, exit](docs/media/tray-menu.png)
 
-## Screenshots
+![Kobold tray icon: a simplified K](docs/media/tray-icon.png)
 
-<p align="center">
-  <img src="Screenshot/island.png" height="104" alt="Island launcher, expanded"/>
-  <br/>
-  <sub>The island expands on hover: Desktop entry, widget tiles, add-widget and settings.</sub>
-</p>
+> **Tip:** the build is unsigned, so SmartScreen may warn on first run — choose **More info → Run anyway**.
 
-<p align="center">
-  <img src="Screenshot/panel-dark.png" height="200" alt="Folder panel in dark theme"/>
-  &nbsp;&nbsp;
-  <img src="Screenshot/context-menu.png" height="200" alt="Widget context menu"/>
-  <br/>
-  <sub>A folder panel, and the widget menu that follows its colour.</sub>
-</p>
+### 1. Island — expand, collapse, drag
 
-<p align="center">
-  <img src="Screenshot/light-theme.png" height="260" alt="Light theme"/>
-  <br/>
-  <sub>The same widget in light theme.</sub>
-</p>
+The island is the only launcher you need: hover to expand it, click a tile to
+open its panel, and drag the pill to move it.
 
-## Install
+1. Move the pointer onto the slim pill at the top centre.
+2. Click a widget tile to open its panel; click the tile again to close it.
+3. Drag the pill sideways to reposition the island.
 
-1. Download the latest `Kobold-v*-win-x64.zip` from
-   [Releases](https://github.com/zzrqq-worklux/Kobold/releases).
-2. Extract it anywhere and run `Kobold.exe` — the portable way. Or run
-   `tools\install.cmd` to install it for the current user: the app goes to
-   `%LocalAppData%\Programs\Kobold`, with a Start Menu shortcut and an
-   uninstall entry. No admin rights needed.
-3. Windows 10/11 with .NET Framework 4.8 (bundled with Windows 10 1903+
-   and Windows 11).
-4. The build is unsigned — SmartScreen (or an antivirus) may warn on first
-   run ("More info" → "Run anyway").
+![The expanded island, the folder panel opening, and the island collapsing](docs/media/island-expand.gif)
 
-### Update
+![Dragging the island pill to a new position on screen](docs/media/island-drag.gif)
 
-Extract the new zip over the old folder, or run `tools\install.cmd` again on an
-installed copy: it stops the running instance, replaces the files and starts
-the new version. Settings and stored files are kept.
+> **Tip:** right-click a tile for rename, colour, lock, pin and delete; the island steps aside while a fullscreen app or video is in front.
 
-### Uninstall
+### 2. Folder panel — create, drop in, reorder
 
-- Installed copy: **Settings → Apps → Kobold → Uninstall**, or run
-  `uninstall.cmd` in the install folder (it is `tools\uninstall.cmd` in the
-  zip). The script also works as a cleanup for a portable copy that was
-  deleted by hand: it removes the leftover autostart entry and nothing else
-  that isn't yours.
-- Your data is kept by default. `%AppData%\Kobold` holds `config.json`
-  (settings — safe to delete), `Storage\` (**your files** — they were moved
-  there, not copied) and `FolderIcons\` (what your coloured folders point at).
-  The search index in `%LocalAppData%\Kobold\search-index.db` is offered with
-  the same choice. The uninstaller lists them all and asks before deleting
-  anything; **All** removes only the index files, never the whole
-  `%LocalAppData%\Kobold` folder.
+A folder panel is a shelf for files and folders: create a folder, drop things
+in, then drag them into the order you want.
 
-## Usage
+1. Right-click the panel's empty area → **New folder**, type a name and press Enter.
+2. Drag files from the desktop into the panel; they stay where they are — the panel holds references, not copies.
+3. Drag any icon onto another position to reorder it; double-click a folder to browse it in place.
 
-| Action | How |
+![Creating a folder, dragging a desktop file into the panel, and reordering the icons](docs/media/folder-organize.gif)
+
+> **Tip:** **Store** physically moves a file into Kobold storage; **Unstore** or **Eject** puts it back. Locked panels refuse drops.
+
+### 3. Todo — tick, add, look at another day
+
+The todo widget is a day planner: tick items off, add new ones in place, and
+jump between dates.
+
+1. Click a checkbox to complete an item — completed entries are struck through and sink to the bottom.
+2. Click **+**, type the task and press Enter; it is added to the selected day.
+3. Click a date in the calendar to see that day; the **Today** chip brings you back.
+
+![Ticking a todo, adding a new one, then opening another day in the calendar](docs/media/todo-day.gif)
+
+> **Tip:** Ctrl+Z undoes ticks and deletes up to 20 steps. An open item whose date has passed appears on today with a `↷ original date` badge.
+
+### 4. Notes — Markdown editing
+
+Notes are Markdown documents you edit in place: click a block, type, and it
+renders back.
+
+1. Click a note card to open it — the card list hides, the note fills the panel.
+2. Click any block to edit its Markdown source in place.
+3. Press Esc or click the blank area to render it again; click a task box to tick it.
+
+![Opening a note, editing a Markdown task line, and rendering it back](docs/media/note-markdown.gif)
+
+> **Tip:** headings, lists, task boxes, quotes, code blocks, tables, emphasis and links render; right-click the source for the insert menu. There is no save button — typing is saved as you go.
+
+### 5. Search — index once, find by name
+
+Search finds files by name across the folders you choose; the index is built
+once and kept up to date by a watcher.
+
+1. Open the search widget and click **Start indexing**; pick the drives or folders to include.
+2. Type part of a file or folder name — results appear as you type.
+3. Open a result, reveal it in its folder, or copy its path from the row.
+
+![Building the search index, then looking up two file names](docs/media/search-find.gif)
+
+> **Tip:** only names and locations are indexed, never file contents. Pause or rebuild from the widget menu or **Settings → File search**; the index lives in `%LocalAppData%\Kobold`.
+
+### 6. Groups — merge, reorder, detach
+
+Groups fold several widgets into one window with tabs: merge two panels,
+reorder the tabs, then split one out again.
+
+1. Drag one panel's header onto another panel — a preview shows where it will land; release to merge.
+2. Click a tab to switch widgets; drag a tab sideways to reorder it.
+3. Drag a tab out of the window to detach it. A group that drops to one member dissolves by itself.
+
+![Merging a folder and a note into one tabbed group, reordering the tabs, then detaching one](docs/media/group-merge.gif)
+
+> **Tip:** lock and panel geometry belong to the group; pinning stays per member. Deleting a folder member from a group ejects its stored files first.
+
+### 7. Settings — theme, language, start with Windows
+
+Settings covers the look, the language, startup and the defaults for new
+widgets.
+
+1. Click the gear on the island, or choose **Settings** from the tray menu.
+2. Pick a colour theme and an interface language; both apply immediately.
+3. Turn on **Start with Windows**, then click **Save**.
+
+![Switching to the light theme, switching the interface to English, and enabling start with Windows](docs/media/settings-flow.gif)
+
+> **Tip:** no restart is needed. Panel opacity, icon style, storage location and file-search roots live further down the same window.
+
+### FAQ
+
+**Where does my data live?**
+
+| What | Where |
 |---|---|
-| Open/close a widget panel | Hover the island, click a widget tile |
-| Add a widget | Island `+` entry (or tray menu) |
-| Add a todo widget | Island `+` entry (or tray menu) → choose **Todo** |
-| Select a day | Click a day in the calendar (a grey day from another month switches the month first) |
-| Add a sub-todo | Right-click a todo entry → **Add sub-todo** (a typed Enter adds the next one, an empty Enter moves on) |
-| Tick a parent todo | Ticking it ticks all of its sub-todos; unticking it leaves them alone |
-| Undo a delete or a tick | With no editor focused, Ctrl+Z steps back up to 20 edits |
-| Clear the day's completed todos | Right-click the list or the calendar's blank space → **Clear completed** (greyed out when the day has none) |
-| Create a note | Title ▾ → **New**, or right-click the blank area (home, or the detail padding) |
-| Open a note | Click a card; the title ▾ lists every note for quick switching |
-| Back to the list | Title ▾ → **Notes**, or Esc / Backspace in the rendered detail |
-| Edit a note | Click any block; click the blank area / Esc to render it back |
-| Append a block | While editing, click the blank space below the last block |
-| Tick a task in a note | Click the box in the rendered note |
-| Insert markdown fast | Right-click the source box while editing a block |
-| Change note text size | Right-click the widget → **Font size** → Small / Medium / Large |
-| Open settings | Island gear entry (or tray menu) |
-| Hide/show desktop icons | Click the island's desktop entry |
-| Open the Desktop folder | Double-click the island's desktop entry |
-| Browse a folder inside a panel | Double-click a folder entry (Backspace goes back, ▾ lists the whole path) |
-| Move the selection with the arrow keys | Left/right cross rows, up/down keep the column, an edge stops |
-| File actions in a panel | Right-click an item or the empty area (F5 refreshes, Enter opens, Shift+F10 opens the menu) |
-| Create a file | Right-click the empty area or the browse background → **New File** (name + extension picker + a **Will create** preview) |
-| Color a folder | Right-click a folder entry → **Folder color…** → pick from the 3×3 palette (Default color only when a custom colour is set) |
-| The full Windows context menu | Choose **Show more options** at the bottom of the panel menu |
-| Preview the selected item | Select an item, press Space (QuickLook) |
-| File actions (open, rename, store, eject…) | Right-click an item in a panel |
-| Move a file into another folder | Drag the entry from one browse panel into another — the shell moves it, Explorer-style |
-| File clipboard while browsing | Select entries, then Ctrl+C / Ctrl+X / Ctrl+V into the folder on screen (the clipboard is shared with Explorer; copies keep both on a name clash) |
-| File clipboard on a panel | Ctrl+C publishes the selection to the system clipboard; Ctrl+V adds the clipboard's files as references (the root panel ignores Ctrl+X) |
-| Move entries into a subfolder | While browsing, drag them onto a folder entry (hold Ctrl to copy), or onto the Back button to move them up one level |
-| Move a file out to Explorer / the desktop | Drag the entry out of the panel — Windows performs the move |
-| Resize a panel | Drag any edge, or the bottom-right grip (locked panels cannot be resized) |
-| Move the calendar / list split | Drag the divider between the calendar and the day list (locked panels cannot) |
-| Change the folder icon size | Right-click a folder panel → **Item Size** (six steps) |
-| Widget options (rename, colour, lock, icon size, delete) | Right-click a panel header or an island tile |
+| Settings | `%AppData%\Kobold\config.json` (previous copy: `config.json.backup`) |
+| Stored files | `%AppData%\Kobold\Storage` — these are your files, moved there, not copies |
+| Coloured folder icons | `%AppData%\Kobold\FolderIcons` |
+| Search index | `%LocalAppData%\Kobold\search-index.db` — metadata only, safe to delete and rebuild |
+| Logs | `%LocalAppData%\Kobold\logs` |
 
-Stored vs. referenced files: dropping a file in creates a *reference* — the
-original stays where it is. **Store** in the item menu physically moves it
-into Kobold storage; **Unstore** or **Eject** puts it back. Dragging an item
-*out* of a panel hands the files to Windows: a target that accepts the drop
-moves them for real, and a drop nothing accepts restores the item
-(references become visible again, stored files return to where they came
-from).
+**How do I upgrade?** Extract the new zip over the old folder, or run
+`tools\install.cmd` again on an installed copy. Settings and stored files are
+kept.
 
-## Local agent control / kobold-config skill
+**How do I uninstall?** Use **Settings → Apps → Kobold → Uninstall**, or run
+`uninstall.cmd` in the install folder. Your data is kept by default; the
+uninstaller lists every folder and asks before deleting anything.
 
-`koboldctl.ps1` ships in the Kobold install directory (by default
-`%LocalAppData%\Programs\Kobold`) and is also available as
-`tools\koboldctl.ps1` in the repository. It talks to a running Kobold over a
-named pipe restricted to the current Windows user and session - there is no
-HTTP endpoint and no remote access. The command surface covers `status`,
-`config get/describe/validate/patch/replace/backup/restore`,
-`widget add/update/delete`, `group merge/detach/reorder/dissolve`,
-`search status/query/rebuild/cancel/pause/resume/reconcile`, and
-`diag snapshot/logs/folders`. Config writes are revision-guarded, and
-destructive commands require `--yes`.
+**Do I need to edit the config by hand?** No. Use the settings window, or the
+local `koboldctl.ps1` control CLI for scripted changes; editing
+`config.json` while Kobold runs can be overwritten.
 
-`skill\kobold-config` is a portable skill folder. Copy the whole
-`kobold-config` directory into your agent's skills directory, then use
-`scripts/find-koboldctl.ps1` to locate the CLI. It works with the installed
-copy or with the repository checkout.
+**Why does one panel sometimes stay open when I click elsewhere?** It is
+pinned: right-click the panel header → **Unpin**, or click the pin in the
+header.
 
-## Build & test
+### Developer appendix
 
-Requires the .NET SDK (8.x) on Windows.
+Build, test and package notes: [English](docs/DEVELOPMENT.md) · [中文](docs/DEVELOPMENT.zh.md).
+The exhaustive feature log and the manual full-disk search checklist:
+[English](docs/FEATURES.md) · [中文](docs/FEATURES.zh.md).
 
 ```powershell
-dotnet build Kobold.csproj -c Release
-# -> bin\Release\net48\Kobold.exe
+dotnet build Kobold.csproj -c Debug
+powershell -File tools\Run-Checks.ps1 -Group ci       # 28 checks
+powershell -File tools\Run-Checks.ps1 -Group checks   # 36 checks
+dotnet run --project tests\GroupUiSpike -- --check    # 15 UI checks
 ```
 
-Run the console self-checks through one entry point - it runs every selected
-check, prints a summary and exits non-zero when anything fails:
+`koboldctl.ps1` talks to a running Kobold over a current-user named pipe; the
+command surface covers `config`, `widget`, `group`, `search` and `diag`. The
+portable agent skill with the full safety rules is in
+[skill/kobold-config/SKILL.md](skill/kobold-config/SKILL.md).
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List   # show the matrix
-```
+Source layout: `Controls/` (island and panels), `Core/` (models, config,
+groups, search), `Windows/` (settings), `Services/` (tray, shell, control
+pipe), `tools/` (CLI and checks), `tests/` (console checks).
 
-`checks` = every console self-check, `ci` = the subset that runs on GitHub
-runners (the window/desktop-heavy checks stay local), `installer` = the
-installer self-check (logic only, temp folders, no registry writes) and
-`all` = checks + installer.
-
-The `all` matrix is **34 checks**: 32 console checks (including
-`FileSearchCheck` for the SQLite index, scanner, watcher and service), the
-config pin and the installer tests.
-
-The Release output is flat: `Kobold.exe` plus 11 runtime files, including the
-SQLite native runtime (`e_sqlite3.dll`, `Microsoft.Data.Sqlite.dll`,
-`SQLitePCLRaw.*`) and the `System.Buffers` / `System.Memory` /
-`System.Numerics.Vectors` / `System.Runtime.CompilerServices.Unsafe` support
-assemblies. `tools\package.ps1` and the installer copy that same list.
-
-A GitHub Actions workflow runs the `ci` group on every push whose HEAD commit
-mentions `[ci]` (or on manual dispatch), keeping runner usage deliberate.
-
-End-to-end install/uninstall is verified by a one-off manual drill before a
-release (it writes a real uninstall entry and a shortcut).
-
-Package a release zip; the version defaults to the one in `Kobold.csproj`:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
-```
-
-Release notes come from `CHANGELOG.md`, and a missing version section is a hard
-error - a release cannot go out without changelog entries:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Version 1.2.0
-# -> prints the notes, or write them with -OutFile notes.md
-```
-
-## Data
-
-- Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).
-  A config file that could not be read is first kept aside as
-  `config.json.failed-<timestamp>` before defaults are used.
-- Widgets are stored in the new `Widgets` format, which older releases cannot
-  read: falling back to v1.3.0 or v1.3.1 resets you to default settings but
-  keeps the original file aside as `config.json.failed-<timestamp>`. Releases
-  older than v1.3.0 do not have that safety net. An unknown kind is kept, not
-  dropped: v1.4.0 reads a config with a note in it as an unknown kind and
-  hands it back unchanged, so the note is still there on the way back.
-- Each widget's **panel size is saved with the widget**, so panels come back
-  the size you left them. On upgrade the old per-widget columns / max-rows
-  settings are converted **once** into an initial panel size (they stay in the
-  config file but are no longer used); **item size** keeps working.
-- Stored files: `%AppData%\Kobold\Storage`
-- Search index: `%LocalAppData%\Kobold\search-index.db` (metadata only —
-  file names and locations, never contents). Safe to delete; it rebuilds.
-
-Source layout: `Core/` (models, config, localization, design tokens,
-theme manager), `Controls/` (island + folder widget windows),
-`Windows/` (settings), `Helpers/` (dialogs, menus, animation, cursors),
-`Themes/` (XAML control styles), `Services/` (tray, shell integration,
-terminal, memory trim), `tests/` (console checks).
-
-## Credits & License
+### Credits & license
 
 Derived from [FoldRa](https://github.com/YusufEren97/FoldRa) by
 [Yusuf Eren Seyrek](https://github.com/YusufEren97) and
 [Mehmet Delin](https://github.com/Deleny), licensed under the MIT License.
-This project keeps the MIT license; see the original repository for
-upstream history. Kobold's own license is in [LICENSE](LICENSE); the
-third-party components it ships with are listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Kobold keeps the MIT license; see [LICENSE](LICENSE). Third-party components
+are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ---
 
-# 中文说明
+## 中文
 
-Kobold 是基于 [FoldRa](https://github.com/YusufEren97/FoldRa) 的二次开发项目：
-顶部有一颗**灵动岛启动器**，桌面上悬浮着**文件夹面板**。鼠标悬停岛即可展开，
-打开桌面、进入任意组件、新建组件或打开设置，不必再翻托盘图标。
+以下录屏使用中文界面；英文界面可在 **设置 → 语言** 中切换。
 
-## 功能
+### 快速开始
 
-- **灵动岛启动器** — 屏幕顶部中央的胶囊，悬停展开为「桌面入口 / 组件 / 新建 / 设置」；
-  点击组件 tile 开合面板，按住胶囊可拖动整颗岛的位置。组件多了只在中间区域滚动
-  （下方细条提示可见比例），右键 tile 可直接打开该组件的选项菜单。
-- **文件夹面板** — 毛玻璃半透明面板，支持每个组件自定义颜色、锁定、置顶与重命名；
-  拖动任意边缘或右下角手柄即可自由缩放，尺寸属于该组件、重启后恢复，锁定的面板
-  不可缩放。网格随尺寸自适应：变宽会拉开图标间距、能多放一列时自动加列；拉高只
-  加行、行距不变（多出的高度留在下方）。**图标大小**是组件菜单里的六档设置，不再
-  随面板变化；组件菜单里旧的**列数 / 最大行数**选项已移除，面板也不再随内容自动
-  收放。退出时开着的面板会在下次启动时按原屏幕与缩放自动恢复，且不抢焦点。
-- **文件夹标题栏与方向键选择** — 选中条目时标题栏显示该条目的全名（Tooltip 是完整路径），
-  多选显示「N 项已选」，没有选择时回落为组件名（浏览时是当前文件夹名）；方向键按网格
-  移动选择——左右跨行走到相邻格、上下保持同列，最后一行不满时向下落到最后一项，边界
-  停住（未选中任何条目时，第一次方向键选中最前一项）。
-- **组件类型** — 新建组件时可选「文件夹」「待办」或「笔记」三种类型；三类组件在岛、
-  面板、右键菜单与开机恢复中的行为一致。
-- **统一的启动卡片** — 笔记标题 `▾` 与 island `＋` 打开同一套浮层卡片：同一表面与行样式；
-  island 每行显示组件图标、名称与一句说明。右键菜单仍是经典 ContextMenu。
-- **笔记组件** — 笔记以卡片列表（home）呈现，最近编辑在最上：每张卡片显示**标题**（取第一个
-  标题行或首行）、最后修改时间与两行摘要（摘要由正文自动得出），有任务框时还显示 `✓ 2/5`
-  完成进度。单击卡片进入**详情页**，笔记铺满内容区、卡片列表隐藏，不跳页。标题右侧的 `▾`
-  展开下拉：**＋ 新建**、**‹ 笔记列表**回到列表，以及按最近修改排序的全部笔记一键切换
-  （当前条打勾并高亮）；标题文字本身仍是拖拽区。详情是 Markdown 子集——标题、列表、任务框、
-  引用、代码块、表格、分割线、强调与链接（http/https 可在浏览器打开），任务框仍然可点：
-  点一下就回写源码。点正文里的任意一个块，**只有这个块**在原地变成源码编辑框，光标精确
-  落在点击的那个字上，其余内容保持渲染。点空白（块间、卡片内边距或面板边距）保存并退出
-  编辑、仍留在详情，Esc 同样；编辑时点最后一块下方的空白会追加一个新块并直接起笔；
-  渲染态按 Esc 或 Backspace 回到列表。编辑框保留右键快速插入菜单（标题；粗体 / 斜体 /
-  删除线 / 行内代码 / 链接；无序 / 有序 / 任务列表、引用、代码块、表格、分割线），插入用
-  编辑框自带的 Ctrl+Z 撤回。**字号**（小 / 中 / 大）是组件右键菜单里的一档，按组件记忆、
-  重启保持，只缩放渲染全文与行内编辑框，卡片摘要不变。没有保存 / 取消按钮：边打边存，
-  Esc 不会丢字，标题下拉的「＋ 新建」（或 home 空白处右键）新建后直接起笔（空的新笔记
-  离开即消失），清空的笔记离场时丢弃，卡面行菜单删除后可用列表的 Ctrl+Z 按步找回。
-- **待办组件** — 月历（‹ › 换月、不在本月时显示「今天」）加当日清单：
-  完成的条目划线置底。未完成且日期已过的条目会显示在今天，并带
-  「↷ 原日期」角标（只影响显示，不改数据）。支持一层子待办：缩进、没有
-  独立日期；勾选父项会同时勾选全部子项，取消父项不影响子项。面板尺寸完全由拖动
-  决定——日历格高与当日清单随高度伸缩；中文界面下日期格的第二行（节日 / 节气 /
-  农历）只在格子足够高时显示。月历与清单之间的**分隔线也可拖动**，两部分占比随意
-  调整；空间不足时「＋」添加行贴在面板底部（清单滚动），够用时跟在最后一条 todo
-  下方，点击它自动滚动到清单底部；今天的日期标记是手绘圈 + 右下角手绘 ✅。
-- **待办编辑、撤回与清理** — 点击条目即可就地编辑：插入光标跟随组件颜色（高对比度回落
-  系统文本色）；光标在文本最前（无选区）按退格是一道阶梯——未完成 → 打勾（与正常勾选
-  一致：盖完成日期、父项级联子项），已完成或框内已清空 → 删除，父项与子项规则一致。
-  Enter 可一路走到底：父项编辑器进第一个子项（没有子项则进它的子项添加框），子项编辑器
-  进下一个兄弟（最后一个则进该父项的添加框），添加框有输入就连续添加；空 Enter 跳到
-  下一个父项的编辑器，最后一个父项落到底部新增输入。点到别处不会跳行。删除与勾选（行菜单、
-  退格阶梯、「清理已完成」整批、父项 / 子项 / 阶梯打勾）都能用 Ctrl+Z 按步撤回，最多
-  连续回退 20 步（编辑器聚焦时仍是文本框自带的文字撤回；没有重做）。在清单或日历空白处
-  右键 →「清理已完成」：清掉当前选中日的已完成条目（已完成的父项整条含子树；未完成父项
-  下的已完成子项逐条删除），当天没有已完成项时置灰；整批可 Ctrl+Z 找回。
-- **组件组** — 把一个文件夹 / 待办 / 笔记 / 搜索组件的 header 拖到另一个组件上，
-  即可合并为一个组窗口。成员收在顶部的**裸标签**下：没有胶囊底或分隔线，只有一条
-  2px 的组件色下划线，标签显示成员自己的名称（只有名称为空时才回落为类型名）。
-  标题显示当前标签的上下文，不再显示成员数或置顶数。锁定与面板几何属于整个组；
-  置顶是成员级的——任一成员置顶时组窗口失焦不收起，标题栏的图钉只切换当前成员。
-  右键标题栏打开**当前成员**自己的菜单（改名、换色、类型选项、锁定、置顶、删除），
-  右键标签仍是组菜单（切换标签 / 分离此组件 / 隐藏组），岛上的组 tile 右键也保持
-  组菜单。在岛上同组折叠为一个 44×44 tile：内部 2×2 成员图标（5 个以上显示前 3 个
-  加 `+N`），组打开时只用中性细轮廓，没有数量角标或文件夹图标。点击该 tile 会就地
-  展开：44×44 的成员图标**插到组 tile 右侧**，把整行其余内容向右推——不是弹窗、第二个
-  窗口或独立面板，再次点击收起；图标只以 Tooltip 显示成员名，当前成员带淡色底与小
-  圆点，已置顶的成员带一枚小金钉。点击成员图标打开组窗口并切到该标签。展开状态按组
-  保存在 `WidgetGroup.IslandExpanded`，收起 / 展开岛与重启后都保持，且可同时展开多个组。
-  拖动一个组件到另一个组件上时，合并目标会先显示被拖动组件的**预渲染预览**；标签可
-  拖出（或右键「分离此组件」）拆回独立组件，剩 1 个成员时自动解散。从组里删除文件夹
-  成员时，会先把它收纳的文件移回原位置；文件夹标签在激活时照常浏览，保留原生文件
-  菜单、拖放与实时文件夹监听。
-- **安静窗口** — 岛与面板不出现在 Alt+Tab / 任务视图里，同时仍是可正常激活的窗口。
-- **全屏自动让路** — 前台是全屏游戏或视频时岛自动让开，退出全屏后恢复。
-- **面板内浏览文件夹** — 双击组件里的文件夹条目即可在面板内就地查看其内容：
-  逐级下钻、返回（按钮或 Backspace）、文件交给系统默认程序打开。
-  面板打开时列表会实时跟随该文件夹的变化；面板会记住你离开时所在的文件夹，
-  收起再打开、重启之后都还在。
-- **面板内文件操作** — 浏览目录时可就地新建、重命名、删除（进回收站），
-  一键在当前目录打开终端；需要时用「显示更多选项」调出完整的系统右键菜单
-  （Git Bash、7-Zip、属性等）。
-- **浏览时的文件剪贴板** — 浏览目录时按 Ctrl+C 复制选中条目、Ctrl+X 剪切、
-  Ctrl+V 粘贴到当前文件夹。剪贴板就是资源管理器自己的文件剪贴板：从面板复制可
-  粘到资源管理器窗口或桌面，从资源管理器复制也可粘进面板（剪切粘贴即移动）。
-  复制的粘贴永不覆盖：重名时两份都保留；剪切的粘贴重名时沿用资源管理器的
-  替换提示。锁定面板一律拒绝这些操作。
-- **主面板文件剪贴板** — 选中条目后按 Ctrl+C 把它们发布到系统剪贴板，资源管理器
-  或其他面板可直接粘贴；Ctrl+V 把剪贴板里的文件**加为引用**到面板——与拖入
-  相同，源文件原地不动。主面板不响应 Ctrl+X。
-- **新建文件对话框** — 面板空区的「新建文件」与浏览菜单里的「新建文件」共用同一个
-  对话框：名称框 + 可编辑的后缀选择器（常用 .txt、.md、.json、.csv、.log、.html、
-  .xml、.ini、.bat、.ps1、.docx、.xlsx、.pptx，也可输入自定义的单个后缀），下方是
-  实时的「将创建」预览；名称已带相同后缀不会重复追加；对话框跟随组件颜色。文本文件
-  按预览名称创建为**空文件**；`.docx` / `.xlsx` / `.pptx` 按 Office 可识别的最小
-  OOXML 结构写入（空段落 / 空工作表 / 空白幻灯片）；真实 Office 打开是冒烟项，
-  不是自动 pin。浏览菜单原来的「新建文本文档」更名为「新建文件」。
-- **文件夹颜色** — 右键面板里的文件夹，可从与组件换色同一套 3×3 色盘中选 9 种颜色：
-  图标会在所有地方（包括资源管理器）生效；「恢复默认颜色」可还原系统图标。只有已有
-  自定义色的文件夹才显示「恢复默认颜色」。新建文件夹 / 重命名等输入框也跟随组件颜色。
-- **处处拖拽** — 从资源管理器拖文件进面板；拖动条目显示插入指示线、可跨组件移动；
-  拖出面板即交给系统：拖进资源管理器窗口或桌面就是真正移动文件，冲突提示与进度
-  都是系统原生的。
-- **面板之间移动文件** — 两个面板各浏览一个文件夹，把一个面板里的条目拖进另一个，
-  文件就会移动进对方正在显示的文件夹。
-- **拖入文件夹** — 浏览时把条目拖到任意文件夹条目上即可移入该文件夹，按住 Ctrl
-  为复制；拖到「返回」按钮则移回上级目录。锁定面板拒绝该操作。
-- **拖入浏览目录** — 外部文件拖到面板空白 → 复制进当前目录；拖到文件夹行 →
-  复制进该子文件夹；重名按 Explorer 习惯生成 `(1)`，不覆盖。文件行与锁定面板仍拒绝。
-- **企业微信** — 企微的 FileDrop（WXWork 缓存路径）遵循同一规则：组件根目录保持引用，
-  浏览中的文件夹复制一份。
-- **一眼看懂的角标** — 彩色文件柜角标 = 文件已收纳进 Kobold 存储；灰色 `!` =
-  源文件已被删除或移动。
-- **安全回收** — 移除或取消收纳时，文件都会移回原位置，不会被困在组件里。
-- **桌面图标开关** — 单击岛的桌面入口隐藏/显示桌面图标，双击打开桌面文件夹。
-- **主题** — 深色/浅色覆盖所有界面（面板、岛、设置、菜单、Tooltip）；
-  右键菜单会带上所属组件的颜色；系统开启高对比度时界面跟随系统色。
-- **细胶囊滚动条与圆润菜单** — 全局滚动条都是细胶囊：点击区 8px，静止时是 4px 圆角
-  胶囊、悬停或拖动时 6px 并加深，没有轨道与箭头；右键菜单统一为圆润留白样式——圆角 12、
-  内缩胶囊悬停、细人字子菜单箭头、禁用项 0.5 置灰，仍带所属组件的颜色淡染。
-- **三语界面** — English / 简体中文 / 日本語。
-- **托盘与自启** — 托盘菜单提供新建、显示全部、隐藏全部、设置与退出；
-  单实例保护，可选开机自启。
-- **空闲内存回收** — 静置两分钟无操作后把工作集交还给系统：任务管理器内存
-  降到个位数 MB，需要时自动换页回来。
-- **DPI 友好** — PerMonitorV2，200% 缩放下已验证。
+Kobold 是当前用户级的绿色软件，不需要管理员权限。
 
-## 文件搜索
+1. 从 [Releases](https://github.com/zzrqq-worklux/Kobold/releases) 下载最新的 `Kobold-v*-win-x64.zip`，解压到任意目录，运行 `Kobold.exe`。也可以运行一次 `tools\install.cmd`，安装到 `%LocalAppData%\Programs\Kobold`，并创建开始菜单快捷方式和卸载项。
+2. 首次启动后，灵动岛出现在屏幕顶部中央。鼠标悬停，点 **+** 新建文件夹、待办、笔记或搜索组件；上次没关的面板下次启动会回来。
+3. 托盘里右键即可唤出 Kobold。托盘用简化的 **K** 字形，桌面/应用图标用「分组」图案。
 
-在岛 `+` 菜单（或托盘菜单）新建**搜索**组件，即可按名称搜索固定 NTFS 磁盘上的
-文件和文件夹。
+![Kobold 托盘菜单：新建组件、显示全部、隐藏全部、设置、退出](docs/media/tray-menu.png)
 
-- **索引位置** — `%LocalAppData%\Kobold\search-index.db`（SQLite）。原生
-  `e_sqlite3.dll` 及其托管依赖与 `Kobold.exe` 平铺在同一目录，安装器会复制全部
-  12 个运行时文件。索引只存**元数据**（路径、名称、后缀、大小、修改时间、根目录），
-  从不读取或索引文件内容。
-- **诊断日志** — 服务的每次状态切换和查询都会追加到
-  `%LocalAppData%\Kobold\logs\search.log`（超过 1 MB 轮转为 `.1`）。日志记录查询
-  词、匹配数、耗时和异常；偶发“搜不到”时可直接查看。
-- **默认范围** — 默认索引文件夹、无扩展名文件，以及常见的文档 / 图片 / 视频 /
-  音频 / 压缩包 / 代码类型；勾选**全部文件**可关闭类型过滤，类型列表与追加排除
-  目录可在**设置 → 文件搜索**里修改。
-- **默认跳过** — 以下十类缓存目录既不扫描也不监听：Chrome / Edge 的
-  `User Data`、Firefox 的 `Profiles`（Roaming，以及 Profile Groups 留在 Local
-  的副本）、Store 应用的易变目录（`%LocalAppData%\Packages\<应用>\LocalCache`、
-  `TempState`、`AC`；`LocalState` 仍会被搜索）、`INetCache`、`WebCache`、
-  JetBrains 缓存，以及 `%AppData%\Code`、`~\.vscode`、`~\.cache`。旧版本已索引
-  的这些行由下一次对账清理；对账间隔为 0 时这些行会保留到下次重建索引。
-- **无需管理员** — 索引按用户存放在 `%LocalAppData%`。`WinSxS`、`node_modules`、
-  `.git`、重解析点与超长路径会被跳过，并显示跳过文件夹计数。
-- **首次引导** — 首次添加组件会出现引导卡片，列出固定磁盘和**开始索引** /
-  **稍后**；不点开始不会扫描，选过的根目录会记住。
-- **生命周期** — 全盘扫描以低于正常的优先级运行并原子发布，扫描期间旧结果仍可
-  搜索；取消会保留旧索引。文件监听增量处理创建 / 重命名 / 删除，**每 30 分钟
-  对账**一次补漏。组件菜单与设置里都有**重建索引**和**暂停索引**。
-- **结果** — 最多 300 条，虚拟化列表，显示真实匹配数（「显示前 N 条，共 M 条」）；
-  名称匹配排在仅路径匹配之前。每行可打开、打开所在位置、复制路径。
-- **三语界面** — 组件、引导、状态与设置均有中 / 英 / 日文案。
+![Kobold 托盘图标：简化的 K 字](docs/media/tray-icon.png)
 
-### 手动全盘冒烟清单
+> **提示：** 构建未签名，首次运行可能触发 SmartScreen，选择「更多信息 → 仍要运行」即可。
 
-自动检查只使用临时目录；真实机器的全盘冒烟**尚未执行**，发布前请按下面清单
-走一遍：
+### 1. 岛 — 展开、收起、拖动
 
-1. 在系统盘接近写满的机器上开始索引，完成后确认状态为就绪、文件数合理。
-2. 搜索中文名、超长路径、无扩展名文件。
-3. 组件打开时创建 / 重命名 / 删除文件，确认无需重建即可看到变化。
-4. 重启 Kobold，索引保留、无需重新扫描即可搜索。
-5. 点**重建索引**，扫描期间结果仍可搜索，完成后状态回到就绪。
-6. 删除或破坏 `search-index.db` 后重启，应用能隔离 / 重建并重新索引。
-7. 安装与卸载全程无 UAC；选择**全部删除**后索引文件消失，但
-   `%LocalAppData%\Kobold` 目录本身不被整个删除。
+灵动岛就是启动器：悬停展开，点磁贴打开面板，拖胶囊搬家。
 
-> 界面预览见上方 [Screenshots](#screenshots)（灵动岛 / 深色面板 / 右键菜单 / 浅色主题）。
+1. 把指针移到顶部中央的细胶囊上。
+2. 点一个组件磁贴打开面板，再点一次收起。
+3. 按住胶囊左右拖动，把岛放到顺手的位置。
 
-## 安装
+![展开的灵动岛、打开文件夹面板，再收起](docs/media/island-expand.gif)
 
-1. 从 [Releases](https://github.com/zzrqq-worklux/Kobold/releases) 下载最新的 `Kobold-v*-win-x64.zip`。
-2. 解压到任意目录，运行 `Kobold.exe`（免安装）；或运行 `tools\install.cmd`
-   为当前用户安装：程序装到 `%LocalAppData%\Programs\Kobold`，带开始菜单
-   快捷方式与卸载项，无需管理员权限。
-3. 需要 Windows 10/11 与 .NET Framework 4.8（Win10 1903+ 与 Win11 自带）。
-4. 构建未签名，首次运行 SmartScreen（或杀毒软件）可能提示（「更多信息」→「仍要运行」）。
+![拖动岛胶囊到屏幕上的新位置](docs/media/island-drag.gif)
 
-### 更新
+> **提示：** 右键磁贴可以重命名、改颜色、锁定、置顶或删除；全屏应用或视频在前台时，岛会自动让位。
 
-把新 zip 解压覆盖旧目录即可；已安装的副本再跑一次 `tools\install.cmd`：
-它会停掉正在运行的实例、替换文件并启动新版本，设置与收纳的文件都保留。
+### 2. 文件夹面板 — 新建、拖入、排序
 
-### 卸载
+文件夹面板是一层「置物架」：新建文件夹，把文件拖进来，再拖成你想要的顺序。
 
-- 已安装副本：**设置 → 应用 → Kobold → 卸载**，或运行安装目录里的
-  `uninstall.cmd`（zip 里是 `tools\uninstall.cmd`）。该脚本也能清理
-  「手动删了便携版文件夹」的残留：只删属于它的自启项，不动别的东西。
-- 默认保留你的数据。`%AppData%\Kobold` 里有 `config.json`（设置，删了无害）、
-  `Storage\`（**你的文件**——是被移进来的，不是复制）和 `FolderIcons\`
-  （上过色的文件夹指向这里）。`%LocalAppData%\Kobold\search-index.db` 的搜索
-  索引也走同一套选择。卸载器会把它们列出来，删任何东西前先问你；**全部删除**
-  只删索引文件，不会把整个 `%LocalAppData%\Kobold` 目录删掉。
+1. 右键面板空白处 → **新建文件夹**，输入名字，回车。
+2. 把桌面上的文件拖进面板。原文件不会动，面板里存的是引用。
+3. 把任意图标拖到另一个位置即可排序；双击文件夹可以在面板里直接浏览。
 
-## 用法
+![新建文件夹、把桌面文件拖进面板、再拖动图标排序](docs/media/folder-organize.gif)
 
-| 操作 | 方式 |
+> **提示：** **收纳**会把文件真正移进 Kobold 存储，**取消收纳**或**弹出**会放回原位；锁定面板会拒绝拖放。
+
+### 3. 待办 — 勾选、添加、按日期查看
+
+待办组件是当天计划板：勾掉完成项，就地添加新项，按日期翻看。
+
+1. 点复选框完成一项——完成项会划掉并沉到底部。
+2. 点 **+**，输入内容后回车，新待办加到当前选中的日期。
+3. 点日历里的某一天查看那天；点「今天」回到当天。
+
+![勾选待办、添加新待办，再切到日历里的另一天](docs/media/todo-day.gif)
+
+> **提示：** 没有输入框聚焦时，Ctrl+Z 可以撤销勾选和删除，最多 20 步。日期已过但还没完成的待办会出现在今天，并带 `↷ 原日期` 标记。
+
+### 4. 笔记 — Markdown 编辑
+
+笔记是就地编辑的 Markdown 文档：点一块、改字，再让它渲染回去。
+
+1. 点一张笔记卡片打开它——卡片列表隐藏，笔记铺满面板。
+2. 点任意一个块，直接编辑它的 Markdown 源码。
+3. 按 Esc 或点空白处重新渲染；点任务框可以直接勾选。
+
+![打开笔记、就地编辑一行 Markdown 任务，再渲染回去](docs/media/note-markdown.gif)
+
+> **提示：** 标题、列表、任务框、引用、代码块、表格、强调和链接都会渲染；右键源码框有快速插入菜单。没有保存按钮，输入即保存。
+
+### 5. 搜索 — 建一次索引，按名字找
+
+搜索按文件名在指定文件夹里找东西；索引建一次，之后由监听器持续更新。
+
+1. 打开搜索组件，点 **开始索引**，勾选要索引的磁盘或文件夹。
+2. 输入文件名的一部分，结果会边打边出。
+3. 在结果行上打开文件、定位到所在文件夹，或复制路径。
+
+![建立搜索索引，然后连续查找两个文件名](docs/media/search-find.gif)
+
+> **提示：** 只索引文件名和位置，不读取文件内容。暂停或重建索引在组件菜单或 **设置 → 文件搜索** 里；索引在 `%LocalAppData%\Kobold`。
+
+### 6. 分组 — 合并、拆分、重排
+
+分组把几个组件折进一个带标签页的窗口：合并两块面板，重排标签，再拆出去。
+
+1. 把一块面板的标题栏拖到另一块面板上——出现预览后松手，两块合并成一组。
+2. 点标签切换组件；按住标签左右拖可以重排。
+3. 把标签拖出窗口即可拆分。组里只剩一个成员时，分组会自动解散。
+
+![把文件夹和笔记合并成带标签页的分组，重排标签，再拆出一个](docs/media/group-merge.gif)
+
+> **提示：** 锁定和面板尺寸属于整个分组，置顶属于单个成员。删除组里的文件夹成员时，会先把收纳的文件弹出。
+
+### 7. 设置 — 主题、语言、开机自启
+
+设置管外观、语言、启动方式，以及新组件的默认值。
+
+1. 点岛上的齿轮，或从托盘菜单选 **设置**。
+2. 选择深色/浅色主题和界面语言，改完立即生效。
+3. 打开 **开机自动启动**，再点 **保存**。
+
+![切换到浅色主题、把界面切成英文、再打开开机自启](docs/media/settings-flow.gif)
+
+> **提示：** 不需要重启。面板不透明度、图标样式、存储位置和文件搜索根目录都在同一个窗口往下滚。
+
+### 常见问题
+
+**数据在哪？**
+
+| 内容 | 位置 |
 |---|---|
-| 打开/收起组件面板 | 悬停岛，单击组件 tile |
-| 新建组件 | 岛的 `+` 入口（或托盘菜单） |
-| 新建待办 | 岛的 `+` 入口（或托盘菜单）→ 选择「待办」 |
-| 选中日期 | 点击月历中的日期（非本月的格子会先切月） |
-| 添加子待办 | 右键待办条目 →「添加子项」（有输入时 Enter 继续添加，空 Enter 跳到下一个父项） |
-| 勾选级联 | 勾选父项会同时勾选其全部子项；取消勾选父项不影响子项 |
-| 撤回删除或勾选 | 编辑器未聚焦时按 Ctrl+Z，最多连续回退 20 步 |
-| 清理当天已完成 | 在清单或日历空白处右键 →「清理已完成」（当天没有已完成项时置灰） |
-| 新建笔记 | 标题 ▾ →「新建」，或在空白处右键（home，或详情的内边距） |
-| 打开笔记 | 单击卡片；标题 ▾ 可列出全部笔记快速切换 |
-| 回到列表 | 标题 ▾ →「笔记列表」，或渲染态按 Esc / Backspace |
-| 编辑笔记 | 点正文里的任意一个块；点空白处 / Esc 渲染回去 |
-| 追加新块 | 编辑时点最后一块下方的空白 |
-| 勾选笔记中的任务框 | 在渲染态点击方框 |
-| 快速插入 Markdown | 编辑块时在源码框内右键 |
-| 修改笔记字号 | 右键组件 →「字号」→ 小 / 中 / 大 |
-| 打开设置 | 岛的齿轮入口（或托盘菜单） |
-| 隐藏/显示桌面图标 | 单击岛的桌面入口 |
-| 打开桌面文件夹 | 双击岛的桌面入口 |
-| 在面板内浏览文件夹 | 双击文件夹条目（Backspace 返回上一级，▾ 展开整条路径） |
-| 方向键移动选择 | 左右跨行、上下同列，到边界停住 |
-| 面板内文件操作 | 右键条目或空白处（F5 刷新、Enter 打开、Shift+F10 弹菜单） |
-| 新建文件 | 右键空白处或浏览背景 →「新建文件」（名称 + 后缀选择器 +「将创建」预览） |
-| 给文件夹上色 | 右键文件夹条目 →「文件夹颜色…」→ 在 3×3 色盘里选（只有已有自定义色时才显示恢复默认） |
-| 完整系统右键菜单 | 面板菜单底部的「显示更多选项」 |
-| 快速预览选中项 | 选中条目后按空格（需安装 QuickLook） |
-| 文件操作（打开、重命名、收纳、移出…） | 右键面板中的条目 |
-| 把文件移到另一个文件夹 | 从一个浏览面板拖到另一个浏览面板——由系统执行移动，和资源管理器一致 |
-| 浏览时的文件剪贴板 | 选中条目后 Ctrl+C 复制、Ctrl+X 剪切、Ctrl+V 粘贴到当前文件夹（与资源管理器互通；复制重名保留两份） |
-| 主面板文件剪贴板 | Ctrl+C 发布选中项到系统剪贴板；Ctrl+V 把剪贴板中的文件加为引用（主面板不响应 Ctrl+X） |
-| 把条目移入子文件夹 | 浏览时拖到文件夹条目上（按住 Ctrl 为复制）；拖到「返回」按钮则移回上级目录 |
-| 把文件拖到资源管理器 / 桌面 | 把条目拖出面板——由系统执行移动 |
-| 调整面板大小 | 拖动任意边缘或右下角手柄（锁定的面板不可缩放） |
-| 调整月历 / 清单占比 | 拖动月历与清单之间的分隔线（锁定不可拖） |
-| 修改文件夹图标大小 | 右键文件夹面板 →「📐 图标大小」（六档） |
-| 组件选项（改名、改色、锁定、图标大小、删除） | 右键面板标题栏或岛上的组件图标 |
+| 设置 | `%AppData%\Kobold\config.json`（上一代备份：`config.json.backup`） |
+| 收纳的文件 | `%AppData%\Kobold\Storage`——这些是你的文件，被移动到这里，不是副本 |
+| 彩色文件夹图标 | `%AppData%\Kobold\FolderIcons` |
+| 搜索索引 | `%LocalAppData%\Kobold\search-index.db`——只有元数据，删掉可重建 |
+| 日志 | `%LocalAppData%\Kobold\logs` |
 
-拖入的文件默认是**引用**（源文件原地不动）；在条目菜单里选择「收纳」才会真正
-移入 Kobold 存储，「取消收纳」或「移出」会放回原位置。把条目拖出面板则交给系统：
-落点接受就真的移动文件；落点不收（例如不支持文件的窗口）按原规则还原——
-引用重新可见、收纳项搬回原位置。
+**怎么升级？** 把新 zip 解压覆盖旧目录，或在已安装的副本上再运行一次
+`tools\install.cmd`。设置和收纳的文件都会保留。
 
-## 构建与测试
+**怎么卸载？** 用 **设置 → 应用 → Kobold → 卸载**，或运行安装目录里的
+`uninstall.cmd`。默认保留数据；卸载器会列出每个目录并逐项询问。
 
-需要 Windows + .NET SDK（8.x）：
+**需要手动改配置文件吗？** 不需要。用设置窗口，或本地 `koboldctl.ps1`
+控制 CLI 做脚本化修改；Kobold 运行时手改 `config.json` 可能被覆盖。
+
+**为什么点了别处面板还不关？** 它被置顶了：右键面板标题 → **取消置顶**，
+或点标题栏里的图钉。
+
+### 开发者附录
+
+构建、测试和打包说明：[English](docs/DEVELOPMENT.md) · [中文](docs/DEVELOPMENT.zh.md)。
+完整功能清单和手动全盘搜索冒烟清单：
+[English](docs/FEATURES.md) · [中文](docs/FEATURES.zh.md)。
 
 ```powershell
-dotnet build Kobold.csproj -c Release
-# 产物：bin\Release\net48\Kobold.exe
+dotnet build Kobold.csproj -c Debug
+powershell -File tools\Run-Checks.ps1 -Group ci       # 28 项
+powershell -File tools\Run-Checks.ps1 -Group checks   # 36 项
+dotnet run --project tests\GroupUiSpike -- --check    # 15 项 UI 检查
 ```
 
-`tests/` 下是控制台自检，通过一个入口运行（逐项执行、汇总结果、失败非零退出）：
+`koboldctl.ps1` 通过当前用户命名管道和运行中的 Kobold 通信，命令面覆盖
+`config`、`widget`、`group`、`search` 和 `diag`。完整安全规则和可移植
+skill 在 [skill/kobold-config/SKILL.md](skill/kobold-config/SKILL.md)。
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -Group all
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\Run-Checks.ps1 -List   # 只看矩阵
-```
+源码布局：`Controls/`（岛与面板）、`Core/`（模型、配置、分组、搜索）、
+`Windows/`（设置）、`Services/`（托盘、Shell、控制管道）、`tools/`（CLI
+与检查脚本）、`tests/`（控制台检查）。
 
-`checks` = 全部控制台自检；`ci` = 可在 GitHub runner 上运行的保守子集（依赖真实桌面
-会话的检查留在本地）；`installer` = 安装器纯逻辑自检（只在临时目录，不写注册表）；
-`all` = 两者之和。
+### 许可
 
-`all` 矩阵共 **34 项**：32 个控制台自检（含 `FileSearchCheck`：SQLite 索引、
-扫描器、监听与服务）、配置 pin 和安装器测试。
-
-Release 输出是平铺布局：`Kobold.exe` 加 11 个运行时文件，其中包括 SQLite 原生
-运行时（`e_sqlite3.dll`、`Microsoft.Data.Sqlite.dll`、`SQLitePCLRaw.*`）和
-`System.Buffers` / `System.Memory` / `System.Numerics.Vectors` /
-`System.Runtime.CompilerServices.Unsafe` 支持程序集；`tools\package.ps1` 与
-安装器复制同一份列表。
-
-GitHub Actions 工作流在 HEAD 提交信息含 `[ci]`（或手动触发）时运行 `ci` 组，
-避免每次 push 都消耗 runner。
-
-端到端安装/卸载由发布前的一次性人工演练覆盖（会写真实的卸载注册表项与快捷方式）。
-
-打包发布 zip，版本号默认读 `Kobold.csproj`（单一真源）：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
-```
-
-Release 正文从 `CHANGELOG.md` 生成；缺少对应版本小节会直接报错——不让没有更新
-日志的版本发布：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Version 1.2.0
-# 输出正文；用 -OutFile notes.md 写入文件
-```
-
-## 数据目录
-
-- 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。
-  读不出的配置文件会先保留为 `config.json.failed-<时间戳>`，再退回默认设置。
-- 组件以新的 `Widgets` 格式保存，旧版本读不出该格式：回退到 v1.3.0 / v1.3.1
-  会以默认设置启动，并把原配置文件保留为 `config.json.failed-<时间戳>`；更早的
-  版本没有这一保护。格式里的未知类型不会被丢掉：v1.4.0 读到含笔记的配置会按
-  未知类型原样保留，回到新版本时笔记仍在。
-- 每个组件的**面板尺寸随组件保存**，重启后恢复；升级时旧的组件级「列数 / 最大
-  行数」会**一次性换算**为初始面板尺寸（旧值仍保留在配置文件里但不再使用）；
-  **图标大小**继续生效。
-- 收纳文件：`%AppData%\Kobold\Storage`
-- 搜索索引：`%LocalAppData%\Kobold\search-index.db`（只存元数据——文件名与位置，
-  从不读取内容）。可以安全删除，之后会自动重建。
-
-源码结构：`Core/`（模型、配置、本地化、设计令牌、主题管理）、`Controls/`（岛与组件窗口）、
-`Windows/`（设置）、`Helpers/`（弹窗、菜单、动画、光标）、`Themes/`（XAML 控件样式）、
-`Services/`（托盘、Shell 集成、终端、内存回收）、`tests/`（控制台自检）。
-
-## 许可
-
-上游 [FoldRa](https://github.com/YusufEren97/FoldRa)（作者 Yusuf Eren Seyrek、
-Mehmet Delin）为 MIT 协议，本项目沿用 MIT 协议。Kobold 自身的许可全文见
-[LICENSE](LICENSE)，随包分发的第三方组件见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+Kobold 基于 [FoldRa](https://github.com/YusufEren97/FoldRa)（作者
+[Yusuf Eren Seyrek](https://github.com/YusufEren97) 与
+[Mehmet Delin](https://github.com/Deleny)，MIT License）二次开发，继续使用
+MIT 协议；详见 [LICENSE](LICENSE)。随附第三方组件见
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
