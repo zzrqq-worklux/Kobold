@@ -505,6 +505,7 @@ Usage: koboldctl.ps1 <command> [options]
   config restore --backup <path> [--yes] [--restart]
   widget add --kind <kind> [--name <n>] [--color <hex>] [--pinned [<bool>]]
   widget update --id <id> [--name <n>] [--color <hex>] [--locked [<bool>]] [--pinned [<bool>]]
+                     [--expanded [<bool>]]
   widget delete --id <id> --yes
   group merge --target <id> --member <id> [--member <id> ...] [--json]
   group detach --group <id> --widget <id> [--json]
@@ -541,7 +542,7 @@ try {
     $positionals = New-Object System.Collections.ArrayList
 
     $flagOptions = @('json', 'summary', 'full', 'dry-run', 'yes', 'restart', 'start', 'help', 'h')
-    $optionalBoolOptions = @('pinned', 'locked')
+    $optionalBoolOptions = @('pinned', 'locked', 'expanded')
     $valueOptions = @(
         'pipe', 'file', 'base-revision', 'label', 'kind', 'name', 'color', 'id',
         'target', 'group', 'widget', 'from', 'to', 'text', 'limit', 'backup',
@@ -742,7 +743,7 @@ try {
                     foreach ($name in 'name', 'color') {
                         if ($options.ContainsKey($name)) { $params[$name] = [string]$options[$name] }
                     }
-                    foreach ($name in 'locked', 'pinned') {
+                    foreach ($name in 'locked', 'pinned', 'expanded') {
                         if ($options.ContainsKey($name)) { $params[$name] = [bool]$options[$name] }
                     }
                 }

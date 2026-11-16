@@ -128,6 +128,19 @@ Run `config describe --json` to list the installed widget kind ids. The
 response returns the new widget id; use `widget update --id` to rename,
 recolor, lock or pin it.
 
+### Open, pin or close a panel
+
+```powershell
+# open it and keep it open when focus moves away (safe while recording or filling it)
+& $ctl widget update --id $id --expanded true --pinned true --json
+# close it again
+& $ctl widget update --id $id --expanded false --json
+```
+
+`--expanded` drives the panel window (a grouped member id opens its group),
+`--pinned` sets `IsPanelPinned`, which keeps the panel open when it loses
+focus. Both accept `true` or `false`; omit one to leave it unchanged.
+
 ### Merge widgets into a group
 
 ```powershell

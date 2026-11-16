@@ -52,7 +52,7 @@ Every widget shares the fields below.
 | `Name` | string | Display name. |
 | `Color` | string | Hex color such as `#788C5D`. |
 | `PosX`, `PosY` | number | Island tile position. |
-| `IsExpanded` | boolean | Panel open state. |
+| `IsExpanded` | boolean | Panel open state. Set it through `widget update --expanded`, not `config patch`. |
 | `IsLocked` | boolean | Locked panels cannot be moved or resized. |
 | `IsPanelPinned` | boolean | Pinned panel stays open when focus leaves. |
 | `PanelX`, `PanelY` | number or null | Remembered panel position. |

@@ -429,6 +429,25 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Opens or closes a widget's panel by id for the control plane
+        /// (<c>koboldctl widget update --expanded</c>). A grouped member id
+        /// targets its group host, matching every other widget command.
+        /// Returns true when the host actually changed its open state; a host
+        /// that cannot be realized (for example before the island exists)
+        /// leaves the persisted flag to the caller.
+        /// </summary>
+        public bool SetWidgetPanelOpen(string widgetId, bool open)
+        {
+            IWidgetWindow host = FindHostForWidget(widgetId);
+            if (host == null) return false;
+            if (host.IsPanelOpen == open) return false;
+
+            if (open) OpenPanel(host);
+            else host.HidePanel();
+            return true;
+        }
+
+        /// <summary>
         /// New widgets cycle blue -&gt; red -&gt; green -&gt; purple -&gt; orange, the
         /// look the old 12-colour picker produced. The hexes are read from
         /// <see cref="UiTokens.FolderPalette"/> (pinned to the folder palette by

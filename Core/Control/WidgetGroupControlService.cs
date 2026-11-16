@@ -23,13 +23,15 @@ namespace Kobold.Core.Control
             new HashSet<string>(StringComparer.Ordinal) { "Id", "Kind", "kind" };
 
         /// <summary>
-        /// Structure is owned by the group commands; both JSON spellings are
-        /// rejected so a caller cannot sneak membership/order past the API.
+        /// Membership and order are owned by the group commands; both JSON
+        /// spellings are rejected so a caller cannot sneak them past the API.
+        /// Panel open state is a normal edit through <c>expanded</c>, not
+        /// structure: it only toggles the host window.
         /// </summary>
         private static readonly HashSet<string> ForbiddenUpdateStructure =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "GroupId", "GroupOrder", "IsExpanded"
+                "GroupId", "GroupOrder"
             };
 
         /// <summary>
@@ -39,8 +41,8 @@ namespace Kobold.Core.Control
         private static readonly HashSet<string> AllowedUpdateFields =
             new HashSet<string>(StringComparer.Ordinal)
             {
-                "id", "name", "color", "locked", "pinned", "posX", "posY",
-                "panelWidth", "panelHeight", "folder", "todo", "note"
+                "id", "name", "color", "locked", "pinned", "expanded",
+                "posX", "posY", "panelWidth", "panelHeight", "folder", "todo", "note"
             };
 
         private static readonly HashSet<string> HolidayRegions =
@@ -148,6 +150,7 @@ namespace Kobold.Core.Control
             string color = OptionalString(parameters, "color");
             bool? locked = OptionalBool(parameters, "locked");
             bool? pinned = OptionalBool(parameters, "pinned");
+            bool? expanded = OptionalBool(parameters, "expanded");
             int? posX = OptionalInt(parameters, "posX");
             int? posY = OptionalInt(parameters, "posY");
 
@@ -231,6 +234,18 @@ namespace Kobold.Core.Control
             {
                 data.IsPanelPinned = pinned.Value;
                 changed.Add("IsPanelPinned");
+            }
+
+            if (expanded.HasValue)
+            {
+                // ShowPanel/HidePanel persist the flag themselves; when no host
+                // is realized (headless), keep the bookkeeping field in sync.
+                if (!_manager.SetWidgetPanelOpen(id, expanded.Value)
+                    && data.IsExpanded != expanded.Value)
+                {
+                    data.IsExpanded = expanded.Value;
+                }
+                if (data.IsExpanded == expanded.Value) changed.Add("IsExpanded");
             }
 
             if (posX.HasValue && data.PosX != posX.Value)
