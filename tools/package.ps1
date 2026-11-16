@@ -33,6 +33,21 @@ foreach ($file in $KoboldRuntimeFiles) {
     Copy-Item -LiteralPath (Join-Path $outDir $file) -Destination $dest -Force
 }
 Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination $stage -Force
+foreach ($file in 'LICENSE', 'THIRD-PARTY-NOTICES.md') {
+    Copy-Item -LiteralPath (Join-Path $repoRoot $file) -Destination $stage -Force
+}
+
+# The README embeds docs/media and links the reference docs and the skill;
+# bundle just those, not the development scratch folders under docs\.
+$docs = Join-Path $stage 'docs'
+New-Item -ItemType Directory -Force -Path $docs | Out-Null
+foreach ($file in 'FEATURES.md', 'FEATURES.zh.md', 'DEVELOPMENT.md', 'DEVELOPMENT.zh.md') {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "docs\$file") -Destination $docs -Force
+}
+Copy-Item -LiteralPath (Join-Path $repoRoot 'docs\media') -Destination $docs -Recurse -Force
+$skill = Join-Path $stage 'skill\kobold-config'
+New-Item -ItemType Directory -Force -Path $skill | Out-Null
+Copy-Item -Path (Join-Path $repoRoot 'skill\kobold-config\*') -Destination $skill -Recurse -Force
 
 # The installer travels in tools\: in the extracted zip the user double-clicks
 # tools\install.cmd, and install.ps1 carries the uninstaller from there.
@@ -40,13 +55,6 @@ $tools = Join-Path $stage 'tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
 foreach ($file in @('install.cmd', 'install.ps1') + $KoboldUninstallerFiles + $KoboldToolFiles) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $tools -Force
-}
-
-# Screenshots referenced by the bundled README
-$shots = Join-Path $stage 'Screenshot'
-New-Item -ItemType Directory -Force -Path $shots | Out-Null
-foreach ($shot in 'island.png', 'panel-dark.png', 'context-menu.png', 'light-theme.png') {
-    Copy-Item -LiteralPath (Join-Path $repoRoot "Screenshot\$shot") -Destination $shots -Force
 }
 
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
