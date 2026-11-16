@@ -21,6 +21,8 @@
     <!-- Icons are embedded as WPF resources; the tray icon loads them via pack URI -->
     <Resource Include="Resources\icon.ico" />
     <Resource Include="Resources\icon.png" />
+    <!-- Tray-only variant: simpler glyph that stays legible at 16 px -->
+    <Resource Include="Resources\tray.ico" />
     <!-- Grab cursors (MIT, see Resources\cursors.LICENSE.txt) -->
     <Resource Include="Resources\cursor_open.cur" />
     <Resource Include="Resources\cursor_grab.cur" />

@@ -152,6 +152,27 @@ namespace Kobold.Services
 
         private Icon CreateDefaultIcon()
         {
+            // 专用托盘图标：更简单的字形，16 px 下比完整 App 图标更清楚。
+            // 缺失时继续走下面的主图标回退链，旧部署不受影响。
+            try
+            {
+                string trayPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "tray.ico");
+                if (System.IO.File.Exists(trayPath))
+                {
+                    return new Icon(trayPath, System.Windows.Forms.SystemInformation.SmallIconSize);
+                }
+
+                var trayResource = Application.GetResourceStream(new Uri("pack://application:,,,/Resources/tray.ico"));
+                if (trayResource != null)
+                {
+                    return new Icon(trayResource.Stream, System.Windows.Forms.SystemInformation.SmallIconSize);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Tray icon load error: {ex.Message}");
+            }
+
             try
             {
                 // Try 1: Relative to BaseDirectory/Resources
