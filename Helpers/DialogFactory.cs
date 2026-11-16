@@ -157,16 +157,20 @@ namespace Kobold.Helpers
         }
 
         /// <summary>
-        /// Modal new-file dialog (style 1): a name box plus an editable
-        /// extension selector, a live "will create" preview whose suffix wears
-        /// the widget colour, and the shared errorText pattern of ShowInput.
-        /// Returns the composed file name, or null when the user cancels.
-        /// validate receives the composed name; its message keeps the dialog
-        /// open.
+        /// Modal new-file / rename dialog (style 1): a name box plus an
+        /// extension selector, a live preview whose suffix wears the widget
+        /// colour, and the shared errorText pattern of ShowInput. Returns the
+        /// composed file name, or null when the user cancels. validate receives
+        /// the composed name; its message keeps the dialog open.
+        /// For rename, lockExtension starts the suffix locked: the first click
+        /// on the disabled selector warns, and only Yes unlocks it. The name
+        /// box holds the stem alone, so typing can never eat the suffix.
         /// </summary>
         public static string ShowNewFile(Window owner, string title, string nameLabel, string extensionLabel,
             string previewFormat, string initialName, string initialExtension,
-            IReadOnlyList<string> extensions, string widgetColor, Func<string, string> validate)
+            IReadOnlyList<string> extensions, string widgetColor, Func<string, string> validate,
+            bool lockExtension = false, bool preserveExtensionCase = false,
+            string lockedExtensionLabel = null, string extensionLockTitle = null, string extensionLockMessage = null)
         {
             var dialog = new Window
             {
@@ -190,16 +194,50 @@ namespace Kobold.Helpers
                 ItemsSource = extensions
             };
             combo.ToolTip = Localization.Get("Dialog_ExtCustomHint");
+            combo.IsEnabled = !lockExtension;
 
             var nameStack = new StackPanel { Margin = new Thickness(0, 0, UiTokens.Space2, 0) };
             nameStack.Children.Add(CreateFieldLabel(nameLabel));
             nameBox.Margin = new Thickness(0, UiTokens.Space1, 0, 0);
             nameStack.Children.Add(nameBox);
 
-            var extensionStack = new StackPanel();
-            extensionStack.Children.Add(CreateFieldLabel(extensionLabel));
+            // The rename dialog reuses this surface, but starts with the suffix
+            // locked: the extension belongs to the file type, not to the name.
+            // A transparent cover on top of the disabled combo turns the first
+            // click into an explicit warning; only Yes unlocks the field.
+            var extensionLabelText = CreateFieldLabel(
+                lockExtension && !string.IsNullOrEmpty(lockedExtensionLabel) ? lockedExtensionLabel : extensionLabel);
+            var extensionHost = new Grid();
             combo.Margin = new Thickness(0, UiTokens.Space1, 0, 0);
-            extensionStack.Children.Add(combo);
+            extensionHost.Children.Add(combo);
+            var lockCover = new Border
+            {
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                Visibility = lockExtension ? Visibility.Visible : Visibility.Collapsed,
+                ToolTip = Localization.Get("Dialog_ExtLockedHint")
+            };
+            lockCover.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                if (!lockExtension) return;
+                MessageBoxResult answer = MessageBox.Show(dialog,
+                    extensionLockMessage ?? string.Empty,
+                    extensionLockTitle ?? string.Empty,
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (answer != MessageBoxResult.Yes) return;
+                lockExtension = false;
+                combo.IsEnabled = true;
+                lockCover.Visibility = Visibility.Collapsed;
+                extensionLabelText.Text = extensionLabel;
+                combo.Focus();
+                combo.IsDropDownOpen = true;
+            };
+            extensionHost.Children.Add(lockCover);
+
+            var extensionStack = new StackPanel();
+            extensionStack.Children.Add(extensionLabelText);
+            extensionStack.Children.Add(extensionHost);
 
             var fields = new Grid { Margin = new Thickness(0, UiTokens.Space2, 0, 0) };
             fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -243,7 +281,7 @@ namespace Kobold.Helpers
 
             Action refresh = () =>
             {
-                string ext = NewFileName.NormalizeExtension(combo.Text);
+                string ext = NewFileName.NormalizeExtension(combo.Text, preserveExtensionCase);
                 if (ext == null)
                 {
                     // Invalid characters: echo the typed text for the preview;
@@ -281,7 +319,7 @@ namespace Kobold.Helpers
 
             Action accept = () =>
             {
-                string ext = NewFileName.NormalizeExtension(combo.Text);
+                string ext = NewFileName.NormalizeExtension(combo.Text, preserveExtensionCase);
                 if (ext == null)
                 {
                     showError(Localization.Get("Dialog_NameInvalid"));

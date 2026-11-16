@@ -11,18 +11,39 @@ namespace Kobold.Core
     public static class NewFileName
     {
         public static readonly string[] CommonExtensions =
-            { ".txt", ".md", ".json", ".csv", ".log", ".html", ".xml", ".ini", ".bat", ".ps1", ".docx", ".xlsx", ".pptx" };
+            { ".pptx", ".xlsx", ".docx", ".md", ".txt", ".json", ".csv", ".log", ".html", ".xml", ".ini", ".bat", ".ps1" };
         public const string DefaultExtension = ".txt";
 
-        /// <summary>Typed extension → one leading dot, lower-case; blank → ""; letters/digits/'-' only, else null.</summary>
-        public static string NormalizeExtension(string raw)
+        /// <summary>Typed extension → one leading dot, lower-case; blank → ""; letters/digits/'-' only, else null.
+        /// Rename keeps the typed/case-preserved body when preserveCase is true.</summary>
+        public static string NormalizeExtension(string raw, bool preserveCase = false)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "";
             string body = raw.Trim().TrimStart('.');
             if (body.Length == 0) return "";
             foreach (char c in body)
                 if (!char.IsLetterOrDigit(c) && c != '-') return null;
-            return "." + body.ToLowerInvariant();
+            return "." + (preserveCase ? body : body.ToLowerInvariant());
+        }
+
+        /// <summary>
+        /// Splits a file name into the stem the rename box edits and the suffix it
+        /// keeps locked. Only the last dot counts, a leading dot belongs to a
+        /// dotfile, and a trailing dot is part of the stem - so the extension
+        /// shown in the lock is exactly the part a rename must not touch.
+        /// </summary>
+        public static void Split(string fileName, out string stem, out string extension)
+        {
+            string value = fileName ?? "";
+            int dot = value.LastIndexOf('.');
+            if (dot <= 0 || dot == value.Length - 1)
+            {
+                stem = value;
+                extension = "";
+                return;
+            }
+            stem = value.Substring(0, dot);
+            extension = value.Substring(dot);
         }
 
         /// <summary>Final name: append the extension unless the name already ends with it (case-insensitive).</summary>

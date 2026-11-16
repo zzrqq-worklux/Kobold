@@ -206,12 +206,8 @@ namespace Kobold.Controls
         private void RenameItem(DisplayItem item)
         {
             string currentName = System.IO.Path.GetFileName(item.Path);
-            string newName = ShowInputModal(
-                Localization.Get("Dialog_RenameItem_Title"),
-                Localization.Get("Dialog_RenameItem_Prompt"),
-                currentName,
-                null);
-            
+            string newName = ShowRenameItemDialog(item.Path);
+
             if (string.IsNullOrWhiteSpace(newName) || newName == currentName) return;
             
             try

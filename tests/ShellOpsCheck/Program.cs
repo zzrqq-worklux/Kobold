@@ -32,6 +32,7 @@ namespace Kobold.ShellOpsCheck
             NameValidationAllowsCaseOnlyRename();
             NewFileNameNormalizesExtensions();
             NewFileNameComposesNames();
+            NewFileNameSplitsNames();
             OfficeFileFormats();
             RecyclePrecheckAcceptsFixedDriveOnly();
             DeleteFlagsKeepTheRecycleBinSafe();
@@ -186,6 +187,10 @@ namespace Kobold.ShellOpsCheck
                 "new-name: a slash is rejected");
             Check(NewFileName.NormalizeExtension("a*b") == null,
                 "new-name: a star is rejected");
+            Check(NewFileName.NormalizeExtension(".MD", true) == ".MD",
+                "rename: a locked extension keeps its original case");
+            Check(NewFileName.NormalizeExtension(" ..Json ", true) == ".Json",
+                "rename: unlocking still trims and keeps the typed case");
         }
 
         private static void NewFileNameComposesNames()
@@ -204,13 +209,30 @@ namespace Kobold.ShellOpsCheck
                 "new-name: a null extension appends nothing");
         }
 
+        private static void NewFileNameSplitsNames()
+        {
+            string stem, ext;
+            NewFileName.Split("report.md", out stem, out ext);
+            Check(stem == "report" && ext == ".md", "rename: a normal file splits into stem and extension");
+            NewFileName.Split("report.MD", out stem, out ext);
+            Check(stem == "report" && ext == ".MD", "rename: the original extension case is kept");
+            NewFileName.Split("archive.tar.gz", out stem, out ext);
+            Check(stem == "archive.tar" && ext == ".gz", "rename: only the last suffix is the extension");
+            NewFileName.Split(".gitignore", out stem, out ext);
+            Check(stem == ".gitignore" && ext == "", "rename: a dotfile has no extension");
+            NewFileName.Split("name.", out stem, out ext);
+            Check(stem == "name." && ext == "", "rename: a trailing dot is part of the stem");
+            NewFileName.Split("noext", out stem, out ext);
+            Check(stem == "noext" && ext == "", "rename: an extensionless name stays whole");
+        }
+
         // ---------- office formats ----------
 
         private static void OfficeFileFormats()
         {
             var exts = NewFileName.CommonExtensions;
-            Check(exts[exts.Length - 3] == ".docx" && exts[exts.Length - 2] == ".xlsx" && exts[exts.Length - 1] == ".pptx",
-                "new file: the extension list ends with docx/xlsx/pptx");
+            Check(exts.Length >= 4 && exts[0] == ".pptx" && exts[1] == ".xlsx" && exts[2] == ".docx" && exts[3] == ".md",
+                "new file: pptx/xlsx/docx/md lead the extension list");
 
             Check(HasPart(FileTemplates.BuildOfficePackage(".docx"), "[Content_Types].xml") &&
                   HasPart(FileTemplates.BuildOfficePackage(".docx"), "_rels/.rels") &&

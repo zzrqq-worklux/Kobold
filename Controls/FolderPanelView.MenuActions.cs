@@ -130,6 +130,53 @@ namespace Kobold.Controls
             return result;
         }
 
+        /// <summary>
+        /// Rename dialog for one item. Folders keep the plain name prompt;
+        /// files reuse the New File surface, with the current suffix split off
+        /// and locked, so editing the name never eats the extension by mistake.
+        /// Returns the composed new name, or null when cancelled.
+        /// </summary>
+        private string ShowRenameItemDialog(string path)
+        {
+            string currentName = Path.GetFileName(path);
+            string directory = Path.GetDirectoryName(path) ?? string.Empty;
+            bool isDirectory = Directory.Exists(path);
+
+            if (isDirectory)
+            {
+                return ShowInputModal(
+                    Localization.Get("Dialog_RenameItem_Title"),
+                    Localization.Get("Dialog_RenameItem_Prompt"),
+                    currentName,
+                    n => NameErrorText(ShellFileOperations.ValidateName(n, directory, PathExists, path)));
+            }
+
+            string stem;
+            string extension;
+            NewFileName.Split(currentName, out stem, out extension);
+
+            string result = null;
+            RunModal(() =>
+            {
+                result = DialogFactory.ShowNewFile(HostWindow,
+                    Localization.Get("Dialog_RenameItem_Title"),
+                    Localization.Get("Dialog_LabelFileName"),
+                    Localization.Get("Dialog_LabelExtension"),
+                    Localization.Get("Dialog_WillRenameFormat"),
+                    stem,
+                    extension,
+                    NewFileName.CommonExtensions,
+                    _data == null ? null : _data.Color,
+                    n => NameErrorText(ShellFileOperations.ValidateName(n, directory, PathExists, path)),
+                    lockExtension: true,
+                    preserveExtensionCase: true,
+                    lockedExtensionLabel: Localization.Get("Dialog_LabelExtensionLocked"),
+                    extensionLockTitle: Localization.Get("Dialog_ExtLockedTitle"),
+                    extensionLockMessage: Localization.Get("Dialog_ExtLockedMessage"));
+            });
+            return result;
+        }
+
         private void CreateBrowseFolder(string directory)
         {
             string name = ShowInputModal(
@@ -166,15 +213,9 @@ namespace Kobold.Controls
         {
             if (item == null) return;
 
-            string directory = Path.GetDirectoryName(item.Path);
             string currentName = Path.GetFileName(item.Path);
-
-            string newName = ShowInputModal(
-                Localization.Get("Dialog_RenameItem_Title"),
-                Localization.Get("Dialog_RenameItem_Prompt"),
-                currentName,
-                n => NameErrorText(ShellFileOperations.ValidateName(n, directory, PathExists, item.Path)));
-            if (string.IsNullOrEmpty(newName)) return;
+            string newName = ShowRenameItemDialog(item.Path);
+            if (string.IsNullOrEmpty(newName) || newName == currentName) return;
 
             string error;
             if (!ShellFileOperations.Rename(item.Path, newName, out error))
