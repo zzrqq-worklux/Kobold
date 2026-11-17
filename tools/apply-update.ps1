@@ -6,6 +6,10 @@
 # the new exe. If anything fails the backup is copied back and the old exe is
 # started again, so the install is never left half updated.
 #
+# A process that is still running after the wait is force-stopped, and because
+# a force kill skips the app's normal exit this script first asks the installed
+# exe to show the desktop icons again.
+#
 # -DryRun exercises the backup and the copy against temporary folders only: it
 # never waits for a process and never starts an exe.
 #
@@ -27,6 +31,7 @@ $backupPrefix = '.update-backup-'
 $copyAttempts = 5
 $retryDelaySeconds = 1
 $verifySeconds = 15
+$iconRestoreTimeoutMs = 3000
 
 if (-not $LogPath) {
     if ($env:LOCALAPPDATA) {
@@ -325,13 +330,42 @@ function Remove-OldUpdateBackups {
 }
 
 <#
+Asks the installed exe to show the desktop icons again. The app hides them
+while it runs, and the Stop-Process in Wait-ForKoboldExit skips its OnExit, so
+a force-killed update would otherwise leave the user without desktop icons.
+The helper mode runs before the single-instance mutex and only touches the
+desktop, so it works while the app is still running. Best effort: a failure is
+logged and the kill goes ahead.
+#>
+function Restore-DesktopIcons {
+    param([string]$ExePath)
+
+    if (-not (Test-Path -LiteralPath $ExePath -PathType Leaf)) {
+        Write-UpdateLog ("  icons: {0} is missing; not restoring the desktop icons" -f $ExePath)
+        return
+    }
+
+    $helper = $null
+    try {
+        $helper = Start-Process -FilePath $ExePath -ArgumentList '--restore-desktop-icons' -PassThru -WindowStyle Hidden -ErrorAction Stop
+        if (-not $helper.WaitForExit($iconRestoreTimeoutMs)) {
+            try { $helper.Kill() } catch { }
+        }
+        Write-UpdateLog ("  icons: asked {0} to show the desktop icons" -f $ExePath)
+    } catch {
+        Write-UpdateLog ("  icons: could not restore the desktop icons: {0}" -f $_.Exception.Message)
+    }
+}
+
+<#
 Waits up to $Seconds for the process to exit; if it is still alive, stops only
 that PID. A short wait after the kill lets Windows release the exe's file locks.
 #>
 function Wait-ForKoboldExit {
     param(
         [int]$Id,
-        [int]$Seconds
+        [int]$Seconds,
+        [string]$InstallRoot
     )
 
     if ($Id -le 0) {
@@ -367,6 +401,11 @@ function Wait-ForKoboldExit {
         Write-UpdateLog ("  wait: process {0} is now '{1}', not Kobold; leaving it alone" -f $Id, $processName)
         return
     }
+
+    # The force kill below skips the app's normal exit, which is what shows the
+    # desktop icons again; a failed relaunch after such a kill must not leave
+    # them hidden. Restore them first, then stop the process.
+    Restore-DesktopIcons -ExePath (Join-Path $InstallRoot $exeName)
 
     Write-UpdateLog ("  wait: process {0} is still running; stopping it" -f $Id)
     try {
@@ -492,7 +531,7 @@ if (Test-Path -LiteralPath $backupDir) {
     exit 2
 }
 
-Wait-ForKoboldExit -Id $ProcessId -Seconds $WaitSeconds
+Wait-ForKoboldExit -Id $ProcessId -Seconds $WaitSeconds -InstallRoot $installRoot
 
 Write-UpdateLog ("step 1/3: backing up the install folder to {0}" -f $backupDir)
 try {
