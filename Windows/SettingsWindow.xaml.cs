@@ -48,6 +48,7 @@ namespace Kobold.Windows
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
+        private const string UPDATE_PAGE_URL = "https://api.merrickzq.work/downloads/kobold/";
 
         public SettingsWindow()
         {
@@ -118,6 +119,10 @@ namespace Kobold.Windows
             // Storing behaviour
             HideDesktopCheckbox.IsChecked = _config.HideDesktopSourceOnStore;
 
+            // Update
+            UpdateAutoCheckBox.IsChecked = _config.UpdateCheckEnabled;
+            UpdateAutoInstallBox.IsChecked = _config.UpdateAutoInstall;
+
             // Panel opacity
             PanelOpacitySlider.Value = Math.Max(20, Math.Min(100, _config.PanelOpacity * 100.0));
 
@@ -180,6 +185,14 @@ namespace Kobold.Windows
             IslandHeader.Text = Localization.Get("Settings_Island");
             IslandDelayLabel.Text = Localization.Get("Settings_IslandCollapseDelay");
             IslandDelayValue.Text = (IslandDelaySlider.Value / 1000.0).ToString("0.0") + "s";
+
+            // Update
+            UpdateHeader.Text = Localization.Get("Settings_UpdateSection");
+            UpdateStatusText.Text = Localization.Get("Settings_UpdateIdle");
+            UpdateAutoCheckBox.Content = Localization.Get("Settings_UpdateAutoCheck");
+            UpdateAutoInstallBox.Content = Localization.Get("Settings_UpdateAutoInstall");
+            UpdateCheckButton.Content = Localization.Get("Settings_UpdateCheckNow");
+            UpdatePageButton.Content = Localization.Get("Settings_UpdateOpenPage");
 
             // Theme options
             ThemeDark.Content = Localization.Get("Settings_Dark");
@@ -851,6 +864,18 @@ namespace Kobold.Windows
             }
         }
 
+        private void UpdatePageButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(UPDATE_PAGE_URL);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] Open update page failed: {ex.Message}");
+            }
+        }
+
         private void StoragePinButton_Click(object sender, RoutedEventArgs e)
         {
             string path = Utils.GetStoragePath();
@@ -901,6 +926,11 @@ namespace Kobold.Windows
             // Only an edited file-search section is written; an untouched one
             // leaves the live config (and a fresh install's null) alone.
             bool fileSearchApplied = TryApplyFileSearchSection();
+
+            // Update section: the two switches are persisted on Save; the
+            // skipped version and the last-check stamp belong to the service.
+            _config.UpdateCheckEnabled = UpdateAutoCheckBox.IsChecked == true;
+            _config.UpdateAutoInstall = UpdateAutoInstallBox.IsChecked == true;
 
             // Apply registry startup setting
             SetStartupRegistry(_config.StartWithWindows);
