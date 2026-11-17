@@ -348,10 +348,11 @@ function Restore-DesktopIcons {
     $helper = $null
     try {
         $helper = Start-Process -FilePath $ExePath -ArgumentList '--restore-desktop-icons' -PassThru -WindowStyle Hidden -ErrorAction Stop
+        Write-UpdateLog ("  icons: asked {0} to run --restore-desktop-icons" -f $ExePath)
         if (-not $helper.WaitForExit($iconRestoreTimeoutMs)) {
+            Write-UpdateLog ("  icons: the helper did not exit within {0} ms; stopping it" -f $iconRestoreTimeoutMs)
             try { $helper.Kill() } catch { }
         }
-        Write-UpdateLog ("  icons: asked {0} to show the desktop icons" -f $ExePath)
     } catch {
         Write-UpdateLog ("  icons: could not restore the desktop icons: {0}" -f $_.Exception.Message)
     }
