@@ -11,6 +11,7 @@ using Kobold.Controls;
 using Kobold.Helpers;
 using Kobold.Services;
 using Kobold.Services.Control;
+using Kobold.Services.Update;
 
 namespace Kobold
 {
@@ -30,6 +31,14 @@ namespace Kobold
         private static bool _isPrimaryInstance;
         private TrayIconService _trayService;
         private ControlServer _controlServer;
+        private bool _updateServiceStarted;
+
+        /// <summary>
+        /// True once Windows has begun logging off or shutting down. The
+        /// on-exit install must not run then: the detached helper can be killed
+        /// mid backup/copy, leaving an install nothing later repairs.
+        /// </summary>
+        private bool _sessionEnding;
 
         /// <summary>
         /// Test seam: the desktop self-checks load App.xaml resources but must
@@ -145,6 +154,34 @@ namespace Kobold
             // Initialize system tray
             _trayService = new TrayIconService();
 
+            // The tray is the subscriber that surfaces a release, so the
+            // automatic updater starts only after it exists. Its first check
+            // waits 30 seconds and every failure stays inside the service.
+            UpdateService updateService = null;
+            try
+            {
+                updateService = UpdateService.Instance;
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] service unavailable: " + ex.Message);
+            }
+
+            if (updateService != null)
+            {
+                // Even when Start throws, the instance itself can still stage a
+                // manual update, so the OnExit apply path stays enabled.
+                _updateServiceStarted = true;
+                try
+                {
+                    updateService.Start();
+                }
+                catch (Exception ex)
+                {
+                    AppDiagnostics.Write("[update] service failed to start: " + ex.Message);
+                }
+            }
+
             // Best-effort Quick Access reconciliation, off the critical path:
             // when the user wants the storage folder pinned, apply it once the
             // dispatcher is idle. Never auto-unpins (a manual pin survives a
@@ -161,6 +198,10 @@ namespace Kobold
             // paths (tray exit / OnExit) keep their existing behaviour.
             Current.SessionEnding += (sender, args) =>
             {
+                // Windows may terminate the detached applier while it is
+                // between the backup and the copy. Only a normal exit may
+                // install; the tray-exit path still runs ApplyForExit.
+                _sessionEnding = true;
                 try
                 {
                     DesktopIconGuard.RestoreOnExit();
@@ -182,6 +223,18 @@ namespace Kobold
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// A user-requested exit (the tray Exit item, a control-pipe restart)
+        /// is a normal exit. A Windows shutdown that another app cancelled
+        /// earlier must not keep the on-exit install disabled for the rest of
+        /// this process.
+        /// </summary>
+        internal static void NoteNormalExit()
+        {
+            App app = Application.Current as App;
+            if (app != null) app._sessionEnding = false;
         }
 
         private void ActivateExistingInstance()
@@ -215,6 +268,19 @@ namespace Kobold
                 // by now, so a note's close-time splice is already in the data.
                 // The save is a no-op if the manager was never built.
                 try { WidgetManager.SaveConfigIfLoaded(); } catch { }
+
+                // A staged update installs on a normal exit only when the user
+                // left automatic installation on; ApplyNow (an explicit tray
+                // click) is the only other place that starts the helper. When a
+                // control-pipe restart helper already owns the exit, spawning
+                // the applier too would race it over the same files. A Windows
+                // logoff/shutdown must not install either: it can kill the
+                // helper mid-swap and leave a mixed install behind.
+                if (_updateServiceStarted && !_sessionEnding && !RestartHelper.IsPending)
+                {
+                    try { UpdateService.Instance.ApplyForExit(); }
+                    catch (Exception ex) { AppDiagnostics.Write("[update] on-exit apply failed: " + ex.Message); }
+                }
 
                 try { _mutex?.ReleaseMutex(); }
                 catch (Exception ex) { Debug.WriteLine($"[Kobold] ReleaseMutex failed: {ex.Message}"); }

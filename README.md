@@ -134,6 +134,23 @@ widgets.
 
 > **Tip:** no restart is needed. Panel opacity, icon style, storage location and file-search roots live further down the same window.
 
+**Automatic updates.** By default Kobold checks for a new release 30 seconds
+after launch, then at most once every 24 hours (a check less than 24 hours old
+skips the next one). With **Install updates automatically on exit** enabled,
+the package downloads and verifies in the background and installs while the app
+quits — the new version is started as the old one exits. With it off Kobold
+only reports the offer; the tray menu's **Update to …** entry downloads it, and
+**Restart and update to …** restarts into it. The running app is never
+restarted while you are using it: only quitting, or that tray entry, starts the
+new version. The **Updates** card shows the current state, the two switches,
+**Check for updates** and **Open download page**. Only a writable installed
+copy updates itself; a portable or read-only copy just reports the offer and
+points at the [download page](https://api.merrickzq.work/downloads/kobold/). A
+failed swap restores the backup and starts the previous version. There is no
+code signing: the package arrives over HTTPS from a fixed host and is verified
+by SHA-256, which catches corruption and tampering but not a compromised
+server.
+
 ### FAQ
 
 **Where does my data live?**
@@ -149,6 +166,9 @@ widgets.
 **How do I upgrade?** Extract the new zip over the old folder, or run
 `tools\install.cmd` again on an installed copy. Settings and stored files are
 kept.
+
+An installed copy can also update itself; see the **Automatic updates** note
+under Settings.
 
 **How do I uninstall?** Use **Settings → Apps → Kobold → Uninstall**, or run
 `uninstall.cmd` in the install folder. Your data is kept by default; the
@@ -298,6 +318,17 @@ Kobold 是当前用户级的绿色软件，不需要管理员权限。
 
 > **提示：** 不需要重启。面板不透明度、图标样式、存储位置和文件搜索根目录都在同一个窗口往下滚。
 
+**自动更新。** 默认情况下，Kobold 在启动 30 秒后检查新版本，之后每 24 小时最多
+检查一次（距上次检查不足 24 小时的自动检查会跳过）。打开 **退出时自动安装** 时，
+更新包在后台下载并校验，退出应用时安装——旧版本退出的同时会启动新版本。关闭时
+只提示有新版本，由托盘菜单的「有更新 …」下载、「重启并更新到 …」重启进入新版本。
+使用过程中应用绝不会自行重启：只有退出应用或点这一项托盘菜单，才会启动新版本。
+「更新」卡片显示当前状态、两个开关、「检查更新」和「打开下载页」。只有可写的
+安装版能自行更新；便携 / 只读副本只会提示有更新并指向
+[下载页](https://api.merrickzq.work/downloads/kobold/)。替换失败会还原备份并启动
+旧版本。没有代码签名：更新包经固定主机的 HTTPS 传输，只用 SHA-256 校验，能挡住
+损坏与篡改，挡不住服务器本身被攻破。
+
 ### 常见问题
 
 **数据在哪？**
@@ -312,6 +343,8 @@ Kobold 是当前用户级的绿色软件，不需要管理员权限。
 
 **怎么升级？** 把新 zip 解压覆盖旧目录，或在已安装的副本上再运行一次
 `tools\install.cmd`。设置和收纳的文件都会保留。
+
+已安装的副本也可以自动更新，见设置里「自动更新」一段。
 
 **怎么卸载？** 用 **设置 → 应用 → Kobold → 卸载**，或运行安装目录里的
 `uninstall.cmd`。默认保留数据；卸载器会列出每个目录并逐项询问。

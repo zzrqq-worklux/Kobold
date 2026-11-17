@@ -13,6 +13,7 @@ using Kobold.Core.FileSearch;
 using Kobold.Core.Icons;
 using Kobold.Controls;
 using Kobold.Helpers;
+using Kobold.Services.Update;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Windows
@@ -44,10 +45,12 @@ namespace Kobold.Windows
         private FileSearchSettings _fileSearchBaseline;
         private FileSearchIndexService _fileSearchService;
         private bool _fileSearchInfoPending;
+        private UpdateService _updateService;
         private bool _closed;
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
+        private const string UPDATE_PAGE_URL = UpdateService.DownloadPageUrl;
 
         public SettingsWindow()
         {
@@ -69,6 +72,12 @@ namespace Kobold.Windows
             // SQLite until a scan/read is explicitly queued.
             _fileSearchService = FileSearchIndexService.Instance;
             _fileSearchService.StatusChanged += FileSearchService_StatusChanged;
+
+            // The updater may report from a background thread; the handler
+            // marshals to this window's dispatcher before touching controls.
+            _updateService = UpdateService.Instance;
+            _updateService.StateChanged += UpdateService_StateChanged;
+
             Closed += SettingsWindow_Closed;
             
             LoadSettings();
@@ -117,6 +126,10 @@ namespace Kobold.Windows
             
             // Storing behaviour
             HideDesktopCheckbox.IsChecked = _config.HideDesktopSourceOnStore;
+
+            // Update
+            UpdateAutoCheckBox.IsChecked = _config.UpdateCheckEnabled;
+            UpdateAutoInstallBox.IsChecked = _config.UpdateAutoInstall;
 
             // Panel opacity
             PanelOpacitySlider.Value = Math.Max(20, Math.Min(100, _config.PanelOpacity * 100.0));
@@ -180,6 +193,16 @@ namespace Kobold.Windows
             IslandHeader.Text = Localization.Get("Settings_Island");
             IslandDelayLabel.Text = Localization.Get("Settings_IslandCollapseDelay");
             IslandDelayValue.Text = (IslandDelaySlider.Value / 1000.0).ToString("0.0") + "s";
+
+            // Update
+            UpdateHeader.Text = Localization.Get("Settings_UpdateSection");
+            // The status line belongs to the live service state, so a language
+            // switch during Checking/Available/Ready keeps telling the truth.
+            UpdateUpdateStatus();
+            UpdateAutoCheckBox.Content = Localization.Get("Settings_UpdateAutoCheck");
+            UpdateAutoInstallBox.Content = Localization.Get("Settings_UpdateAutoInstall");
+            UpdateCheckButton.Content = Localization.Get("Settings_UpdateCheckNow");
+            UpdatePageButton.Content = Localization.Get("Settings_UpdateOpenPage");
 
             // Theme options
             ThemeDark.Content = Localization.Get("Settings_Dark");
@@ -246,6 +269,10 @@ namespace Kobold.Windows
             if (_fileSearchService != null)
             {
                 _fileSearchService.StatusChanged -= FileSearchService_StatusChanged;
+            }
+            if (_updateService != null)
+            {
+                _updateService.StateChanged -= UpdateService_StateChanged;
             }
         }
 
@@ -851,6 +878,63 @@ namespace Kobold.Windows
             }
         }
 
+        private void UpdateService_StateChanged()
+        {
+            if (_closed) return;
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (!_closed) UpdateUpdateStatus();
+            }));
+        }
+
+        /// <summary>
+        /// Renders the live service state. The status sentence and the button
+        /// enablement both come from the pure rules, so a language switch, a
+        /// progress tick and the first open all agree.
+        /// </summary>
+        private void UpdateUpdateStatus()
+        {
+            if (_closed || _updateService == null) return;
+
+            UpdateStatus status = _updateService.Status;
+            bool selfUpdatable = _updateService.IsSelfUpdatable;
+            UpdateStatusText.Text = UpdateStateRules.DescribeStatus(
+                status, selfUpdatable, _config.UpdateAutoInstall);
+            UpdateCheckButton.IsEnabled = UpdateStateRules.CanCheck(status.State);
+        }
+
+        private async void UpdateCheckButton_Click(object sender, RoutedEventArgs e)
+        {
+            // The service reports Checking synchronously, but disabling here
+            // gives the click immediate feedback before the first dispatch.
+            UpdateCheckButton.IsEnabled = false;
+            try
+            {
+                await _updateService.CheckNow();
+            }
+            catch (Exception ex)
+            {
+                // CheckNow catches its own failures; this is only a guard so an
+                // async void handler can never crash the app.
+                AppDiagnostics.Write("[update] check click failed: " + ex);
+            }
+            if (!_closed) UpdateUpdateStatus();
+        }
+
+        private void UpdatePageButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Process.Start(UPDATE_PAGE_URL);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Kobold] Open update page failed: {ex.Message}");
+            }
+        }
+
         private void StoragePinButton_Click(object sender, RoutedEventArgs e)
         {
             string path = Utils.GetStoragePath();
@@ -901,6 +985,11 @@ namespace Kobold.Windows
             // Only an edited file-search section is written; an untouched one
             // leaves the live config (and a fresh install's null) alone.
             bool fileSearchApplied = TryApplyFileSearchSection();
+
+            // Update section: the two switches are persisted on Save; the
+            // skipped version and the last-check stamp belong to the service.
+            _config.UpdateCheckEnabled = UpdateAutoCheckBox.IsChecked == true;
+            _config.UpdateAutoInstall = UpdateAutoInstallBox.IsChecked == true;
 
             // Apply registry startup setting
             SetStartupRegistry(_config.StartWithWindows);

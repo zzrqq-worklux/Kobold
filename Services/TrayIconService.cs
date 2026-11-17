@@ -7,6 +7,7 @@ using Hardcodet.Wpf.TaskbarNotification;
 using Kobold.Core;
 using Kobold.Core.Icons;
 using Kobold.Helpers;
+using Kobold.Services.Update;
 using Localization = Kobold.Core.Localization;
 
 namespace Kobold.Services
@@ -19,11 +20,17 @@ namespace Kobold.Services
         private TaskbarIcon _trayIcon;
         private bool _disposed = false;
         private bool _saveFailureReported = false;
+        private MenuItem _updateMenuItem;
+        private Separator _updateMenuSeparator;
+        private string _updateBalloonVersion;
 
         public TrayIconService()
         {
             InitializeTrayIcon();
             AppConfig.SaveFailed += OnSaveFailed;
+            // The update service may report from a background thread; the
+            // handler marshals before touching the menu or the balloon.
+            UpdateService.Instance.StateChanged += OnUpdateStateChanged;
         }
 
         /// <summary>
@@ -72,7 +79,22 @@ namespace Kobold.Services
         private ContextMenu BuildContextMenu()
         {
             var menu = new ContextMenu();
-            
+
+            // An update entry sits at the very top while one is actionable; the
+            // fields let a progress tick rewrite the label without rebuilding
+            // the whole menu.
+            _updateMenuItem = null;
+            _updateMenuSeparator = null;
+            string updateText = UpdateStateRules.TrayText(
+                UpdateService.Instance.Status, UpdateService.Instance.IsSelfUpdatable);
+            if (updateText != null)
+            {
+                _updateMenuItem = CreateUpdateMenuItem(updateText);
+                _updateMenuSeparator = new Separator();
+                menu.Items.Add(_updateMenuItem);
+                menu.Items.Add(_updateMenuSeparator);
+            }
+
             // Add New Widget: a submenu with one entry per widget kind
             var addItem = new MenuItem 
             { 
@@ -118,6 +140,9 @@ namespace Kobold.Services
             };
             exitItem.Click += (s, e) =>
             {
+                // A cancelled Windows shutdown may have set the session-end
+                // guard; this is a normal exit, so the on-exit update may run.
+                App.NoteNormalExit();
                 WidgetManager.Instance.Shutdown();
                 Application.Current.Shutdown();
             };
@@ -133,6 +158,131 @@ namespace Kobold.Services
             menu.Items.Add(exitItem);
             
             return menu;
+        }
+
+        private MenuItem CreateUpdateMenuItem(string header)
+        {
+            var item = new MenuItem
+            {
+                Header = header,
+                FontWeight = FontWeights.Bold,
+                Icon = MenuIcons.Create(IconId.Refresh)
+            };
+            item.Click += (s, e) => OnUpdateMenuClick();
+            return item;
+        }
+
+        /// <summary>
+        /// Rewrites just the update entry on a state/progress change: add it at
+        /// the top when an offer appears, update its label while downloading,
+        /// and remove it once the state is no longer actionable.
+        /// </summary>
+        private void RefreshUpdateMenu()
+        {
+            if (_trayIcon == null || _trayIcon.ContextMenu == null) return;
+            ContextMenu menu = _trayIcon.ContextMenu;
+
+            string text = UpdateStateRules.TrayText(
+                UpdateService.Instance.Status, UpdateService.Instance.IsSelfUpdatable);
+            if (text == null)
+            {
+                if (_updateMenuItem != null)
+                {
+                    menu.Items.Remove(_updateMenuItem);
+                    if (_updateMenuSeparator != null) menu.Items.Remove(_updateMenuSeparator);
+                    _updateMenuItem = null;
+                    _updateMenuSeparator = null;
+                }
+                return;
+            }
+
+            if (_updateMenuItem == null)
+            {
+                _updateMenuItem = CreateUpdateMenuItem(text);
+                _updateMenuSeparator = new Separator();
+                menu.Items.Insert(0, _updateMenuSeparator);
+                menu.Items.Insert(0, _updateMenuItem);
+                return;
+            }
+
+            _updateMenuItem.Header = text;
+        }
+
+        private void OnUpdateMenuClick()
+        {
+            // The item's action follows the live state, not the label that was
+            // showing when the menu opened. A non-updatable copy never starts a
+            // download it could not apply; it opens the download page.
+            UpdateStatus status = UpdateService.Instance.Status;
+            switch (UpdateStateRules.TrayAction(status, UpdateService.Instance.IsSelfUpdatable))
+            {
+                case UpdateTrayAction.Download:
+                    _ = UpdateService.Instance.DownloadNow();
+                    break;
+                case UpdateTrayAction.Apply:
+                    UpdateService.Instance.ApplyNow();
+                    break;
+                case UpdateTrayAction.OpenDownloadPage:
+                    OpenUpdatePage();
+                    break;
+            }
+        }
+
+        private void OpenUpdatePage()
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(UpdateService.DownloadPageUrl);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] could not open the download page: " + ex.Message);
+            }
+        }
+
+        private void OnUpdateStateChanged()
+        {
+            Application app = Application.Current;
+            if (app == null) return;
+
+            // Decide at the state-change moment, not when the dispatcher gets
+            // round to it: automatic installation moves Available to
+            // Downloading almost immediately, and re-reading the live status
+            // there would swallow the once-per-version balloon.
+            UpdateStatus changed = UpdateService.Instance.Status;
+            string offeredVersion = changed.State == UpdateState.Available
+                ? changed.Version
+                : null;
+
+            app.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_disposed) return;
+                RefreshUpdateMenu();
+                if (offeredVersion != null) ShowUpdateBalloon(offeredVersion);
+            }));
+        }
+
+        /// <summary>
+        /// One balloon per release: a later progress tick or a repeat offer of
+        /// the same version must not buzz again.
+        /// </summary>
+        private void ShowUpdateBalloon(string version)
+        {
+            if (string.IsNullOrEmpty(version)) return;
+            if (string.Equals(_updateBalloonVersion, version, StringComparison.Ordinal)) return;
+            _updateBalloonVersion = version;
+
+            try
+            {
+                _trayIcon.ShowBalloonTip(
+                    Localization.Get("Tray_UpdateBalloonTitle"),
+                    Localization.Format("Tray_UpdateBalloonBodyFormat", version),
+                    BalloonIcon.Info);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Kobold] update balloon failed: {ex.Message}");
+            }
         }
 
         private void RefreshMenu()
@@ -235,6 +385,9 @@ namespace Kobold.Services
                 if (disposing)
                 {
                     AppConfig.SaveFailed -= OnSaveFailed;
+                    UpdateService.Instance.StateChanged -= OnUpdateStateChanged;
+                    _updateMenuItem = null;
+                    _updateMenuSeparator = null;
                     _trayIcon?.Dispose();
                 }
                 _disposed = true;

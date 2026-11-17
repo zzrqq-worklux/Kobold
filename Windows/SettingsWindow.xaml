@@ -351,6 +351,38 @@
                         </Grid>
                     </Border>
                     
+                    <!-- Update Section -->
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
+                        <icons:IconPresenter x:Name="UpdateHeaderIcon" Icon="Refresh" Size="15"
+                                             Brush="{DynamicResource Kobold.Brush.TextMuted}"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="UpdateHeader" Text="Updates"
+                                   Foreground="{DynamicResource Kobold.Brush.TextPrimary}"
+                                   FontSize="{StaticResource Kobold.Font.Subtitle}" FontWeight="SemiBold"/>
+                    </StackPanel>
+
+                    <Border Background="{DynamicResource Kobold.Brush.Surface}" CornerRadius="{StaticResource Kobold.Radius.Control}" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock x:Name="UpdateStatusText" Text="Not checked yet"
+                                       Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                       TextWrapping="Wrap"/>
+                            <CheckBox x:Name="UpdateAutoCheckBox" Content="Check for updates at startup"
+                                      Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                      Margin="0,10,0,0"/>
+                            <CheckBox x:Name="UpdateAutoInstallBox" Content="Install updates automatically on exit"
+                                      Foreground="{DynamicResource Kobold.Brush.TextSecondary}"
+                                      Margin="0,6,0,0"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                                <Button x:Name="UpdateCheckButton" Content="Check for updates" MinHeight="32" MinWidth="112" Padding="16,0" FontSize="12"
+                                        Style="{StaticResource Kobold.Style.PrimaryButton}"
+                                        Click="UpdateCheckButton_Click"/>
+                                <Button x:Name="UpdatePageButton" Content="Open download page" MinHeight="32" MinWidth="120" Padding="16,0" FontSize="12" Margin="8,0,0,0"
+                                        Style="{StaticResource Kobold.Style.SecondaryButton}"
+                                        Click="UpdatePageButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
                     <!-- About Section -->
                     <StackPanel Orientation="Horizontal" Margin="0,24,0,12">
                         <icons:IconPresenter x:Name="AboutHeaderIcon" Icon="Info" Size="15"

@@ -35,6 +35,10 @@ namespace Kobold.Core
         public string IconStyle { get; set; }  // classic, handdrawn
         public double ItemScale { get; set; }  // Item size scale factor (1.0 = base, 1.3 = Windows standard)
         public bool PinStorageToQuickAccess { get; set; } // Desired Quick Access state for the storage folder
+        public bool UpdateCheckEnabled { get; set; } = true; // Check for a newer release at startup
+        public bool UpdateAutoInstall { get; set; } = true; // Apply a staged update when the app exits
+        public string SkippedUpdateVersion { get; set; } = ""; // Version the user asked to skip
+        public string LastUpdateCheckUtc { get; set; } = ""; // ISO-8601 instant of the last successful check
         public List<WidgetData> Widgets { get; set; }
 
         /// <summary>
