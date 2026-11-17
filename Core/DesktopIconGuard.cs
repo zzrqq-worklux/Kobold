@@ -82,6 +82,31 @@ namespace Kobold.Core
         }
 
         /// <summary>
+        /// Stop guard: the installer, deploy and uninstall scripts ask the
+        /// installed exe to run this before terminating the process, so a
+        /// force-stopped run does not leave the desktop icons hidden. A run
+        /// that is not hiding the icons leaves the desktop alone.
+        /// </summary>
+        public static bool RestoreBeforeStop(AppConfig config)
+        {
+            if (config == null || !config.HideDesktopIcons) return false;
+
+            try
+            {
+                bool shown = State.SetHidden(false);
+                AppDiagnostics.Write(shown
+                    ? "desktop guard: restored icons before stop"
+                    : "desktop guard: showing the icons was refused");
+                return shown;
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("desktop guard stop failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Exit: always show the icons when the live preference still hides
         /// them. Idempotent and never throws; the next startup re-hides from
         /// the same config value.

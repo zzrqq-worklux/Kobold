@@ -85,7 +85,14 @@ namespace Kobold.Services.Control
                 }
                 catch (Exception ex)
                 {
-                    if (_running) AppDiagnostics.Write("control pipe error: " + ex.Message);
+                    if (_running)
+                    {
+                        AppDiagnostics.Write("control pipe error: " + ex.Message);
+                        // A failed create must not become a tight loop: give the
+                        // previous instance a moment to release and keep the
+                        // control thread off the CPU while it does.
+                        Thread.Sleep(250);
+                    }
                 }
                 finally
                 {
@@ -117,13 +124,21 @@ namespace Kobold.Services.Control
         /// </summary>
         private bool WaitForConnection(NamedPipeServerStream server)
         {
-            try
+            using (var timeout = new CancellationTokenSource(ConnectionTimeoutMs))
             {
-                return server.WaitForConnectionAsync().Wait(ConnectionTimeoutMs);
-            }
-            catch (Exception)
-            {
-                return false;
+                try
+                {
+                    // Cancel the wait on timeout instead of abandoning the task:
+                    // an abandoned WaitForConnectionAsync keeps the only pipe
+                    // instance alive, so the next CreateServer fails with "all
+                    // pipe instances are busy" and the accept loop spins.
+                    server.WaitForConnectionAsync(timeout.Token).GetAwaiter().GetResult();
+                    return true;
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
             }
         }
 

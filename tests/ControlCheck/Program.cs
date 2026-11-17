@@ -87,6 +87,7 @@ namespace Kobold.ControlCheck
 
             AppDiagnosticsRotates();
             ControlServerRoundTrips();
+            ControlServerIdleTimeoutDoesNotFlood();
             ConfigValidationAndRevision();
             ConfigControlServicePins();
             ConfigControlRoutingPins();
@@ -184,6 +185,49 @@ namespace Kobold.ControlCheck
             finally
             {
                 server.Stop();
+            }
+        }
+
+        /// <summary>
+        /// Regression pin for the v2.0.0 idle-timeout storm: with no client
+        /// connected, the first connection timeout must release the pipe
+        /// instance and start a fresh wait, not spin on "all pipe instances
+        /// are busy". The real timeout is 15 s, so the check waits one cycle;
+        /// the failure mode is a flood of control-pipe errors.
+        /// </summary>
+        private static void ControlServerIdleTimeoutDoesNotFlood()
+        {
+            string dir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "kobold-ctl-idle-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(dir);
+            string logPath = System.IO.Path.Combine(dir, "app.log");
+            string previousPath = AppDiagnostics.LogPath;
+            long previousMax = AppDiagnostics.MaxBytes;
+            string pipe = "Kobold.ControlCheck.Idle." + Guid.NewGuid().ToString("N");
+            var server = new ControlServer(pipe, action => action(), request =>
+                new ControlResponse { V = 1, Id = request.Id, Ok = true });
+            try
+            {
+                AppDiagnostics.LogPath = logPath;
+                AppDiagnostics.MaxBytes = 1024 * 1024;
+                server.Start();
+                System.Threading.Thread.Sleep(17000);
+                server.Stop();
+
+                string log = System.IO.File.Exists(logPath)
+                    ? System.IO.File.ReadAllText(logPath)
+                    : string.Empty;
+                Check(log.Contains("control server started"),
+                    "control server idle: startup is logged");
+                Check(!log.Contains("control pipe error"),
+                    "control server idle: a connection timeout does not flood the log");
+            }
+            finally
+            {
+                try { server.Stop(); } catch { }
+                AppDiagnostics.LogPath = previousPath;
+                AppDiagnostics.MaxBytes = previousMax;
+                try { System.IO.Directory.Delete(dir, true); } catch { }
             }
         }
 
@@ -1228,6 +1272,29 @@ namespace Kobold.ControlCheck
             Check(first == second && first == DesktopIconAction.Show,
                 "desktop guard: the policy is idempotent");
 
+            var iconState = new RecordingDesktopIconState();
+            DesktopIconGuard.IDesktopIconState previousState = DesktopIconGuard.State;
+            try
+            {
+                DesktopIconGuard.State = iconState;
+                Check(DesktopIconGuard.RestoreBeforeStop(new AppConfig { HideDesktopIcons = true }),
+                    "desktop guard: a stop restores hidden icons");
+                Check(iconState.SetCalls == 1 && iconState.LastHide == false,
+                    "desktop guard: the stop restore shows the icons");
+                Check(!DesktopIconGuard.RestoreBeforeStop(new AppConfig { HideDesktopIcons = false }),
+                    "desktop guard: a stop leaves visible icons alone");
+                Check(iconState.SetCalls == 1,
+                    "desktop guard: the stop restore is a no-op when the preference is off");
+                Check(!DesktopIconGuard.RestoreBeforeStop(null),
+                    "desktop guard: a null stop config is a no-op");
+                Check(iconState.SetCalls == 1,
+                    "desktop guard: a null stop config does not touch the desktop");
+            }
+            finally
+            {
+                DesktopIconGuard.State = previousState;
+            }
+
             Func<bool, bool> originalStartup = StartupRegistryService.Applier;
             Func<bool, bool> originalQuickAccess = QuickAccessService.Applier;
             try
@@ -1303,6 +1370,21 @@ namespace Kobold.ControlCheck
             var entry = ((JArray)describe["topLevel"]).OfType<JObject>()
                 .FirstOrDefault(x => (string)x["name"] == name);
             return entry?["range"] as JArray;
+        }
+
+        private sealed class RecordingDesktopIconState : DesktopIconGuard.IDesktopIconState
+        {
+            public int SetCalls;
+            public bool? LastHide;
+
+            public int? ReadRaw() { return 1; }
+
+            public bool SetHidden(bool hide)
+            {
+                SetCalls++;
+                LastHide = hide;
+                return true;
+            }
         }
 
         private static void Check(bool ok, string what)

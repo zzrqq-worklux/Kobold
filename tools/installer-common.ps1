@@ -127,10 +127,33 @@ function Stop-KoboldProcess {
         [string]$InstallDir
     )
 
-    $stopped = 0
+    $targets = @()
     foreach ($process in @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
         try {
-            if (-not (Test-KoboldProcessOwnedBy -ProcessPath $process.Path -InstallDir $InstallDir)) { continue }
+            if (Test-KoboldProcessOwnedBy -ProcessPath $process.Path -InstallDir $InstallDir) {
+                $targets += $process
+            }
+        } catch { }
+    }
+    if ($targets.Count -eq 0) { return 0 }
+
+    # The app hides the desktop icons while it runs, and Stop-Process below is
+    # a force kill that skips its OnExit. Ask the installed exe to show the
+    # icons first; this helper mode runs before the single-instance mutex and
+    # only touches the desktop, so it also works while the app is stuck.
+    $exe = Join-Path $InstallDir 'Kobold.exe'
+    if (Test-Path -LiteralPath $exe) {
+        try {
+            $restore = Start-Process -FilePath $exe -ArgumentList '--restore-desktop-icons' -PassThru -WindowStyle Hidden
+            if (-not $restore.WaitForExit(3000)) {
+                try { $restore.Kill() } catch { }
+            }
+        } catch { }
+    }
+
+    $stopped = 0
+    foreach ($process in $targets) {
+        try {
             Stop-Process -Id $process.Id -Force
             # The exe stays locked for a moment after the kill; copying into a
             # lock throws, which used to leave a half-updated install.

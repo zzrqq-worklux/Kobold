@@ -54,6 +54,19 @@ namespace Kobold
         {
             if (SuppressStartupForChecks) return;
 
+            // The installer, deploy and uninstall stop paths ask the installed
+            // exe to restore the desktop icons before they terminate the
+            // running instance. A force kill skips OnExit, so this helper mode
+            // must run before the single-instance mutex: the running app still
+            // owns it, and the helper only touches the desktop and exits.
+            if (WantsDesktopIconRestore(e.Args))
+            {
+                try { DesktopIconGuard.RestoreBeforeStop(AppConfig.Load()); }
+                catch { }
+                Shutdown(0);
+                return;
+            }
+
             // Restart-helper mode (spec decision 3B/11): wait for the exiting
             // instance and start a normal one. It must run before the
             // single-instance mutex is taken and never builds the manager, the
@@ -155,6 +168,20 @@ namespace Kobold
                 }
                 catch (Exception ex) { Debug.WriteLine($"[Kobold] session-end save failed: {ex.Message}"); }
             };
+        }
+
+        private static bool WantsDesktopIconRestore(string[] args)
+        {
+            if (args == null) return false;
+            foreach (string arg in args)
+            {
+                if (string.Equals(arg, "--restore-desktop-icons",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void ActivateExistingInstance()
