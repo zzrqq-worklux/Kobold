@@ -23,8 +23,9 @@ $KoboldRuntimeFiles = @(
 $KoboldUninstallerFiles = @('uninstall.cmd', 'uninstall.ps1', 'installer-common.ps1')
 
 # The local control CLI ships beside the app so an agent can drive an installed
-# copy without the source tree or an SDK.
-$KoboldToolFiles = @('koboldctl.ps1')
+# copy without the source tree or an SDK; the update helper is copied the same
+# way and also travels in the package's tools\ folder for in-app updates.
+$KoboldToolFiles = @('koboldctl.ps1', 'apply-update.ps1')
 
 function Write-Step {
     param([string]$Message)

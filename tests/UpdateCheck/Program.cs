@@ -10,16 +10,18 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Kobold.Core;
 using Kobold.Services.Update;
 
 namespace Kobold.UpdateCheck
 {
     /// <summary>
     /// Behaviour checks for the updater: manifest parsing and validation,
-    /// version ordering, the offer/check policies, and the downloader's
-    /// verify/extract staging. The download checks talk only to a loopback
-    /// HttpListener; nothing leaves the machine and no registry is touched.
-    /// Exit code 0 = all green; 1 = failures.
+    /// version ordering, the offer/check policies, the downloader's
+    /// verify/extract staging, and the install-location/helper path rules. The
+    /// download checks talk only to a loopback HttpListener; the install checks
+    /// use temp folders, so nothing leaves the machine and no registry is
+    /// touched. Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/UpdateCheck
     /// </summary>
     internal static class Program
@@ -43,6 +45,7 @@ namespace Kobold.UpdateCheck
             CheckPolicy();
             ExtractChecks();
             DownloadChecks();
+            UpdateInstallChecks();
 
             Console.WriteLine();
             if (Errors.Count == 0)
@@ -442,6 +445,90 @@ namespace Kobold.UpdateCheck
                     Check(!File.Exists(destination),
                         "download: nothing is published after an oversized body");
                 }
+            }
+            finally
+            {
+                DeleteQuietly(root);
+            }
+        }
+
+        // ---------- install location ----------
+
+        /// <summary>
+        /// Exercises the pure path rules in Core/UpdateInstall against temp
+        /// folders. The registry-backed overloads are deliberately not called:
+        /// the checks must not depend on - or touch - the machine's real
+        /// Kobold install entry.
+        /// </summary>
+        private static void UpdateInstallChecks()
+        {
+            string root = NewTempDirectory("install");
+            try
+            {
+                string installDir = Path.Combine(root, "install");
+                Directory.CreateDirectory(installDir);
+                File.WriteAllText(Path.Combine(installDir, "Kobold.exe"), "stub");
+                string toolsDir = Path.Combine(installDir, "tools");
+                Directory.CreateDirectory(toolsDir);
+                string scriptPath = Path.Combine(toolsDir, "apply-update.ps1");
+                File.WriteAllText(scriptPath, "# stub helper");
+
+                int filesBefore = Directory.GetFiles(installDir).Length;
+                bool updatable = UpdateInstall.IsSelfUpdatable(installDir, installDir);
+                int filesAfter = Directory.GetFiles(installDir).Length;
+                Check(updatable, "install: the installed folder is self-updatable");
+                Check(filesAfter == filesBefore,
+                    "install: the writability probe removes itself from the install folder");
+
+                Check(UpdateInstall.IsSelfUpdatable(installDir,
+                          installDir + Path.DirectorySeparatorChar),
+                    "install: a trailing separator on the running base directory is ignored");
+                Check(UpdateInstall.IsSelfUpdatable(installDir, Path.Combine(installDir, ".")),
+                    "install: the running base directory is compared after normalization");
+
+                string otherDir = Path.Combine(root, "other");
+                Directory.CreateDirectory(otherDir);
+                Check(!UpdateInstall.IsSelfUpdatable(installDir, otherDir),
+                    "install: a copy running from another folder is not self-updatable");
+
+                string missingDir = Path.Combine(root, "missing");
+                Check(!UpdateInstall.IsSelfUpdatable(missingDir, missingDir),
+                    "install: a missing install folder is not self-updatable");
+
+                string noExeDir = Path.Combine(root, "no-exe");
+                Directory.CreateDirectory(noExeDir);
+                Check(!UpdateInstall.IsSelfUpdatable(noExeDir, noExeDir),
+                    "install: a folder without Kobold.exe is not self-updatable");
+
+                Check(!UpdateInstall.IsSelfUpdatable(null, installDir) &&
+                      !UpdateInstall.IsSelfUpdatable(installDir, null) &&
+                      !UpdateInstall.IsSelfUpdatable("", installDir) &&
+                      !UpdateInstall.IsSelfUpdatable(installDir, "  "),
+                    "install: blank or null folders are not self-updatable");
+
+                Check(UpdateInstall.ToolsScriptPath(installDir, "apply-update.ps1") == scriptPath,
+                    "install: the helper is found under the install's tools folder");
+                Check(UpdateInstall.ToolsScriptPath(installDir + Path.DirectorySeparatorChar,
+                          "apply-update.ps1") == scriptPath,
+                    "install: the tools lookup tolerates a trailing separator");
+                Check(UpdateInstall.ToolsScriptPath(installDir, "missing.ps1") == null,
+                    "install: a missing helper returns null");
+                Check(UpdateInstall.ToolsScriptPath(installDir, null) == null &&
+                      UpdateInstall.ToolsScriptPath(installDir, "  ") == null &&
+                      UpdateInstall.ToolsScriptPath((string)null, "apply-update.ps1") == null,
+                    "install: blank tool names and folders return null");
+
+                string stageDir = Path.Combine(root, "stage");
+                Directory.CreateDirectory(stageDir);
+                File.WriteAllText(Path.Combine(stageDir, "Kobold.exe"), "stub");
+                string noHelperDir = Path.Combine(root, "no-helper");
+                Directory.CreateDirectory(noHelperDir);
+                File.WriteAllText(Path.Combine(noHelperDir, "Kobold.exe"), "stub");
+
+                Check(!UpdateApplier.Apply(stageDir, noHelperDir, 1234, null),
+                    "applier: a missing apply-update.ps1 returns false instead of throwing");
+                Check(!UpdateApplier.Apply(Path.Combine(root, "missing-stage"), installDir, 1234, null),
+                    "applier: a missing stage folder returns false");
             }
             finally
             {
