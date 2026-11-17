@@ -58,8 +58,9 @@ namespace Kobold.Core
 
         /// <summary>
         /// True when the running copy is the installed copy: the install folder
-        /// exists, <see cref="AppDomain.BaseDirectory"/> is that same folder
-        /// once normalized, the folder is writable, and Kobold.exe is inside it.
+        /// exists, <c>AppDomain.CurrentDomain.BaseDirectory</c> is that same
+        /// folder once normalized, the folder is writable, and Kobold.exe is
+        /// inside it.
         /// </summary>
         public static bool IsSelfUpdatable()
         {

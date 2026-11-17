@@ -163,6 +163,36 @@ function Copy-UpdateTree {
 }
 
 <#
+The installer puts the tool scripts flat beside Kobold.exe (koboldctl.ps1,
+apply-update.ps1), while the package carries them under tools\. After the tree
+copy, mirror the staged tools\ files flat too - keeping the tools\ copies - so
+the installed CLI and the next update helper stay where the installer and
+find-koboldctl.ps1 look first.
+#>
+function Copy-UpdateToolsFlat {
+    param(
+        [string]$StageDir,
+        [string]$InstallRoot
+    )
+
+    $toolsRoot = Join-Path $StageDir 'tools'
+    if (-not (Test-Path -LiteralPath $toolsRoot -PathType Container)) {
+        Write-UpdateLog '  tools: the package carries no tools folder; nothing to mirror'
+        return $true
+    }
+
+    $files = @(Get-InstallFileList -Root $toolsRoot)
+    Write-UpdateLog ("  tools: mirroring {0} tool file(s) flat into {1}" -f $files.Count, $InstallRoot)
+    foreach ($file in $files) {
+        $destination = Join-Path $InstallRoot $file.Relative
+        if (-not (Copy-UpdateFile -Source $file.Path -Destination $destination)) {
+            return $false
+        }
+    }
+    return $true
+}
+
+<#
 Copies the whole install folder into $BackupDir, excluding older backup folders.
 $false means the install has no safety net, so the caller must stop before
 touching a single file.
@@ -219,8 +249,8 @@ function Restore-UpdateBackup {
 <#
 Removes files the update copied in that did not exist before it (no counterpart
 in the backup). Restoring the backup brings every old file back; this makes the
-rollback exact instead of leaving new DLLs or docs from the failed package.
-Older backup folders are deliberately not part of the comparison.
+rollback exact instead of leaving new DLLs, docs or flat tool copies from the
+failed package. Never throws: the caller must still restart the old exe.
 #>
 function Remove-UpdateAddedFiles {
     param(
@@ -229,22 +259,69 @@ function Remove-UpdateAddedFiles {
         [string]$InstallRoot
     )
 
-    $files = @(Get-InstallFileList -Root $StageDir)
     $removed = 0
-    foreach ($file in $files) {
-        $backupFile = Join-Path $BackupDir $file.Relative
-        if (Test-Path -LiteralPath $backupFile -PathType Leaf) { continue }
-
-        $installedFile = Join-Path $InstallRoot $file.Relative
-        if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) { continue }
-        try {
-            Remove-Item -LiteralPath $installedFile -Force -ErrorAction Stop
-            $removed++
-        } catch {
-            Write-UpdateLog ("  rollback: could not remove the new file {0}: {1}" -f $installedFile, $_.Exception.Message)
+    try {
+        $candidates = @()
+        foreach ($file in @(Get-InstallFileList -Root $StageDir)) {
+            $candidates += [pscustomobject]@{
+                Installed = (Join-Path $InstallRoot $file.Relative)
+                Tracked   = (Join-Path $BackupDir $file.Relative)
+            }
         }
+
+        # A successful copy also mirrors the package's tools\ files flat into
+        # the install folder; those added files need the same cleanup.
+        $toolsRoot = Join-Path $StageDir 'tools'
+        if (Test-Path -LiteralPath $toolsRoot -PathType Container) {
+            foreach ($tool in @(Get-InstallFileList -Root $toolsRoot)) {
+                $candidates += [pscustomobject]@{
+                    Installed = (Join-Path $InstallRoot $tool.Relative)
+                    Tracked   = (Join-Path $BackupDir $tool.Relative)
+                }
+            }
+        }
+
+        foreach ($candidate in $candidates) {
+            if (Test-Path -LiteralPath $candidate.Tracked -PathType Leaf) { continue }
+            if (-not (Test-Path -LiteralPath $candidate.Installed -PathType Leaf)) { continue }
+            try {
+                Remove-Item -LiteralPath $candidate.Installed -Force -ErrorAction Stop
+                $removed++
+            } catch {
+                Write-UpdateLog ("  rollback: could not remove the new file {0}: {1}" -f $candidate.Installed, $_.Exception.Message)
+            }
+        }
+    } catch {
+        Write-UpdateLog ("  rollback: could not clean up the files the update added: {0}" -f $_.Exception.Message)
     }
     Write-UpdateLog ("  rollback: removed {0} file(s) that the failed update had added" -f $removed)
+}
+
+<#
+After a successful update only one backup may survive: the newest remaining
+.update-backup-* folder. The backup from this run is removed first, so this
+prunes leftovers from earlier failed updates. A backup kept by a rollback is
+never pruned by this function.
+#>
+function Remove-OldUpdateBackups {
+    param([string]$InstallRoot)
+
+    try {
+        $backups = @(Get-ChildItem -LiteralPath $InstallRoot -Directory -Force -ErrorAction Stop |
+            Where-Object { $_.Name -like ($backupPrefix + '*') } |
+            Sort-Object -Property Name -Descending)
+        for ($index = 1; $index -lt $backups.Count; $index++) {
+            $old = $backups[$index]
+            try {
+                Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction Stop
+                Write-UpdateLog ("  cleanup: removed the older backup {0}" -f $old.FullName)
+            } catch {
+                Write-UpdateLog ("  cleanup: could not remove the older backup {0}: {1}" -f $old.FullName, $_.Exception.Message)
+            }
+        }
+    } catch {
+        Write-UpdateLog ("  cleanup: could not list the older backups: {0}" -f $_.Exception.Message)
+    }
 }
 
 <#
@@ -276,6 +353,18 @@ function Wait-ForKoboldExit {
     $process = Get-Process -Id $Id -ErrorAction SilentlyContinue
     if (-not $process) {
         Write-UpdateLog ("  wait: process {0} has exited" -f $Id)
+        return
+    }
+
+    # PIDs are recycled: after a 30 second wait this may no longer be the app we
+    # started out with, and force-stopping a stranger would be a nasty surprise.
+    $processName = $null
+    try {
+        $processName = $process.ProcessName
+    } catch {
+    }
+    if ($processName -ne [System.IO.Path]::GetFileNameWithoutExtension($exeName)) {
+        Write-UpdateLog ("  wait: process {0} is now '{1}', not Kobold; leaving it alone" -f $Id, $processName)
         return
     }
 
@@ -382,9 +471,13 @@ if ($DryRun) {
         Write-UpdateLog 'dry run: the backup failed; stopping'
         exit 2
     }
-    Write-UpdateLog 'dry run: step 2/3 - copy the stage into the temporary target'
+    Write-UpdateLog 'dry run: step 2/3 - copy the stage into the temporary target and mirror tools flat'
     if (-not (Copy-UpdateTree -SourceDir $stageRoot -DestinationDir $dryTarget)) {
         Write-UpdateLog 'dry run: the copy failed; stopping'
+        exit 3
+    }
+    if (-not (Copy-UpdateToolsFlat -StageDir $stageRoot -InstallRoot $dryTarget)) {
+        Write-UpdateLog 'dry run: the tools mirror failed; stopping'
         exit 3
     }
     Write-UpdateLog 'dry run: step 3/3 - skipping the launch (dry run)'
@@ -419,6 +512,9 @@ try {
     if (-not (Copy-UpdateTree -SourceDir $stageRoot -DestinationDir $installRoot)) {
         throw 'one or more files could not be copied'
     }
+    if (-not (Copy-UpdateToolsFlat -StageDir $stageRoot -InstallRoot $installRoot)) {
+        throw 'one or more tool scripts could not be mirrored flat'
+    }
 
     Write-UpdateLog 'step 3/3: starting the new copy and checking that it stays up'
     if (-not (Start-KoboldAndVerify -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot)) {
@@ -436,21 +532,33 @@ if ($updated) {
     } catch {
         Write-UpdateLog ("success: the update is installed, but the backup could not be removed: {0}" -f $_.Exception.Message)
     }
+    Remove-OldUpdateBackups -InstallRoot $installRoot
     exit 0
 }
 
 Write-UpdateLog 'rollback: restoring the backed-up files'
 $restored = $false
 try {
-    $restored = Restore-UpdateBackup -BackupDir $backupDir -InstallRoot $installRoot
-} catch {
-    Write-UpdateLog ("rollback: the restore failed: {0}" -f $_.Exception.Message)
-}
-if (-not $restored) {
-    Write-UpdateLog 'rollback: WARNING - the restore was incomplete'
-}
+    try {
+        $restored = Restore-UpdateBackup -BackupDir $backupDir -InstallRoot $installRoot
+    } catch {
+        Write-UpdateLog ("rollback: the restore failed: {0}" -f $_.Exception.Message)
+    }
+    if (-not $restored) {
+        Write-UpdateLog 'rollback: WARNING - the restore was incomplete'
+    }
 
-Remove-UpdateAddedFiles -StageDir $stageRoot -BackupDir $backupDir -InstallRoot $installRoot
-Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
-Write-UpdateLog 'rollback: finished; exiting 3'
+    Remove-UpdateAddedFiles -StageDir $stageRoot -BackupDir $backupDir -InstallRoot $installRoot
+} catch {
+    # Belt and braces: the added-file cleanup swallows its own errors, but any
+    # other surprise here must not skip the restart of the old exe below.
+    Write-UpdateLog ("rollback: cleanup failed: {0}" -f $_.Exception.Message)
+} finally {
+    try {
+        Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
+    } catch {
+        Write-UpdateLog ("rollback: could not start the previous copy: {0}" -f $_.Exception.Message)
+    }
+    Write-UpdateLog 'rollback: finished; exiting 3'
+}
 exit 3
