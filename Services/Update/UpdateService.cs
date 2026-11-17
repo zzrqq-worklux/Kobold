@@ -351,6 +351,7 @@ namespace Kobold.Services.Update
         private readonly DispatcherTimer _checkTimer;
 
         private readonly Task<bool> _capabilityTask;
+        private Task _stageCleanupTask = Task.FromResult(true);
         private UpdateManifest _manifest;
         private CancellationTokenSource _downloadCts;
         private volatile bool _selfUpdatable;
@@ -420,6 +421,13 @@ namespace Kobold.Services.Update
             {
                 _checkTimer.Interval = StartupCheckDelay;
                 _checkTimer.Start();
+
+                // A successful apply leaves the applied version's stage folder
+                // under %TEMP%; the first launch of the new copy drops it (and
+                // any zip a failed extract left behind). Off the UI thread:
+                // the folder can be install-sized.
+                _stageCleanupTask = Task.Run(() => CleanupStaleStages(null));
+
                 AppDiagnostics.Write("[update] service started; first automatic check in 30 seconds");
             }
             catch
@@ -480,6 +488,10 @@ namespace Kobold.Services.Update
                     string.Format(CultureInfo.InvariantCulture, PackageFileNameFormat, version));
                 string stagePath = Path.Combine(root, StageFolderName);
 
+                // The startup cleanup of the previous version's stage must not
+                // race the root this download is about to recreate.
+                await _stageCleanupTask.ConfigureAwait(false);
+
                 try
                 {
                     TryDeleteDirectory(root);
@@ -490,12 +502,24 @@ namespace Kobold.Services.Update
                     await UpdateDownloader.DownloadAsync(manifest, zipPath, progress, downloadCts.Token)
                         .ConfigureAwait(false);
 
-                    if (downloadCts.IsCancellationRequested) return;
+                    if (downloadCts.IsCancellationRequested)
+                    {
+                        TryDeleteDirectory(root);
+                        return;
+                    }
 
                     string stage = UpdateDownloader.Extract(zipPath, stagePath, version);
                     TryDeleteFile(zipPath);
 
-                    if (downloadCts.IsCancellationRequested) return;
+                    if (downloadCts.IsCancellationRequested)
+                    {
+                        TryDeleteDirectory(root);
+                        return;
+                    }
+
+                    // This stage supersedes an older version's folder; keep
+                    // only one install-sized copy in %TEMP%.
+                    CleanupStaleStages(version);
 
                     SetState(UpdateState.Ready, status =>
                     {
@@ -507,6 +531,9 @@ namespace Kobold.Services.Update
                 }
                 catch (OperationCanceledException)
                 {
+                    // A failed download or extract must not leave the zip or a
+                    // half-unpacked stage behind.
+                    TryDeleteDirectory(root);
                     if (downloadCts.IsCancellationRequested)
                     {
                         // SkipVersion/Reset already moved the service to Idle;
@@ -521,6 +548,9 @@ namespace Kobold.Services.Update
                 }
                 catch (Exception ex)
                 {
+                    // A failed download or extract must not leave the zip or a
+                    // half-unpacked stage behind.
+                    TryDeleteDirectory(root);
                     AppDiagnostics.Write("[update] download failed: " + ex.Message);
                     if (!downloadCts.IsCancellationRequested)
                     {
@@ -720,19 +750,24 @@ namespace Kobold.Services.Update
                 }
                 catch (OperationCanceledException ex)
                 {
-                    // Timeout. Not the user's problem: keep the previous offer
-                    // (or "up to date" line) and only wait out the interval.
+                    // Timeout. An automatic check stays silent: keep the
+                    // previous offer (or "up to date" line) and only wait out
+                    // the interval. A manual check must say why it failed,
+                    // otherwise the card keeps reading "Not checked yet".
                     AppDiagnostics.Write("[update] check timed out: " + ex.Message);
                     StampCheckAttempt(config);
-                    RestoreStatus(previous);
+                    if (automatic) RestoreStatus(previous);
+                    else Fail(UpdateFailureReason.Timeout);
                     return;
                 }
                 catch (HttpRequestException ex)
                 {
-                    // No network, 404, 5xx, ...: silent, previous state stays.
+                    // No network, 404, 5xx, ...: an automatic check stays
+                    // silent; a manual check surfaces the reason.
                     AppDiagnostics.Write("[update] check transport failure: " + ex.Message);
                     StampCheckAttempt(config);
-                    RestoreStatus(previous);
+                    if (automatic) RestoreStatus(previous);
+                    else Fail(UpdateFailureReason.Network);
                     return;
                 }
                 catch (UpdateException ex)
@@ -1072,6 +1107,39 @@ namespace Kobold.Services.Update
             if (ex is IOException) return UpdateFailureReason.Disk;
             if (ex is UpdateException) return UpdateFailureReason.Integrity;
             return UpdateFailureReason.Unexpected;
+        }
+
+        /// <summary>
+        /// Removes stale stage folders under %TEMP%\Kobold-update, plus the zip
+        /// a failed extract left inside one. A new copy starts with null and
+        /// drops every leftover (including the stage its own successful apply
+        /// just used); a download keeps <paramref name="keepVersion"/> and
+        /// removes the older stage it supersedes.
+        /// </summary>
+        private static void CleanupStaleStages(string keepVersion)
+        {
+            try
+            {
+                string root = Path.Combine(Path.GetTempPath(), TempFolderName);
+                if (!Directory.Exists(root)) return;
+
+                foreach (string directory in Directory.GetDirectories(root))
+                {
+                    string name = Path.GetFileName(directory);
+                    if (string.Equals(name, keepVersion, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // Only our own version-named folders; leave anything else
+                    // under %TEMP% alone.
+                    if (!UpdateVersion.TryParse(name, out _)) continue;
+
+                    TryDeleteDirectory(directory);
+                    AppDiagnostics.Write("[update] removed the stale stage " + directory);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] could not clean the stale stages: " + ex.Message);
+            }
         }
 
         private static void TryDeleteFile(string path)

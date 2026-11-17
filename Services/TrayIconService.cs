@@ -242,19 +242,20 @@ namespace Kobold.Services
             Application app = Application.Current;
             if (app == null) return;
 
+            // Decide at the state-change moment, not when the dispatcher gets
+            // round to it: automatic installation moves Available to
+            // Downloading almost immediately, and re-reading the live status
+            // there would swallow the once-per-version balloon.
+            UpdateStatus changed = UpdateService.Instance.Status;
+            string offeredVersion = changed.State == UpdateState.Available
+                ? changed.Version
+                : null;
+
             app.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_disposed) return;
                 RefreshUpdateMenu();
-
-                // Re-read the live state: a fast Available -> Downloading/Failed
-                // transition between queuing and running must not balloon a
-                // release that is no longer being offered.
-                UpdateStatus live = UpdateService.Instance.Status;
-                if (live.State == UpdateState.Available)
-                {
-                    ShowUpdateBalloon(live.Version);
-                }
+                if (offeredVersion != null) ShowUpdateBalloon(offeredVersion);
             }));
         }
 

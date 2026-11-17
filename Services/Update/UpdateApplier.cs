@@ -46,7 +46,10 @@ namespace Kobold.Services.Update
             {
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = "powershell.exe",
+                    // The install folder is user-writable, so PATH lookup is
+                    // not trustworthy here; use the Windows PowerShell that
+                    // ships beside %SystemRoot% instead.
+                    FileName = ResolvePowerShellPath(),
                     Arguments = arguments,
                     WorkingDirectory = installDir,
                     CreateNoWindow = true,
@@ -79,6 +82,18 @@ namespace Kobold.Services.Update
 
             string flat = Path.Combine(installDir, ScriptFileName);
             return File.Exists(flat) ? flat : null;
+        }
+
+        /// <summary>
+        /// The Windows PowerShell installed with the OS. Never resolved through
+        /// PATH: the install folder (and its tools copy) is user-writable, so a
+        /// planted powershell.exe must not be what replaces the application.
+        /// </summary>
+        private static string ResolvePowerShellPath()
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                @"System32\WindowsPowerShell\v1.0\powershell.exe");
         }
 
         private static string Quote(string value)
