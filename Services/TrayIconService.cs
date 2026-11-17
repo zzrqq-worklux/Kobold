@@ -140,6 +140,9 @@ namespace Kobold.Services
             };
             exitItem.Click += (s, e) =>
             {
+                // A cancelled Windows shutdown may have set the session-end
+                // guard; this is a normal exit, so the on-exit update may run.
+                App.NoteNormalExit();
                 WidgetManager.Instance.Shutdown();
                 Application.Current.Shutdown();
             };

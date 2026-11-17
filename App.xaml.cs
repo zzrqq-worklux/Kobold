@@ -225,6 +225,18 @@ namespace Kobold
             return false;
         }
 
+        /// <summary>
+        /// A user-requested exit (the tray Exit item, a control-pipe restart)
+        /// is a normal exit. A Windows shutdown that another app cancelled
+        /// earlier must not keep the on-exit install disabled for the rest of
+        /// this process.
+        /// </summary>
+        internal static void NoteNormalExit()
+        {
+            App app = Application.Current as App;
+            if (app != null) app._sessionEnding = false;
+        }
+
         private void ActivateExistingInstance()
         {
             Process current = Process.GetCurrentProcess();

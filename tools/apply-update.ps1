@@ -10,6 +10,12 @@
 # a force kill skips the app's normal exit this script first asks the installed
 # exe to show the desktop icons again.
 #
+# On a verified success this script removes the stage folder it was given. A
+# rollback leaves the stage alone: Remove-UpdateAddedFiles still needs it to
+# find the files the failed package added. The stage's last-write time is
+# refreshed when the swap starts, so the app's startup sweep does not mistake
+# an old stage for a leftover while the new build is still being verified.
+#
 # -DryRun exercises the backup and the copy against temporary folders only: it
 # never waits for a process and never starts an exe.
 #
@@ -536,6 +542,16 @@ if ($DryRun) {
     exit 0
 }
 
+# Claim the stage before touching the install: its last-write time is what the
+# app's startup sweep checks before deleting a stage folder. A stage that sat
+# ready for hours must still be there if the new build dies inside the launch
+# check below, because the rollback enumerates it to remove added files.
+try {
+    [System.IO.Directory]::SetLastWriteTimeUtc($stageRoot, [DateTime]::UtcNow)
+} catch {
+    Write-UpdateLog ("  stage: could not mark {0} as in use: {1}" -f $stageRoot, $_.Exception.Message)
+}
+
 # A release that keeps failing to stay up leaves one backup per attempt.
 # Prune the older ones before this attempt creates its own, keeping the newest.
 Remove-OldUpdateBackups -InstallRoot $installRoot
@@ -582,6 +598,26 @@ try {
 }
 
 if ($updated) {
+    # The swapped-in build stayed up, so this script owns the stage's
+    # lifecycle: remove it now. A rollback below must leave it alone, because
+    # Remove-UpdateAddedFiles still enumerates it to find the files the failed
+    # package added.
+    $stageHoldsInstall = ($stageRoot -eq $installRoot)
+    if (-not $stageHoldsInstall) {
+        $stagePrefix = $stageRoot.TrimEnd([char[]]@('\', '/')) + [System.IO.Path]::DirectorySeparatorChar
+        $stageHoldsInstall = $installRoot.StartsWith($stagePrefix, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    if ($stageHoldsInstall) {
+        Write-UpdateLog ("success: not removing the stage {0}; it contains the install folder" -f $stageRoot)
+    } else {
+        try {
+            Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction Stop
+            Write-UpdateLog ("success: removed the stage folder {0}" -f $stageRoot)
+        } catch {
+            Write-UpdateLog ("success: the update is installed, but the stage could not be removed: {0}" -f $_.Exception.Message)
+        }
+    }
+
     try {
         Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction Stop
         Write-UpdateLog 'success: the update is installed and this backup was removed'

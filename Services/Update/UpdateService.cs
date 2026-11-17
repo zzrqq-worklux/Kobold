@@ -343,6 +343,21 @@ namespace Kobold.Services.Update
         private static readonly TimeSpan StartupCheckDelay = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan ManifestTimeout = TimeSpan.FromSeconds(8);
 
+        /// <summary>
+        /// A startup sweep only removes stage folders this old. The applier
+        /// keeps the stage until its 15-second launch check passes, and a
+        /// rollback still needs it; a fresh stage must never be swept from
+        /// under an in-flight swap.
+        /// </summary>
+        private static readonly TimeSpan StageMinimumAge = TimeSpan.FromHours(1);
+
+        /// <summary>
+        /// How long a launch waits before sweeping stage leftovers. The
+        /// applier that performed the swap may still be verifying the new
+        /// build; its rollback needs the stage if that check fails.
+        /// </summary>
+        private static readonly TimeSpan StageSweepDelay = TimeSpan.FromSeconds(60);
+
         private static readonly Lazy<UpdateService> DefaultInstance =
             new Lazy<UpdateService>(() => new UpdateService(), LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -351,7 +366,6 @@ namespace Kobold.Services.Update
         private readonly DispatcherTimer _checkTimer;
 
         private readonly Task<bool> _capabilityTask;
-        private Task _stageCleanupTask = Task.FromResult(true);
         private UpdateManifest _manifest;
         private CancellationTokenSource _downloadCts;
         private volatile bool _selfUpdatable;
@@ -423,10 +437,15 @@ namespace Kobold.Services.Update
                 _checkTimer.Start();
 
                 // A successful apply leaves the applied version's stage folder
-                // under %TEMP%; the first launch of the new copy drops it (and
-                // any zip a failed extract left behind). Off the UI thread:
-                // the folder can be install-sized.
-                _stageCleanupTask = Task.Run(() => CleanupStaleStages(null));
+                // under %TEMP%. Sweep it later, not at once: the applier that
+                // performed the swap may still be inside its 15-second launch
+                // check, and a rollback needs the stage. Fire-and-forget: the
+                // sweep is age-gated and catches its own errors.
+                Task.Run(async () =>
+                {
+                    await Task.Delay(StageSweepDelay).ConfigureAwait(false);
+                    CleanupStaleStages(null, StageMinimumAge);
+                });
 
                 AppDiagnostics.Write("[update] service started; first automatic check in 30 seconds");
             }
@@ -488,10 +507,6 @@ namespace Kobold.Services.Update
                     string.Format(CultureInfo.InvariantCulture, PackageFileNameFormat, version));
                 string stagePath = Path.Combine(root, StageFolderName);
 
-                // The startup cleanup of the previous version's stage must not
-                // race the root this download is about to recreate.
-                await _stageCleanupTask.ConfigureAwait(false);
-
                 try
                 {
                     TryDeleteDirectory(root);
@@ -518,8 +533,10 @@ namespace Kobold.Services.Update
                     }
 
                     // This stage supersedes an older version's folder; keep
-                    // only one install-sized copy in %TEMP%.
-                    CleanupStaleStages(version);
+                    // only one install-sized copy in %TEMP%. The version just
+                    // staged is protected; the sweep of older versions is
+                    // immediate because only one apply can be in flight.
+                    CleanupStaleStages(version, TimeSpan.Zero);
 
                     SetState(UpdateState.Ready, status =>
                     {
@@ -1111,18 +1128,21 @@ namespace Kobold.Services.Update
 
         /// <summary>
         /// Removes stale stage folders under %TEMP%\Kobold-update, plus the zip
-        /// a failed extract left inside one. A new copy starts with null and
-        /// drops every leftover (including the stage its own successful apply
-        /// just used); a download keeps <paramref name="keepVersion"/> and
-        /// removes the older stage it supersedes.
+        /// a failed extract left inside one. A download keeps
+        /// <paramref name="keepVersion"/> and sweeps the older stage it
+        /// supersedes immediately (<paramref name="minimumAge"/> is zero). The
+        /// startup sweep passes null and a minimum age: a swap in flight keeps
+        /// its stage until the applier's launch check has passed, because a
+        /// rollback still needs it to find the files the failed package added.
         /// </summary>
-        private static void CleanupStaleStages(string keepVersion)
+        private static void CleanupStaleStages(string keepVersion, TimeSpan minimumAge)
         {
             try
             {
                 string root = Path.Combine(Path.GetTempPath(), TempFolderName);
                 if (!Directory.Exists(root)) return;
 
+                DateTime nowUtc = DateTime.UtcNow;
                 foreach (string directory in Directory.GetDirectories(root))
                 {
                     string name = Path.GetFileName(directory);
@@ -1131,6 +1151,40 @@ namespace Kobold.Services.Update
                     // Only our own version-named folders; leave anything else
                     // under %TEMP% alone.
                     if (!UpdateVersion.TryParse(name, out _)) continue;
+
+                    if (minimumAge > TimeSpan.Zero)
+                    {
+                        DateTime lastWriteUtc;
+                        try
+                        {
+                            lastWriteUtc = Directory.GetLastWriteTimeUtc(directory);
+                        }
+                        catch (Exception)
+                        {
+                            // Unreadable timestamp: leave the folder alone.
+                            continue;
+                        }
+
+                        // apply-update.ps1 touches the stage folder when it
+                        // starts a swap, so an old stage that is only now being
+                        // applied still counts as in use until the applier's
+                        // launch check finishes.
+                        string stageFolder = Path.Combine(directory, StageFolderName);
+                        if (Directory.Exists(stageFolder))
+                        {
+                            try
+                            {
+                                DateTime stageWriteUtc = Directory.GetLastWriteTimeUtc(stageFolder);
+                                if (stageWriteUtc > lastWriteUtc) lastWriteUtc = stageWriteUtc;
+                            }
+                            catch (Exception)
+                            {
+                                // Keep the version folder's timestamp.
+                            }
+                        }
+
+                        if (nowUtc - lastWriteUtc < minimumAge) continue;
+                    }
 
                     TryDeleteDirectory(directory);
                     AppDiagnostics.Write("[update] removed the stale stage " + directory);

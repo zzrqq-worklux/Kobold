@@ -226,6 +226,9 @@ namespace Kobold.Services.Control
 
                 application.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    // A restart requested over the pipe is a normal exit even
+                    // if an earlier Windows shutdown was cancelled.
+                    App.NoteNormalExit();
                     try
                     {
                         WidgetManager.Instance.Shutdown();
