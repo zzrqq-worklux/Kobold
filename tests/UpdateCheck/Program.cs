@@ -43,6 +43,10 @@ namespace Kobold.UpdateCheck
             VersionOrdering();
             OfferPolicy();
             CheckPolicy();
+            UpdateStateRuleChecks();
+            UpdateStatusTextChecks();
+            TrayTextChecks();
+            ManifestUrlChecks();
             ExtractChecks();
             DownloadChecks();
             UpdateInstallChecks();
@@ -238,6 +242,251 @@ namespace Kobold.UpdateCheck
                 "check: a check exactly 24 hours ago is due");
             Check(UpdatePolicy.ShouldCheck(true, "not a timestamp", now, interval),
                 "check: a garbage timestamp counts as never checked");
+
+            Check(!UpdateStateRules.ShouldRunAutomaticCheck(false, true, null, now),
+                "check: an automatic check honours the disabled switch even with no stamp");
+            Check(UpdateStateRules.ShouldRunAutomaticCheck(true, true, null, now),
+                "check: the launch check runs when never checked");
+            Check(!UpdateStateRules.ShouldRunAutomaticCheck(true, true, now.AddHours(-1).ToString("o"), now),
+                "check: the launch check respects a recent stamp");
+            Check(UpdateStateRules.ShouldRunAutomaticCheck(true, false, now.AddHours(-1).ToString("o"), now),
+                "check: a later timer tick does not re-gate on the recent stamp");
+            Check(UpdateStateRules.ShouldRunAutomaticCheck(true, false, null, now),
+                "check: later timer ticks run before any stamp exists");
+        }
+
+        // ---------- runtime service rules (Task 5) ----------
+
+        /// <summary>
+        /// The enablement rules the service, the settings button and the tray
+        /// all share. Pinning every state here means a later change cannot make
+        /// the button offer an action the service would refuse.
+        /// </summary>
+        private static void UpdateStateRuleChecks()
+        {
+            Check(UpdateStateRules.CanCheck(UpdateState.Idle, true),
+                "rules: an idle self-updatable install may check");
+            Check(UpdateStateRules.CanCheck(UpdateState.Available, true),
+                "rules: an available release may be checked again");
+            Check(UpdateStateRules.CanCheck(UpdateState.Failed, true),
+                "rules: a failed check may be retried");
+            Check(!UpdateStateRules.CanCheck(UpdateState.Checking, true),
+                "rules: a check in progress cannot start another");
+            Check(!UpdateStateRules.CanCheck(UpdateState.Downloading, true),
+                "rules: a download disables the check button");
+            Check(!UpdateStateRules.CanCheck(UpdateState.Ready, true),
+                "rules: a staged update is not replaced by another check");
+            Check(!UpdateStateRules.CanCheck(UpdateState.Idle, false),
+                "rules: a non-self-updatable install cannot check");
+
+            Check(UpdateStateRules.CanDownload(UpdateState.Available, true),
+                "rules: an offered release may be downloaded");
+            Check(!UpdateStateRules.CanDownload(UpdateState.Available, false),
+                "rules: a non-self-updatable install cannot download");
+            Check(!UpdateStateRules.CanDownload(UpdateState.Downloading, true),
+                "rules: a running download cannot start twice");
+            Check(!UpdateStateRules.CanDownload(UpdateState.Ready, true),
+                "rules: a staged release is not downloaded again");
+            Check(!UpdateStateRules.CanDownload(UpdateState.Idle, true),
+                "rules: idle has nothing to download");
+
+            Check(UpdateStateRules.CanApply(UpdateState.Ready, true),
+                "rules: a staged release may be applied");
+            Check(!UpdateStateRules.CanApply(UpdateState.Ready, false),
+                "rules: a non-self-updatable install cannot apply");
+            Check(!UpdateStateRules.CanApply(UpdateState.Available, true),
+                "rules: an offer is not applied before it is staged");
+            Check(!UpdateStateRules.CanApply(UpdateState.Failed, true),
+                "rules: a failed state has nothing to apply");
+
+            Check(UpdateStateRules.ShouldAutoDownload(UpdateState.Available, true, true),
+                "rules: auto-install downloads an offer on a self-updatable install");
+            Check(!UpdateStateRules.ShouldAutoDownload(UpdateState.Available, false, true),
+                "rules: auto-install off never downloads by itself");
+            Check(!UpdateStateRules.ShouldAutoDownload(UpdateState.Available, true, false),
+                "rules: auto-install cannot download on a non-self-updatable install");
+            Check(!UpdateStateRules.ShouldAutoDownload(UpdateState.Ready, true, true),
+                "rules: a staged release is not re-downloaded automatically");
+
+            Check(UpdateStateRules.ShouldInstallOnExit(UpdateState.Ready, true, true),
+                "rules: a staged release installs on exit when auto-install is on");
+            Check(!UpdateStateRules.ShouldInstallOnExit(UpdateState.Ready, false, true),
+                "rules: auto-install off leaves the staged release alone on exit");
+            Check(!UpdateStateRules.ShouldInstallOnExit(UpdateState.Ready, true, false),
+                "rules: a non-self-updatable install never applies on exit");
+            Check(!UpdateStateRules.ShouldInstallOnExit(UpdateState.Available, true, true),
+                "rules: an offer is not applied on exit");
+
+            Check(UpdateStateRules.ShowsTrayItem(UpdateState.Available, true)
+                  && UpdateStateRules.ShowsTrayItem(UpdateState.Downloading, true)
+                  && UpdateStateRules.ShowsTrayItem(UpdateState.Ready, true),
+                "rules: the tray shows exactly the actionable update states");
+            Check(!UpdateStateRules.ShowsTrayItem(UpdateState.Idle, true)
+                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Checking, true)
+                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Failed, true),
+                "rules: idle, checking and failed show no tray entry");
+            Check(!UpdateStateRules.ShowsTrayItem(UpdateState.Available, false),
+                "rules: a non-self-updatable install shows no tray entry");
+
+            var manifest = new UpdateManifest { Version = "2.0.2" };
+            Check(UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "", true),
+                "rules: the service offers a newer release on a self-updatable install");
+            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "", false),
+                "rules: the service never offers a release it cannot install");
+            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "2.0.2", true),
+                "rules: the service honours the skipped version");
+            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.2", "", true),
+                "rules: the service does not offer the running version");
+        }
+
+        /// <summary>
+        /// The settings-line renderer: every placeholder key must go through
+        /// Format, and Ready must switch wording when auto-install is off.
+        /// </summary>
+        private static void UpdateStatusTextChecks()
+        {
+            string previousLanguage = Localization.CurrentLanguage;
+            try
+            {
+                Localization.SetLanguage("en");
+
+                var idle = new UpdateStatus();
+                Check(UpdateStateRules.DescribeStatus(idle, true, true) ==
+                      Localization.Get("Settings_UpdateIdle"),
+                    "status: idle before a check reads as not checked yet");
+                idle.HasChecked = true;
+                Check(UpdateStateRules.DescribeStatus(idle, true, true) ==
+                      Localization.Get("Settings_UpdateUpToDate"),
+                    "status: idle after a check reads as up to date");
+
+                var checking = new UpdateStatus { State = UpdateState.Checking };
+                Check(UpdateStateRules.DescribeStatus(checking, true, true) ==
+                      Localization.Get("Settings_UpdateChecking"),
+                    "status: checking is rendered");
+
+                var available = new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" };
+                Check(UpdateStateRules.DescribeStatus(available, true, true) ==
+                      Localization.Format("Settings_UpdateAvailableFormat", "2.0.2"),
+                    "status: available names the version through Format");
+
+                var downloading = new UpdateStatus
+                {
+                    State = UpdateState.Downloading,
+                    Version = "2.0.2",
+                    ProgressPercent = 42
+                };
+                Check(UpdateStateRules.DescribeStatus(downloading, true, true) ==
+                      Localization.Format("Settings_UpdateDownloadingFormat", 42),
+                    "status: downloading renders the percent through Format");
+
+                var ready = new UpdateStatus { State = UpdateState.Ready, Version = "2.0.2" };
+                Check(UpdateStateRules.DescribeStatus(ready, true, true) ==
+                      Localization.Format("Settings_UpdateReadyFormat", "2.0.2"),
+                    "status: ready with auto-install promises install on exit");
+                Check(UpdateStateRules.DescribeStatus(ready, true, false) ==
+                      Localization.Format("Settings_UpdateReadyManualFormat", "2.0.2"),
+                    "status: ready without auto-install uses the manual wording");
+                Check(UpdateStateRules.DescribeStatus(ready, true, false) !=
+                      Localization.Format("Settings_UpdateReadyFormat", "2.0.2"),
+                    "status: auto-install off never promises install on exit");
+
+                var failed = new UpdateStatus
+                {
+                    State = UpdateState.Failed,
+                    FailureMessage = "checksum mismatch"
+                };
+                Check(UpdateStateRules.DescribeStatus(failed, true, true) ==
+                      Localization.Format("Settings_UpdateFailedFormat", "checksum mismatch"),
+                    "status: failed renders the reason through Format");
+
+                Check(UpdateStateRules.DescribeStatus(available, false, true) ==
+                      Localization.Get("Settings_UpdateUnsupported"),
+                    "status: a non-self-updatable install shows the unsupported sentence");
+
+                foreach (string language in new[] { "en", "zh", "ja" })
+                {
+                    Localization.SetLanguage(language);
+                    string text = UpdateStateRules.DescribeStatus(ready, true, false);
+                    Check(text.Contains("2.0.2") && !text.Contains("{0}"),
+                        "status: " + language + " manual-ready text substitutes the version");
+                }
+            }
+            finally
+            {
+                Localization.SetLanguage(previousLanguage);
+            }
+        }
+
+        private static void TrayTextChecks()
+        {
+            string previousLanguage = Localization.CurrentLanguage;
+            try
+            {
+                Localization.SetLanguage("en");
+
+                Check(UpdateStateRules.TrayText(
+                          new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" }, true) ==
+                      Localization.Format("Tray_UpdateAvailableFormat", "2.0.2"),
+                    "tray: an available release names the version");
+                Check(UpdateStateRules.TrayText(new UpdateStatus
+                      {
+                          State = UpdateState.Downloading,
+                          Version = "2.0.2",
+                          ProgressPercent = 42
+                      }, true) ==
+                      Localization.Format("Tray_UpdateDownloadingFormat", "2.0.2", 42),
+                    "tray: a downloading release shows the percent");
+                Check(UpdateStateRules.TrayText(
+                          new UpdateStatus { State = UpdateState.Ready, Version = "2.0.2" }, true) ==
+                      Localization.Format("Tray_UpdateReadyFormat", "2.0.2"),
+                    "tray: a staged release offers the restart action");
+
+                Check(UpdateStateRules.TrayText(new UpdateStatus { State = UpdateState.Idle }, true) == null,
+                    "tray: idle shows no update entry");
+                Check(UpdateStateRules.TrayText(new UpdateStatus { State = UpdateState.Checking }, true) == null,
+                    "tray: checking shows no update entry");
+                Check(UpdateStateRules.TrayText(new UpdateStatus { State = UpdateState.Failed }, true) == null,
+                    "tray: failed shows no update entry");
+                Check(UpdateStateRules.TrayText(
+                          new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" }, false) == null,
+                    "tray: a non-self-updatable install shows no update entry");
+            }
+            finally
+            {
+                Localization.SetLanguage(previousLanguage);
+            }
+        }
+
+        /// <summary>
+        /// The local end-to-end test hook: only an absolute http(s) override is
+        /// used, everything else falls back to the fixed production address.
+        /// </summary>
+        private static void ManifestUrlChecks()
+        {
+            Check(UpdateStateRules.ResolveManifestUrl(null) == UpdateManifest.DefaultManifestUrl,
+                "url: no override uses the fixed manifest address");
+            Check(UpdateStateRules.ResolveManifestUrl("") == UpdateManifest.DefaultManifestUrl,
+                "url: an empty override uses the fixed manifest address");
+            Check(UpdateStateRules.ResolveManifestUrl("   ") == UpdateManifest.DefaultManifestUrl,
+                "url: a whitespace override uses the fixed manifest address");
+            Check(UpdateStateRules.ResolveManifestUrl("https://updates.example.test/latest.json") ==
+                  "https://updates.example.test/latest.json",
+                "url: an absolute https override is kept");
+            Check(UpdateStateRules.ResolveManifestUrl("http://127.0.0.1:8123/latest.json") ==
+                  "http://127.0.0.1:8123/latest.json",
+                "url: a loopback http override is kept for end-to-end tests");
+            Check(UpdateStateRules.ResolveManifestUrl("http://localhost:8123/latest.json") ==
+                  "http://localhost:8123/latest.json",
+                "url: the localhost name counts as loopback");
+            Check(UpdateStateRules.ResolveManifestUrl("http://updates.example.test/latest.json") ==
+                  UpdateManifest.DefaultManifestUrl,
+                "url: a non-loopback http override is rejected as a downgrade");
+            Check(UpdateStateRules.ResolveManifestUrl("/relative/latest.json") ==
+                  UpdateManifest.DefaultManifestUrl,
+                "url: a relative override is rejected");
+            Check(UpdateStateRules.ResolveManifestUrl("ftp://example.test/latest.json") ==
+                  UpdateManifest.DefaultManifestUrl,
+                "url: a non-http scheme is rejected");
         }
 
         // ---------- helpers ----------

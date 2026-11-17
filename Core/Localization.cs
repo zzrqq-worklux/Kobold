@@ -146,6 +146,11 @@ namespace Kobold.Core
                 ["Tray_Exit"] = "Exit",
                 ["Tray_SaveFailedTitle"] = "Kobold",
                 ["Tray_SaveFailedBody"] = "Couldn't save settings: {0}",
+                ["Tray_UpdateAvailableFormat"] = "Update to {0}",
+                ["Tray_UpdateDownloadingFormat"] = "Update to {0} (downloading {1}%)",
+                ["Tray_UpdateReadyFormat"] = "Restart and update to {0}",
+                ["Tray_UpdateBalloonTitle"] = "Update available",
+                ["Tray_UpdateBalloonBodyFormat"] = "Version {0} is available",
 
                 // Dialogs
                 ["Dialog_Rename"] = "Rename Folder",
@@ -224,6 +229,7 @@ namespace Kobold.Core
                 ["Settings_UpdateAvailableFormat"] = "Version {0} is available",
                 ["Settings_UpdateDownloadingFormat"] = "Downloading update… {0}%",
                 ["Settings_UpdateReadyFormat"] = "Version {0} is ready; it installs when Kobold exits.",
+                ["Settings_UpdateReadyManualFormat"] = "Version {0} is ready; restart from the tray menu to install it.",
                 ["Settings_UpdateFailedFormat"] = "Update failed: {0}",
                 ["Settings_UpdateUnsupported"] = "This installation can't update itself. Open the download page to update manually.",
 
@@ -428,6 +434,11 @@ namespace Kobold.Core
                 ["Tray_Exit"] = "退出",
                 ["Tray_SaveFailedTitle"] = "Kobold",
                 ["Tray_SaveFailedBody"] = "设置保存失败：{0}",
+                ["Tray_UpdateAvailableFormat"] = "有更新 {0}",
+                ["Tray_UpdateDownloadingFormat"] = "有更新 {0}（下载中 {1}%）",
+                ["Tray_UpdateReadyFormat"] = "重启并更新到 {0}",
+                ["Tray_UpdateBalloonTitle"] = "有可用更新",
+                ["Tray_UpdateBalloonBodyFormat"] = "发现新版本 {0}",
 
                 // Dialogs
                 ["Dialog_Rename"] = "重命名文件夹",
@@ -506,6 +517,7 @@ namespace Kobold.Core
                 ["Settings_UpdateAvailableFormat"] = "发现新版本 {0}",
                 ["Settings_UpdateDownloadingFormat"] = "正在下载更新… {0}%",
                 ["Settings_UpdateReadyFormat"] = "版本 {0} 已就绪，退出 Kobold 时安装。",
+                ["Settings_UpdateReadyManualFormat"] = "版本 {0} 已就绪，请从托盘菜单重启并安装。",
                 ["Settings_UpdateFailedFormat"] = "更新失败：{0}",
                 ["Settings_UpdateUnsupported"] = "此安装无法自动更新，请打开下载页手动更新。",
 
@@ -710,6 +722,11 @@ namespace Kobold.Core
                 ["Tray_Exit"] = "終了",
                 ["Tray_SaveFailedTitle"] = "Kobold",
                 ["Tray_SaveFailedBody"] = "設定を保存できませんでした: {0}",
+                ["Tray_UpdateAvailableFormat"] = "アップデート {0}",
+                ["Tray_UpdateDownloadingFormat"] = "アップデート {0}（ダウンロード中 {1}%）",
+                ["Tray_UpdateReadyFormat"] = "再起動して {0} に更新",
+                ["Tray_UpdateBalloonTitle"] = "アップデートがあります",
+                ["Tray_UpdateBalloonBodyFormat"] = "新しいバージョン {0} があります",
 
                 // Dialogs
                 ["Dialog_Rename"] = "フォルダー名の変更",
@@ -788,6 +805,7 @@ namespace Kobold.Core
                 ["Settings_UpdateAvailableFormat"] = "新しいバージョン {0} があります",
                 ["Settings_UpdateDownloadingFormat"] = "アップデートをダウンロード中… {0}%",
                 ["Settings_UpdateReadyFormat"] = "バージョン {0} の準備ができました。Kobold の終了時にインストールします。",
+                ["Settings_UpdateReadyManualFormat"] = "バージョン {0} の準備ができました。トレイメニューから再起動してインストールしてください。",
                 ["Settings_UpdateFailedFormat"] = "アップデートに失敗しました: {0}",
                 ["Settings_UpdateUnsupported"] = "このインストールでは自動更新を利用できません。ダウンロードページから手動で更新してください。",
 
