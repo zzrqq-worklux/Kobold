@@ -45,6 +45,8 @@
          Helpers/QuickAccess.cs - a framework assembly, not a new dependency. -->
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Windows.Forms" />
+    <!-- The auto-updater downloads packages with HttpClient (framework assembly). -->
+    <Reference Include="System.Net.Http" />
     <!-- Minimal OOXML packages for the new-file dialog (framework assemblies) -->
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />

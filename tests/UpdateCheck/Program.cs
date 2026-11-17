@@ -1,14 +1,25 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Kobold.Services.Update;
 
 namespace Kobold.UpdateCheck
 {
     /// <summary>
-    /// Behaviour checks for the updater's pure logic: manifest parsing and
-    /// validation, version ordering, and the offer/check policies. No network,
-    /// no registry, no files. Exit code 0 = all green; 1 = failures.
+    /// Behaviour checks for the updater: manifest parsing and validation,
+    /// version ordering, the offer/check policies, and the downloader's
+    /// verify/extract staging. The download checks talk only to a loopback
+    /// HttpListener; nothing leaves the machine and no registry is touched.
+    /// Exit code 0 = all green; 1 = failures.
     /// Run: dotnet run --project tests/UpdateCheck
     /// </summary>
     internal static class Program
@@ -30,6 +41,8 @@ namespace Kobold.UpdateCheck
             VersionOrdering();
             OfferPolicy();
             CheckPolicy();
+            ExtractChecks();
+            DownloadChecks();
 
             Console.WriteLine();
             if (Errors.Count == 0)
@@ -255,6 +268,382 @@ namespace Kobold.UpdateCheck
             bool ok = UpdateManifest.TryParse(json, out manifest, out error);
             Check(!ok, what);
             Check(ok || !string.IsNullOrEmpty(error), what + " - with an English error");
+        }
+
+        // ---------- downloader: extract ----------
+
+        private static void ExtractChecks()
+        {
+            string root = NewTempDirectory("extract");
+            try
+            {
+                string entryAssembly = Assembly.GetEntryAssembly() == null
+                    ? typeof(Program).Assembly.Location
+                    : Assembly.GetEntryAssembly().Location;
+                string sourceExe = Path.Combine(root, "source", "Kobold.exe");
+                Directory.CreateDirectory(Path.GetDirectoryName(sourceExe));
+                File.Copy(entryAssembly, sourceExe, true);
+
+                string installedVersion;
+                bool haveInstalledVersion = UpdateDownloader.TryGetInstalledVersion(sourceExe, out installedVersion);
+                Check(haveInstalledVersion,
+                    "extract: the test process exe exposes a readable FileVersion" +
+                    (haveInstalledVersion ? " (" + installedVersion + ")" : ""));
+                if (!haveInstalledVersion)
+                {
+                    Check(false, "extract: the extraction checks need a readable test exe version");
+                    return;
+                }
+
+                byte[] exeBytes = File.ReadAllBytes(sourceExe);
+                byte[] textBytes = Encoding.UTF8.GetBytes("not a real package payload");
+
+                string goodZip = Path.Combine(root, "good.zip");
+                CreateZip(goodZip, ZipEntry("Kobold.exe", exeBytes), ZipEntry("lib/other.txt", textBytes));
+                string goodStage = Path.Combine(root, "stage-good");
+                string extracted = UpdateDownloader.Extract(goodZip, goodStage, installedVersion);
+                Check(extracted == Path.GetFullPath(goodStage),
+                    "extract: a normal package returns the absolute stage directory");
+                Check(File.Exists(Path.Combine(extracted, "Kobold.exe")),
+                    "extract: a normal package unpacks Kobold.exe");
+                Check(File.Exists(Path.Combine(extracted, "lib", "other.txt")),
+                    "extract: a normal package unpacks nested entries");
+
+                string unsafeZip = Path.Combine(root, "unsafe.zip");
+                CreateZip(unsafeZip, ZipEntry("..\\evil.txt", textBytes));
+                string unsafeStage = Path.Combine(root, "stage-unsafe");
+                ExpectUpdateException(
+                    () => UpdateDownloader.Extract(unsafeZip, unsafeStage, installedVersion),
+                    "unsafe entry",
+                    "extract: a ..\\evil.txt entry is rejected as unsafe");
+                Check(!Directory.Exists(unsafeStage),
+                    "extract: the stage directory is removed after an unsafe entry");
+
+                string missingExeZip = Path.Combine(root, "missing-exe.zip");
+                CreateZip(missingExeZip, ZipEntry("readme.txt", textBytes));
+                string missingExeStage = Path.Combine(root, "stage-missing-exe");
+                ExpectUpdateException(
+                    () => UpdateDownloader.Extract(missingExeZip, missingExeStage, installedVersion),
+                    "version mismatch",
+                    "extract: a package without Kobold.exe is rejected");
+                Check(!Directory.Exists(missingExeStage),
+                    "extract: the stage directory is removed after a missing exe");
+
+                string wrongVersionZip = Path.Combine(root, "wrong-version.zip");
+                CreateZip(wrongVersionZip, ZipEntry("Kobold.exe", exeBytes));
+                string wrongVersionStage = Path.Combine(root, "stage-wrong-version");
+                ExpectUpdateException(
+                    () => UpdateDownloader.Extract(wrongVersionZip, wrongVersionStage, "9.9.9"),
+                    "version mismatch",
+                    "extract: an exe whose FileVersion differs from the manifest is rejected");
+                Check(!Directory.Exists(wrongVersionStage),
+                    "extract: the stage directory is removed after a version mismatch");
+
+                string absentVersion;
+                Check(!UpdateDownloader.TryGetInstalledVersion(Path.Combine(root, "missing.exe"), out absentVersion),
+                    "installer: a missing exe has no readable version");
+                string nullVersion;
+                Check(!UpdateDownloader.TryGetInstalledVersion(null, out nullVersion),
+                    "installer: a null exe path has no readable version");
+            }
+            finally
+            {
+                DeleteQuietly(root);
+            }
+        }
+
+        // ---------- downloader: download ----------
+
+        private static void DownloadChecks()
+        {
+            string root = NewTempDirectory("download");
+            try
+            {
+                byte[] body = Encoding.UTF8.GetBytes("Kobold package payload - 0123456789 - abcdef");
+                string sha = Sha256Hex(body);
+
+                using (var server = new LocalHttpServer(body, body.Length))
+                {
+                    string destination = Path.Combine(root, "good", "Kobold-v2.0.2.zip");
+                    var progress = new RecordingProgress();
+                    UpdateDownloader.DownloadAsync(DownloadManifest(server.Url, body.Length, sha),
+                        destination, progress, CancellationToken.None).GetAwaiter().GetResult();
+
+                    Check(File.Exists(destination),
+                        "download: a valid package lands at the destination");
+                    Check(File.Exists(destination) && File.ReadAllBytes(destination).SequenceEqual(body),
+                        "download: the downloaded bytes match the served bytes");
+                    Check(!File.Exists(destination + ".part"),
+                        "download: the .part file is gone after a successful download");
+                    Check(progress.Reports > 0,
+                        "download: progress is reported while downloading");
+                    Check(progress.Last == body.Length,
+                        "download: progress reports the cumulative byte count (last " + progress.Last + ")");
+                    Check(server.Requests == 1,
+                        "download: the package is requested exactly once");
+                    Check(server.UserAgent == "Kobold/" + TestedAssemblyVersion(),
+                        "download: the request carries User-Agent Kobold/<current version> (got " +
+                        (server.UserAgent ?? "<none>") + ")");
+                }
+
+                using (var server = new LocalHttpServer(body, body.Length))
+                {
+                    string destination = Path.Combine(root, "bad-sha", "Kobold-v2.0.2.zip");
+                    ExpectUpdateException(
+                        () => UpdateDownloader.DownloadAsync(
+                            DownloadManifest(server.Url, body.Length, new string('0', 64)),
+                            destination, null, CancellationToken.None).GetAwaiter().GetResult(),
+                        "checksum mismatch",
+                        "download: a wrong sha256 is rejected with checksum mismatch");
+                    Check(!File.Exists(destination + ".part"),
+                        "download: the .part file is removed after a checksum mismatch");
+                    Check(!File.Exists(destination),
+                        "download: nothing is published after a checksum mismatch");
+                }
+
+                using (var server = new LocalHttpServer(body, body.Length - 1))
+                {
+                    string destination = Path.Combine(root, "short", "Kobold-v2.0.2.zip");
+                    ExpectUpdateException(
+                        () => UpdateDownloader.DownloadAsync(
+                            DownloadManifest(server.Url, body.Length, sha),
+                            destination, null, CancellationToken.None).GetAwaiter().GetResult(),
+                        "size mismatch",
+                        "download: a body shorter than manifest.Size is rejected with size mismatch");
+                    Check(!File.Exists(destination + ".part"),
+                        "download: the .part file is removed after a size mismatch");
+                    Check(!File.Exists(destination),
+                        "download: nothing is published after a size mismatch");
+                }
+            }
+            finally
+            {
+                DeleteQuietly(root);
+            }
+        }
+
+        // ---------- downloader helpers ----------
+
+        private static UpdateManifest DownloadManifest(string url, long size, string sha256)
+        {
+            return new UpdateManifest
+            {
+                Version = "2.0.2",
+                Url = url,
+                Size = size,
+                Sha256 = sha256
+            };
+        }
+
+        /// <summary>The three-part version of the Kobold assembly under test.</summary>
+        private static string TestedAssemblyVersion()
+        {
+            Version version = typeof(UpdateDownloader).Assembly.GetName().Version;
+            return version.Major + "." + version.Minor + "." + Math.Max(version.Build, 0);
+        }
+
+        private static string Sha256Hex(byte[] bytes)
+        {
+            using (var sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(bytes);
+                var builder = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++) builder.Append(hash[i].ToString("x2"));
+                return builder.ToString();
+            }
+        }
+
+        private static void CreateZip(string zipPath, params KeyValuePair<string, byte[]>[] entries)
+        {
+            using (var file = File.Create(zipPath))
+            using (var archive = new ZipArchive(file, ZipArchiveMode.Create))
+            {
+                foreach (var entry in entries)
+                {
+                    ZipArchiveEntry zipEntry = archive.CreateEntry(entry.Key, CompressionLevel.Fastest);
+                    using (var stream = zipEntry.Open())
+                    {
+                        stream.Write(entry.Value, 0, entry.Value.Length);
+                    }
+                }
+            }
+        }
+
+        private static KeyValuePair<string, byte[]> ZipEntry(string name, byte[] bytes)
+        {
+            return new KeyValuePair<string, byte[]>(name, bytes);
+        }
+
+        private static string NewTempDirectory(string label)
+        {
+            string path = Path.Combine(Path.GetTempPath(),
+                "KoboldUpdateCheck-" + label + "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
+        private static void DeleteQuietly(string directory)
+        {
+            try
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        private static void ExpectUpdateException(Action action, string expectedMessage, string what)
+        {
+            try
+            {
+                action();
+            }
+            catch (UpdateException ex)
+            {
+                Check(ex.Message == expectedMessage,
+                    what + (ex.Message == expectedMessage ? "" : " (message was \"" + ex.Message + "\")"));
+                return;
+            }
+            catch (Exception ex)
+            {
+                Check(false, what + " (threw " + ex.GetType().Name + ": " + ex.Message + ")");
+                return;
+            }
+            Check(false, what + " (no exception was thrown)");
+        }
+
+        private sealed class RecordingProgress : IProgress<long>
+        {
+            public long Last { get; private set; }
+
+            public int Reports { get; private set; }
+
+            public void Report(long value)
+            {
+                Last = value;
+                Reports++;
+            }
+        }
+
+        /// <summary>
+        /// Serves one payload from http://127.0.0.1:&lt;free port&gt;/ on a
+        /// background thread. The declared length may be shorter than the
+        /// payload so the downloader's size check can be exercised. This is the
+        /// only "network" the checks use.
+        /// </summary>
+        private sealed class LocalHttpServer : IDisposable
+        {
+            private readonly HttpListener _listener = new HttpListener();
+            private readonly Thread _thread;
+            private readonly byte[] _body;
+            private readonly int _declaredLength;
+            private volatile string _userAgent;
+            private int _requests;
+
+            public LocalHttpServer(byte[] body, int declaredLength)
+            {
+                _body = body;
+                _declaredLength = declaredLength;
+
+                int port = FreeTcpPort();
+                Url = "http://127.0.0.1:" + port + "/package.zip";
+                _listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
+                _listener.Start();
+
+                _thread = new Thread(Serve) { IsBackground = true, Name = "UpdateCheckHttp" };
+                _thread.Start();
+            }
+
+            public string Url { get; private set; }
+
+            public string UserAgent
+            {
+                get { return _userAgent; }
+            }
+
+            public int Requests
+            {
+                get { return Volatile.Read(ref _requests); }
+            }
+
+            public void Dispose()
+            {
+                try
+                {
+                    _listener.Stop();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                try
+                {
+                    _listener.Close();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                _thread.Join(2000);
+            }
+
+            private void Serve()
+            {
+                while (_listener.IsListening)
+                {
+                    HttpListenerContext context;
+                    try
+                    {
+                        context = _listener.GetContext();
+                    }
+                    catch (HttpListenerException)
+                    {
+                        return;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return;
+                    }
+
+                    _userAgent = context.Request.UserAgent;
+                    Interlocked.Increment(ref _requests);
+                    try
+                    {
+                        int length = Math.Min(_declaredLength, _body.Length);
+                        context.Response.StatusCode = 200;
+                        context.Response.ContentType = "application/octet-stream";
+                        context.Response.ContentLength64 = length;
+                        context.Response.OutputStream.Write(_body, 0, length);
+                        context.Response.OutputStream.Flush();
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            context.Response.Close();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                        }
+                    }
+                }
+            }
+
+            private static int FreeTcpPort()
+            {
+                var probe = new TcpListener(IPAddress.Loopback, 0);
+                probe.Start();
+                try
+                {
+                    return ((IPEndPoint)probe.LocalEndpoint).Port;
+                }
+                finally
+                {
+                    probe.Stop();
+                }
+            }
         }
     }
 }
