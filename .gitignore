@@ -298,3 +298,6 @@ tools/tests/.sandbox/
 
 # Local visual verification screenshots (personal desktop content - never push)
 docs/screenshots/
+
+# Subagent-driven development scratch
+.superpowers/
