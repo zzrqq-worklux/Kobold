@@ -203,6 +203,30 @@ This is the detailed feature log moved out of the README. It is intentionally ex
 - **Three languages** — English, 简体中文, 日本語.
 - **Tray + startup** — tray menu for add / show all / hide all / settings
   / exit, single-instance guard and optional auto-start with Windows.
+- **Automatic updates** — 30 seconds after launch, and then every 24 hours,
+  Kobold asks `https://api.merrickzq.work/downloads/kobold/latest.json` whether
+  a newer release exists. Every copy checks, so a portable or read-only copy
+  still learns that an update exists, but only a writable **installed** copy
+  downloads and applies it; the other copies get the offer plus **Open
+  download page**. With **Install updates automatically on exit** on (the
+  default) the package downloads and stages in the background and installs
+  while the app quits; with it off the check only reports the offer, and the
+  tray menu downloads it (**Update to …**) and installs it (**Restart and
+  update to …**) — nothing ever restarts the app without the user's click. The
+  swap is `tools\apply-update.ps1`: it waits for the process to exit, backs up
+  the install, copies with retries, starts the new exe and calls the update
+  good only when it is still running after 15 seconds; a failed copy or a
+  launch that dies puts the backup back and starts the previous version. A
+  process still alive after 30 seconds is force-stopped,
+  but only after asking the installed `Kobold.exe --restore-desktop-icons` to
+  run, because the force kill skips the normal exit that would otherwise leave
+  the desktop icons hidden. The manifest must be HTTPS on the pinned host and
+  the package must match its size and SHA-256; there is **no code signing**, so
+  this catches corruption and tampering but not a compromised server.
+  Boundaries: the offer lives in the running process (after a restart the first
+  automatic check runs at the 30-second mark, subject to the 24-hour stamp and
+  to **Check for updates at startup**), and a skipped version would be stored
+  in the config but there is no UI to skip or unskip one.
 - **Idle memory trim** — after two minutes without interaction the app hands
   its working set back to Windows: the Task Manager figure drops to a few MB
   while idle, and the pages fault back in on demand.

@@ -85,6 +85,61 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 # -> prints the notes, or write them with -OutFile notes.md
 ```
 
+## Testing an update in the VM
+
+The updater only requests the pinned manifest,
+`https://api.merrickzq.work/downloads/kobold/latest.json`.
+`KOBOLD_UPDATE_MANIFEST_URL` overrides that address for a local check; beyond
+the pinned HTTPS host it accepts exactly one shape — an `http://` URL on the
+loopback interface. No user-facing setting exposes it. The manifest's own
+`url` stays pinned to the `api.merrickzq.work` host (the parser enforces it),
+so this override exercises the check/offer path; a fully local download would
+need that host mapped to the test server.
+
+```powershell
+# 1. Stage a release next to a scratch install: the stage folder needs a
+#    Kobold.exe whose FileVersion equals the manifest version, plus the rest of
+#    the package (tools\ included).
+$root = Join-Path $env:TEMP 'Kobold-apply-test'
+$stage = Join-Path $root 'stage'
+$install = Join-Path $root 'install'
+New-Item -ItemType Directory -Force $stage, $install | Out-Null
+Copy-Item C:\work\bin\Debug\net48\Kobold.exe $stage
+Copy-Item C:\work\bin\Debug\net48\Kobold.exe $install   # the copy being replaced
+
+# 2. Exercise the swap without waiting for a process or starting an exe: the
+#    backup and the copy land in a temporary folder, the install folder is only
+#    read. Run it after every edit to the script.
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\work\tools\apply-update.ps1 `
+    -ProcessId 0 -StageDir $stage -InstallDir $install -DryRun
+# -> "dry run: success", exit code 0
+
+# 3. Point the check at a loopback manifest: the first automatic check runs 30
+#    seconds after launch. Turn "Install updates automatically on exit" off
+#    first, or the offer immediately starts downloading from the pinned host.
+$env:KOBOLD_UPDATE_MANIFEST_URL = 'http://127.0.0.1:8765/latest.json'
+```
+
+`tests\UpdateCheck` holds parsable manifest examples (version, url, size,
+sha256) and plain `HttpListener` fixtures to copy; the manifest's download
+`url` must be `https://api.merrickzq.work/...` and the package must match its
+size and SHA-256.
+
+**Rollback.** Run the script without `-DryRun` against a scratch copy of the
+install folder and a stage whose `Kobold.exe` cannot start (a text file renamed
+to `Kobold.exe` is enough): `-ProcessId 0` skips the wait, the copy is backed
+up, the launch fails, the backup is restored, the old exe starts again and the
+script exits 3. `%LocalAppData%\Kobold\update.log` records every step; a
+successful run removes its own backup and keeps only the newest
+`.update-backup-*` folder. The force-kill path can be exercised the same way:
+start a copy of another executable renamed `Kobold.exe` that ignores the wait,
+pass its PID with `-WaitSeconds 1`, and check the log for the
+`--restore-desktop-icons` line before `stopping it`.
+
+`Run-Checks.ps1 -Group checks` runs `tests\UpdateCheck` with the rest of the
+console matrix (36 checks); the helper script itself is covered by the manual
+VM pass above.
+
 ## Data
 
 - Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).

@@ -62,6 +62,52 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release-notes.ps1 -Ver
 # 输出正文；用 -OutFile notes.md 写入文件
 ```
 
+## 在虚拟机里测更新
+
+更新器只请求固定的 manifest，
+`https://api.merrickzq.work/downloads/kobold/latest.json`。本机测试检查流程时用
+`KOBOLD_UPDATE_MANIFEST_URL` 覆盖该地址；除固定的 HTTPS 主机外，它只接受一种
+形式——回环接口上的 `http://` URL。没有任何面向用户的设置暴露它。manifest 里的
+下载 `url` 仍固定在 `api.merrickzq.work` 主机（解析器强制校验），所以这个覆盖
+只用于检查 / 提示流程；要完全本地地跑下载，需要把该主机名映射到测试服务器。
+
+```powershell
+# 1. 在临时目录造一个发布目录和一个安装目录：发布目录里要有 FileVersion 与
+#    manifest 一致的 Kobold.exe，以及包的其余内容（包括 tools\）。
+$root = Join-Path $env:TEMP 'Kobold-apply-test'
+$stage = Join-Path $root 'stage'
+$install = Join-Path $root 'install'
+New-Item -ItemType Directory -Force $stage, $install | Out-Null
+Copy-Item C:\work\bin\Debug\net48\Kobold.exe $stage
+Copy-Item C:\work\bin\Debug\net48\Kobold.exe $install   # 即将被替换的那份
+
+# 2. 不等待进程、不启动 exe 地演练替换：备份与复制都落在临时目录，只读取
+#    安装目录。每次改完脚本都跑一遍。
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\work\tools\apply-update.ps1 `
+    -ProcessId 0 -StageDir $stage -InstallDir $install -DryRun
+# -> "dry run: success"，退出码 0
+
+# 3. 把检查指向回环上的 manifest：第一次自动检查在启动 30 秒后进行。先关掉
+#    「退出时自动安装」，否则发现新版本会立刻从固定主机开始下载。
+$env:KOBOLD_UPDATE_MANIFEST_URL = 'http://127.0.0.1:8765/latest.json'
+```
+
+manifest 的字段（version、url、size、sha256）可以照抄 `tests\UpdateCheck`
+里的示例，下载服务用同样的 `HttpListener` 写法；manifest 的下载 `url` 必须是
+`https://api.merrickzq.work/...`，安装包必须与 size 和 SHA-256 一致。
+
+**回滚验证。** 对一个临时复制的安装目录跑不带 `-DryRun` 的脚本，stage 里的
+`Kobold.exe` 故意做成启动不了的样子（把文本文件改名为 `Kobold.exe` 即可）：
+`-ProcessId 0` 跳过等待，脚本备份、复制、启动失败、还原备份、重新启动旧 exe，
+最后以退出码 3 结束。`%LocalAppData%\Kobold\update.log` 记录每一步；成功的一轮
+会删掉自己的备份，只保留最新的 `.update-backup-*` 目录。强杀路径也能同样验证：
+把一个别的可执行文件复制成 `Kobold.exe` 并启动（它会忽略等待），用它的 PID 配合
+`-WaitSeconds 1` 运行脚本，日志里应先出现 `--restore-desktop-icons` 行，再出现
+`stopping it`。
+
+`Run-Checks.ps1 -Group checks` 会连同其余控制台矩阵一起运行
+`tests\UpdateCheck`（共 36 项）；脚本本身由上面这轮虚拟机手动验证覆盖。
+
 ## 数据目录
 
 - 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。
