@@ -14,7 +14,8 @@
 # never waits for a process and never starts an exe.
 #
 # Exit codes: 0 = applied (or dry run succeeded), 2 = backup failed / nothing
-# was changed, 3 = copy or launch failed and the backup was restored.
+# was changed, 3 = stage missing or copy/launch failed. Any abort after the app
+# was asked to exit starts the installed copy again.
 param(
     [Parameter(Mandatory=$true)][int]$ProcessId,
     [Parameter(Mandatory=$true)][string]$StageDir,
@@ -303,10 +304,11 @@ function Remove-UpdateAddedFiles {
 }
 
 <#
-After a successful update only one backup may survive: the newest remaining
-.update-backup-* folder. The backup from this run is removed first, so this
-prunes leftovers from earlier failed updates. A backup kept by a rollback is
-never pruned by this function.
+Keeps only the newest .update-backup-* folder under the install root. A
+successful update calls it after removing its own backup, which drops the
+leftovers from earlier failed updates; an apply calls it before creating the
+new backup, so a release that keeps failing cannot grow the install folder by
+one install-sized copy per attempt.
 #>
 function Remove-OldUpdateBackups {
     param([string]$InstallRoot)
@@ -489,10 +491,18 @@ if (-not (Test-Path -LiteralPath $installRoot -PathType Container)) {
 }
 if (-not $stageRoot -or -not (Test-Path -LiteralPath $stageRoot -PathType Container)) {
     Write-UpdateLog ("error: the stage folder does not exist: {0}" -f $StageDir)
+    # The app was told to restart, so an abort must not leave the user with
+    # nothing running. A dry run never starts an exe.
+    if (-not $DryRun) {
+        Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
+    }
     exit 3
 }
 if (-not (Test-Path -LiteralPath (Join-Path $stageRoot $exeName) -PathType Leaf)) {
     Write-UpdateLog ("error: the stage folder has no {0}" -f $exeName)
+    if (-not $DryRun) {
+        Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
+    }
     exit 3
 }
 
@@ -526,6 +536,10 @@ if ($DryRun) {
     exit 0
 }
 
+# A release that keeps failing to stay up leaves one backup per attempt.
+# Prune the older ones before this attempt creates its own, keeping the newest.
+Remove-OldUpdateBackups -InstallRoot $installRoot
+
 $backupDir = Join-Path $installRoot ($backupPrefix + (Get-Date -Format 'yyyyMMddHHmmss'))
 if (Test-Path -LiteralPath $backupDir) {
     Write-UpdateLog ("error: the backup folder already exists: {0}" -f $backupDir)
@@ -539,10 +553,12 @@ try {
     $backupOk = New-UpdateBackup -Root $installRoot -BackupDir $backupDir
 } catch {
     Write-UpdateLog ("error: the backup failed: {0}" -f $_.Exception.Message)
+    Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
     exit 2
 }
 if (-not $backupOk) {
     Write-UpdateLog 'error: the backup failed; the install folder was not changed'
+    Start-OldKobold -ExePath (Join-Path $installRoot $exeName) -WorkingDirectory $installRoot
     exit 2
 }
 

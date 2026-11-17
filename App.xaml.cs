@@ -34,6 +34,13 @@ namespace Kobold
         private bool _updateServiceStarted;
 
         /// <summary>
+        /// True once Windows has begun logging off or shutting down. The
+        /// on-exit install must not run then: the detached helper can be killed
+        /// mid backup/copy, leaving an install nothing later repairs.
+        /// </summary>
+        private bool _sessionEnding;
+
+        /// <summary>
         /// Test seam: the desktop self-checks load App.xaml resources but must
         /// not run the production startup (single-instance mutex, tray icon,
         /// control pipe, manager). WPF posts OnStartup to the dispatcher even
@@ -191,6 +198,10 @@ namespace Kobold
             // paths (tray exit / OnExit) keep their existing behaviour.
             Current.SessionEnding += (sender, args) =>
             {
+                // Windows may terminate the detached applier while it is
+                // between the backup and the copy. Only a normal exit may
+                // install; the tray-exit path still runs ApplyForExit.
+                _sessionEnding = true;
                 try
                 {
                     DesktopIconGuard.RestoreOnExit();
@@ -250,8 +261,10 @@ namespace Kobold
                 // left automatic installation on; ApplyNow (an explicit tray
                 // click) is the only other place that starts the helper. When a
                 // control-pipe restart helper already owns the exit, spawning
-                // the applier too would race it over the same files.
-                if (_updateServiceStarted && !RestartHelper.IsPending)
+                // the applier too would race it over the same files. A Windows
+                // logoff/shutdown must not install either: it can kill the
+                // helper mid-swap and leave a mixed install behind.
+                if (_updateServiceStarted && !_sessionEnding && !RestartHelper.IsPending)
                 {
                     try { UpdateService.Instance.ApplyForExit(); }
                     catch (Exception ex) { AppDiagnostics.Write("[update] on-exit apply failed: " + ex.Message); }
