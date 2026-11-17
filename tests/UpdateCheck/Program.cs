@@ -309,6 +309,16 @@ namespace Kobold.UpdateCheck
                 Check(File.Exists(Path.Combine(extracted, "lib", "other.txt")),
                     "extract: a normal package unpacks nested entries");
 
+                string bombZip = Path.Combine(root, "bomb.zip");
+                CreateZipDeclaringTooMuch(bombZip, 300000000);
+                string bombStage = Path.Combine(root, "stage-bomb");
+                ExpectUpdateException(
+                    () => UpdateDownloader.Extract(bombZip, bombStage, installedVersion),
+                    "size mismatch",
+                    "extract: an archive declaring more than the 200 MB cap is rejected before unpacking");
+                Check(!Directory.Exists(bombStage),
+                    "extract: the stage directory is removed after an oversized package");
+
                 string unsafeZip = Path.Combine(root, "unsafe.zip");
                 CreateZip(unsafeZip, ZipEntry("..\\evil.txt", textBytes));
                 string unsafeStage = Path.Combine(root, "stage-unsafe");
@@ -318,6 +328,8 @@ namespace Kobold.UpdateCheck
                     "extract: a ..\\evil.txt entry is rejected as unsafe");
                 Check(!Directory.Exists(unsafeStage),
                     "extract: the stage directory is removed after an unsafe entry");
+                Check(!File.Exists(Path.Combine(root, "evil.txt")),
+                    "extract: an unsafe entry writes nothing outside the stage directory");
 
                 string missingExeZip = Path.Combine(root, "missing-exe.zip");
                 CreateZip(missingExeZip, ZipEntry("readme.txt", textBytes));
@@ -411,9 +423,24 @@ namespace Kobold.UpdateCheck
                         "size mismatch",
                         "download: a body shorter than manifest.Size is rejected with size mismatch");
                     Check(!File.Exists(destination + ".part"),
-                        "download: the .part file is removed after a size mismatch");
+                        "download: the .part file is removed after a short body");
                     Check(!File.Exists(destination),
-                        "download: nothing is published after a size mismatch");
+                        "download: nothing is published after a short body");
+                }
+
+                using (var server = new LocalHttpServer(body, body.Length))
+                {
+                    string destination = Path.Combine(root, "long", "Kobold-v2.0.2.zip");
+                    ExpectUpdateException(
+                        () => UpdateDownloader.DownloadAsync(
+                            DownloadManifest(server.Url, body.Length - 1, sha),
+                            destination, null, CancellationToken.None).GetAwaiter().GetResult(),
+                        "size mismatch",
+                        "download: a body longer than manifest.Size is rejected with size mismatch");
+                    Check(!File.Exists(destination + ".part"),
+                        "download: the .part file is removed after an oversized body");
+                    Check(!File.Exists(destination),
+                        "download: nothing is published after an oversized body");
                 }
             }
             finally
@@ -472,6 +499,80 @@ namespace Kobold.UpdateCheck
         private static KeyValuePair<string, byte[]> ZipEntry(string name, byte[] bytes)
         {
             return new KeyValuePair<string, byte[]>(name, bytes);
+        }
+
+        /// <summary>
+        /// Writes a structurally valid zip whose single stored entry declares
+        /// <paramref name="declaredLength"/> uncompressed bytes but carries no
+        /// data. The downloader must reject it from the declared size alone,
+        /// before touching any entry; building a real 200 MB+ archive in the
+        /// check suite would be slow and prove the same thing.
+        /// </summary>
+        private static void CreateZipDeclaringTooMuch(string zipPath, uint declaredLength)
+        {
+            byte[] name = Encoding.ASCII.GetBytes("bomb.txt");
+            using (var stream = File.Create(zipPath))
+            {
+                // Local file header (30 bytes + name).
+                WriteUInt32(stream, 0x04034b50);
+                WriteUInt16(stream, 20);              // version needed
+                WriteUInt16(stream, 0);               // flags
+                WriteUInt16(stream, 0);               // method: stored
+                WriteUInt16(stream, 0);               // modification time
+                WriteUInt16(stream, 0);               // modification date
+                WriteUInt32(stream, 0);               // crc32
+                WriteUInt32(stream, 0);               // compressed size
+                WriteUInt32(stream, declaredLength);  // uncompressed size
+                WriteUInt16(stream, (ushort)name.Length);
+                WriteUInt16(stream, 0);               // extra field length
+                stream.Write(name, 0, name.Length);
+                uint centralOffset = (uint)stream.Position;
+
+                // Central directory header (46 bytes + name).
+                WriteUInt32(stream, 0x02014b50);
+                WriteUInt16(stream, 20);              // version made by
+                WriteUInt16(stream, 20);              // version needed
+                WriteUInt16(stream, 0);               // flags
+                WriteUInt16(stream, 0);               // method: stored
+                WriteUInt16(stream, 0);               // modification time
+                WriteUInt16(stream, 0);               // modification date
+                WriteUInt32(stream, 0);               // crc32
+                WriteUInt32(stream, 0);               // compressed size
+                WriteUInt32(stream, declaredLength);  // uncompressed size
+                WriteUInt16(stream, (ushort)name.Length);
+                WriteUInt16(stream, 0);               // extra field length
+                WriteUInt16(stream, 0);               // comment length
+                WriteUInt16(stream, 0);               // disk number
+                WriteUInt16(stream, 0);               // internal attributes
+                WriteUInt32(stream, 0);               // external attributes
+                WriteUInt32(stream, 0);               // local header offset
+                stream.Write(name, 0, name.Length);
+                uint centralSize = (uint)stream.Position - centralOffset;
+
+                // End of central directory record (22 bytes).
+                WriteUInt32(stream, 0x06054b50);
+                WriteUInt16(stream, 0);               // this disk
+                WriteUInt16(stream, 0);               // central directory disk
+                WriteUInt16(stream, 1);               // entries on this disk
+                WriteUInt16(stream, 1);               // total entries
+                WriteUInt32(stream, centralSize);
+                WriteUInt32(stream, centralOffset);
+                WriteUInt16(stream, 0);               // comment length
+            }
+        }
+
+        private static void WriteUInt16(Stream stream, ushort value)
+        {
+            stream.WriteByte((byte)(value & 0xFF));
+            stream.WriteByte((byte)((value >> 8) & 0xFF));
+        }
+
+        private static void WriteUInt32(Stream stream, uint value)
+        {
+            stream.WriteByte((byte)(value & 0xFF));
+            stream.WriteByte((byte)((value >> 8) & 0xFF));
+            stream.WriteByte((byte)((value >> 16) & 0xFF));
+            stream.WriteByte((byte)((value >> 24) & 0xFF));
         }
 
         private static string NewTempDirectory(string label)

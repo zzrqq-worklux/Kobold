@@ -39,6 +39,13 @@ namespace Kobold.Services.Update
         private const string PackageExeName = "Kobold.exe";
 
         /// <summary>
+        /// Hard ceiling on the total uncompressed size an archive may declare.
+        /// It mirrors the 200 MB download cap in <see cref="UpdateManifest"/>;
+        /// a package that decompresses larger is a zip bomb, not a release.
+        /// </summary>
+        private const long MaxExtractedBytes = 200000000;
+
+        /// <summary>
         /// Downloads <paramref name="manifest"/> to <paramref name="destinationPath"/>.
         /// The bytes go to "&lt;destination&gt;.part" first; the file is only
         /// moved into place once its length equals <see cref="UpdateManifest.Size"/>
@@ -87,7 +94,9 @@ namespace Kobold.Services.Update
         /// and verifies that the package contains a Kobold.exe whose FileVersion
         /// matches the first three parts of <paramref name="expectedVersion"/>.
         /// Every entry path is normalized and must stay inside the stage
-        /// directory. On any failure the stage directory is deleted and the
+        /// directory, and the total size the archive declares must fit
+        /// <see cref="MaxExtractedBytes"/> - both checks run before any bytes
+        /// are unpacked. On any failure the stage directory is deleted and the
         /// exception is rethrown; on success the absolute stage path is returned.
         /// </summary>
         public static string Extract(string zipPath, string stageDir, string expectedVersion)
@@ -115,6 +124,7 @@ namespace Kobold.Services.Update
                 Directory.CreateDirectory(stage);
                 using (var archive = new ZipArchive(File.OpenRead(zipPath), ZipArchiveMode.Read))
                 {
+                    EnsureExtractionFits(archive);
                     foreach (ZipArchiveEntry entry in archive.Entries)
                     {
                         string target = SafeTarget(stage, stagePrefix, entry.FullName);
@@ -208,13 +218,21 @@ namespace Kobold.Services.Update
                             await sink.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
                             sha.TransformBlock(buffer, 0, read, null, 0);
                             total += read;
+                            if (total > manifest.Size)
+                            {
+                                // Stop as soon as the server sends more than the
+                                // manifest declares: never write the whole body
+                                // out before noticing. At most one buffer past
+                                // the limit reaches the .part file, which the
+                                // caller's finally deletes.
+                                throw new UpdateException("size mismatch");
+                            }
                             if (progress != null) progress.Report(total);
                         }
 
                         if (total != manifest.Size)
                         {
-                            // Size comes before the hash: a truncated download is
-                            // a size failure even though its hash also differs.
+                            // Short body: the stream ended before manifest.Size.
                             throw new UpdateException("size mismatch");
                         }
 
@@ -222,6 +240,25 @@ namespace Kobold.Services.Update
                         return sha.Hash;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Rejects an archive whose central directory declares more uncompressed
+        /// bytes than <see cref="MaxExtractedBytes"/>, before any entry is
+        /// unpacked. The subtraction form cannot overflow for a single entry's
+        /// length and keeps the running total at or below the cap.
+        /// </summary>
+        private static void EnsureExtractionFits(ZipArchive archive)
+        {
+            long declared = 0;
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                if (entry.Length > MaxExtractedBytes - declared)
+                {
+                    throw new UpdateException("size mismatch");
+                }
+                declared += entry.Length;
             }
         }
 
