@@ -39,6 +39,7 @@ $checks = @(
     @{ Name = 'IconCatalogCheck';      Ci = $false }   # WPF geometry + off-screen render
     @{ Name = 'FolderListingCheck';    Ci = $true  }
     @{ Name = 'ShellOpsCheck';         Ci = $true  }
+    @{ Name = 'UpdateCheck';           Ci = $true  }
     @{ Name = 'MemoryTrimCheck';       Ci = $true  }
     @{ Name = 'DragOutCheck';          Ci = $true  }
     @{ Name = 'FolderIconCheck';       Ci = $true  }
