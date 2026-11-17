@@ -135,11 +135,17 @@ while ($true) {
 `downloads/kobold/publish.sh` 从包本身推导稳定软链、`latest.json`、
 `SHA256SUMS` 和落地页，页面上没有任何需要手改的东西。
 
-镜像步骤需要三个仓库 secret：`ALIYUN_HOST`、`ALIYUN_USER`、`ALIYUN_SSH_KEY`
-（ed25519 私钥，公钥放在服务器 `~/.ssh/authorized_keys`；`ALIYUN_PORT` 可选）。
-没配置时该步骤只打印一行说明并 exit 0，发布不会因为镜像没配而失败。
+镜像用专用账号 `kobold-deploy` 跑，不用 root：它在
+`~/.ssh/authorized_keys` 里的条目被 `command="/usr/local/bin/kobold-deploy-ssh"`
+钉死，那个包装脚本只接受两件事——往 `.incoming/` 写一个包、以及用「包名 + 版本号」
+调用 `publish.sh`，其余一律拒绝；该账号对 `downloads/kobold/` 之外的路径没有任何
+权限（靠 ACL 而不是加组）。换密钥就是同时替换这两个文件。
+
+镜像步骤需要三个仓库 secret：`ALIYUN_HOST`、`ALIYUN_USER`（`kobold-deploy`）、
+`ALIYUN_SSH_KEY`（该账号的 ed25519 私钥；`ALIYUN_PORT` 可选）。没配置时该步骤
+只打印一行说明并 exit 0，发布不会因为镜像没配而失败。
 手工重发：把包放进 `/www/wwwroot/api.zzrddforever.xyz/downloads/kobold/`，
-在该目录执行 `bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z`。
+在该目录（以 root）执行 `bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z`。
 
 ## 数据目录
 

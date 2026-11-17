@@ -94,6 +94,11 @@ jobs:
           PORT=${PORT:-22}
           DEST=/www/wwwroot/api.zzrddforever.xyz/downloads/kobold
           ZIP="Kobold-${TAG}-win-x64.zip"
-          scp -i ~/.ssh/deploy_key -P "$PORT" "Releases/${ZIP}" "$USER_NAME@$HOST:$DEST/.incoming/"
+          VERSION="${TAG#v}"
+          # The deploy account runs a forced command: it accepts a package upload
+          # into .incoming and one publish invocation, nothing else. Plain `cat`
+          # keeps that contract independent of the local scp/sftp version.
           ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER_NAME@$HOST" \
-            "cd $DEST && mv -f .incoming/${ZIP} . && bash publish.sh '${ZIP}' '${TAG#v}'"
+            "cat > $DEST/.incoming/${ZIP}" < "Releases/${ZIP}"
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER_NAME@$HOST" \
+            "bash $DEST/publish.sh ${ZIP} ${VERSION}"

@@ -172,13 +172,20 @@ the GitHub release from the `vX.Y.Z` section of `CHANGELOG.md` and then mirrors
 `SHA256SUMS` and the landing page from the package itself. Nothing on the site
 is edited by hand.
 
-The mirror step needs three repository secrets: `ALIYUN_HOST`, `ALIYUN_USER`
-and `ALIYUN_SSH_KEY` (an ed25519 private key whose public half is in
-`~/.ssh/authorized_keys` on the server; `ALIYUN_PORT` is optional). Without
-them the step prints a note and exits 0, so a release never fails because the
-mirror is unconfigured. To republish by hand, copy the zip into
-`/www/wwwroot/api.zzrddforever.xyz/downloads/kobold/` and run
-`bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z` there.
+The mirror runs as a dedicated account, `kobold-deploy`, never as root: its key
+entry in `~/.ssh/authorized_keys` pins `command="/usr/local/bin/kobold-deploy-ssh"`,
+and that wrapper accepts exactly two things - writing one package into
+`.incoming/` and invoking `publish.sh` with a package name and a version.
+Everything else is refused, and the account reaches nothing outside
+`downloads/kobold/` (permissions come from an ACL, not a group). Rotate the key
+by replacing both files.
+
+The step needs three repository secrets: `ALIYUN_HOST`, `ALIYUN_USER`
+(`kobold-deploy`) and `ALIYUN_SSH_KEY` (its ed25519 private key; `ALIYUN_PORT`
+is optional). Without them the step prints a note and exits 0, so a release
+never fails because the mirror is unconfigured. To republish by hand, copy the
+zip into `/www/wwwroot/api.zzrddforever.xyz/downloads/kobold/` and run
+`bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z` there (as root).
 
 ## Data
 
