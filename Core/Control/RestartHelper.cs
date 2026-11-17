@@ -17,6 +17,18 @@ namespace Kobold.Core.Control
         private const string HelperArgument = "--restart-helper";
         private const int ParentWaitMilliseconds = 15000;
 
+        private static volatile bool _pending;
+
+        /// <summary>
+        /// True once a restart helper has been launched for this process. The
+        /// exit path uses it to avoid spawning a second orchestrator (for
+        /// example the update applier) over the same exit.
+        /// </summary>
+        public static bool IsPending
+        {
+            get { return _pending; }
+        }
+
         /// <summary>
         /// Starts a helper process. Detached and windowless: the helper belongs
         /// to the exiting app, not to a shell. Returns false when the process
@@ -35,6 +47,7 @@ namespace Kobold.Core.Control
                     CreateNoWindow = true,
                     WorkingDirectory = WorkingDirectoryFor(exePath)
                 });
+                if (process != null) _pending = true;
                 return process != null;
             }
             catch (Exception ex)

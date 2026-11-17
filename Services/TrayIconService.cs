@@ -208,28 +208,37 @@ namespace Kobold.Services
         private void OnUpdateMenuClick()
         {
             // The item's action follows the live state, not the label that was
-            // showing when the menu opened.
+            // showing when the menu opened. A non-updatable copy never starts a
+            // download it could not apply; it opens the download page.
             UpdateStatus status = UpdateService.Instance.Status;
-            if (status.State == UpdateState.Ready)
+            switch (UpdateStateRules.TrayAction(status, UpdateService.Instance.IsSelfUpdatable))
             {
-                UpdateService.Instance.ApplyNow();
-                return;
+                case UpdateTrayAction.Download:
+                    _ = UpdateService.Instance.DownloadNow();
+                    break;
+                case UpdateTrayAction.Apply:
+                    UpdateService.Instance.ApplyNow();
+                    break;
+                case UpdateTrayAction.OpenDownloadPage:
+                    OpenUpdatePage();
+                    break;
             }
-            _ = UpdateService.Instance.DownloadNow();
+        }
+
+        private void OpenUpdatePage()
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(UpdateService.DownloadPageUrl);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] could not open the download page: " + ex.Message);
+            }
         }
 
         private void OnUpdateStateChanged()
         {
-            UpdateStatus status;
-            try
-            {
-                status = UpdateService.Instance.Status;
-            }
-            catch
-            {
-                return;
-            }
-
             Application app = Application.Current;
             if (app == null) return;
 
@@ -237,9 +246,14 @@ namespace Kobold.Services
             {
                 if (_disposed) return;
                 RefreshUpdateMenu();
-                if (status.State == UpdateState.Available)
+
+                // Re-read the live state: a fast Available -> Downloading/Failed
+                // transition between queuing and running must not balloon a
+                // release that is no longer being offered.
+                UpdateStatus live = UpdateService.Instance.Status;
+                if (live.State == UpdateState.Available)
                 {
-                    ShowUpdateBalloon(status.Version);
+                    ShowUpdateBalloon(live.Version);
                 }
             }));
         }

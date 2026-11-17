@@ -264,20 +264,18 @@ namespace Kobold.UpdateCheck
         /// </summary>
         private static void UpdateStateRuleChecks()
         {
-            Check(UpdateStateRules.CanCheck(UpdateState.Idle, true),
-                "rules: an idle self-updatable install may check");
-            Check(UpdateStateRules.CanCheck(UpdateState.Available, true),
+            Check(UpdateStateRules.CanCheck(UpdateState.Idle),
+                "rules: an idle copy may check");
+            Check(UpdateStateRules.CanCheck(UpdateState.Available),
                 "rules: an available release may be checked again");
-            Check(UpdateStateRules.CanCheck(UpdateState.Failed, true),
+            Check(UpdateStateRules.CanCheck(UpdateState.Failed),
                 "rules: a failed check may be retried");
-            Check(!UpdateStateRules.CanCheck(UpdateState.Checking, true),
+            Check(!UpdateStateRules.CanCheck(UpdateState.Checking),
                 "rules: a check in progress cannot start another");
-            Check(!UpdateStateRules.CanCheck(UpdateState.Downloading, true),
+            Check(!UpdateStateRules.CanCheck(UpdateState.Downloading),
                 "rules: a download disables the check button");
-            Check(!UpdateStateRules.CanCheck(UpdateState.Ready, true),
+            Check(!UpdateStateRules.CanCheck(UpdateState.Ready),
                 "rules: a staged update is not replaced by another check");
-            Check(!UpdateStateRules.CanCheck(UpdateState.Idle, false),
-                "rules: a non-self-updatable install cannot check");
 
             Check(UpdateStateRules.CanDownload(UpdateState.Available, true),
                 "rules: an offered release may be downloaded");
@@ -317,31 +315,41 @@ namespace Kobold.UpdateCheck
             Check(!UpdateStateRules.ShouldInstallOnExit(UpdateState.Available, true, true),
                 "rules: an offer is not applied on exit");
 
-            Check(UpdateStateRules.ShowsTrayItem(UpdateState.Available, true)
-                  && UpdateStateRules.ShowsTrayItem(UpdateState.Downloading, true)
-                  && UpdateStateRules.ShowsTrayItem(UpdateState.Ready, true),
+            Check(UpdateStateRules.ShowsTrayItem(UpdateState.Available)
+                  && UpdateStateRules.ShowsTrayItem(UpdateState.Downloading)
+                  && UpdateStateRules.ShowsTrayItem(UpdateState.Ready),
                 "rules: the tray shows exactly the actionable update states");
-            Check(!UpdateStateRules.ShowsTrayItem(UpdateState.Idle, true)
-                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Checking, true)
-                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Failed, true),
+            Check(!UpdateStateRules.ShowsTrayItem(UpdateState.Idle)
+                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Checking)
+                  && !UpdateStateRules.ShowsTrayItem(UpdateState.Failed),
                 "rules: idle, checking and failed show no tray entry");
-            Check(!UpdateStateRules.ShowsTrayItem(UpdateState.Available, false),
-                "rules: a non-self-updatable install shows no tray entry");
+
+            var available = new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" };
+            Check(UpdateStateRules.TrayAction(available, true) == UpdateTrayAction.Download,
+                "rules: a self-updatable offer downloads from the tray");
+            Check(UpdateStateRules.TrayAction(available, false) == UpdateTrayAction.OpenDownloadPage,
+                "rules: a non-updatable offer opens the download page from the tray");
+            Check(UpdateStateRules.TrayAction(
+                      new UpdateStatus { State = UpdateState.Ready, Version = "2.0.2" }, true) ==
+                  UpdateTrayAction.Apply,
+                "rules: a staged release applies from the tray");
+            Check(UpdateStateRules.TrayAction(new UpdateStatus { State = UpdateState.Idle }, true) ==
+                  UpdateTrayAction.None,
+                "rules: idle has no tray action");
 
             var manifest = new UpdateManifest { Version = "2.0.2" };
-            Check(UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "", true),
-                "rules: the service offers a newer release on a self-updatable install");
-            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "", false),
-                "rules: the service never offers a release it cannot install");
-            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "2.0.2", true),
+            Check(UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", ""),
+                "rules: the service offers a newer release even when it cannot install it");
+            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.1", "2.0.2"),
                 "rules: the service honours the skipped version");
-            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.2", "", true),
+            Check(!UpdateStateRules.ShouldOfferUpdate(manifest, "2.0.2", ""),
                 "rules: the service does not offer the running version");
         }
 
         /// <summary>
         /// The settings-line renderer: every placeholder key must go through
-        /// Format, and Ready must switch wording when auto-install is off.
+        /// Format, Ready must switch wording when auto-install is off, and a
+        /// non-updatable copy still reports an offer with manual wording.
         /// </summary>
         private static void UpdateStatusTextChecks()
         {
@@ -363,12 +371,20 @@ namespace Kobold.UpdateCheck
                 Check(UpdateStateRules.DescribeStatus(checking, true, true) ==
                       Localization.Get("Settings_UpdateChecking"),
                     "status: checking is rendered");
+                Check(UpdateStateRules.DescribeStatus(checking, false, true) ==
+                      Localization.Get("Settings_UpdateChecking"),
+                    "status: a non-updatable copy still shows checking");
 
                 var available = new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" };
                 Check(UpdateStateRules.DescribeStatus(available, true, true) ==
                       Localization.Format("Settings_UpdateAvailableFormat", "2.0.2"),
                     "status: available names the version through Format");
-
+                Check(UpdateStateRules.DescribeStatus(available, false, true) ==
+                      Localization.Format("Settings_UpdateAvailableManualFormat", "2.0.2"),
+                    "status: a non-updatable copy reports the offer and the manual download page");
+                Check(UpdateStateRules.DescribeStatus(idle, false, true) ==
+                      Localization.Get("Settings_UpdateUnsupported"),
+                    "status: a non-updatable copy without an offer shows the unsupported sentence");
                 var downloading = new UpdateStatus
                 {
                     State = UpdateState.Downloading,
@@ -393,22 +409,47 @@ namespace Kobold.UpdateCheck
                 var failed = new UpdateStatus
                 {
                     State = UpdateState.Failed,
-                    FailureMessage = "checksum mismatch"
+                    FailureReason = UpdateFailureReason.Manifest
                 };
                 Check(UpdateStateRules.DescribeStatus(failed, true, true) ==
-                      Localization.Format("Settings_UpdateFailedFormat", "checksum mismatch"),
-                    "status: failed renders the reason through Format");
+                      Localization.Format("Settings_UpdateFailedFormat",
+                          Localization.Get("Settings_UpdateFailureManifest")),
+                    "status: failed renders the localized reason through Format");
 
-                Check(UpdateStateRules.DescribeStatus(available, false, true) ==
-                      Localization.Get("Settings_UpdateUnsupported"),
-                    "status: a non-self-updatable install shows the unsupported sentence");
+                Check(UpdateStateRules.DescribeStatus(failed, false, true) ==
+                      Localization.Format("Settings_UpdateFailedFormat",
+                          Localization.Get("Settings_UpdateFailureManifest")),
+                    "status: a non-updatable copy still shows a localized check failure");
+
+                Check(UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Network) ==
+                      Localization.Get("Settings_UpdateFailureNetwork") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Timeout) ==
+                      Localization.Get("Settings_UpdateFailureTimeout") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Disk) ==
+                      Localization.Get("Settings_UpdateFailureDisk") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Manifest) ==
+                      Localization.Get("Settings_UpdateFailureManifest") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Integrity) ==
+                      Localization.Get("Settings_UpdateFailureIntegrity") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Helper) ==
+                      Localization.Get("Settings_UpdateFailureHelper") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.InstallLocation) ==
+                      Localization.Get("Settings_UpdateFailureInstallLocation") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.StagedFiles) ==
+                      Localization.Get("Settings_UpdateFailureStagedFiles") &&
+                      UpdateStateRules.DescribeFailureReason(UpdateFailureReason.Unexpected) ==
+                      Localization.Get("Settings_UpdateFailureUnexpected"),
+                    "status: every failure category has its own localized reason");
 
                 foreach (string language in new[] { "en", "zh", "ja" })
                 {
                     Localization.SetLanguage(language);
-                    string text = UpdateStateRules.DescribeStatus(ready, true, false);
-                    Check(text.Contains("2.0.2") && !text.Contains("{0}"),
+                    string readyText = UpdateStateRules.DescribeStatus(ready, true, false);
+                    Check(readyText.Contains("2.0.2") && !readyText.Contains("{0}"),
                         "status: " + language + " manual-ready text substitutes the version");
+                    string offerText = UpdateStateRules.DescribeStatus(available, false, true);
+                    Check(offerText.Contains("2.0.2") && !offerText.Contains("{0}"),
+                        "status: " + language + " manual-offer text substitutes the version");
                 }
             }
             finally
@@ -424,10 +465,13 @@ namespace Kobold.UpdateCheck
             {
                 Localization.SetLanguage("en");
 
-                Check(UpdateStateRules.TrayText(
-                          new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" }, true) ==
+                var available = new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" };
+                Check(UpdateStateRules.TrayText(available, true) ==
                       Localization.Format("Tray_UpdateAvailableFormat", "2.0.2"),
                     "tray: an available release names the version");
+                Check(UpdateStateRules.TrayText(available, false) ==
+                      Localization.Format("Tray_UpdateAvailableManualFormat", "2.0.2"),
+                    "tray: a non-updatable copy offers the download page");
                 Check(UpdateStateRules.TrayText(new UpdateStatus
                       {
                           State = UpdateState.Downloading,
@@ -447,9 +491,6 @@ namespace Kobold.UpdateCheck
                     "tray: checking shows no update entry");
                 Check(UpdateStateRules.TrayText(new UpdateStatus { State = UpdateState.Failed }, true) == null,
                     "tray: failed shows no update entry");
-                Check(UpdateStateRules.TrayText(
-                          new UpdateStatus { State = UpdateState.Available, Version = "2.0.2" }, false) == null,
-                    "tray: a non-self-updatable install shows no update entry");
             }
             finally
             {
@@ -735,25 +776,45 @@ namespace Kobold.UpdateCheck
                 Check(UpdateInstall.IsSelfUpdatable(installDir, Path.Combine(installDir, ".")),
                     "install: the running base directory is compared after normalization");
 
+                int filesBeforeInstalledCopy = Directory.GetFiles(installDir).Length;
+                Check(UpdateInstall.IsInstalledCopy(installDir, installDir),
+                    "install: the installed folder is an installed copy");
+                Check(Directory.GetFiles(installDir).Length == filesBeforeInstalledCopy,
+                    "install: the installed-copy check writes nothing");
+                Check(UpdateInstall.IsInstalledCopy(installDir,
+                          installDir + Path.DirectorySeparatorChar),
+                    "install: the installed-copy check ignores a trailing separator");
+
                 string otherDir = Path.Combine(root, "other");
                 Directory.CreateDirectory(otherDir);
                 Check(!UpdateInstall.IsSelfUpdatable(installDir, otherDir),
                     "install: a copy running from another folder is not self-updatable");
+                Check(!UpdateInstall.IsInstalledCopy(installDir, otherDir),
+                    "install: a copy running from another folder is not an installed copy");
 
                 string missingDir = Path.Combine(root, "missing");
                 Check(!UpdateInstall.IsSelfUpdatable(missingDir, missingDir),
                     "install: a missing install folder is not self-updatable");
+                Check(!UpdateInstall.IsInstalledCopy(missingDir, missingDir),
+                    "install: a missing install folder is not an installed copy");
 
                 string noExeDir = Path.Combine(root, "no-exe");
                 Directory.CreateDirectory(noExeDir);
                 Check(!UpdateInstall.IsSelfUpdatable(noExeDir, noExeDir),
                     "install: a folder without Kobold.exe is not self-updatable");
+                Check(!UpdateInstall.IsInstalledCopy(noExeDir, noExeDir),
+                    "install: a folder without Kobold.exe is not an installed copy");
 
                 Check(!UpdateInstall.IsSelfUpdatable(null, installDir) &&
                       !UpdateInstall.IsSelfUpdatable(installDir, null) &&
                       !UpdateInstall.IsSelfUpdatable("", installDir) &&
                       !UpdateInstall.IsSelfUpdatable(installDir, "  "),
                     "install: blank or null folders are not self-updatable");
+                Check(!UpdateInstall.IsInstalledCopy(null, installDir) &&
+                      !UpdateInstall.IsInstalledCopy(installDir, null) &&
+                      !UpdateInstall.IsInstalledCopy("", installDir) &&
+                      !UpdateInstall.IsInstalledCopy(installDir, "  "),
+                    "install: blank or null folders are not installed copies");
 
                 Check(UpdateInstall.ToolsScriptPath(installDir, "apply-update.ps1") == scriptPath,
                     "install: the helper is found under the install's tools folder");

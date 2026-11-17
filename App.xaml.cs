@@ -150,14 +150,29 @@ namespace Kobold
             // The tray is the subscriber that surfaces a release, so the
             // automatic updater starts only after it exists. Its first check
             // waits 30 seconds and every failure stays inside the service.
+            UpdateService updateService = null;
             try
             {
-                UpdateService.Instance.Start();
-                _updateServiceStarted = true;
+                updateService = UpdateService.Instance;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Kobold] update service failed to start: {ex.Message}");
+                AppDiagnostics.Write("[update] service unavailable: " + ex.Message);
+            }
+
+            if (updateService != null)
+            {
+                // Even when Start throws, the instance itself can still stage a
+                // manual update, so the OnExit apply path stays enabled.
+                _updateServiceStarted = true;
+                try
+                {
+                    updateService.Start();
+                }
+                catch (Exception ex)
+                {
+                    AppDiagnostics.Write("[update] service failed to start: " + ex.Message);
+                }
             }
 
             // Best-effort Quick Access reconciliation, off the critical path:
@@ -233,11 +248,13 @@ namespace Kobold
 
                 // A staged update installs on a normal exit only when the user
                 // left automatic installation on; ApplyNow (an explicit tray
-                // click) is the only other place that starts the helper.
-                if (_updateServiceStarted)
+                // click) is the only other place that starts the helper. When a
+                // control-pipe restart helper already owns the exit, spawning
+                // the applier too would race it over the same files.
+                if (_updateServiceStarted && !RestartHelper.IsPending)
                 {
                     try { UpdateService.Instance.ApplyForExit(); }
-                    catch (Exception ex) { Debug.WriteLine($"[Kobold] on-exit update failed: {ex.Message}"); }
+                    catch (Exception ex) { AppDiagnostics.Write("[update] on-exit apply failed: " + ex.Message); }
                 }
 
                 try { _mutex?.ReleaseMutex(); }

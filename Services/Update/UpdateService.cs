@@ -25,6 +25,34 @@ namespace Kobold.Services.Update
     }
 
     /// <summary>
+    /// Why a check/download/apply ended in <see cref="UpdateState.Failed"/>.
+    /// The status snapshot carries this stable value, never an exception string,
+    /// so the settings line can translate the reason.
+    /// </summary>
+    public enum UpdateFailureReason
+    {
+        None,
+        Network,
+        Timeout,
+        Disk,
+        Manifest,
+        Integrity,
+        Helper,
+        InstallLocation,
+        StagedFiles,
+        Unexpected
+    }
+
+    /// <summary>The action a tray entry for <see cref="UpdateState"/> performs.</summary>
+    public enum UpdateTrayAction
+    {
+        None,
+        Download,
+        Apply,
+        OpenDownloadPage
+    }
+
+    /// <summary>
     /// Immutable-ish snapshot of the service, safe to hand to a UI event handler.
     /// <see cref="UpdateService.Status"/> returns copies so a reader can never
     /// race an in-flight update.
@@ -42,8 +70,8 @@ namespace Kobold.Services.Update
         /// <summary>Absolute staging directory once <see cref="State"/> is Ready.</summary>
         public string StageDirectory { get; set; } = "";
 
-        /// <summary>Short English failure reason; the settings window translates the label, not the reason.</summary>
-        public string FailureMessage { get; set; } = "";
+        /// <summary>Stable failure category; the settings window owns the localized sentence.</summary>
+        public UpdateFailureReason FailureReason { get; set; }
 
         /// <summary>True once a check has reached a decision in this process, so Idle can read as "up to date".</summary>
         public bool HasChecked { get; set; }
@@ -56,7 +84,7 @@ namespace Kobold.Services.Update
                 Version = Version,
                 ProgressPercent = ProgressPercent,
                 StageDirectory = StageDirectory,
-                FailureMessage = FailureMessage,
+                FailureReason = FailureReason,
                 HasChecked = HasChecked
             };
         }
@@ -74,11 +102,12 @@ namespace Kobold.Services.Update
         /// <summary>
         /// A check is useful from a fresh/offered/failed state. A staged update
         /// (Ready) must not be replaced by another check, and the two busy
-        /// states must never start a second operation.
+        /// states must never start a second operation. Checking is independent
+        /// of the self-update capability: a portable/read-only copy must still
+        /// learn that a release exists so it can point at the download page.
         /// </summary>
-        public static bool CanCheck(UpdateState state, bool selfUpdatable)
+        public static bool CanCheck(UpdateState state)
         {
-            if (!selfUpdatable) return false;
             return state == UpdateState.Idle
                 || state == UpdateState.Available
                 || state == UpdateState.Failed;
@@ -108,36 +137,55 @@ namespace Kobold.Services.Update
             return autoInstall && CanApply(state, selfUpdatable);
         }
 
-        /// <summary>The tray only shows an update entry in the three actionable states.</summary>
-        public static bool ShowsTrayItem(UpdateState state, bool selfUpdatable)
+        /// <summary>
+        /// The tray shows an update entry in the three actionable states. It is
+        /// shown for a non-updatable copy too: the click opens the download page
+        /// instead of downloading.
+        /// </summary>
+        public static bool ShowsTrayItem(UpdateState state)
         {
-            if (!selfUpdatable) return false;
             return state == UpdateState.Available
                 || state == UpdateState.Downloading
                 || state == UpdateState.Ready;
         }
 
         /// <summary>
-        /// The offer gate: the manifest must be a newer release, not the one the
-        /// user skipped, and this installation must be one the app can replace.
+        /// The offer gate: the manifest must be a newer release and not the one
+        /// the user skipped. The capability gate belongs to the download/apply
+        /// action, not to discovering that a release exists.
         /// </summary>
         public static bool ShouldOfferUpdate(UpdateManifest manifest, string localVersion,
-            string skippedVersion, bool selfUpdatable)
+            string skippedVersion)
         {
-            return selfUpdatable
-                && UpdatePolicy.ShouldOffer(manifest, localVersion, skippedVersion);
+            return UpdatePolicy.ShouldOffer(manifest, localVersion, skippedVersion);
         }
 
         /// <summary>
         /// The settings-window status sentence for one snapshot. Every key that
         /// carries a placeholder is rendered through <see cref="Localization.Format"/>.
-        /// A non-self-updatable install always reads as unsupported; the download
-        /// page button stays available next to it.
+        /// A non-updatable copy still reports an offer, with the manual-download
+        /// wording; its other states read as unsupported and the download page
+        /// button stays available next to it.
         /// </summary>
         public static string DescribeStatus(UpdateStatus status, bool selfUpdatable, bool autoInstall)
         {
-            if (!selfUpdatable) return Localization.Get("Settings_UpdateUnsupported");
             if (status == null) return Localization.Get("Settings_UpdateIdle");
+
+            if (!selfUpdatable)
+            {
+                switch (status.State)
+                {
+                    case UpdateState.Checking:
+                        return Localization.Get("Settings_UpdateChecking");
+                    case UpdateState.Available:
+                        return Localization.Format("Settings_UpdateAvailableManualFormat", status.Version);
+                    case UpdateState.Failed:
+                        return Localization.Format("Settings_UpdateFailedFormat",
+                            DescribeFailureReason(status.FailureReason));
+                    default:
+                        return Localization.Get("Settings_UpdateUnsupported");
+                }
+            }
 
             switch (status.State)
             {
@@ -155,11 +203,31 @@ namespace Kobold.Services.Update
                         autoInstall ? "Settings_UpdateReadyFormat" : "Settings_UpdateReadyManualFormat",
                         status.Version);
                 case UpdateState.Failed:
-                    return Localization.Format("Settings_UpdateFailedFormat", status.FailureMessage);
+                    return Localization.Format("Settings_UpdateFailedFormat",
+                        DescribeFailureReason(status.FailureReason));
                 default:
                     return Localization.Get(status.HasChecked
                         ? "Settings_UpdateUpToDate"
                         : "Settings_UpdateIdle");
+            }
+        }
+
+        /// <summary>The localized sentence for a stable failure category.</summary>
+        public static string DescribeFailureReason(UpdateFailureReason reason)
+        {
+            switch (reason)
+            {
+                case UpdateFailureReason.Network: return Localization.Get("Settings_UpdateFailureNetwork");
+                case UpdateFailureReason.Timeout: return Localization.Get("Settings_UpdateFailureTimeout");
+                case UpdateFailureReason.Disk: return Localization.Get("Settings_UpdateFailureDisk");
+                case UpdateFailureReason.Manifest: return Localization.Get("Settings_UpdateFailureManifest");
+                case UpdateFailureReason.Integrity: return Localization.Get("Settings_UpdateFailureIntegrity");
+                case UpdateFailureReason.Helper: return Localization.Get("Settings_UpdateFailureHelper");
+                case UpdateFailureReason.InstallLocation:
+                    return Localization.Get("Settings_UpdateFailureInstallLocation");
+                case UpdateFailureReason.StagedFiles:
+                    return Localization.Get("Settings_UpdateFailureStagedFiles");
+                default: return Localization.Get("Settings_UpdateFailureUnexpected");
             }
         }
 
@@ -169,19 +237,43 @@ namespace Kobold.Services.Update
         /// </summary>
         public static string TrayText(UpdateStatus status, bool selfUpdatable)
         {
-            if (status == null || !ShowsTrayItem(status.State, selfUpdatable)) return null;
+            if (status == null || !ShowsTrayItem(status.State)) return null;
 
             string version = status.Version ?? "";
             switch (status.State)
             {
                 case UpdateState.Available:
-                    return Localization.Format("Tray_UpdateAvailableFormat", version);
+                    return Localization.Format(selfUpdatable
+                        ? "Tray_UpdateAvailableFormat"
+                        : "Tray_UpdateAvailableManualFormat", version);
                 case UpdateState.Downloading:
                     return Localization.Format("Tray_UpdateDownloadingFormat", version, status.ProgressPercent);
                 case UpdateState.Ready:
                     return Localization.Format("Tray_UpdateReadyFormat", version);
                 default:
                     return null;
+            }
+        }
+
+        /// <summary>
+        /// What clicking the tray entry does for one snapshot. A non-updatable
+        /// copy is sent to the download page instead of starting a download it
+        /// could never apply.
+        /// </summary>
+        public static UpdateTrayAction TrayAction(UpdateStatus status, bool selfUpdatable)
+        {
+            if (status == null) return UpdateTrayAction.None;
+
+            switch (status.State)
+            {
+                case UpdateState.Available:
+                    return selfUpdatable ? UpdateTrayAction.Download : UpdateTrayAction.OpenDownloadPage;
+                case UpdateState.Downloading:
+                    return selfUpdatable ? UpdateTrayAction.Download : UpdateTrayAction.None;
+                case UpdateState.Ready:
+                    return selfUpdatable ? UpdateTrayAction.Apply : UpdateTrayAction.None;
+                default:
+                    return UpdateTrayAction.None;
             }
         }
 
@@ -229,15 +321,19 @@ namespace Kobold.Services.Update
     /// Process-wide owner of the updater lifecycle: a delayed automatic check,
     /// the optional background download, and the explicit/exit-time apply. All
     /// network and disk work happens away from the UI thread; every failure is
-    /// logged through <see cref="AppDiagnostics"/> and lands in
-    /// <see cref="UpdateState.Failed"/> instead of escaping to a caller.
+    /// logged through <see cref="AppDiagnostics"/> and lands in a visible
+    /// <see cref="UpdateState.Failed"/> state (transient check failures instead
+    /// keep the previous state silently) rather than escaping to a caller.
     ///
-    /// A non-self-updatable install (a development tree, a read-only Program
-    /// Files copy, ...) never checks, downloads or applies: the settings window
-    /// shows the unsupported sentence and the download page remains reachable.
+    /// Every copy checks, so a portable/read-only copy still learns that a
+    /// release exists; only a writable installed copy downloads and applies it.
+    /// The other copies are pointed at the download page.
     /// </summary>
     public sealed class UpdateService
     {
+        /// <summary>The public download page used by manual/unsupported installs.</summary>
+        public const string DownloadPageUrl = "https://api.merrickzq.work/downloads/kobold/";
+
         private const string ManifestUrlEnvironmentVariable = "KOBOLD_UPDATE_MANIFEST_URL";
         private const string TempFolderName = "Kobold-update";
         private const string StageFolderName = "stage";
@@ -254,10 +350,11 @@ namespace Kobold.Services.Update
         private readonly UpdateStatus _status = new UpdateStatus();
         private readonly DispatcherTimer _checkTimer;
 
+        private readonly Task<bool> _capabilityTask;
         private UpdateManifest _manifest;
         private CancellationTokenSource _downloadCts;
-        private bool? _selfUpdatable;
-        private bool _started;
+        private volatile bool _selfUpdatable;
+        private int _started;
         private bool _firstAutomaticCheck = true;
         private bool _checkInFlight;
         private bool _downloadInFlight;
@@ -267,6 +364,11 @@ namespace Kobold.Services.Update
         {
             _checkTimer = new DispatcherTimer { Interval = StartupCheckDelay };
             _checkTimer.Tick += OnCheckTimerTick;
+
+            // Resolve the writability capability once, off the UI thread: the
+            // tray and settings constructors query it while the window/stage is
+            // still being built, and the probe writes a file.
+            _capabilityTask = Task.Run(() => ProbeSelfUpdatable());
         }
 
         /// <summary>The single production service; it never starts until <see cref="Start"/>.</summary>
@@ -288,31 +390,13 @@ namespace Kobold.Services.Update
         }
 
         /// <summary>
-        /// Whether the running copy is the writable installed copy. Cached: the
-        /// answer cannot change while this process runs, and every tray/settings
-        /// refresh must not probe the install folder again.
+        /// Whether the running copy is the writable installed copy. Probed once
+        /// on a worker thread (see the constructor); readers never block on the
+        /// filesystem. Until the probe lands this is false.
         /// </summary>
         public bool IsSelfUpdatable
         {
-            get
-            {
-                lock (_gate)
-                {
-                    if (!_selfUpdatable.HasValue)
-                    {
-                        try
-                        {
-                            _selfUpdatable = UpdateInstall.IsSelfUpdatable();
-                        }
-                        catch (Exception ex)
-                        {
-                            AppDiagnostics.Write("[update] could not determine the install state: " + ex.Message);
-                            _selfUpdatable = false;
-                        }
-                    }
-                    return _selfUpdatable.Value;
-                }
-            }
+            get { return _selfUpdatable; }
         }
 
         /// <summary>
@@ -328,11 +412,21 @@ namespace Kobold.Services.Update
         /// </summary>
         public void Start()
         {
-            if (_started) return;
-            _started = true;
-            _checkTimer.Interval = StartupCheckDelay;
-            _checkTimer.Start();
-            AppDiagnostics.Write("[update] service started; first automatic check in 30 seconds");
+            // Atomic claim: a throw while starting must leave the service
+            // startable instead of permanently dead (and OnExit apply enabled
+            // only through the attempted instance, not a poisoned flag).
+            if (Interlocked.CompareExchange(ref _started, 1, 0) != 0) return;
+            try
+            {
+                _checkTimer.Interval = StartupCheckDelay;
+                _checkTimer.Start();
+                AppDiagnostics.Write("[update] service started; first automatic check in 30 seconds");
+            }
+            catch
+            {
+                Volatile.Write(ref _started, 0);
+                throw;
+            }
         }
 
         /// <summary>
@@ -354,7 +448,7 @@ namespace Kobold.Services.Update
             CancellationTokenSource downloadCts = null;
             try
             {
-                bool selfUpdatable = IsSelfUpdatable;
+                bool selfUpdatable = await GetSelfUpdatableAsync().ConfigureAwait(false);
                 UpdateManifest manifest;
                 lock (_gate)
                 {
@@ -377,7 +471,7 @@ namespace Kobold.Services.Update
                     status.Version = manifest.Version;
                     status.ProgressPercent = 0;
                     status.StageDirectory = "";
-                    status.FailureMessage = "";
+                    status.FailureReason = UpdateFailureReason.None;
                 });
 
                 string version = manifest.Version;
@@ -407,7 +501,7 @@ namespace Kobold.Services.Update
                     {
                         status.StageDirectory = stage;
                         status.ProgressPercent = 100;
-                        status.FailureMessage = "";
+                        status.FailureReason = UpdateFailureReason.None;
                     });
                     AppDiagnostics.Write("[update] release " + version + " staged at " + stage);
                 }
@@ -422,7 +516,7 @@ namespace Kobold.Services.Update
                     else
                     {
                         AppDiagnostics.Write("[update] download timed out");
-                        Fail("network timeout");
+                        Fail(UpdateFailureReason.Timeout);
                     }
                 }
                 catch (Exception ex)
@@ -430,7 +524,7 @@ namespace Kobold.Services.Update
                     AppDiagnostics.Write("[update] download failed: " + ex.Message);
                     if (!downloadCts.IsCancellationRequested)
                     {
-                        Fail(DescribeError(ex));
+                        Fail(ClassifyFailure(ex));
                     }
                 }
             }
@@ -440,7 +534,7 @@ namespace Kobold.Services.Update
                 AppDiagnostics.Write("[update] unexpected download failure: " + ex);
                 if (downloadCts == null || !downloadCts.IsCancellationRequested)
                 {
-                    Fail(DescribeError(ex));
+                    Fail(ClassifyFailure(ex));
                 }
             }
             finally
@@ -474,7 +568,7 @@ namespace Kobold.Services.Update
             catch (Exception ex)
             {
                 AppDiagnostics.Write("[update] apply failed: " + ex);
-                Fail("update helper could not be started");
+                Fail(UpdateFailureReason.Helper);
             }
         }
 
@@ -533,7 +627,7 @@ namespace Kobold.Services.Update
                     status.Version = "";
                     status.ProgressPercent = 0;
                     status.StageDirectory = "";
-                    status.FailureMessage = "";
+                    status.FailureReason = UpdateFailureReason.None;
                     // The user has seen a check happen, so Idle means "up to
                     // date" rather than "not checked yet" after a skip.
                     status.HasChecked = true;
@@ -558,7 +652,7 @@ namespace Kobold.Services.Update
                     status.Version = "";
                     status.ProgressPercent = 0;
                     status.StageDirectory = "";
-                    status.FailureMessage = "";
+                    status.FailureReason = UpdateFailureReason.None;
                     status.HasChecked = false;
                 });
                 AppDiagnostics.Write("[update] reset");
@@ -571,20 +665,14 @@ namespace Kobold.Services.Update
 
         private async Task CheckAsync(bool automatic, bool enforceInterval)
         {
+            UpdateStatus previous = null;
+            AppConfig config = null;
             try
             {
-                bool selfUpdatable = IsSelfUpdatable;
-                if (!selfUpdatable)
-                {
-                    AppDiagnostics.Write(
-                        "[update] check skipped: this installation cannot replace itself");
-                    return;
-                }
-
-                AppConfig config = LoadConfig();
+                config = LoadConfig();
                 if (config == null)
                 {
-                    Fail("update settings are unavailable");
+                    Fail(UpdateFailureReason.Unexpected);
                     return;
                 }
 
@@ -599,8 +687,12 @@ namespace Kobold.Services.Update
 
                 lock (_gate)
                 {
-                    if (_checkInFlight || !UpdateStateRules.CanCheck(_status.State, selfUpdatable)) return;
+                    if (_checkInFlight || !UpdateStateRules.CanCheck(_status.State)) return;
                     _checkInFlight = true;
+                    // Keep the offer intact while the request is in flight. A
+                    // transient failure restores this exact snapshot instead of
+                    // replacing a waiting update with "failed".
+                    previous = _status.Clone();
                 }
 
                 string configuredUrl = Environment.GetEnvironmentVariable(ManifestUrlEnvironmentVariable);
@@ -612,10 +704,7 @@ namespace Kobold.Services.Update
 
                 SetState(UpdateState.Checking, status =>
                 {
-                    status.Version = "";
-                    status.ProgressPercent = 0;
-                    status.StageDirectory = "";
-                    status.FailureMessage = "";
+                    status.FailureReason = UpdateFailureReason.None;
                 });
                 AppDiagnostics.Write("[update] checking " + manifestUrl);
 
@@ -629,10 +718,35 @@ namespace Kobold.Services.Update
                         throw new UpdateException("invalid manifest: " + error);
                     }
                 }
+                catch (OperationCanceledException ex)
+                {
+                    // Timeout. Not the user's problem: keep the previous offer
+                    // (or "up to date" line) and only wait out the interval.
+                    AppDiagnostics.Write("[update] check timed out: " + ex.Message);
+                    StampCheckAttempt(config);
+                    RestoreStatus(previous);
+                    return;
+                }
+                catch (HttpRequestException ex)
+                {
+                    // No network, 404, 5xx, ...: silent, previous state stays.
+                    AppDiagnostics.Write("[update] check transport failure: " + ex.Message);
+                    StampCheckAttempt(config);
+                    RestoreStatus(previous);
+                    return;
+                }
+                catch (UpdateException ex)
+                {
+                    // A malformed/sha-invalid manifest is an integrity problem
+                    // and is the one check failure worth surfacing.
+                    AppDiagnostics.Write("[update] check parse failure: " + ex.Message);
+                    Fail(UpdateFailureReason.Manifest);
+                    return;
+                }
                 catch (Exception ex)
                 {
-                    AppDiagnostics.Write("[update] check failed: " + ex.Message);
-                    Fail(DescribeError(ex));
+                    AppDiagnostics.Write("[update] check failed: " + ex);
+                    Fail(ClassifyFailure(ex));
                     return;
                 }
                 finally
@@ -640,15 +754,10 @@ namespace Kobold.Services.Update
                     lock (_gate) _checkInFlight = false;
                 }
 
-                config.LastUpdateCheckUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-                try { config.Save(); }
-                catch (Exception ex)
-                {
-                    AppDiagnostics.Write("[update] could not save the check time: " + ex.Message);
-                }
+                StampCheckAttempt(config);
 
                 bool offered = UpdateStateRules.ShouldOfferUpdate(manifest, CurrentVersion,
-                    config.SkippedUpdateVersion, selfUpdatable);
+                    config.SkippedUpdateVersion);
                 if (!offered)
                 {
                     lock (_gate) _manifest = null;
@@ -657,7 +766,7 @@ namespace Kobold.Services.Update
                         status.Version = "";
                         status.ProgressPercent = 0;
                         status.StageDirectory = "";
-                        status.FailureMessage = "";
+                        status.FailureReason = UpdateFailureReason.None;
                         status.HasChecked = true;
                     });
                     AppDiagnostics.Write("[update] no newer release (running " + CurrentVersion + ")");
@@ -670,11 +779,12 @@ namespace Kobold.Services.Update
                     status.Version = manifest.Version;
                     status.ProgressPercent = 0;
                     status.StageDirectory = "";
-                    status.FailureMessage = "";
+                    status.FailureReason = UpdateFailureReason.None;
                     status.HasChecked = true;
                 });
                 AppDiagnostics.Write("[update] release " + manifest.Version + " is available");
 
+                bool selfUpdatable = await GetSelfUpdatableAsync().ConfigureAwait(false);
                 if (UpdateStateRules.ShouldAutoDownload(UpdateState.Available,
                         config.UpdateAutoInstall, selfUpdatable))
                 {
@@ -687,7 +797,7 @@ namespace Kobold.Services.Update
                 // thread that fired the click or the timer tick.
                 AppDiagnostics.Write("[update] unexpected check failure: " + ex);
                 lock (_gate) _checkInFlight = false;
-                Fail(DescribeError(ex));
+                Fail(UpdateFailureReason.Unexpected);
             }
         }
 
@@ -767,14 +877,14 @@ namespace Kobold.Services.Update
 
             if (string.IsNullOrEmpty(stage) || !Directory.Exists(stage))
             {
-                Fail("staged update files are missing");
+                Fail(UpdateFailureReason.StagedFiles);
                 return false;
             }
 
             string installDir;
             if (!UpdateInstall.TryGetInstallDir(out installDir))
             {
-                Fail("install location is missing");
+                Fail(UpdateFailureReason.InstallLocation);
                 return false;
             }
 
@@ -787,7 +897,7 @@ namespace Kobold.Services.Update
             if (!UpdateApplier.Apply(stage, installDir, processId, null))
             {
                 AppDiagnostics.Write("[update] could not start the update helper");
-                Fail("update helper could not be started");
+                Fail(UpdateFailureReason.Helper);
                 return false;
             }
 
@@ -816,11 +926,74 @@ namespace Kobold.Services.Update
             }
         }
 
-        private void Fail(string message)
+        private bool ProbeSelfUpdatable()
         {
-            string reason = string.IsNullOrWhiteSpace(message) ? "unexpected error" : message;
+            bool value = false;
+            try
+            {
+                value = UpdateInstall.IsSelfUpdatable();
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] could not determine the install state: " + ex.Message);
+            }
+            _selfUpdatable = value;
+            RaiseChanged();
+            return value;
+        }
+
+        private async Task<bool> GetSelfUpdatableAsync()
+        {
+            try
+            {
+                return await _capabilityTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] install-state probe failed: " + ex.Message);
+                return _selfUpdatable;
+            }
+        }
+
+        private static void StampCheckAttempt(AppConfig config)
+        {
+            if (config == null) return;
+            config.LastUpdateCheckUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
+            try { config.Save(); }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Write("[update] could not save the check time: " + ex.Message);
+            }
+        }
+
+        private void RestoreStatus(UpdateStatus previous)
+        {
+            if (previous == null) return;
+
+            UpdateState previousState;
+            lock (_gate)
+            {
+                previousState = _status.State;
+                _status.State = previous.State;
+                _status.Version = previous.Version;
+                _status.ProgressPercent = previous.ProgressPercent;
+                _status.StageDirectory = previous.StageDirectory;
+                _status.FailureReason = previous.FailureReason;
+                _status.HasChecked = previous.HasChecked;
+            }
+
+            if (previousState != previous.State)
+            {
+                AppDiagnostics.Write("[update] state " + previousState + " -> " + previous.State
+                    + " (previous state restored after a transient failure)");
+            }
+            RaiseChanged();
+        }
+
+        private void Fail(UpdateFailureReason reason)
+        {
             AppDiagnostics.Write("[update] failed: " + reason);
-            SetState(UpdateState.Failed, status => status.FailureMessage = reason);
+            SetState(UpdateState.Failed, status => status.FailureReason = reason);
         }
 
         private void SetState(UpdateState state, Action<UpdateStatus> change)
@@ -887,19 +1060,18 @@ namespace Kobold.Services.Update
         }
 
         /// <summary>
-        /// A short, stable reason for the settings line. Manifest/parse errors
-        /// keep their own English message; transport and disk problems collapse
-        /// to a category the UI can show without leaking a stack trace.
+        /// A stable failure category; the localized sentence lives in
+        /// <see cref="UpdateStateRules.DescribeFailureReason"/>.
         /// </summary>
-        private static string DescribeError(Exception ex)
+        private static UpdateFailureReason ClassifyFailure(Exception ex)
         {
-            if (ex == null) return "unexpected error";
-            if (ex is UpdateException) return ex.Message;
-            if (ex is TaskCanceledException) return "network timeout";
-            if (ex is HttpRequestException) return "network error";
-            if (ex is UnauthorizedAccessException) return "disk error";
-            if (ex is IOException) return "disk error";
-            return string.IsNullOrWhiteSpace(ex.Message) ? "unexpected error" : ex.Message;
+            if (ex == null) return UpdateFailureReason.Unexpected;
+            if (ex is TaskCanceledException) return UpdateFailureReason.Timeout;
+            if (ex is HttpRequestException) return UpdateFailureReason.Network;
+            if (ex is UnauthorizedAccessException) return UpdateFailureReason.Disk;
+            if (ex is IOException) return UpdateFailureReason.Disk;
+            if (ex is UpdateException) return UpdateFailureReason.Integrity;
+            return UpdateFailureReason.Unexpected;
         }
 
         private static void TryDeleteFile(string path)

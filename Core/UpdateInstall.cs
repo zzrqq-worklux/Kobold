@@ -59,8 +59,10 @@ namespace Kobold.Core
         /// <summary>
         /// True when the running copy is the installed copy: the install folder
         /// exists, <c>AppDomain.CurrentDomain.BaseDirectory</c> is that same
-        /// folder once normalized, the folder is writable, and Kobold.exe is
-        /// inside it.
+        /// folder once normalized, Kobold.exe is inside it, and the folder is
+        /// writable. This is the capability that gates downloading and applying;
+        /// use <see cref="IsInstalledCopy()"/> when the question is only whether
+        /// an install entry points at this copy.
         /// </summary>
         public static bool IsSelfUpdatable()
         {
@@ -78,13 +80,37 @@ namespace Kobold.Core
         public static bool IsSelfUpdatable(string installDir, string baseDirectory)
         {
             string install = NormalizeDirectory(installDir);
+            if (!IsInstalledCopy(install, baseDirectory)) return false;
+            return IsDirectoryWritable(install);
+        }
+
+        /// <summary>
+        /// True when the running copy is the copy the uninstall entry points at,
+        /// whether or not that folder is writable. A read-only install (Program
+        /// Files) and a portable/dev copy both answer false for
+        /// <see cref="IsSelfUpdatable"/> but only the former is an installed copy.
+        /// </summary>
+        public static bool IsInstalledCopy()
+        {
+            string installDir;
+            if (!TryGetInstallDir(out installDir)) return false;
+            return IsInstalledCopy(installDir, AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        /// <summary>
+        /// Pure overload of <see cref="IsInstalledCopy()"/>: the install folder
+        /// exists, is the running folder once normalized, and holds Kobold.exe.
+        /// Writability is deliberately not part of this rule.
+        /// </summary>
+        public static bool IsInstalledCopy(string installDir, string baseDirectory)
+        {
+            string install = NormalizeDirectory(installDir);
             string running = NormalizeDirectory(baseDirectory);
             if (install == null || running == null) return false;
 
             if (!Directory.Exists(install)) return false;
             if (!string.Equals(install, running, StringComparison.OrdinalIgnoreCase)) return false;
-            if (!File.Exists(Path.Combine(install, ExeName))) return false;
-            return IsDirectoryWritable(install);
+            return File.Exists(Path.Combine(install, ExeName));
         }
 
         /// <summary>

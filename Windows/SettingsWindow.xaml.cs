@@ -50,7 +50,7 @@ namespace Kobold.Windows
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "Kobold";
-        private const string UPDATE_PAGE_URL = "https://api.merrickzq.work/downloads/kobold/";
+        private const string UPDATE_PAGE_URL = UpdateService.DownloadPageUrl;
 
         public SettingsWindow()
         {
@@ -902,7 +902,7 @@ namespace Kobold.Windows
             bool selfUpdatable = _updateService.IsSelfUpdatable;
             UpdateStatusText.Text = UpdateStateRules.DescribeStatus(
                 status, selfUpdatable, _config.UpdateAutoInstall);
-            UpdateCheckButton.IsEnabled = UpdateStateRules.CanCheck(status.State, selfUpdatable);
+            UpdateCheckButton.IsEnabled = UpdateStateRules.CanCheck(status.State);
         }
 
         private async void UpdateCheckButton_Click(object sender, RoutedEventArgs e)
