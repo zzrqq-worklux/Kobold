@@ -163,6 +163,23 @@ pass its PID with `-WaitSeconds 1`, and check the log: the
 console matrix (36 checks); the helper script itself is covered by the manual
 VM pass above.
 
+## Releasing and the download mirror
+
+A release is one action: push a `v*` tag. `.github/workflows/release.yml` cuts
+the GitHub release from the `vX.Y.Z` section of `CHANGELOG.md` and then mirrors
+`Releases/Kobold-v<TAG>-win-x64.zip` to the public site, where
+`downloads/kobold/publish.sh` derives the stable symlink, `latest.json`,
+`SHA256SUMS` and the landing page from the package itself. Nothing on the site
+is edited by hand.
+
+The mirror step needs three repository secrets: `ALIYUN_HOST`, `ALIYUN_USER`
+and `ALIYUN_SSH_KEY` (an ed25519 private key whose public half is in
+`~/.ssh/authorized_keys` on the server; `ALIYUN_PORT` is optional). Without
+them the step prints a note and exits 0, so a release never fails because the
+mirror is unconfigured. To republish by hand, copy the zip into
+`/www/wwwroot/api.zzrddforever.xyz/downloads/kobold/` and run
+`bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z` there.
+
 ## Data
 
 - Config: `%AppData%\Kobold\config.json` (auto-backup as `config.json.backup`).

@@ -127,6 +127,20 @@ while ($true) {
 `Run-Checks.ps1 -Group checks` 会连同其余控制台矩阵一起运行
 `tests\UpdateCheck`（共 36 项）；脚本本身由上面这轮虚拟机手动验证覆盖。
 
+## 发布与下载站镜像
+
+发布只有一个动作：推一个 `v*` tag。`.github/workflows/release.yml` 用
+`CHANGELOG.md` 里的 `vX.Y.Z` 小节生成 GitHub Release，然后把
+`Releases/Kobold-v<TAG>-win-x64.zip` 镜像到公开下载站；站端的
+`downloads/kobold/publish.sh` 从包本身推导稳定软链、`latest.json`、
+`SHA256SUMS` 和落地页，页面上没有任何需要手改的东西。
+
+镜像步骤需要三个仓库 secret：`ALIYUN_HOST`、`ALIYUN_USER`、`ALIYUN_SSH_KEY`
+（ed25519 私钥，公钥放在服务器 `~/.ssh/authorized_keys`；`ALIYUN_PORT` 可选）。
+没配置时该步骤只打印一行说明并 exit 0，发布不会因为镜像没配而失败。
+手工重发：把包放进 `/www/wwwroot/api.zzrddforever.xyz/downloads/kobold/`，
+在该目录执行 `bash publish.sh Kobold-vX.Y.Z-win-x64.zip X.Y.Z`。
+
 ## 数据目录
 
 - 配置：`%AppData%\Kobold\config.json`（自动备份为 `config.json.backup`）。

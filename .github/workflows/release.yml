@@ -68,3 +68,32 @@ jobs:
             --title "Kobold ${TAG#v}" \
             --notes-file /tmp/release-notes.md \
             --verify-tag
+
+      # Mirror the package to the public download site so the landing page,
+      # latest.json and the stable link follow every release without hand work.
+      # The server side (downloads/kobold/publish.sh) derives all four from the
+      # zip itself, so this step only has to put the file there. Without the
+      # secrets the step reports and exits 0: the GitHub release stays the
+      # source of truth and a release never fails because the mirror is off.
+      - name: Mirror the package to the download site
+        env:
+          SSH_KEY: ${{ secrets.ALIYUN_SSH_KEY }}
+          HOST: ${{ secrets.ALIYUN_HOST }}
+          USER_NAME: ${{ secrets.ALIYUN_USER }}
+          PORT: ${{ secrets.ALIYUN_PORT }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$HOST" ] || [ -z "$USER_NAME" ]; then
+            echo "ALIYUN_SSH_KEY / ALIYUN_HOST / ALIYUN_USER are not set; skipping the mirror."
+            exit 0
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          PORT=${PORT:-22}
+          DEST=/www/wwwroot/api.zzrddforever.xyz/downloads/kobold
+          ZIP="Kobold-${TAG}-win-x64.zip"
+          scp -i ~/.ssh/deploy_key -P "$PORT" "Releases/${ZIP}" "$USER_NAME@$HOST:$DEST/.incoming/"
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER_NAME@$HOST" \
+            "cd $DEST && mv -f .incoming/${ZIP} . && bash publish.sh '${ZIP}' '${TAG#v}'"
